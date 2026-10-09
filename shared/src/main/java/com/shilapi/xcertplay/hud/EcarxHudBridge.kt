@@ -92,7 +92,11 @@ internal object EcarxHudBridge {
                 "${EcarxCapabilities.describe(app)}",
         )
         // Re-assert the persisted OEM-side switches so a restart restores the cluster state.
-        applyNaviModeLocked(EcarxOutputSettings.naviMode(app))
+        // Only the projection switch: setNaviMode is an unverified call (see NAVI_MODE_UNSET) and
+        // is left alone until the user actually asks for it.
+        EcarxOutputSettings.naviMode(app)
+            .takeIf { it >= 0 }
+            ?.let { applyNaviModeLocked(it) }
         if (EcarxOutputSettings.presentationSwitch(app)) applyPresentationLocked(true)
         if (!tickerStarted) {
             tickerStarted = true
@@ -147,6 +151,7 @@ internal object EcarxHudBridge {
     }
 
     private fun applyNaviModeLocked(mode: Int): EcarxDimApi.EcarxResult {
+        if (mode < 0) return EcarxDimApi.EcarxResult.failed("navi mode never requested")
         val manager = protocol ?: return EcarxDimApi.EcarxResult.failed("DIMProtocolManager missing")
         val result = EcarxDimApi.setNaviMode(manager, mode)
         if (!result.ok) Log.w(TAG, "setNaviMode($mode) failed: ${result.reason}")
@@ -260,7 +265,9 @@ internal object EcarxHudBridge {
         append("ecarx ").append(EcarxCapabilities.describe(context))
         append(" enabled=").append(EcarxOutputSettings.enabled(context))
         append(" presentation=").append(EcarxOutputSettings.presentationSwitch(context))
-        append(" naviMode=").append(EcarxOutputSettings.naviMode(context))
+        append(" naviMode=").append(
+            EcarxOutputSettings.naviMode(context).takeIf { it >= 0 } ?: "unset",
+        )
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
         synchronized(lock) {
             append(" wired=").append(available)

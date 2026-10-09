@@ -23,6 +23,15 @@ object EcarxOutputSettings {
     const val NAVI_MODE_OFF = 0
     const val NAVI_MODE_ON = 2
 
+    /**
+     * "The user has never asked for anything." Distinct from [NAVI_MODE_OFF] on purpose:
+     * `setNaviMode` comes from `ecarx.dimprotocol.DIMProtocolManager`, which is referenced only by
+     * the box app that is *not* installed on the target head unit — weaker evidence than the DIM
+     * path itself. So an untouched install never calls it at all, and no value we cannot explain
+     * is ever written to the platform.
+     */
+    const val NAVI_MODE_UNSET = -1
+
     /** Whether this head unit exposes the ECARX DIM interface (and therefore the settings block). */
     fun available(context: Context): Boolean = EcarxCapabilities.available(context)
 
@@ -44,7 +53,7 @@ object EcarxOutputSettings {
     }
 
     /** `DIMProtocolManager.setNaviMode`. Applies at once and survives a reconnect. */
-    fun naviMode(context: Context): Int = prefs(context).getInt(KEY_NAVI_MODE, NAVI_MODE_OFF)
+    fun naviMode(context: Context): Int = prefs(context).getInt(KEY_NAVI_MODE, NAVI_MODE_UNSET)
 
     fun setNaviMode(context: Context, mode: Int) {
         check(prefs(context).edit().putInt(KEY_NAVI_MODE, mode).commit()) {

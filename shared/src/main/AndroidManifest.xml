@@ -20,6 +20,21 @@
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
+    <!--
+      ECARX (亿咖通) XUI / CEVT permissions for the instrument-cluster (DIM) output.
+
+      Provenance: a probe run on the target head unit (Geely dcy11, Android 9, AOSP test-keys)
+      reported these four as GRANTED to a platform-signed app, and
+      DimInteraction.setPresentationToDimSwitch() succeeded under exactly that grant set.
+      com.ecarx.permission.ADAPT_API and com.ecarx.permission.CAR_CONTROL came back denied
+      there and the DIM calls still worked, so they are deliberately not requested. On a
+      non-ECARX head unit the names resolve to nothing and these declarations are inert.
+    -->
+    <uses-permission android:name="android.cevt.dimsupportservice.permission.DIM_MESSAGING" />
+    <uses-permission android:name="ecarx.oem.permission.OPENAPI_NAVI_PERMISSION" />
+    <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
+    <uses-permission android:name="android.car.permission.CAR_CONTROL_AUDIO_VOLUME" />
+
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="false" />
