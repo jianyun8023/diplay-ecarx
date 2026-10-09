@@ -125,6 +125,15 @@
     <string name="band">频段</string>
     <string name="bluetooth_settings">蓝牙设置</string>
     <string name="byd_navigation">比亚迪导航</string>
+    <string name="ecarx_navigation">亿咖通导航</string>
+    <string name="ecarx_navigation_on_instrument_cluster">仪表导航</string>
+    <string name="ecarx_navigation_on_instrument_cluster_description">通过车机 DIM 接口，在亿咖通仪表上显示 CarPlay 的转向箭头、距离、预计到达时间和路名。</string>
+    <string name="ecarx_instrument_cluster_projection">仪表投屏</string>
+    <string name="ecarx_instrument_cluster_projection_description">把中控画面镜像到仪表。这是车机自带的投屏开关，仅在仪表什么都不显示时才需要打开。</string>
+    <string name="ecarx_cluster_navigation_mode">仪表导航模式</string>
+    <string name="ecarx_cluster_navigation_mode_description">请求车机优先使用本导航源，而不是内置导航。关闭后把仪表还给原车导航。</string>
+    <string name="ecarx_turn_arrow_experimental">仪表转向箭头（实验）</string>
+    <string name="ecarx_turn_arrow_experimental_description">额外推送原始转向箭头。其取值码表无法从随车应用中还原，箭头可能与实际转向不符，请在实车上标定后再依赖它。</string>
     <string name="cancel">取消</string>
     <string name="car_home">车机主页</string>
     <string name="car_hotspot_details">车机热点详情</string>

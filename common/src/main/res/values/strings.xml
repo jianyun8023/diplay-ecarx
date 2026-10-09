@@ -132,6 +132,15 @@
     <string name="band">Band</string>
     <string name="bluetooth_settings">Bluetooth settings</string>
     <string name="byd_navigation">BYD navigation</string>
+    <string name="ecarx_navigation">ECARX navigation</string>
+    <string name="ecarx_navigation_on_instrument_cluster">Navigation on the instrument cluster</string>
+    <string name="ecarx_navigation_on_instrument_cluster_description">Show CarPlay turn arrows, distance, ETA and street names on the ECARX instrument cluster through the head unit\'s DIM interface.</string>
+    <string name="ecarx_instrument_cluster_projection">Instrument-cluster projection</string>
+    <string name="ecarx_instrument_cluster_projection_description">Mirror the centre screen onto the instrument cluster. This is the head unit\'s own presentation switch; leave it off unless the cluster shows nothing.</string>
+    <string name="ecarx_cluster_navigation_mode">Cluster navigation mode</string>
+    <string name="ecarx_cluster_navigation_mode_description">Ask the head unit to prefer this navigation source over its built-in one. Turn it off to give the cluster back to the stock navigation.</string>
+    <string name="ecarx_turn_arrow_experimental">Cluster turn arrow (experimental)</string>
+    <string name="ecarx_turn_arrow_experimental_description">Also push the raw turn arrow. Its code table could not be recovered from the shipped apps, so the arrow may not match the maneuver; calibrate on the car before relying on it.</string>
     <string name="cancel">Cancel</string>
     <string name="car_home">Car home</string>
     <string name="car_hotspot_details">Car hotspot details</string>

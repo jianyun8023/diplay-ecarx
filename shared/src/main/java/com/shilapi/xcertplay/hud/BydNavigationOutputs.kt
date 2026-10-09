@@ -11,6 +11,11 @@ object BydNavigationOutputs {
         BydDiLink3ClusterOutput.restoreIfNeeded(context)
         com.shilapi.xcertplay.network.WifiScanPause.restoreIfNeeded(context)
         if (BydStandaloneHudOutput.available(context)) start(context)
+        // Re-assert the ECARX cluster switches even before a phone connects, so a head unit that
+        // was left with the projection switch on restores it on the next app open.
+        if (EcarxOutputSettings.available(context) && EcarxOutputSettings.enabled(context)) {
+            EcarxHudBridge.initialize(context.applicationContext)
+        }
         // Read the battery early, so a reading is ready when CarPlay identifies (see batteryStatus).
         if (BydOutputSettings.batteryToIphoneActive(context)) BydBatteryStatus.start(context)
         // DiLink 3 creates its cluster map display only once the cluster has projected.
@@ -18,6 +23,8 @@ object BydNavigationOutputs {
     }
     fun setDiagnosticHold(hold: Boolean) { BydStandaloneHudOutput.syntheticHold = hold }
     @Volatile private var useStandalone = false
+    /** Whether the ECARX DIM path is wired on this head unit; an ECARX car has none of the BYD ones. */
+    @Volatile private var useEcarx = false
     @Volatile private var overlayListener: ((ClusterTurnGuidance?) -> Unit)? = null
     private val overlayLock = Any()
     private var publishedOverlay: ClusterTurnGuidance? = null
@@ -29,6 +36,7 @@ object BydNavigationOutputs {
     private val standalone = NavigationOutputWorker("diplay-standalone-output", BydStandaloneNavigationBridge::clear)
     private val hud = NavigationOutputWorker("diplay-hud-output", BydHudBridge::clear)
     private val cluster = NavigationOutputWorker("diplay-cluster-output", BydClusterBridge::clear)
+    private val ecarx = NavigationOutputWorker("diplay-ecarx-output", EcarxHudBridge::clear)
 
     /** The host reports whether its CarPlay map window is on the cluster (see [BydClusterMapPause]). */
     fun setClusterMapShown(shown: Boolean) {
@@ -73,9 +81,24 @@ object BydNavigationOutputs {
             hud.start { BydHudBridge.initialize(app) }
             cluster.start { BydClusterBridge.initialize(app) }
         }
+        // A separate vendor channel: an ECARX head unit carries none of the BYD receivers above.
+        useEcarx = EcarxOutputSettings.available(app)
+        if (useEcarx) ecarx.start { EcarxHudBridge.initialize(app) }
         BydClusterMapPause.initialize(app)
         BydClusterSong.attach(app)
         BydCarPlayCall.attach(app)
+    }
+
+    /**
+     * The ECARX instrument-cluster switch, presentation switch or navi mode changed; applies at
+     * once. Restarts the worker so a switch flipped before the first session still takes effect.
+     */
+    fun ecarxChanged(context: Context) {
+        val app = context.applicationContext
+        if (!EcarxOutputSettings.available(app)) return
+        useEcarx = true
+        ecarx.start { EcarxHudBridge.initialize(app) }
+        if (EcarxOutputSettings.enabled(app)) EcarxHudBridge.initialize(app) else ecarx.clear()
     }
 
     internal fun onFrame(frame: Iap2Frame) {
@@ -91,6 +114,7 @@ object BydNavigationOutputs {
             frame.messageId != BydHudRouteState.ROUTE_GUIDANCE_MANEUVER_UPDATE) return
         val owned = frame // Iap2Frame is immutable and defensively copies its payload.
         updateOverlay(owned)
+        if (useEcarx) ecarx.submit { EcarxHudBridge.onFrame(owned) }
         if (useStandalone) standalone.submit { BydStandaloneNavigationBridge.onFrame(owned) }
         else {
             hud.submit { BydHudBridge.onFrame(owned) }
@@ -152,7 +176,8 @@ object BydNavigationOutputs {
 
     /** Best effort while alive; Android does not guarantee callbacks before force-stop. */
     fun endNow(preserveTurnOverlay: Boolean = false) {
-        standalone.clear(); hud.clear(); cluster.clear(); BydClusterSong.end(); BydCarPlayCall.end()
+        standalone.clear(); hud.clear(); cluster.clear(); ecarx.clear()
+        BydClusterSong.end(); BydCarPlayCall.end()
         // Only a wireless session replacement retains the card. Explicit controller close
         // and wired disconnect still clear it immediately.
         if (!preserveTurnOverlay) {

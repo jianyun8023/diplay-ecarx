@@ -1,0 +1,89 @@
+package com.shilapi.xcertplay.hud
+
+import android.content.Context
+
+/**
+ * The ECARX instrument-cluster output: one switch plus the two OEM-side toggles it needs.
+ *
+ * Kept in its own preferences file so the BYD switches and the ECARX switches can never alias
+ * each other by accident, and so a BYD build that ships the same code has an inert, empty store.
+ */
+object EcarxOutputSettings {
+    private const val PREFS = "diplay_ecarx_outputs"
+    private const val KEY_ENABLED = "dim_navigation_enabled"
+    private const val KEY_PRESENTATION = "dim_presentation_switch"
+    private const val KEY_NAVI_MODE = "dim_navi_mode"
+    private const val KEY_ARROW_EXPERIMENTAL = "dim_turn_arrow_experimental"
+
+    /**
+     * NAVI_MODE_OFF leaves the cluster's own navigation source alone. Every other value asks the
+     * platform to prefer the external source; the stock ECARX apps only ever use "off"/"on", and
+     * the exact meaning of the remaining ids is unverified, so only 0 and 2 are offered in the UI.
+     */
+    const val NAVI_MODE_OFF = 0
+    const val NAVI_MODE_ON = 2
+
+    /** Whether this head unit exposes the ECARX DIM interface (and therefore the settings block). */
+    fun available(context: Context): Boolean = EcarxCapabilities.available(context)
+
+    fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
+
+    fun setEnabled(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_ENABLED, enabled).commit()) {
+            "Could not persist the ECARX navigation output setting"
+        }
+    }
+
+    /** The 仪表投屏 switch: mirrors the centre screen's presentation onto the cluster. */
+    fun presentationSwitch(context: Context): Boolean = prefs(context).getBoolean(KEY_PRESENTATION, false)
+
+    fun setPresentationSwitch(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_PRESENTATION, enabled).commit()) {
+            "Could not persist the ECARX instrument-cluster projection setting"
+        }
+    }
+
+    /** `DIMProtocolManager.setNaviMode`. Applies at once and survives a reconnect. */
+    fun naviMode(context: Context): Int = prefs(context).getInt(KEY_NAVI_MODE, NAVI_MODE_OFF)
+
+    fun setNaviMode(context: Context, mode: Int) {
+        check(prefs(context).edit().putInt(KEY_NAVI_MODE, mode).commit()) {
+            "Could not persist the ECARX cluster navigation mode"
+        }
+    }
+
+    /**
+     * Whether the CarPlay maneuver is also pushed as a raw turn arrow. Off by default: the ECARX
+     * turn-id table could not be recovered from either shipped app, so the mapping is a best
+     * effort and must be calibrated on the car before it is trusted.
+     */
+    fun turnArrowExperimental(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ARROW_EXPERIMENTAL, false)
+
+    fun setTurnArrowExperimental(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_ARROW_EXPERIMENTAL, enabled).commit()) {
+            "Could not persist the ECARX turn-arrow setting"
+        }
+    }
+
+    // ---------------------------------------------------------------- live apply
+
+    /**
+     * The settings screen lives in the `common` module, so it cannot reach the `internal`
+     * [EcarxHudBridge] directly. These delegates wire a switch straight to the head unit and
+     * return whether the platform accepted the call.
+     */
+    fun requestPresentation(context: Context, show: Boolean): Boolean {
+        EcarxHudBridge.initialize(context)
+        return EcarxHudBridge.applyPresentation(show).ok
+    }
+
+    fun requestNaviMode(context: Context, mode: Int): Boolean {
+        EcarxHudBridge.initialize(context)
+        return EcarxHudBridge.applyNaviMode(mode).ok
+    }
+
+    fun diagnosticReport(context: Context): String = EcarxHudBridge.diagnostics(context)
+
+    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+}
