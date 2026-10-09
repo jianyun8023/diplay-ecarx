@@ -3270,17 +3270,23 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         toggle(card, getString(R.string.ecarx_instrument_cluster_projection),
             getString(R.string.ecarx_instrument_cluster_projection_description),
             EcarxOutputSettings.presentationSwitch(this)) {
+            // requestPresentation persists the intent and applies it at once. A refusal means the
+            // head unit rejected the call (the real car needs the system signature plus the DIM
+            // permissions), so say so instead of leaving the switch claiming success.
             if (!EcarxOutputSettings.requestPresentation(this, it)) {
-                EcarxOutputSettings.setPresentationSwitch(this, it)
+                toast(getString(R.string.ecarx_cluster_call_rejected))
             }
         }
         toggle(card, getString(R.string.ecarx_cluster_navigation_mode),
             getString(R.string.ecarx_cluster_navigation_mode_description),
             EcarxOutputSettings.naviMode(this) == EcarxOutputSettings.NAVI_MODE_ON) {
-            EcarxOutputSettings.requestNaviMode(
-                this,
-                if (it) EcarxOutputSettings.NAVI_MODE_ON else EcarxOutputSettings.NAVI_MODE_OFF,
-            )
+            if (!EcarxOutputSettings.requestNaviMode(
+                    this,
+                    if (it) EcarxOutputSettings.NAVI_MODE_ON else EcarxOutputSettings.NAVI_MODE_OFF,
+                )
+            ) {
+                toast(getString(R.string.ecarx_cluster_call_rejected))
+            }
         }
         toggle(card, getString(R.string.ecarx_turn_arrow_experimental),
             getString(R.string.ecarx_turn_arrow_experimental_description),

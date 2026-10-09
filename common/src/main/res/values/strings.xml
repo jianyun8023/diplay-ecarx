@@ -136,7 +136,8 @@
     <string name="ecarx_navigation_on_instrument_cluster">Navigation on the instrument cluster</string>
     <string name="ecarx_navigation_on_instrument_cluster_description">Show CarPlay turn arrows, distance, ETA and street names on the ECARX instrument cluster through the head unit\'s DIM interface.</string>
     <string name="ecarx_instrument_cluster_projection">Instrument-cluster projection</string>
-    <string name="ecarx_instrument_cluster_projection_description">Mirror the centre screen onto the instrument cluster. This is the head unit\'s own presentation switch; leave it off unless the cluster shows nothing.</string>
+    <string name="ecarx_instrument_cluster_projection_description">Mirror the centre screen onto the instrument cluster. This is the head unit\'s own presentation switch, the same one the stock toolkit uses; verified on the car to mirror the whole centre screen.</string>
+    <string name="ecarx_cluster_call_rejected">The head unit refused that call. It needs the system signature and the DIM permissions to be granted.</string>
     <string name="ecarx_cluster_navigation_mode">Cluster navigation mode</string>
     <string name="ecarx_cluster_navigation_mode_description">Ask the head unit to prefer this navigation source over its built-in one. Turn it off to give the cluster back to the stock navigation.</string>
     <string name="ecarx_turn_arrow_experimental">Cluster turn arrow (experimental)</string>

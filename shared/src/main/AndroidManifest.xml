@@ -54,6 +54,16 @@
         <intent>
             <action android:name="com.android.settings.WIFI_TETHER_SETTINGS" />
         </intent>
+        <!--
+          ECARX head units only. Package visibility is per-package on API 30+, so without these
+          entries EcarxCapabilities' package fallback would report "not installed" on a modern
+          ECARX image; the Class.forName probe ahead of it is unaffected.
+        -->
+        <package android:name="com.ecarx.xui.service" />
+        <package android:name="com.ecarx.eas.service" />
+        <package android:name="com.ecarx.assistant" />
+        <package android:name="com.ecarx.xiaoka" />
+        <package android:name="ecarx.naviservice" />
     </queries>
 
     <application android:usesCleartextTraffic="true">
