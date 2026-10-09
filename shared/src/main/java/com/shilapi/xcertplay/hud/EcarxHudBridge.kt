@@ -277,6 +277,9 @@ internal object EcarxHudBridge {
             append(" turnId=").append(turnId)
             append(" active=").append(lastPushed != null)
             append(" status=").append(if (lastPushed != null) NAVI_STATUS_ACTIVE else NAVI_STATUS_IDLE)
+            // The only read-back the API offers. Uninterpreted on purpose — correlate it with what
+            // the cluster actually shows before trusting any meaning.
+            dim?.let { append(" showPresentationOption=").append(EcarxDimApi.showPresentationOption(it)) }
         }
     }
 }

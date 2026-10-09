@@ -35,6 +35,16 @@ object EcarxOutputSettings {
     /** Whether this head unit exposes the ECARX DIM interface (and therefore the settings block). */
     fun available(context: Context): Boolean = EcarxCapabilities.available(context)
 
+    /**
+     * Whether the head unit ships `ecarx.dimprotocol.DIMProtocolManager` at all.
+     *
+     * The target unit does not: probe v2 found 23 of 26 ECARX classes but this one (and its
+     * `IDIMProtocolManager`) is absent from the system image, so [requestNaviMode] can only ever
+     * fail there. The settings screen hides the switch instead of offering one that cannot work.
+     */
+    fun naviModeSupported(): Boolean =
+        EcarxCapabilities.classPresent(EcarxCapabilities.DIM_PROTOCOL_MANAGER)
+
     fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) {

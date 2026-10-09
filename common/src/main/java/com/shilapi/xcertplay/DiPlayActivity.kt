@@ -3277,15 +3277,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 toast(getString(R.string.ecarx_cluster_call_rejected))
             }
         }
-        toggle(card, getString(R.string.ecarx_cluster_navigation_mode),
-            getString(R.string.ecarx_cluster_navigation_mode_description),
-            EcarxOutputSettings.naviMode(this) == EcarxOutputSettings.NAVI_MODE_ON) {
-            if (!EcarxOutputSettings.requestNaviMode(
-                    this,
-                    if (it) EcarxOutputSettings.NAVI_MODE_ON else EcarxOutputSettings.NAVI_MODE_OFF,
-                )
-            ) {
-                toast(getString(R.string.ecarx_cluster_call_rejected))
+        // Only on head units that actually ship DIMProtocolManager: the target unit does not, and a
+        // switch that can never take effect is worse than no switch (probe v2, 23/26 classes).
+        if (EcarxOutputSettings.naviModeSupported()) {
+            toggle(card, getString(R.string.ecarx_cluster_navigation_mode),
+                getString(R.string.ecarx_cluster_navigation_mode_description),
+                EcarxOutputSettings.naviMode(this) == EcarxOutputSettings.NAVI_MODE_ON) {
+                if (!EcarxOutputSettings.requestNaviMode(
+                        this,
+                        if (it) EcarxOutputSettings.NAVI_MODE_ON else EcarxOutputSettings.NAVI_MODE_OFF,
+                    )
+                ) {
+                    toast(getString(R.string.ecarx_cluster_call_rejected))
+                }
             }
         }
         toggle(card, getString(R.string.ecarx_turn_arrow_experimental),

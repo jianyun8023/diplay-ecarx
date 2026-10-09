@@ -19,33 +19,47 @@ import java.lang.reflect.Proxy
  * No call in this file may throw. Each returns [EcarxResult], whose `reason` is written to the
  * session log so a refusal on an unexpected firmware is diagnosable instead of silent.
  *
- * Recovered contract:
+ * The contract below is the **real device** contract, dumped with `Class.getMethods()` on the car
+ * by probe v2 (see 适配文件/亿咖通DIM-真机契约转储.md and 日志分析/v2-run2-1.txt). It supersedes the
+ * `s1/r.smali` reading we started from — that one was a *implementation class* of
+ * `INavigationInfo`, and it carries two extra public methods the interface never declared
+ * (`getDayNightMode`, `getExtensionInfo`). The device interface has 13 getters, not 15.
+ *
  * ```
  * DimInteraction.create(Context)                                        static -> DimInteraction (may be null)
  * DimInteraction.getNaviInteraction()                                   -> INaviInteraction
  * DimInteraction.getMediaInteraction()                                  -> IMediaInteraction
  * DimInteraction.getPhoneCallInteraction()                              -> IPhoneCallInteraction
- * DimInteraction.setPresentationToDimSwitch(int,String,String,boolean)  <- 仪表投屏开关
+ * DimInteraction.getShowPresentationOption()                            -> int   (the only read-back we found)
+ * DimInteraction.setPresentationToDimSwitch(int,String,String,boolean)  <- 仪表投屏开关, returns void
  * INaviInteraction.updateNavigationInfo(INavigationInfo)
- * INaviInteraction.updateTurnByTurnArrow(int)
+ * INaviInteraction.updateTurnByTurnArrow(int) | (String) | (Bitmap)   -- 三个重载
  * INaviInteraction.updateDistanceToNextGuidancePoint(int)
  * INaviInteraction.updateDistanceToDestination(int)
  * INaviInteraction.updateETA(int)
  * INaviInteraction.updateNextGuidancePointName(String)
  * INaviInteraction.updateLaneInfo(ILaneInfo[])
- * INaviInteraction.notifyTurnByTurnStarted() / notifyTurnByTurnStopped() / notifyNavigationStatus(int)
- * INaviInteraction$INavigationInfo getters:
- *        getNavigationTurnId():int        getDistanceToNextGuidancePoint():long
- *        getDistanceToDestination():long  getDrivingDirection():int
- *        getETA():long                    getLaneInfo():ILaneInfo[]
- *        getMuteState():int               getNavigationStatus():int
- *        getNextGuidancePointName():String getDayNightMode():int
- *        getNavigationTurnSVG():String    getHighwayExitInfo():IHighwayExitInfo
- *        getRoadCameraInfo():IRoadCamera  getServiceAreaInfo():IServiceArea
- *        getExtensionInfo():Bundle
- * ecarx.dimprotocol.DIMProtocolManager.getInstance(Context)              -> DIMProtocolManager
- * DIMProtocolManager.setNaviMode(int)
+ * INaviInteraction.updateDriveDirection(int)   /  updateMuteState(int)
+ * INaviInteraction.notifyTurnByTurnStarted()  /  notifyTurnByTurnStopped()
+ * INaviInteraction$INavigationInfo getters (13 on the device):
+ *        getNavigationTurnId():int         getDistanceToNextGuidancePoint():long
+ *        getDistanceToDestination():long   getDrivingDirection():int
+ *        getETA():long                     getLaneInfo():ILaneInfo[]
+ *        getMuteState():int                getNavigationStatus():int
+ *        getNextGuidancePointName():String getNavigationTurnSVG():String
+ *        getHighwayExitInfo() / getRoadCameraInfo() / getServiceAreaInfo()
  * ```
+ *
+ * Not in the contract, because it does not exist on the target head unit:
+ *  * `INaviInteraction.notifyNavigationStatus(int)` — absent (probe printed "未找到重载").
+ *  * `ecarx.dimprotocol.DIMProtocolManager` — the class is not in the system image at all, so
+ *    [setNaviMode] can only ever fail there. See [EcarxOutputSettings.naviModeSupported].
+ *
+ * **Return values carry no authority.** The probe showed a normal-signed build with every ECARX
+ * permission denied gets byte-identical results — `create()`, `setPresentationToDimSwitch()` and
+ * `updateNavigationInfo()` all report success. These are `void` methods and the platform does not
+ * throw on refusal, so [EcarxResult.ok] means "the call was accepted for dispatch", never "the
+ * cluster changed". Only the car can answer the latter.
  */
 internal object EcarxDimApi {
     private const val TAG = "DiPlay-Ecarx-DIM"
@@ -153,8 +167,22 @@ internal object EcarxDimApi {
 
     fun notifyTurnByTurnStopped(navi: Any): EcarxResult = call0(navi, "notifyTurnByTurnStopped")
 
-    fun notifyNavigationStatus(navi: Any, status: Int): EcarxResult =
-        callInt(navi, "notifyNavigationStatus", status)
+    // There is deliberately no `notifyNavigationStatus` here: the real device's INaviInteraction
+    // does not declare it (probe v2 printed "未找到 notifyNavigationStatus / 1 个参数的重载").
+
+    /**
+     * `DimInteraction.getShowPresentationOption()` — the only read-back the probe turned up.
+     *
+     * The car needs it because every write path returns `void` and is not permission-checked: a
+     * normal-signed build with all ECARX permissions denied gets the same "success" as the
+     * platform-signed one (probe v2, see [EcarxResult]). So a write proves nothing by itself, and
+     * this is the one call that might say what the cluster is actually set to.
+     *
+     * Nothing tells us how to read the int yet, so it is only surfaced, never interpreted.
+     */
+    fun showPresentationOption(dim: Any): Int? = runCatching {
+        lookup(dim, "getShowPresentationOption", emptyArray())?.invoke(dim) as? Int
+    }.getOrNull()
 
     // ---------------------------------------------------------------- DIMProtocolManager
 
