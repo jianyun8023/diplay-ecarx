@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 换行符与二进制文件策略
+#
+# 为什么需要这个文件：本仓库出现过多次「内容零变化、仅换行符不同」造成的假改动与警告噪声；
+# 而构建 / 校验链路（Gradle 与 Kotlin 增量缓存、dexdump、apktool、逐文件 sha256 比对）
+# 对换行符变化非常敏感。把它固定进仓库后，就不再依赖每位贡献者本机的 core.autocrlf 设置。
+#
+# 策略：仓库内一律存 LF；检出时按平台适配（Windows 得到 CRLF，*nix 得到 LF）。
+# 这里刻意**不**写 `eol=lf`——那会强制工作树也用 LF，对现有的 Windows 检出造成一次性
+# 大范围重写，把真实改动淹没。唯一例外见下面两处显式声明。
+#
+# 如果某次 diff 里出现成百上千个「只改了换行符」的文件，用
+#     git add --renormalize .
+# 一次性修正，不要逐个手工改回去。
+# ─────────────────────────────────────────────────────────────────────────────
+
+* text=auto
+
+# —— 必须 CRLF：Windows 批处理对换行符敏感 ——
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# —— 必须 LF：带 CR 的 shell 脚本在 *nix 上会直接执行失败 ——
+*.sh    text eol=lf
+gradlew text eol=lf
+
+# —— 二进制：禁止任何转换，一旦被当作文本处理就会损坏 ——
+# 资源与图片
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.bmp   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+# 归档与 Java 制品
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.jar   binary
+*.aar   binary
+# 原生库与 Android 产物
+*.so    binary
+*.dex   binary
+*.apk   binary
+*.aab   binary
+*.idsig binary
+# 凭据容器（同时被 .gitignore 排除，这里再兜一层，避免任何转换破坏密钥材料）
+*.jks   binary
+*.keystore binary
+*.pk8   binary
+*.p7b   binary
+*.p12   binary
+*.pfx   binary
+*.pem   binary
+*.key   binary
+# 媒体
+*.mp3   binary
+*.mp4   binary
+*.wav   binary
+*.ogg   binary

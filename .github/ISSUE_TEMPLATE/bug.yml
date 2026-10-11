@@ -11,7 +11,7 @@ body:
     validations: {required: true}
   - type: input
     id: car
-    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, head unit, DiLink/Android version and exact firmware'}
+    attributes: {label: Car and head-unit model, placeholder: 'Car model/year, head unit, Android version and exact firmware'}
     validations: {required: true}
   - type: input
     id: phone

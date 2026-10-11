@@ -58,4 +58,4 @@ Only use a trusted computer. A different signing certificate cannot update this 
 
 ## BYD navigation
 
-See [BYD navigation displays](BYD_NAVIGATION.md) for the firmware scope, map metadata requirements, settings and cleanup behavior. Native DiLink 5 display routing needs no external ADB starter. Optional DiLink 3/4 integrations have separate firmware and authorized-ADB requirements described in the guide.
+Native display routing on the head unit needs no external ADB starter. Optional legacy integrations have separate firmware and authorized-ADB requirements.

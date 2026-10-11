@@ -30,8 +30,8 @@ Ask which goal the driver has when they look for the setting. Use the first row 
 | Connection | how the iPhone connects and how DiPlay starts | connection setup, connect on open, start with the car, USB permissions, car hotspot automation, iPhone choice, Android permissions |
 | Display | how CarPlay looks on the head-unit screen | day/night mode, picture, size, resolution, frame rate, dock, system bars, multi-window resolution |
 | Audio | what the driver hears | media and navigation streams, music buffer |
-| Navigation | location and turn-by-turn guidance | location to iPhone, BYD HUD and cluster guidance |
-| Vehicle | how CarPlay fits this car and its driver | driving side, wheel keys (Siri, BYD joystick and map zoom), car button, gestures that conflict with the head unit |
+| Navigation | location and turn-by-turn guidance | location to iPhone, head-unit HUD and cluster guidance |
+| Vehicle | how CarPlay fits this car and its driver | driving side, wheel keys (Siri, joystick and map zoom), car button, gestures that conflict with the head unit |
 | Diagnostics | troubleshooting evidence | diagnostic reports |
 | Advanced | experimental, firmware-specific or risky behavior | dashboard map, split screen, screen rotation, side panel, HEVC video, audio focus, audio channel mapping, buffered music, vehicle data |
 | Overview | nothing new | see "Overview" below |
