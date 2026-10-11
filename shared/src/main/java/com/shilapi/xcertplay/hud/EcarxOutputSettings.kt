@@ -5,8 +5,9 @@ import android.content.Context
 /**
  * The ECARX instrument-cluster output: one switch plus the two OEM-side toggles it needs.
  *
- * Kept in its own preferences file so the BYD switches and the ECARX switches can never alias
- * each other by accident, and so a BYD build that ships the same code has an inert, empty store.
+ * Kept in its own preferences file so the ECARX switches never alias another head unit's switches
+ * by accident, and so a build that ships the same code on a different head unit has an inert,
+ * empty store.
  */
 object EcarxOutputSettings {
     private const val PREFS = "diplay_ecarx_outputs"
@@ -26,7 +27,7 @@ object EcarxOutputSettings {
     /**
      * "The user has never asked for anything." Distinct from [NAVI_MODE_OFF] on purpose:
      * `setNaviMode` comes from `ecarx.dimprotocol.DIMProtocolManager`, which is referenced only by
-     * the box app that is *not* installed on the target head unit — weaker evidence than the DIM
+     * the reference app that is *not* installed on the target head unit — weaker evidence than the DIM
      * path itself. So an untouched install never calls it at all, and no value we cannot explain
      * is ever written to the platform.
      */

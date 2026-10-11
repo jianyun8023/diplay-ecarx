@@ -19,6 +19,15 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
+    <!--
+      fix9: while a CarPlay session runs, the head unit's media (A2DP) and call (HFP) profiles are
+      set to "forbidden" for the paired iPhone and disconnected, so iOS stops handing music and
+      calls to the car's own Bluetooth route. BluetoothProfile.setConnectionPolicy is a
+      signature-level permission on Android 9; this build is signed with the head unit's platform
+      key, so the grant lands. Without it the calls raise SecurityException and the guard reports
+      that in its log instead of changing anything, which is also what a non-platform install gets.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
 
     <!--
       ECARX (亿咖通) XUI / CEVT permissions for the instrument-cluster (DIM) output.
@@ -40,17 +49,10 @@
         android:required="false" />
 
     <queries>
-        <package android:name="com.byd.carsettings" />
-        <package android:name="com.byd.appmgr" />
-        <package android:name="com.byd.deviceinfo" />
-        <package android:name="com.byd.service" />
         <intent>
             <action android:name="android.settings.WIFI_SETTINGS" />
         </intent>
-        <package android:name="com.byd.clusterdebug" />
         <package android:name="com.ts.car.someip.service" />
-        <package android:name="com.byd.amapservice" />
-        <package android:name="com.byd.automap" />
         <intent>
             <action android:name="com.android.settings.WIFI_TETHER_SETTINGS" />
         </intent>

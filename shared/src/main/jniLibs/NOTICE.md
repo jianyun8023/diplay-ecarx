@@ -34,3 +34,19 @@ Compare against the source APK (must match exactly):
 
 `libandroidx.graphics.path.so` is **not** copied: it ships inside the
 `androidx.graphics:graphics-path` AAR and is packaged by Gradle.
+
+## libopus_encoder.so (built here, not extracted)
+
+`libopus_encoder.so` is the exception: it is **compiled from source in this repo**, not extracted
+from the published APK. It wraps libopus 1.5.2 (fixed-point) via `jni/opus_encoder_jni.c` to give
+820A / Android 9 head units an in-process Opus **encoder** — Android's MediaCodec only ships the
+Opus encoder on API 30+, so the CarPlay telephony uplink would otherwise go silent.
+
+- Sources: `jni/opus/` (celt + silk + src), `jni/opus_encoder_jni.c`, `jni/Android.mk`,
+  `jni/opus/Android.opus.mk`.
+- Build (from `src/shared/src/main/jni`):
+  `ndk-build APP_ABI=arm64-v8a APP_PLATFORM=android-25 NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=Android.mk`
+  (`armeabi-v7a` needs `APP_PLATFORM=android-21`; NDK r28 removed the armeabi-v7a sysroot above 21.)
+- `x86_64` has no `libopus_encoder.so` here: the r28c sysroot in this environment lacks the
+  x86_64 crt/libc. The Kotlin shim guards `System.loadLibrary` with `runCatching`, so x86_64 falls
+  back silently; 820A is arm64-v8a and is unaffected.

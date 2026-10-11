@@ -139,6 +139,16 @@ internal object EcarxDimApi {
     fun updateTurnByTurnArrow(navi: Any, arrow: Int): EcarxResult =
         callInt(navi, "updateTurnByTurnArrow", arrow)
 
+    /**
+     * Pushes a drawn arrow bitmap through the `(Bitmap)` overload. This is the code-table-free path:
+     * `turnId` has no recovered mapping on this head unit (the shipped apps feed it a demo counter),
+     * but the DIM interface also accepts a `Bitmap`, so a locally drawn arrow bypasses the unknown
+     * int code table entirely (see 适配文件/亿咖通DIM-真机契约转储.md).
+     */
+    fun updateTurnByTurnArrow(navi: Any, arrow: android.graphics.Bitmap): EcarxResult =
+        call(navi, "updateTurnByTurnArrow", arrayOf(android.graphics.Bitmap::class.java), arrayOf<Any?>(arrow),
+            "updateTurnByTurnArrow(Bitmap)")
+
     fun updateDistanceToNextGuidancePoint(navi: Any, meters: Long): EcarxResult =
         callInt(navi, "updateDistanceToNextGuidancePoint", meters.toInt())
 
@@ -183,6 +193,46 @@ internal object EcarxDimApi {
     fun showPresentationOption(dim: Any): Int? = runCatching {
         lookup(dim, "getShowPresentationOption", emptyArray())?.invoke(dim) as? Int
     }.getOrNull()
+
+    // ---------------------------------------------------------------- IPhoneCallInteraction
+
+    /** One call record in ECARX vocabulary. `-1`/empty means "no value", matching the stock apps. */
+    data class CallInfo(
+        val callId: Int = 0,
+        val activeCallId: Int = 0,
+        val callCount: Int = 0,
+        val callStatus: Int = 0,
+        val contactName: String = "",
+        val contactNumber: String = "",
+    )
+
+    /**
+     * Reports the current CarPlay call to the cluster's phone interaction. The reference app on this
+     * head unit builds the same `ICallInfo` and calls `updateCallInfo` whenever a call's state
+     * changes, so the instrument cluster can show the number / name / status.
+     */
+    fun updateCallInfo(phone: Any, info: CallInfo): EcarxResult {
+        val itf = runCatching { Class.forName(EcarxCapabilities.CALL_INFO) }.getOrNull()
+            ?: return EcarxResult.failed("ICallInfo class missing")
+        val call = runCatching {
+            Proxy.newProxyInstance(itf.classLoader, arrayOf(itf), CallInfoHandler(info))
+        }.getOrElse { return EcarxResult.failed("ICallInfo proxy failed: ${describe(it)}") }
+        return call(phone, "updateCallInfo", arrayOf(itf), arrayOf<Any?>(call), "updateCallInfo")
+    }
+
+    /**
+     * Reports the connected mobile device state. The stock app calls
+     * `updateConnectedMobileDeviceState(String, int, int)`; the first int is the device state and
+     * the second a feature bitmap, both passed as zero by the shell for the plain connected case.
+     */
+    fun updateConnectedMobileDeviceState(phone: Any, name: String, state: Int = 0, feature: Int = 0): EcarxResult =
+        call(
+            phone,
+            "updateConnectedMobileDeviceState",
+            arrayOf(String::class.java, Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!),
+            arrayOf<Any?>(name, state, feature),
+            "updateConnectedMobileDeviceState(\"$name\",$state,$feature)",
+        )
 
     // ---------------------------------------------------------------- DIMProtocolManager
 
@@ -259,6 +309,36 @@ internal object EcarxDimApi {
             // toString/hashCode/equals must stay sane so the platform can log the object.
             "toString" ->
                 "EcarxNavigationInfo(turn=${g.turnId} next=${g.distanceToNextMeters} dest=${g.distanceToDestinationMeters})"
+            "hashCode" -> System.identityHashCode(proxy)
+            "equals" -> proxy === args?.firstOrNull()
+            else -> defaultValue(method.returnType)
+        }
+
+        private fun defaultValue(type: Class<*>): Any? = when (type) {
+            java.lang.Boolean.TYPE -> false
+            java.lang.Byte.TYPE -> 0.toByte()
+            java.lang.Short.TYPE -> 0.toShort()
+            java.lang.Integer.TYPE -> 0
+            java.lang.Long.TYPE -> 0L
+            java.lang.Float.TYPE -> 0f
+            java.lang.Double.TYPE -> 0.0
+            java.lang.Character.TYPE -> '\u0000'
+            else -> null
+        }
+    }
+
+    /** Answers the getter set the platform reads off [EcarxCapabilities.CALL_INFO]. */
+    private class CallInfoHandler(private val c: CallInfo) : InvocationHandler {
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
+            "getCallId" -> c.callId
+            "getActiveCallId" -> c.activeCallId
+            "getCallCount" -> c.callCount
+            "getCallStatus" -> c.callStatus
+            "getContactName" -> c.contactName
+            "getContactNumber" -> c.contactNumber
+            "getAvatar" -> null
+            "toString" ->
+                "EcarxCallInfo(id=${c.callId} status=${c.callStatus} name=${c.contactName} number=${c.contactNumber})"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()
             else -> defaultValue(method.returnType)

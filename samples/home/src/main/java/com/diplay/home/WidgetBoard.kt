@@ -83,7 +83,7 @@ class WidgetBoard(private val activity: Activity, private val column: LinearLayo
             @Suppress("DEPRECATION")
             activity.startActivityForResult(consent, REQUEST_BIND)
         } catch (_: ActivityNotFoundException) {
-            // BYD has no consent screen; the owner allows binding once over adb.
+            // Some head units have no consent screen; the owner allows binding once over adb.
             pendingId = null
             host.deleteAppWidgetId(id)
             AlertDialog.Builder(activity)
