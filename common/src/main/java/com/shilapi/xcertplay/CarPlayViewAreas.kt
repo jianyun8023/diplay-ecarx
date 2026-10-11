@@ -137,7 +137,7 @@ class CarPlayViewAreas private constructor(
             }
             for (screen in screens) {
                 val window = splits[screen] ?: continue
-                // The window's own size (BYD shows its bars in split screen), kept even for the encoder.
+                // The window's own size (the head unit shows its bars in split screen), kept even for the encoder.
                 val splitWidth = (screen.width * window.first).toInt().coerceIn(2, screen.width) and 1.inv()
                 val splitHeight = (screen.height * window.second).toInt().coerceIn(2, screen.height) and 1.inv()
                 for (edge in edges) {
@@ -198,9 +198,10 @@ object SplitScreenSettings {
 
     /**
      * The split window to expect before DiPlay has seen one, as fractions of the whole screen: the screen
-     * halved across its long side less the [divider], with both system bars shown, as BYD shows them in
-     * split screen whatever the full-screen settings. On my Tang (2560x1440, bars of 112 and 120 px, a
-     * 20 px divider) that is 1270x1208 side by side and 1440x1154 stacked, the windows the head unit gave.
+     * halved across its long side less the [divider], with both system bars shown, as the head unit
+     * shows them in split screen whatever the full-screen settings. On this unit (2560x1440, bars of
+     * 112 and 120 px, a 20 px divider) that is 1270x1208 side by side and 1440x1154 stacked, the
+     * windows the head unit gave.
      * Null when the screen size is unknown.
      */
     fun expectedWindow(

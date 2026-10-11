@@ -81,7 +81,7 @@ class P2pStartupRecoveryTest {
     }
 
     @Test fun nextToAFiveGhzStationTwoGhzComesBeforeAnotherFiveGhzChannel() {
-        // A Tang on its home network at 5200 MHz: 5745 made the radio switch channels.
+        // The reference head unit on its home network at 5200 MHz: 5745 made the radio switch channels.
         assertEquals(listOf(5200, 2437, 2412, 2462, 5180, 5745, null), P2pStartupRecovery.plan(5200).map { it.frequencyMHz })
         // A remembered 5745 no longer goes first there, but stays as a late fallback.
         val remembered = P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5745)

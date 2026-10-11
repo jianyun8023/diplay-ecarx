@@ -49,7 +49,7 @@ import kotlin.math.roundToInt
  * time bar for a few seconds.
  *
  * Media3 ExoPlayer parses media in the app: the head unit's own MP4 parser aborted on progressive
- * Safari video on a DiLink 5.0 Tang. URLs the car cannot load (an app's own scheme, app-served AES-128
+ * Safari video on the reference head unit. URLs the car cannot load (an app's own scheme, app-served AES-128
  * keys) go to the iPhone (IphoneResolvingDataSource). The HLS encryption is logged, without URLs, so a
  * protected item that cannot play here is easy to tell apart.
  */

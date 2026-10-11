@@ -57,9 +57,6 @@ object AirPlayPersistence {
     private const val KEY_MANUAL_HOTSPOT_CHANNEL = "manual_hotspot_channel"
     private const val KEY_MANUAL_HOTSPOT_SECURITY = "manual_hotspot_security"
     private const val KEY_DEBUG_LOGS_ENABLED = "debug_logs_enabled"
-    private const val KEY_MANUFACTURER = "manufacturer"
-    private const val KEY_MODEL = "model"
-    private const val KEY_OEM_LABEL = "oem_label"
     private const val KEY_APP_APPEARANCE = "app_appearance"
     private const val KEY_CARPLAY_NIGHT_MODE = "carplay_night_mode"
     private const val KEY_CARPLAY_NIGHT_START = "carplay_night_start_minute"
@@ -106,11 +103,12 @@ object AirPlayPersistence {
     private const val KEY_REMOTE_MFI_SERVER = "remote_mfi_server"
     private const val KEY_REMOTE_MFI_TOKEN = "remote_mfi_token"
     private const val SAFE_AREA_KEY_PREFIX = "safe_area_"
-    private const val CUSTOM_ICON_FILE = "airplay-icon.png"
 
-    const val DEFAULT_MANUFACTURER = "DiPlay"
-    const val DEFAULT_MODEL = "DiPlay"
-    const val DEFAULT_OEM_LABEL = "BYD"
+    // The car's own identity, fixed to the vehicle brand: CarPlay shows this name and the packaged
+    // icon, and nothing in the UI overrides them.
+    const val DEFAULT_MANUFACTURER = "Lynk&Co"
+    const val DEFAULT_MODEL = "Lynk&Co"
+    const val DEFAULT_OEM_LABEL = "Lynk&Co"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -205,7 +203,7 @@ object AirPlayPersistence {
 
     fun loadAudioFocusEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_AUDIO_FOCUS_ENABLED, false)
+            .getBoolean(KEY_AUDIO_FOCUS_ENABLED, true)
 
     fun saveAudioFocusEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -439,42 +437,6 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadManufacturer(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_MANUFACTURER, null)
-            ?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_MANUFACTURER
-
-    fun saveManufacturer(context: Context, manufacturer: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_MANUFACTURER, manufacturer)
-            .apply()
-    }
-
-    fun loadModel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_MODEL, null)
-            ?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_MODEL
-
-    fun saveModel(context: Context, model: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_MODEL, model)
-            .apply()
-    }
-
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
-            // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
-
-    fun saveOemLabel(context: Context, oemLabel: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_OEM_LABEL, oemLabel)
-            .apply()
-    }
-
     fun loadAmbientLightThreshold(context: Context): AmbientLightThreshold = AmbientLightThreshold.fromStored(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_AMBIENT_LUX_THRESHOLD, AmbientLightThreshold.DEFAULT_LUX),
@@ -690,7 +652,7 @@ object AirPlayPersistence {
     fun loadClusterContent(context: Context): CarPlayClusterDisplay.Content =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CLUSTER_CONTENT, null)
             ?.let { name -> CarPlayClusterDisplay.Content.entries.firstOrNull { it.name == name } }
-            ?: if (AdbClusterRouter.enabled(context)) CarPlayClusterDisplay.Content.INSTRUMENTS else CarPlayClusterDisplay.Content.MAP
+            ?: CarPlayClusterDisplay.Content.MAP
 
     fun saveClusterContent(context: Context, content: CarPlayClusterDisplay.Content) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_CLUSTER_CONTENT, content.name).apply()
@@ -943,20 +905,6 @@ object AirPlayPersistence {
         val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove(safeAreaKey(activityWidthPixels, activityHeightPixels))
         if (commit) editor.commit() else editor.apply()
-    }
-
-    fun loadCustomAirPlayIconFile(context: Context): File? =
-        File(context.filesDir, CUSTOM_ICON_FILE).takeIf { it.isFile }
-
-    fun saveCustomAirPlayIcon(context: Context, encodedImage: ByteArray) {
-        require(encodedImage.isNotEmpty()) { "AirPlay icon data must not be empty" }
-        File(context.filesDir, CUSTOM_ICON_FILE).outputStream().use { output ->
-            output.write(encodedImage)
-        }
-    }
-
-    fun clearCustomAirPlayIcon(context: Context) {
-        File(context.filesDir, CUSTOM_ICON_FILE).delete()
     }
 
     fun loadIdentity(context: Context): AirPlayIdentity {

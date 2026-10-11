@@ -5,6 +5,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
+import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AudioCodecKind
@@ -194,6 +195,11 @@ internal class MicrophoneUplink(
         }
         return listOfNotNull(aec, enabledEffect("NS") {
             if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId) else null
+        }, enabledEffect("AGC") {
+            // The reference app chains AEC -> NS -> AGC with AGC on by default, and our
+            // earlier probing showed 48 kHz uplink is near-silent on this head unit. AGC keeps the
+            // uplink level usable regardless of the negotiated capture rate.
+            if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(sessionId) else null
         })
     }
 

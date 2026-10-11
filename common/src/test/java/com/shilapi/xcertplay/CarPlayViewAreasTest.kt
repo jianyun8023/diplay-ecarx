@@ -9,7 +9,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class CarPlayViewAreasTest {
-    // On a Tang, BYD's split screen gives DiPlay 1270x1208 of the 2560x1440 screen.
+    // On the reference head unit, the split screen gives DiPlay 1270x1208 of the 2560x1440 screen.
     private val split = 1270f / 2560 to 1208f / 1440
 
     @Test
@@ -150,7 +150,7 @@ class CarPlayViewAreasTest {
     }
 
     @Test fun aSplitWindowKeepsItsShapeWhetherOrNotTheSystemBarsAreShown() {
-        // My Tang with the navigation bar shown: 2560x1440 screen, CarPlay's full window 2560x1320 in
+        // This head unit with the navigation bar shown: 2560x1440 screen, CarPlay's full window 2560x1320 in
         // landscape and 1440x2440 in portrait; split screen gives 1270x1208 and 1440x1154 windows.
         val (landscapeWindow, portraitWindow) = CarPlayRotation.turnedWindows(2560, 1320, 2560, 1440)
         assertEquals(2560 to 1320, landscapeWindow)
@@ -172,7 +172,7 @@ class CarPlayViewAreasTest {
     }
 
     @Test fun theExpectedSplitWindowMatchesTheHeadUnitsBeforeAnyIsSeen() {
-        // My Tang: 2560x1440, a 112 px status bar, a 120 px navigation bar and a 20 px divider. It gave
+        // This head unit: 2560x1440, a 112 px status bar, a 120 px navigation bar and a 20 px divider. It gave
         // 1270x1208 side by side and 1440x1154 stacked.
         val landscape = SplitScreenSettings.expectedWindow(false, 2560, 1440, 112, 120, 20)!!
         val portrait = SplitScreenSettings.expectedWindow(true, 2560, 1440, 112, 120, 20)!!

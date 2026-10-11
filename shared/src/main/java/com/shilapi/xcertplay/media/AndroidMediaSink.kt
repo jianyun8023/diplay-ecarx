@@ -57,7 +57,17 @@ internal class AudioFocusCoordinator(
     private fun listenerFor(generation: Long) = AudioManager.OnAudioFocusChangeListener { change ->
         synchronized(this) {
             // Android may have queued callbacks before a request was abandoned or replaced.
-            if (generation != focusGeneration || request == null || active.isEmpty()) return@synchronized
+            if (generation != focusGeneration || request == null || active.isEmpty()) {
+                // Dropping this silently hides the one window that matters: between a telephony
+                // track closing and media reopening, a head unit that keeps focus looks like
+                // nothing at all. Say the callback arrived and why it was not acted on.
+                runCatching {
+                    report("Audio: focus change=$change dropped" +
+                        " stale=${generation != focusGeneration} noRequest=${request == null}" +
+                        " activeTracks=${active.size}")
+                }
+                return@synchronized
+            }
             runCatching { report("Audio: focus change=$change activeTracks=${active.size}") }
             when (change) {
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> setMediaVolume(DUCKED_VOLUME)
@@ -77,7 +87,7 @@ internal class AudioFocusCoordinator(
 
     @Synchronized
     fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
-        if (closed || !enabled || manager == null || channel == AudioChannel.NAVIGATION) return
+        if (closed || !enabled || manager == null) return
         active[track] = Entry(channel, attributes)
         refreshRequest()
         applyMediaVolume(track, active.getValue(track))
@@ -91,6 +101,18 @@ internal class AudioFocusCoordinator(
     fun onExternalFocusChange(change: Int) {
         val current = synchronized(this) { currentListener }
         current.onAudioFocusChange(change)
+    }
+
+    /**
+     * Applies or clears a duck directly, without waiting for Android to deliver a focus callback.
+     * The iPhone sends `duckAudio`/`unduckAudio` right before/after a navigation prompt, and on 820A
+     * the system's `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` callback lags 2-3 s — after the prompt has
+     * already finished. This is the synchronous path; the focus listener above stays as a backstop.
+     */
+    @Synchronized
+    fun setDucked(ducked: Boolean) {
+        if (closed || active.isEmpty()) return
+        setMediaVolume(if (ducked) DUCKED_VOLUME else FULL_VOLUME)
     }
 
     @Synchronized
@@ -119,7 +141,9 @@ internal class AudioFocusCoordinator(
             AudioChannel.MEDIA -> AudioManager.AUDIOFOCUS_GAIN
             AudioChannel.PHONE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
             AudioChannel.ASSISTANT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            AudioChannel.NAVIGATION -> return
+            // 820A (MSM8996) needs navigation to request focus for USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+            // to route to a speaker; the reference app does the same (NAVIGATION_FOCUS_COMPAT_MODEL).
+            AudioChannel.NAVIGATION -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
         }
         currentListener = listenerFor(focusGeneration)
         val next = AudioFocusRequestCompat(gain, primary.attributes, currentListener, Handler(Looper.getMainLooper()))
@@ -138,7 +162,7 @@ internal class AudioFocusCoordinator(
     }
 
     private fun applyMediaVolume(track: AudioTrack, entry: Entry) {
-        // Telephony and assistant speech remain audible, and navigation never enters this map.
+        // Only media is ducked; telephony, assistant and navigation speech stay at full relative gain.
         // This changes only the renderer's relative gain, never Android's user stream volume.
         if (entry.channel != AudioChannel.MEDIA || entry.appliedVolume == mediaVolume) return
         val applied = runCatching { track.setStereoVolume(mediaVolume, mediaVolume) == AudioTrack.SUCCESS }.getOrDefault(false)
@@ -149,7 +173,9 @@ internal class AudioFocusCoordinator(
         AudioChannel.MEDIA -> 3
         AudioChannel.PHONE -> 2
         AudioChannel.ASSISTANT -> 1
-        AudioChannel.NAVIGATION -> 0
+        // Navigation guidance must out-rank media so a voice prompt can request transient-duck focus
+        // and route USAGE_ASSISTANCE_NAVIGATION_GUIDANCE on 820A; calls already mute guidance upstream.
+        AudioChannel.NAVIGATION -> 4
     }
 
     private companion object {
@@ -212,6 +238,14 @@ class AndroidMediaSink(
         audioFocusCoordinator.onExternalFocusChange(change)
     }
 
+    /**
+     * Direct duck/un-duck for a navigation prompt, driven by the iPhone's `duckAudio`/`unduckAudio`
+     * command rather than the lagging system focus callback (see [AudioFocusCoordinator.setDucked]).
+     */
+    override fun setMediaDucked(ducked: Boolean) {
+        audioFocusCoordinator.setDucked(ducked)
+    }
+
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private var defaultSurface = surface
@@ -236,6 +270,9 @@ class AndroidMediaSink(
     private val audioModeLock = Any()
     private var communicationModeStream: AudioStreamId? = null
     private var savedAudioMode = AudioManager.MODE_NORMAL
+    // The held ECARX mic resource request for the active telephony stream; released when the mode
+    // restores. Guarded by [audioModeLock].
+    private var micHeld: com.shilapi.xcertplay.hud.EcarxMicPolicy.Held? = null
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
@@ -530,9 +567,41 @@ class AndroidMediaSink(
             // Select the HAL communication path before AudioRecord is created.
             savedAudioMode = manager.mode
             manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            // The reference app opens the 820A microphone/audio route with these vendor
+            // parameters before recording. Without them the head unit leaves the CarPlay uplink muted
+            // ("microphone silent" / "navigation silent" symptoms). setParameters does not throw on
+            // success, and the 820A HAL reports an empty readback, so a non-throwing write is accepted.
+            apply820MicParameters(manager, enabled = true)
+            // The reference app also arbitrates the in-car mic through the ECARX policy API before
+            // recording; on 820A a third-party app that records without asking can be left muted
+            // because the factory assistant/navigation holds the mic. Ask first (isNeedrequestMic),
+            // then request for the telephony (CALL) span; a refusal is downgraded to direct recording.
+            requestMicArbitration(id)
             communicationModeStream = id
             Log.i("xcertplay-usb", "audio mode $savedAudioMode -> ${manager.mode} for telephony stream=$id")
+            // The report, not just logcat: a head unit left in the voice path plays no media,
+            // and that cannot be diagnosed from a car without adb. A failing report must not
+            // disturb the mode, so it is the last thing done and it cannot throw out of here.
+            runCatching {
+                onAudioDiagnostic("Audio: mode entered communication from=$savedAudioMode" +
+                    " now=${manager.mode} stream=$id")
+            }
         }
+    }
+
+    /** Asks ECARX for the mic before recording; never throws and never blocks recording. */
+    private fun requestMicArbitration(id: AudioStreamId) {
+        val context = appContext ?: return
+        val policy = com.shilapi.xcertplay.hud.EcarxMicPolicy
+        if (!policy.isNeedRequestMic(context)) return
+        micHeld = policy.requestMic(context, policy.REQUEST_TYPE_CALL, object :
+            com.shilapi.xcertplay.hud.EcarxMicPolicy.Listener {
+            override fun onResume() = Unit
+            override fun onAbort(reason: Int) {
+                Log.i("xcertplay-usb", "ECARX mic request aborted reason=$reason; recording directly")
+            }
+        })
+        Log.i("xcertplay-usb", "ECARX mic arbitration stream=$id held=${micHeld?.granted == true}")
     }
 
     private fun restoreAudioMode(id: AudioStreamId?) {
@@ -541,11 +610,48 @@ class AndroidMediaSink(
             val active = communicationModeStream ?: return
             if (id != null && id != active) return
             communicationModeStream = null
-            try {
+            // The report is built inside the try but sent outside it: reporting from in there
+            // would let a failing callback be caught as a failed restore.
+            val line = try {
                 manager.mode = savedAudioMode
+                apply820MicParameters(manager, enabled = false)
+                releaseMicArbitration()
                 Log.i("xcertplay-usb", "audio mode restored to ${manager.mode}")
+                "Audio: mode restored requested=$savedAudioMode now=${manager.mode} stream=$active"
             } catch (error: RuntimeException) {
                 Log.w("xcertplay-usb", "could not restore audio mode $savedAudioMode", error)
+                val currentMode = runCatching { manager.mode.toString() }.getOrDefault("unknown")
+                "Audio: mode restore failed requested=$savedAudioMode now=$currentMode" +
+                    " error=${error.javaClass.simpleName}"
+            }
+            runCatching { onAudioDiagnostic(line) }
+        }
+    }
+
+    /** Hands the ECARX mic resource back when the telephony stream ends. */
+    private fun releaseMicArbitration() {
+        val held = micHeld ?: return
+        micHeld = null
+        Log.i("xcertplay-usb", "ECARX mic released: ${held.release().reason}")
+    }
+
+    /**
+     * 820A (HiCar) vendor audio parameters. Mirrors the reference app's
+     * AudioSessionController#setMic820HicarParametersLocked: open the mic route before capture and
+     * close it after. The values are the exact strings the verified reference app writes on this head
+     * unit; the parameter readback is always empty here, so success is judged by the write not
+     * throwing rather than by getParameters.
+     */
+    private fun apply820MicParameters(manager: AudioManager, enabled: Boolean) {
+        for (parameter in if (enabled) {
+            listOf("hicar_enable=true", "AudioControlMode=01121001", "ASR_AEC=ON")
+        } else {
+            listOf("hicar_enable=false", "AudioControlMode=01121000", "ASR_AEC=OFF")
+        }) {
+            try {
+                manager.setParameters(parameter)
+            } catch (error: RuntimeException) {
+                Log.w("xcertplay-usb", "820A audio parameter rejected: $parameter", error)
             }
         }
     }
@@ -633,6 +739,7 @@ class AndroidMediaSink(
             onAudioDiagnostic,
             echoReference,
             callVoiceFilter && format.audioType == TELEPHONY_AUDIO_TYPE,
+            audioManager,
         ).also { audioRenderers[id] = it }
     }
 
@@ -691,7 +798,7 @@ internal class ParkingOutput(width: Int, height: Int) {
 
 /**
  * The operating rate requested from a stream's decoder, 0 for none: the main screen asks for the frame
- * rate the iPhone is asked for ([frameRate], the frame-rate setting). At 60 fps on my Tang, the Qualcomm
+ * rate the iPhone is asked for ([frameRate], the frame-rate setting). At 60 fps on this head unit, the Qualcomm
  * decoder's median time from queueing a frame to dequeueing its output was 8.5–9 ms lower with it.
  * Mirrors and the cluster stream keep the format they had.
  */
@@ -1284,6 +1391,7 @@ private class AudioRenderer(
     /** Receives the played call audio so the call microphone can cancel its echo. */
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
+    private val audioManager: AudioManager? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
 
@@ -1510,6 +1618,12 @@ private class AudioRenderer(
             )
         }
         track = built
+        // The reference app never opens vendor audio parameters for media/navigation
+        // playback: AudioPlayer.smali has zero setParameters/AudioControlMode/hicar_enable hits. Those
+        // parameters belong to the microphone path (AudioSessionController#setMic820HicarParametersLocked),
+        // which DiPlay already applies in enterCommunicationMode. Opening AudioControlMode here alone —
+        // without the paired hicar_enable/ASR_AEC — left the 820A usage-routed media/navigation stream
+        // muted, which is exactly the "default channel 0 silent" symptom the head unit showed.
         diagnosticStage = "track-attributes"
         trackAttributes = audioTrackAttributesForFocus(built, attributes)
         diagnosticStage = "track-capacity"
@@ -1556,7 +1670,7 @@ private class AudioRenderer(
         streamOverride: Int,
     ): AudioAttributes {
         if (streamOverride in AudioManager.STREAM_SYSTEM..AudioManager.STREAM_ACCESSIBILITY) {
-            // Android accepts only its defined legacy stream IDs here. BYD audio policy can
+            // Android accepts only its defined legacy stream IDs here. The head unit's policy can
             // map these standard streams to vehicle outputs; arbitrary channel numbers are
             // not valid AudioAttributes legacy stream types.
             try {
@@ -1591,16 +1705,13 @@ private class AudioRenderer(
             .build()
 
     /**
-     * Shares a sink-level focus request across all active non-navigation renderers.
-     * Navigation guidance intentionally takes no focus: it overlays media without ducking it.
+     * Shares a sink-level focus request across all active renderers. Navigation also takes focus on
+     * 820A (MSM8996): USAGE_ASSISTANCE_NAVIGATION_GUIDANCE is otherwise unrouted and guidance stays
+     * silent, matching the reference app's NAVIGATION_FOCUS_COMPAT_MODEL handling.
      */
     private fun requestAudioFocus() {
         val channel = mappedChannel ?: return
         val attributes = trackAttributes ?: return
-        if (channel == AudioChannel.NAVIGATION) {
-            Log.i(TAG, "audio focus skipped channel=NAVIGATION; overlays without ducking")
-            return
-        }
         track?.let { audioFocusCoordinator.acquire(it, channel, attributes) }
     }
 

@@ -1,9 +1,6 @@
 package com.shilapi.xcertplay
 
-import android.content.Context
 import android.content.Intent
-import android.content.pm.ApplicationInfo
-import android.content.pm.PackageInfo
 import android.graphics.drawable.ColorDrawable
 import android.os.Looper
 import android.view.Surface
@@ -15,15 +12,11 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
-import com.shilapi.xcertplay.adb.LocalAdb
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import java.time.Duration
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,8 +32,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.Implementation
-import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.util.ReflectionHelpers
 
@@ -274,56 +265,6 @@ class AdaptiveSettingsUiTest {
         assertTrue(texts(screen).any { it.text.startsWith(screen.getString(R.string.frame_rate) + " · ") })
     }
 
-    @Test
-    @Config(shadows = [HotspotSearchProbe::class])
-    fun hotspotSearchIndexesItsAsyncCardWithoutStartingAnAdbProbe() {
-        installBydSettingsPackage()
-        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
-        HotspotSearchProbe.workers.clear()
-        HotspotSearchProbe.entered = CountDownLatch(1)
-        val screen = openSettings()
-        val index = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-            screen, "buildSettingsSearchIndex")
-        val result = index.single { it.title == screen.getString(R.string.auto_car_hotspot_title) }
-
-        assertEquals(SettingsCategory.CONNECTION, result.category)
-        assertTrue("Building search metadata must not contact ADB", HotspotSearchProbe.workers.isEmpty())
-        assertFalse(texts(screen).any { it.text == screen.getString(R.string.auto_car_hotspot_title) })
-
-        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSearchResult",
-            ReflectionHelpers.ClassParameter(result.javaClass, result))
-        assertTrue(HotspotSearchProbe.entered.await(3, TimeUnit.SECONDS))
-        val worker = HotspotSearchProbe.workers.single()
-        worker.join(3_000)
-        assertFalse(worker.isAlive)
-        shadowOf(Looper.getMainLooper()).idle()
-
-        assertEquals(SettingsCategory.CONNECTION,
-            ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
-        assertEquals(1, descendants(screen.window.decorView).filterIsInstance<Switch>().count {
-            it.contentDescription == screen.getString(R.string.auto_car_hotspot_title)
-        })
-    }
-
-    @Test
-    @Config(shadows = [HotspotSearchProbe::class])
-    fun hotspotSearchKeepsTheBydAndCarHotspotAudienceGates() {
-        installBydSettingsPackage()
-        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.EXISTING_WIFI)
-        HotspotSearchProbe.workers.clear()
-        HotspotSearchProbe.entered = CountDownLatch(1)
-        val screen = openSettings()
-        fun index() = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-            screen, "buildSettingsSearchIndex")
-        val title = screen.getString(R.string.auto_car_hotspot_title)
-
-        assertFalse(index().any { it.title == title })
-        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
-        shadowOf(context.packageManager).removePackage("com.byd.carsettings")
-        assertFalse(index().any { it.title == title })
-        assertTrue(HotspotSearchProbe.workers.isEmpty())
-    }
-
     @Test fun cardControlsShareOneHeightAndGap() {
         val screen = openSettings()
         descendants(screen.window.decorView)
@@ -357,18 +298,21 @@ class AdaptiveSettingsUiTest {
         assertEquals(SettingsCategory.ADVANCED, ReflectionHelpers.getField<SettingsCategory>(advanced, "category"))
     }
 
-    @Test fun aRowBeforeAButtonKeepsTheGap() {
+    @Test fun theCarButtonCardOffersNothingToChange() {
         val screen = openSettings()
         descendants(screen.window.decorView)
             .first { it.contentDescription == screen.getString(R.string.settings_open_category,
                 screen.getString(R.string.settings_vehicle)) }
             .performClick()
-        val chooseImage = texts(screen).single { it.text == screen.getString(R.string.choose_image) }
-        val card = chooseImage.parent as LinearLayout
-        val preview = card.getChildAt(card.indexOfChild(chooseImage) - 1)
+        val description = texts(screen).single { it.text == screen.getString(R.string.car_button_description) }
+        val card = description.parent as LinearLayout
 
-        assertEquals(Math.round(12 * screen.resources.displayMetrics.density),
-            (preview.layoutParams as LinearLayout.LayoutParams).bottomMargin)
+        // The icon and the name are the vehicle brand's and ship with the app, so the card must not
+        // offer an image picker, a reset or a name field.
+        assertTrue("card still offers a button", descendants(card).none { it is android.widget.Button })
+        assertTrue("card still offers an input field", descendants(card).none { it is EditText })
+        assertTrue("card must show the fixed name",
+            descendants(card).any { it is TextView && it.text == AirPlayPersistence.DEFAULT_OEM_LABEL })
     }
 
     @Test fun tappingAToggleRowChangesTheSetting() {
@@ -711,30 +655,6 @@ class AdaptiveSettingsUiTest {
         assertSame(diagnostics.parent, advanced.parent)
         val card = diagnostics.parent as View
         assertEquals(Math.round(18 * screen.resources.displayMetrics.density), (card.layoutParams as LinearLayout.LayoutParams).bottomMargin)
-    }
-
-    private fun installBydSettingsPackage() {
-        shadowOf(context.packageManager).installPackage(PackageInfo().apply {
-            packageName = "com.byd.carsettings"
-            applicationInfo = ApplicationInfo().apply {
-                packageName = "com.byd.carsettings"
-                flags = ApplicationInfo.FLAG_SYSTEM
-            }
-        })
-    }
-
-    @Implements(CarHotspotSetup::class, isInAndroidSdk = false)
-    class HotspotSearchProbe {
-        @Implementation fun check(context: Context, adb: LocalAdb): LocalAdb.Access {
-            workers += Thread.currentThread()
-            entered.countDown()
-            return LocalAdb.Access.READY
-        }
-
-        companion object {
-            val workers = CopyOnWriteArrayList<Thread>()
-            var entered = CountDownLatch(1)
-        }
     }
 
     private fun openSettings(): DiPlayActivity = Robolectric.buildActivity(

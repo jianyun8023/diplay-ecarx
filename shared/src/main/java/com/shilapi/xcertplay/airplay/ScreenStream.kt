@@ -153,7 +153,7 @@ private fun ByteArray.hexPrefix(length: Int): String =
 object ScreenCodec {
     /**
      * The frame time in a screen header: bytes 8..15, a little-endian NTP 32.32 value, in nanoseconds.
-     * On a Tang with iOS 27 consecutive main-screen frames are exactly 1/60 s apart (1/30 s on the
+     * On this head unit with iOS 27 consecutive main-screen frames are exactly 1/60 s apart (1/30 s on the
      * cluster stream), and skipped frames leave whole multiples.
      */
     fun senderNanos(header: ByteArray): Long {

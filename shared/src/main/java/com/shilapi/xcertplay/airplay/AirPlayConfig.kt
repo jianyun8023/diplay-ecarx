@@ -65,9 +65,15 @@ data class AirPlayConfig(
     val hevc: Boolean = false,
     val disableAudioOutput: Boolean = false,
     val microphone: Boolean = false,
-    val manufacturer: String = "xcertplay",
-    val model: String = "xcertplay",
-    val oemLabel: String = "xcertplay",
+    /**
+     * Whether to offer Opus alongside PCM for the microphone. Both platform and bundled software
+     * encoding count toward [com.shilapi.xcertplay.media.OpusEncoderSupport]; an older Android
+     * version or absent MediaCodec encoder alone must not remove the wireless Opus formats.
+     */
+    val microphoneOpus: Boolean = true,
+    val manufacturer: String = "Lynk&Co",
+    val model: String = "Lynk&Co",
+    val oemLabel: String = "Lynk&Co",
     val icons: List<AirPlayIcon> = emptyList(),
     /** iOS 27 video in car (see [VideoInCar]); video plays only while [VideoInCar.allowed]. */
     val videoInCar: Boolean = false,

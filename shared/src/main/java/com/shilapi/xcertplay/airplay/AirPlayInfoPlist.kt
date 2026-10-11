@@ -50,7 +50,7 @@ object AirPlayInfoPlist {
         )
         if (!config.disableAudioOutput) {
             info["audioLatencies"] = audioLatencies()
-            info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone, config.mainBufferedAudio)
+            info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone, config.mainBufferedAudio, config.microphoneOpus)
         }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
@@ -122,6 +122,7 @@ object AirPlayInfoPlist {
         entertainmentRate: Int,
         microphone: Boolean,
         mainBuffered: Boolean = false,
+        microphoneOpus: Boolean = true,
     ): List<Map<String, Any?>> {
         fun format(type: Int, audioType: String, outputFormats: Int, inputFormats: Int? = null): Map<String, Any?> {
             val entry = linkedMapOf<String, Any?>(
@@ -140,7 +141,9 @@ object AirPlayInfoPlist {
         val opus = 0x70000000
         val aacLc = if (is48) 0x800000 else 0x400000
         val pcmInput = if (microphone) pcmMono else null
-        val wirelessInput = if (microphone) pcmMono or opus else null
+        // Retain Opus whenever platform or bundled software encoding is usable. PCM-only wireless
+        // negotiation is not a universal fallback; a missing MediaCodec encoder is insufficient.
+        val wirelessInput = if (microphone) (if (microphoneOpus) pcmMono or opus else pcmMono) else null
 
         return listOf(
             format(100, "compatibility", pcm, pcmInput),
@@ -160,14 +163,14 @@ object AirPlayInfoPlist {
 
     /**
      * viewAreaStatusBarEdge values, as CarPlay Simulator's StatusBarEdge (automatic, bottom, driver) and as
-     * seen on a Tang with iOS 27: 1 puts the dock at the bottom, 2 on the driver's side.
+     * seen on this head unit with iOS 27: 1 puts the dock at the bottom, 2 on the driver's side.
      */
     const val DOCK_EDGE_BOTTOM = 1
     const val DOCK_EDGE_DRIVER_SIDE = 2
     private const val VIEW_AREA_ANIMATION_MILLIS = 300
 
     /**
-     * updateViewArea for the main screen. Seen on a Tang with iOS 27: the iPhone acts on it only with an
+     * updateViewArea for the main screen. Seen on this head unit with iOS 27: the iPhone acts on it only with an
      * animation duration and the adjacent areas, the arguments CarPlaySDK's ViewAreaUpdate takes.
      */
     fun viewAreaCommand(index: Int, areaCount: Int): Map<String, Any?> = linkedMapOf(

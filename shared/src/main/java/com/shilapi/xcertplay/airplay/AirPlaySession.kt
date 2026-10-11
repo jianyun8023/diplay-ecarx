@@ -57,6 +57,8 @@ interface AirPlayMediaHandler {
     fun onSessionClosed(session: AirPlaySession) {}
     fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {}
     fun onSetupResponseSent(session: AirPlaySession) {}
+    /** The iPhone's `duckAudio` (true) / `unduckAudio` (false) command for a navigation prompt. */
+    fun onDuckAudio(session: AirPlaySession, ducked: Boolean) {}
 }
 
 /**
@@ -199,7 +201,7 @@ class AirPlaySession(
 
     /**
      * Switches the dashboard to another of the iPhone's `altScreenURLs` without reconnecting: `showUI`
-     * with that URL and a keyframe (on a Tang this switches map, turn card and both at once). With [send]
+     * with that URL and a keyframe (on this head unit this switches map, turn card and both at once). With [send]
      * false (the map is paused) the URL is only kept for the next `showUI`. False without a cluster stream.
      */
     fun setClusterUrl(url: String, send: Boolean): Boolean {
@@ -268,7 +270,7 @@ class AirPlaySession(
 
     /**
      * Zooms CarPlay's dashboard map one step, as a car's own zoom controls do: the car command
-     * changeMapZoomLevel for the cluster screen's UUID. Seen with Apple Maps on a Tang: zoomDirection 0
+     * changeMapZoomLevel for the cluster screen's UUID. Seen with Apple Maps on this head unit: zoomDirection 0
      * zooms in, 1 zooms out. Sent only while the cluster stream is up.
      */
     fun changeMapZoomLevel(zoomIn: Boolean): Boolean = clusterStream > 0 && sendCommand(

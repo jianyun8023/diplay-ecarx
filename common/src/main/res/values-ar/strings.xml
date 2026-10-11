@@ -52,7 +52,6 @@
     <string name="fullscreen_bottom_hidden">الشريط السفلي مخفي</string>
     <string name="fullscreen_bottom_shown">الشريط السفلي ظاهر</string>
     <string name="preview_identity">الهوية:\u0020</string>
-    <string name="preview_oem_label">وسم OEM:\u0020</string>
     <string name="preview_empty">(فارغ)</string>
     <string name="preview_frame_rate">معدل الإطارات:\u0020</string>
     <string name="preview_detected_maximum">الحد الأقصى المكتشف:\u0020</string>
@@ -126,7 +125,6 @@
     <string name="back_to_diplay">العودة إلى DiPlay</string>
     <string name="band">النطاق</string>
     <string name="bluetooth_settings">إعدادات بلوتوث</string>
-    <string name="byd_navigation">ملاحة BYD</string>
     <string name="cancel">إلغاء</string>
     <string name="car_home">الرئيسية داخل السيارة</string>
     <string name="car_hotspot_details">بيانات نقطة اتصال السيارة</string>
@@ -151,7 +149,6 @@
     <string name="check_and_enable">تحقق وفعّل</string>
     <string name="check_that_storage_is_available_or_choose_another_save_loc">تحقق من توفر التخزين، أو اختر موضع حفظ آخر.</string>
     <string name="choose_how_to_connect_follow_the_setup_steps_and_save_your">اختر طريقة الاتصال، واتبع خطوات الإعداد، واحفظ بيانات نقطة اتصال سيارتك.</string>
-    <string name="choose_image">اختر صورة</string>
     <string name="choose_iphone">اختر iPhone</string>
     <string name="choose_location">اختر الموضع</string>
     <string name="choose_save_location">اختر موضع الحفظ</string>
@@ -181,10 +178,7 @@
     <string name="could_not_save_image">تعذّر حفظ الصورة</string>
     <string name="could_not_save_the_report">تعذّر حفظ التقرير</string>
     <string name="could_not_start_carplay_return_to_diplay_and_check_app_per">تعذّر بدء CarPlay. عد إلى DiPlay وتحقق من أذونات التطبيق.</string>
-    <string name="custom_1_1_icon">أيقونة مخصصة 1:1</string>
     <string name="debug_logs">سجلات تصحيح</string>
-    <string name="default_icon">الأيقونة الافتراضية</string>
-    <string name="default_placeholder_icon">أيقونة بديلة افتراضية</string>
     <string name="diagnostic_report_saved">تم حفظ تقرير التشخيص</string>
     <string name="diagnostics">التشخيص</string>
     <string name="discard_changes_and_exit_settings">تجاهل التغييرات والخروج من الإعدادات</string>
@@ -247,10 +241,8 @@
     <string name="make_diplay_feel_right_for_your_car">اجعل DiPlay مناسبًا لسيارتك.</string>
     <string name="manual_hotspot">نقطة اتصال يدوية</string>
     <string name="manual_mode_match_the_cluster_theme_here_the_map_cannot_fo">الوضع اليدوي: طابق سمة لوحة العدادات هنا. لا تستطيع الخريطة اتباع مرئيات البطاقة دون إذن الوصول للاستخدام.</string>
-    <string name="manufacturer">الشركة المصنّعة</string>
     <string name="mfi_authentication_ready">مصادقة MFi جاهزة</string>
     <string name="mfi_certificate_signing_target">شهادة MFi وهدف التوقيع</string>
-    <string name="model">الطراز</string>
     <string name="music_buffer">ذاكرة الموسيقى</string>
     <string name="resolution_native">أصلي</string>
     <string name="navigation_on_hud_and_instrument_cluster">الملاحة على شاشة العرض الأمامية ولوحة العدادات</string>
@@ -258,7 +250,6 @@
     <string name="nearby_devices">الأجهزة القريبة</string>
     <string name="nearby_devices_connects_your_iphone_microphone_enables_sir">«الأجهزة القريبة» تربط iPhone. الميكروفون يمكّن Siri والمكالمات. تتطلب إصدارات Android الأقدم أيضًا الموقع للإعداد اللاسلكي. قد يطلب وضع USB اتصال VPN محلي.</string>
     <string name="nothing_is_sent_automatically_protocol_payloads_and_creden">لا يُرسل شيء تلقائياً. تُستبعد حمولات البروتوكول وبيانات الاعتماد.</string>
-    <string name="oem_label">وسم OEM</string>
     <string name="on_your_iphone_open_settings_bluetooth_and_pair_with_the_c">على iPhone، افتح الإعدادات ← البلوتوث واقترن بالسيارة. ثم عد إلى DiPlay واختر «اتصال بالهاتف».</string>
     <string name="one_time_setup_on_this_car">إعداد لمرة واحدة على هذه السيارة</string>
     <string name="open">فتح</string>
@@ -350,7 +341,6 @@
     <string name="share">مشاركة</string>
     <string name="show_on_screen_debug_logs">إظهار سجلات التصحيح على الشاشة</string>
     <string name="show_password">إظهار كلمة المرور</string>
-    <string name="show_phone_navigation_arrows_distance_and_street_names_on">إظهار أسهم الملاحة والمسافة وأسماء الشوارع من الهاتف على شاشات BYD المدعومة. تختلف توافقية المركبة.</string>
     <string name="show_the_side_map_only_when_its_card_is_open_and_switch_to">إظهار الخريطة الجانبية فقط عند فتح بطاقتها، والتبديل إلى الخريطة الكاملة في سمة الخريطة. تغييرات السمة والبطاقة تُبقي CarPlay متصلاً.</string>
     <string name="shows_the_iphone_s_cluster_map_on_the_instrument_cluster_c">يعرض خريطة iPhone على لوحة العدادات. اختر عرض الملاحة المصغّر أو الكامل من قائمة لوحة العدادات باستخدام أزرار المقود.</string>
     <string name="start_carplay_automatically_after_device_boot">بدء CarPlay تلقائياً بعد إقلاع الجهاز</string>
@@ -358,7 +348,6 @@
     <string name="starting_airplay_service">جارٍ بدء خدمة AirPlay</string>
     <string name="starting_wireless_hotspot">جارٍ بدء نقطة الاتصال اللاسلكية</string>
     <string name="still_waiting_for_usage_access_check_that_the_command_ran">ما زال بانتظار إذن الوصول للاستخدام. تحقق من نجاح تنفيذ الأمر لهذه السيارة ثم حاول مجدداً.</string>
-    <string name="tap_a_number_to_test_14_driver_speaker_on_byd">اضغط رقماً للاختبار. 14 = مكبر صوت السائق في BYD.</string>
     <string name="the_head_unit_couldn_t_start_carplay_wi_fi_check_wi_fi_and">تعذّر على وحدة القيادة بدء واي فاي CarPlay. تحقق من واي فاي وأغلق تطبيقات العرض الأخرى. إعادة المحاولة…</string>
     <string name="this_ends_the_existing_wi_fi_direct_connection_including_o">ينهي هذا اتصال Wi-Fi Direct القائم، بما في ذلك ما تركه إعادة التثبيت. أغلق تطبيقات العرض الأخرى أولاً. يبقى واي فاي الإنترنت لسيارتك مُفعّلاً.</string>
     <string name="this_head_unit_cannot_use_the_smaller_size_at_this_resolut">لا تستطيع وحدة القيادة هذه استخدام الحجم الأصغر عند هذه الدقة. سيُستخدم الافتراضي.</string>
@@ -372,7 +361,6 @@
     <string name="turn_on_wi_fi_in_the_head_unit_s_settings_to_connect">شغّل واي فاي في إعدادات وحدة القيادة للاتصال.</string>
     <string name="turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic">شغّل مفتاح واي فاي السيارة. اسمح بالموقع/«الأجهزة القريبة» عند الطلب وفعّل الموقع عندما يطلبه Android. إذا اتقطّع التشغيل، جرّب نقطة اتصال السيارة المدمجة على 5 GHz.</string>
     <string name="usage_access_enabled">الوصول للاستخدام: مُفعّل</string>
-    <string name="usage_access_lets_diplay_follow_the_instrument_theme_and_m">يتيح إذن الوصول للاستخدام لـ DiPlay اتباع سمة لوحة العدادات وبطاقة الخريطة. تتم معالجة أحداث نشاط لوحة BYD محلياً فقط. لا توفر هذه السيارة صفحة إعدادات أذونات عاملة.</string>
     <string name="usage_access_setup_needed_for_automatic_mode">الوصول للاستخدام: الإعداد مطلوب للوضع التلقائي</string>
     <string name="usb_ch341">USB/CH341</string>
     <string name="use_a_usb_data_cable_and_the_car_s_usb_data_port_unlock_yo">استخدم كابل بيانات USB ومنفذ بيانات USB في السيارة. افتح قفل iPhone واسمح بـ CarPlay. لا حاجة لأي إعداد نقطة اتصال.</string>
@@ -472,17 +460,13 @@
     <string name="adb_vehicle_gear_unreadable">تعذّرت قراءة وضع ناقل الحركة على هذا البرنامج الثابت.</string>
     <string name="advanced_vehicle_data">بيانات السيارة المتقدمة</string>
     <string name="hide_advanced_vehicle_data">إخفاء بيانات السيارة المتقدمة</string>
-    <string name="advanced_vehicle_data_description">استخدم قراءة DiLink 5.0 الافتراضية أو اكتشف حقول وحدة قديمة. لا تتم كتابة أي شيء إلى السيارة.</string>
     <string name="vehicle_data_mode">وضع بيانات السيارة</string>
-    <string name="vehicle_data_mode_default">الوضع الافتراضي · تم التحقق منه على وحدات DiLink 5.0</string>
-    <string name="vehicle_data_mode_legacy">اكتشاف الوحدات القديمة · تم اختباره على وحدة التحكم 13 / DiLink 3.0</string>
     <string name="adb_not_checked">لم يتم فحص ADB بعد.</string>
     <string name="vehicle_probe_saved_automatic">تم حفظ قدرات السيارة. يجري التحقق المباشر عبر ADB وأي إعادة اكتشاف لازمة تلقائيًا.</string>
     <string name="request_adb_authorization">طلب ترخيص ADB لتطبيق DiPlay</string>
     <string name="adb_enabled_not_approved">ADB مفعّل، لكن نسخة اختبار DiPlay هذه غير مصرح بها بعد.</string>
     <string name="probe_adb_and_vehicle_data">اكتشاف وحدة السيارة القديمة</string>
     <string name="probe_vehicle_data_again">إعادة اكتشاف وحدة السيارة القديمة</string>
-    <string name="probing_vehicle_data">جارٍ قراءة فهرس حقول BYD لهذا البرنامج الثابت واختبار الحقول المطلوبة…</string>
     <string name="vehicle_probe_failed">فشل فحص بيانات السيارة: %1$s</string>
     <string name="vehicle_probe_lost_saved_fields">لم يؤكد الفحص الحقول المحفوظة التالية: %1$s. تم الاحتفاظ بالإعداد السابق.</string>
     <string name="replace_saved_vehicle_data_anyway">استبدال بيانات السيارة المحفوظة على أي حال</string>
@@ -505,7 +489,6 @@
     <string name="video_while_parked">الفيديو أثناء التوقف</string>
     <string name="video_while_parked_description">iOS 27: يُعرض الفيديو الذي ترسله إلى CarPlay من iPhone على شاشة السيارة ما دامت السيارة على وضع P. يُغلق المشغل عند الخروج من P؛ وبدون ADB يبقى الفيديو متوقفًا ويشغّل iPhone الصوت فقط. يعمل فيديو HTTPS العادي (مثل Safari)؛ أما الفيديو المحمي بـ FairPlay مثل Apple TV+ فيحتاج إلى مستقبل مرخّص ولا يعمل هنا. يعيد الاتصال بـ CarPlay. يتطلب ADB عبر الشبكة على وحدة القيادة.</string>
     <string name="cluster_song">الأغنية على لوحة العدادات</string>
-    <string name="cluster_song_description">يظهر اسم أغنية CarPlay والفنان في بطاقة الموسيقى على لوحة العدادات، مع التشغيل والإيقاف المؤقت. تظهر البطاقة كمصدر الموسيقى «آخر» من BYD، لأن لوحة العدادات لا تعرض مصدر CarPlay الخاص. يُطبَّق فورًا. يتطلب ADB عبر الشبكة على وحدة القيادة.</string>
     <string name="video_back_to_carplay">العودة إلى CarPlay</string>
     <string name="video_play">تشغيل</string>
     <string name="video_pause">إيقاف مؤقت</string>
@@ -521,7 +504,6 @@
     <string name="widget_minutes">%1$d دقيقة</string>
     <string name="widget_hours_minutes">%1$d س %2$02d د</string>
     <string name="center_map_card">خريطة لوحة العدادات على الشاشة الوسطى</string>
-    <string name="center_map_card_description">أثناء عمل DiPlay في الخلفية، تظهر خريطة لوحة العدادات أيضًا كبطاقة على الشاشة الرئيسية: شاشة BYD الرئيسية أو الشاشة الرئيسية للخريطة أو المشغّل الافتراضي لديك. اضغط على البطاقة لفتح CarPlay، واسحبها لنقلها، وقرّب إصبعين أو باعدهما لتغيير حجمها. تحتفظ لوحة العدادات بخريطتها. يتطلب إذن الظهور فوق التطبيقات الأخرى.</string>
     <string name="center_map_follows_dashboard">إبقاء خريطة الشاشة الرئيسية متزامنة مع لوحة العدادات</string>
     <string name="center_map_follows_dashboard_description">تشغيل: بطاقة الشاشة الرئيسية تعكس خريطة لوحة العدادات. إيقاف: تُخفى البطاقة وتبقى الخريطة على لوحة العدادات فقط.</string>
     <string name="center_map_overlay_allowed">الظهور فوق التطبيقات الأخرى: مسموح</string>
@@ -555,7 +537,7 @@
     <string name="settings_gesture_fingers">فتح الإعدادات · سحب بـ %1$d أصابع (انقر للتبديل)</string>
     <string name="settings_gesture_fingers_label">فتح الإعدادات · عدد أصابع السحب لأسفل</string>
     <string name="settings_gesture_fingers_option">%1$d أصابع</string>
-    <string name="settings_gesture_fingers_hint">اختر عددًا من الأصابع لا يستخدمه جهاز السيارة. تأخذ وحدة BYD السحب لأسفل بثلاثة أصابع للوحة التكييف.</string>
+    <string name="settings_gesture_fingers_hint">اختر عددًا من الأصابع لا يستخدمه جهاز السيارة. تستخدم بعض الأجهزة السحب لأسفل بثلاثة أصابع للوحة التكييف.</string>
     <string name="auto_car_hotspot_title">تشغيل نقطة اتصال السيارة تلقائيًا</string>
     <string name="auto_car_hotspot_description">يشغّل نقطة اتصال السيارة المحفوظة عند فتح DiPlay. عند تفعيل المفتاح تُطلب الأذونات اللازمة تلقائيًا عبر ADB؛ وافق على شاشة السيارة. فعّل فتح DiPlay بعد تشغيل السيارة للبدء عند الإقلاع. يبقى الاسم وكلمة المرور دون تغيير ولا تُطفأ نقطة الاتصال تلقائيًا.</string>
     <string name="hotspot_control_missing">إذن التحكم بنقطة الاتصال غير متاح. امنحه عبر ADB أو شغّل نقطة الاتصال من إعدادات السيارة.</string>
@@ -565,14 +547,13 @@
     <string name="hotspot_control_unsupported">النظام لا يدعم تشغيل نقطة الاتصال تلقائيًا. افتح إعدادات السيارة لتشغيلها.</string>
     <string name="hotspot_control_timeout">انتهت مهلة انتظار تشغيل نقطة الاتصال. افتح إعدادات السيارة لتشغيلها.</string>
     <string name="hotspot_control_failed">تعذر تشغيل نقطة الاتصال. افتح إعدادات السيارة لتشغيلها.</string>
-    <string name="byd_adb_features">ميزات BYD · تتطلب ADB</string>
     <string name="location_reporting_reconnects">يؤدي تغيير هذا الإعداد إلى إعادة اتصال جلسة CarPlay النشطة.</string>
     <string name="diagnostic_report_saved_in_app">تم حفظ التقرير بشكل خاص داخل DiPlay لعدم توفر موقع حفظ عام. يمكنك مشاركته أو عرضه هنا. لا يتم إرسال شيء تلقائياً.</string>
     <string name="diagnostic_report_saved_to_path">تم حفظ التقرير في:\n%1$s\n\nيمكنك أيضاً مشاركته أو عرضه هنا. لا يتم إرسال شيء تلقائياً.</string>
     <string name="view_diagnostic_report">عرض التقرير</string>
     <string name="diagnostic_report_copy_hint">المس نص التقرير مطولاً لتحديده ونسخه. يمكنك استخدام ذلك إذا لم يتوفر تطبيق للمشاركة.</string>
     <string name="wheel_map_zoom">تكبير خريطة لوحة العدادات بأزرار المقود</string>
-    <string name="wheel_map_zoom_description">يبدّل زر BYD المخصّص أزرار الصوت بين التحكم في الصوت وتكبير خريطة لوحة العدادات ما دامت لوحة العدادات تعرض خريطة CarPlay. أثناء المكالمة تتحكم الأزرار دائمًا في الصوت. في بعض السيارات يرسل زر الصوت في الكونسول الأزرار نفسها، لذلك يكبّر الخريطة أيضًا أثناء وضع التكبير. يستخدم خدمة أزرار المقود في DiPlay؛ وتحتاج الملاحظة على لوحة العدادات إلى ADB.</string>
+    <string name="wheel_map_zoom_description">يبدّل الزر المخصّص في السيارة أزرار الصوت بين التحكم في الصوت وتكبير خريطة لوحة العدادات ما دامت لوحة العدادات تعرض خريطة CarPlay. أثناء المكالمة تتحكم الأزرار دائمًا في الصوت. في بعض السيارات يرسل زر الصوت في الكونسول الأزرار نفسها، لذلك يكبّر الخريطة أيضًا أثناء وضع التكبير. يستخدم خدمة أزرار المقود في DiPlay؛ وتحتاج الملاحظة على لوحة العدادات إلى ADB.</string>
     <string name="wheel_keys_service_on">خدمة أزرار المقود: مفعّلة</string>
     <string name="wheel_keys_service_starting">خدمة أزرار المقود: مسموح بها، جارٍ التشغيل…</string>
     <string name="wheel_keys_service_off">خدمة أزرار المقود: متوقفة</string>
@@ -593,7 +574,7 @@
     <string name="wheel_zoom_note_zoom">تكبير الخريطة</string>
     <string name="wheel_zoom_note_volume">الصوت</string>
     <string name="wheel_joystick">عصا تحكم CarPlay على المقود</string>
-    <string name="wheel_joystick_description">يشغّل زر الوسائط في BYD عصا تحكم لشاشة CarPlay الرئيسية ويوقفها، مثل مقبض التحكم الدوّار في السيارة. ما دامت مفعّلة، تحرّك عجلة الصوت أو ⏮ ⏭ التحديد، ويختار ⏯، ويعود الزر المخصّص إلى الخلف؛ ولا تتحكم هذه الأزرار حينها في الموسيقى أو الصوت. أثناء المكالمة تبقى الأزرار للمكالمة. في بعض السيارات يحرّك صوت لوحة التحكم الوسطى التحديد أيضًا.</string>
+    <string name="wheel_joystick_description">يشغّل زر الوسائط في السيارة عصا تحكم لشاشة CarPlay الرئيسية ويوقفها، مثل مقبض التحكم الدوّار في السيارة. ما دامت مفعّلة، تحرّك عجلة الصوت أو ⏮ ⏭ التحديد، ويختار ⏯، ويعود الزر المخصّص إلى الخلف؛ ولا تتحكم هذه الأزرار حينها في الموسيقى أو الصوت. أثناء المكالمة تبقى الأزرار للمكالمة. في بعض السيارات يحرّك صوت لوحة التحكم الوسطى التحديد أيضًا.</string>
     <string name="wheel_joystick_auto_off">عصا التحكم تتوقف تلقائيًا</string>
     <string name="wheel_joystick_auto_off_description">بعد 15 ثانية دون ضغط، وعند بدء مسار، تعود الأزرار إلى التحكم في الموسيقى والصوت.</string>
     <string name="wheel_joystick_on">عصا التحكم مفعّلة</string>
@@ -614,7 +595,6 @@
     <string name="cluster_song_on_change">الأغنية عند تغيّرها فقط</string>
     <string name="cluster_song_on_change_description">تظهر الأغنية الجديدة على لوحة العدادات لمدة 5 ثوانٍ، ثم تُفرَّغ البطاقة. الإيقاف المؤقت والاستئناف لا يعرضانها مرة أخرى.</string>
     <string name="carplay_calls_on_dashboard">مكالمات CarPlay على لوحة العدادات</string>
-    <string name="carplay_calls_on_dashboard_description">تظهر مكالمات CarPlay الواردة والجارية باسم المتصل على لوحة العدادات، مع مدة المكالمة على لوحة العدادات وشاشة العرض الأمامية، كما في تطبيق CarPlay الأصلي من BYD. تخفض السيارة أيضًا سرعة المروحة أثناء المكالمة. يُطبَّق فورًا. يتطلب ADB عبر الشبكة على الوحدة الرئيسية.</string>
     <string name="carplay_dock">شريط تطبيقات CarPlay</string>
     <string name="carplay_dock_automatic">تلقائي</string>
     <string name="carplay_dock_driver_side">جهة السائق</string>
@@ -628,7 +608,6 @@
     <string name="carplay_rotation_smoother">أكثر سلاسة (1920)</string>
     <string name="carplay_rotation_sharper">أكثر وضوحًا (حجم الشاشة)</string>
     <string name="carplay_call_controls_experimental">أزرار مكالمات CarPlay (تجريبي)</string>
-    <string name="carplay_call_controls_experimental_description">تفعيل أزرار المكالمات والصوت والتشغيل/الإيقاف المؤقت غير المتحقق منها في DiLink 3. لا يزال يلزم اختبارها في السيارة. معطلة افتراضيًا؛ بطاقات مكالمات لوحة العدادات لها إعداد منفصل.</string>
     <string name="side_panel">لوحة جانبية بجوار CarPlay (تجريبي)</string>
     <string name="side_panel_description">يمكن نقل CarPlay إلى ثلثي الشاشة بينما يعرض DiPlay لوحة في الباقي: على جانب الراكب في الشاشة الأفقية، وفي الأسفل في الشاشة العمودية (الساعة، والبطارية إذا تمت قراءتها). أظهرها وأخفها من قائمة الجلسة. يُطبَّق عند الاتصال التالي.</string>
     <string name="side_panel_show">اللوحة الجانبية</string>
@@ -644,12 +623,8 @@
     <string name="smooth_video">فيديو سلس (تجريبي)</string>
     <string name="smooth_video_description">يعرض كل إطار من الشاشة الرئيسية لـ CarPlay في الوقت الذي وسمه به iPhone مع تأخير قصير، بدلًا من عرضه فور فك ترميزه. يضبط التأخير نفسه تلقائيًا حتى يُفك ترميز معظم الإطارات في الوقت المناسب، وتُعرض الإطارات غير الجاهزة في وقتها رغم ذلك فورًا. قد يبدو التمرير أكثر انتظامًا، لكن الاستجابة للمس تتأخر. لا تنطبق إعدادات الصورة. يعيد توصيل CarPlay.</string>
     <string name="car_button_in_carplay">زر السيارة في CarPlay</string>
-    <string name="car_button_icon">الأيقونة</string>
-    <string name="car_button_icon_custom">أيقونة مخصصة</string>
     <string name="car_button_name">الاسم</string>
-    <string name="car_button_description">يعرض CarPlay هذه الأيقونة وهذا الاسم في قائمة التطبيقات. اضغط عليها للعودة إلى شاشة السيارة. تُطبَّق التغييرات عند اتصال CarPlay في المرة القادمة.</string>
-    <string name="car_button_saved_next_connection">تم الحفظ. سيعرض CarPlay الأيقونة والاسم الجديدين عند اتصاله في المرة القادمة.</string>
-    <string name="this_head_unit_has_no_image_picker">لا يحتوي نظام السيارة هذا على أداة لاختيار الصور.</string>
+    <string name="car_button_description">يعرض CarPlay هذه الأيقونة وهذا الاسم في قائمة التطبيقات. اضغط عليها للعودة إلى شاشة السيارة.</string>
     <string name="settings_interface_size">حجم الواجهة</string>
     <string name="settings_interface_size_auto">تلقائي</string>
     <string name="settings_interface_size_hint">حجم النص وعناصر التحكم في شاشات DiPlay. يكبّرها الوضع التلقائي على الشاشات الكبيرة منخفضة الكثافة. لا يتأثر CarPlay.</string>
@@ -662,27 +637,20 @@
     <string name="update_install">تثبيت %1$s</string>
     <string name="update_failed">فشل التحديث</string>
     <string name="setup_guide">دليل الإعداد</string>
-    <string name="setup_guide_description">اعرف إصدار DiLink، واختر طريقة الاتصال، وفعّل الميزات المناسبة لسيارتك.</string>
+    <string name="setup_guide_description">اختر طريقة الاتصال وفعّل الميزات المناسبة لسيارتك.</string>
     <string name="setup_step_of">الخطوة %1$d من %2$d</string>
     <string name="setup_skip">تخطي الإعداد</string>
     <string name="setup_next">التالي</string>
     <string name="setup_car_title">سيارتك</string>
     <string name="setup_car_detected">تم العثور على %1$s في إصدار النظام. غيّره إن كان خاطئاً.</string>
     <string name="setup_car_likely">يبدو أنه %1$s. يرجى التأكيد.</string>
-    <string name="setup_car_unknown">تعذّر على DiPlay قراءة إصدار DiLink. اختره أدناه، أو اترك «غير متأكد».</string>
-    <string name="setup_car_choose">إصدار DiLink</string>
     <string name="setup_car_evidence">إصدار النظام: %1$s</string>
-    <string name="dilink_3">DiLink 3</string>
-    <string name="dilink_4">DiLink 4</string>
-    <string name="dilink_5">DiLink 5</string>
-    <string name="dilink_not_sure">غير متأكد</string>
     <string name="setup_connection_title">الاتصال</string>
     <string name="setup_connection_description">اختر كيف يصل iPhone إلى السيارة. تعمل معظم السيارات بشكل أفضل مع نقطة اتصال السيارة على 5 GHz. لا يحتاج Wi-Fi Direct إلى نقطة اتصال لكنه قد ينتقل إلى 2.4 GHz.</string>
     <string name="setup_iphone_title">اقرن iPhone</string>
     <string name="setup_iphone_none">لم يتم اختيار iPhone بعد</string>
     <string name="setup_features_title">الميزات</string>
     <string name="setup_features_description">مقترحة لـ %1$s. فعّل ما تريده الآن؛ تبقى كل الخيارات في الإعدادات ويمكن تغييرها لاحقاً.</string>
-    <string name="setup_cluster_route_conflict">مسار لوحة العدادات الخاص بـ DiLink 4 مفعّل. في DiLink 3 يمنع ظهور خريطة CarPlay على لوحة العدادات.</string>
     <string name="setup_cluster_route_turn_off">إيقافه</string>
     <string name="setup_badge_tested">تم اختباره على بعض السيارات</string>
     <string name="setup_badge_experimental">تجريبي</string>

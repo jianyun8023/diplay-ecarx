@@ -5,7 +5,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Removes the low bass from call audio before it is played. Head units such as BYD's DiLink play a
+ * Removes the low bass from call audio before it is played. Some head units play a
  * third-party call as music, with the music equaliser's bass boost, so voices sound boomy. Speech
  * needs little below 200 Hz (phone calls stop at 300 Hz), so a fourth-order Butterworth high-pass
  * at [cutoffHz] keeps voices clear and also feeds less energy back into the microphone.

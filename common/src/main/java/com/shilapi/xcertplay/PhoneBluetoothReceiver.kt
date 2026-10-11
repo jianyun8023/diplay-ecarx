@@ -10,7 +10,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 
-/** Optional DiLink wake-up path for the iPhone the user selected in connection setup. */
+/** Optional wake-up path for the iPhone the user selected in connection setup. */
 class PhoneBluetoothReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != BluetoothDevice.ACTION_ACL_CONNECTED ||

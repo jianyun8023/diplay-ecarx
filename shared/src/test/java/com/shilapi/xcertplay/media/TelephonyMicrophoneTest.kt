@@ -50,7 +50,7 @@ class TelephonyMicrophoneTest {
         shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO, Manifest.permission.MODIFY_AUDIO_SETTINGS)
         manager = context.getSystemService(AudioManager::class.java)
         sink = AndroidMediaSink(context = context)
-        for (type in listOf(AudioEffect.EFFECT_TYPE_AEC, AudioEffect.EFFECT_TYPE_NS)) {
+        for (type in listOf(AudioEffect.EFFECT_TYPE_AEC, AudioEffect.EFFECT_TYPE_NS, AudioEffect.EFFECT_TYPE_AGC)) {
             ShadowAudioEffect.addEffect(AudioEffect.Descriptor(type.toString(), type.toString(),
                 "Pre Processing", "Test effect", "DiPlay"))
         }
@@ -80,7 +80,7 @@ class TelephonyMicrophoneTest {
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
         assertEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION, record.audioSource)
         val effects = ShadowAudioEffect.getAudioEffects()
-        assertEquals(microphoneLog(), setOf("AcousticEchoCanceler", "NoiseSuppressor"),
+        assertEquals(microphoneLog(), setOf("AcousticEchoCanceler", "NoiseSuppressor", "AutomaticGainControl"),
             effects.map { it.javaClass.simpleName }.toSet())
         effects.forEach {
             assertTrue(it.enabled)
@@ -136,7 +136,7 @@ class TelephonyMicrophoneTest {
         assertEquals(AudioRecord.RECORDSTATE_RECORDING, record.recordingState)
         assertEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION, record.audioSource)
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
-        assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+        assertEquals(3, ShadowAudioEffect.getAudioEffects().size)
         sink.onMicrophoneStopped(telephony)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
@@ -147,7 +147,7 @@ class TelephonyMicrophoneTest {
         awaitCapture()
         sink.onMicrophoneStopped(speechRecognition)
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
-        assertEquals(microphoneLog(), 2, ShadowAudioEffect.getAudioEffects().size)
+        assertEquals(microphoneLog(), 3, ShadowAudioEffect.getAudioEffects().size)
         sink.onMicrophoneStopped(telephony)
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
     }
@@ -165,7 +165,7 @@ class TelephonyMicrophoneTest {
         sink.onMicrophoneStarted(telephony, config("telephony"))
         awaitCapture()
         sink.onMicrophoneStarted(telephony, config("telephony"))
-        assertEquals(microphoneLog(), 2, ShadowAudioEffect.getAudioEffects().size)
+        assertEquals(microphoneLog(), 3, ShadowAudioEffect.getAudioEffects().size)
         sink.onMicrophoneStopped(telephony)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
     }
@@ -200,10 +200,9 @@ class TelephonyMicrophoneTest {
     fun echoCancelerCreationFailureStillAllowsNoiseSuppressionAndRecording() {
         sink.onMicrophoneStarted(telephony, config("telephony"))
         assertEquals(AudioRecord.RECORDSTATE_RECORDING, awaitCapture().recordingState)
-        assertEquals(microphoneLog(), 1, ShadowAudioEffect.getAudioEffects().size)
-        val effect = ShadowAudioEffect.getAudioEffects().single()
-        assertEquals("NoiseSuppressor", effect.javaClass.simpleName)
-        assertTrue(effect.enabled)
+        assertEquals(microphoneLog(), setOf("NoiseSuppressor", "AutomaticGainControl"),
+            ShadowAudioEffect.getAudioEffects().map { it.javaClass.simpleName }.toSet())
+        ShadowAudioEffect.getAudioEffects().forEach { assertTrue(it.enabled) }
     }
 
     @Test
@@ -228,7 +227,7 @@ class TelephonyMicrophoneTest {
     @Test fun defaultCallCaptureKeepsPlatformEffectsWithoutStartingExperimentalProcessing() {
         sink.onMicrophoneStarted(telephony, config("telephony"))
         assertEquals(AudioRecord.RECORDSTATE_RECORDING, awaitCapture().recordingState)
-        assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+        assertEquals(3, ShadowAudioEffect.getAudioEffects().size)
         assertFalse(microphoneLog().contains("echo canceller"))
     }
 
@@ -280,7 +279,7 @@ class TelephonyMicrophoneTest {
             assertTrue(uplink.start())
             awaitCapture()
             assertTrue(fake.closed)
-            assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+            assertEquals(3, ShadowAudioEffect.getAudioEffects().size)
             assertTrue(ShadowAudioEffect.getAudioEffects().all { it.enabled })
             assertTrue(microphoneLog().contains("platform AEC could not be disabled"))
             assertTrue(microphoneLog().contains("microphone echo canceller enabled=false"))
@@ -295,7 +294,7 @@ class TelephonyMicrophoneTest {
                 echoCancellerFactory = { _, _, _ -> created++; FakeCallEchoCanceller() })
             try {
                 assertTrue(uplink.start())
-                assertEquals(2, ShadowAudioEffect.getAudioEffects().size)
+                assertEquals(3, ShadowAudioEffect.getAudioEffects().size)
                 assertTrue(ShadowAudioEffect.getAudioEffects().all { it.enabled })
             } finally { uplink.close() }
         }

@@ -7,7 +7,7 @@ package com.shilapi.xcertplay.media
  * The delay follows the [percentile] of the last [window] such needs plus [marginNanos], so about that
  * share of frames is ready before its display time; the rest are shown at once. The margin is a refresh
  * plus 4 ms because SurfaceFlinger takes a buffer about one refresh before the vsync it is shown at: on
- * my Tang, frames released less than about 16 ms before that vsync missed it. It starts at
+ * this head unit, frames released less than about 16 ms before that vsync missed it. It starts at
  * [initialNanos] and holds it until [refreshEvery] needs are known. A changed goal is approached by at
  * most [risePerFrame] or [fallPerFrame] per frame, so a few milliseconds move a frame by at most one
  * refresh instead of shifting every later frame at once. It rises faster than it falls: frames that miss

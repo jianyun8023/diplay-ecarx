@@ -17,8 +17,8 @@ class ManualHotspotValidationTest {
     @Test
     fun `rejects what the iPhone cannot join`() {
         assertNotNull(ManualHotspotValidation.validate(" ", "12345678"))
-        assertNotNull(ManualHotspotValidation.validate("BYD", "short"))
+        assertNotNull(ManualHotspotValidation.validate("TestCar", "short"))
         assertNotNull(ManualHotspotValidation.validate("x".repeat(33), "12345678"))
-        assertNotNull(ManualHotspotValidation.validate("BYD", "a".repeat(64)))
+        assertNotNull(ManualHotspotValidation.validate("TestCar", "a".repeat(64)))
     }
 }

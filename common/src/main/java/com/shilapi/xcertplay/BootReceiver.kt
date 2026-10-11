@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
 
 /** Starts the CarPlay host after boot when the user has enabled the startup option. */
 class BootReceiver : BroadcastReceiver() {
@@ -11,6 +12,9 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
         StartupDiagnosticSnapshot.received(context, launchEnabled)
+        // The profile policy outlives a killed process, so a power cycle is the one moment that is
+        // guaranteed to follow an unclean exit. Release it before anything else can look at it.
+        CarBluetoothProfileGuard.recoverIfStale(context)
         if (!launchEnabled) return
 
         val launch = Intent(context, DiPlayActivity::class.java).apply {
