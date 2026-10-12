@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
+import kotlin.math.pow
 
 /** AudioTrack's attributes getter is only available from Android 10. */
 internal fun audioTrackAttributesForFocus(track: AudioTrack, configured: AudioAttributes): AudioAttributes =
@@ -114,7 +115,7 @@ internal class AudioFocusCoordinator(
     @Synchronized
     fun setDucked(ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {
         if (closed || active.isEmpty()) return
-        val target = if (ducked) (volume?.coerceIn(0f, 1f) ?: DUCKED_VOLUME) else FULL_VOLUME
+        val target = if (ducked) duckedGain(volume) else FULL_VOLUME
         val from = mediaVolume
         rampToken += 1
         val token = rampToken
@@ -130,6 +131,22 @@ internal class AudioFocusCoordinator(
             return
         }
         rampHandler.post(RampStep(token, from, target, steps))
+    }
+
+    /**
+     * The level the iPhone asked to duck to, as a linear gain.
+     *
+     * The command carries the level in dBFS: a navigation prompt on this iPhone sends
+     * `duckAudio volume=-13.9794`, and `10^(-13.9794/20)` is 0.2 — the exact number this class used
+     * to hardcode as [DUCKED_VOLUME], so the two agree and dBFS is what iOS means. Reading it as a
+     * linear gain instead (the first attempt) clamped it to 0 and silenced the music rather than
+     * ducking it. A zero or positive value is a plain linear gain and is taken as-is; `unduckAudio`
+     * sends 0, which lands on [FULL_VOLUME] either way.
+     */
+    private fun duckedGain(volume: Float?): Float {
+        val raw = volume ?: return DUCKED_VOLUME
+        val linear = if (raw <= 0f) 10f.pow(raw / 20f) else raw
+        return linear.coerceIn(0f, 1f)
     }
 
     /**

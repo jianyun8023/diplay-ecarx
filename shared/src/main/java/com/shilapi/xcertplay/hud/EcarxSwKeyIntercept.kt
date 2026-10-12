@@ -38,6 +38,14 @@ object EcarxSwKeyIntercept {
         0x77,    // 119 ?
     )
 
+    /**
+     * [oneOsKey] by position. A bare key code says nothing in a log line, and the whole point of
+     * printing the ROM's answer is to see *which* keys it kept for itself.
+     */
+    private val oneOsName: Array<String> = arrayOf(
+        "prev", "next", "play", "voice", "k200164", "k200400", "vol+", "vol-", "k119",
+    )
+
     /** A single wheel key press (or release) surfaced by the platform callback. */
     interface Listener {
         /** A wheel key went down; [keyCode] is in the ECARX 200000-offset space. Return true to consume. */
@@ -96,14 +104,29 @@ object EcarxSwKeyIntercept {
             runCatching { release(input, callback) }
         }
 
-        /** One log line: which key set went out and what the ROM answered. */
+        /** One log line: which key set went out and what the ROM answered, each key named. */
         fun describe(): String {
-            val answer = refused?.let { refusedKeys ->
-                if (refusedKeys.isEmpty()) "accepted=all"
-                else "refused=" + refusedKeys.joinToString("|")
-            } ?: "accepted=all"
+            val refusedKeys = refused
+            if (refusedKeys == null || refusedKeys.isEmpty()) return "keys=${oneOsKey.size} accepted=all"
+            val answer = StringBuilder("refused=")
+            var named = 0
+            for (key in refusedKeys) {
+                if (named > 0) answer.append('|')
+                answer.append(nameFor(key))
+                named += 1
+            }
             return "keys=${oneOsKey.size} $answer"
         }
+    }
+
+    /** The name of [keyCode] when it is one of [oneOsKey]; the number itself otherwise. */
+    private fun nameFor(keyCode: Int): String {
+        var index = 0
+        while (index < oneOsKey.size) {
+            if (oneOsKey[index] == keyCode) return oneOsName[index]
+            index += 1
+        }
+        return keyCode.toString()
     }
 
     // ---------------------------------------------------------------- plumbing

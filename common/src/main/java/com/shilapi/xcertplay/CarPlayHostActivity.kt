@@ -936,13 +936,46 @@ class CarPlayHostActivity : ComponentActivity() {
                 handleEcarxWheelKey(android.view.KeyEvent.KEYCODE_VOICE_ASSIST + com.shilapi.xcertplay.airplay.CarPlayMediaButton.ECARX_OFFSET)
             }
         }
-        // 3. Private call-key broadcast (ecarx.intent.action.ECARX_KEY_RCALL_EVENT).
+        // 3. Who the head unit hands the voice key to, so a CarPlay-time suppression can name it.
+        logAssistantCandidates()
+        // 4. Private call-key broadcast (ecarx.intent.action.ECARX_KEY_RCALL_EVENT).
         ecarxCallKeyReceiver = com.shilapi.xcertplay.hud.EcarxKeyBroadcasts.registerCall(this) {
             appendLog("SWKey-CH[broadcast-call] t=${System.currentTimeMillis()} session=${activeAirPlaySession != null}")
             runOnUiThread {
                 handleEcarxWheelKey(com.shilapi.xcertplay.airplay.CarPlayMediaButton.ECARX_ANSWER_8003)
             }
         }
+    }
+
+    /**
+     * Records who the head unit would hand the assistant key to, without changing anything.
+     *
+     * The ROM answers the registration with `refused=…|200231|…`: it will not give DiPlay the voice
+     * key to itself, so the factory assistant answers the same press and the owner hears "the car
+     * assistant first, then Siri". Whatever this prints is the thing a CarPlay-time suppression
+     * would have to name, and the secure setting says whether the ROM routes the key through the
+     * standard assistant slot at all — which decides whether there is anything to switch off.
+     */
+    private fun logAssistantCandidates() {
+        val assistant = try {
+            android.provider.Settings.Secure.getString(contentResolver, "assistant")
+        } catch (error: RuntimeException) {
+            "unreadable(" + error.javaClass.simpleName + ")"
+        }
+        val handlers = StringBuilder()
+        var count = 0
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_ASSIST)
+                .addCategory(android.content.Intent.CATEGORY_DEFAULT)
+            for (info in packageManager.queryIntentActivities(intent, 0)) {
+                if (count > 0) handlers.append('|')
+                handlers.append(info.activityInfo.packageName).append('/').append(info.activityInfo.name)
+                count += 1
+            }
+        } catch (error: RuntimeException) {
+            appendLog("Assist: handler query failed " + error.javaClass.simpleName)
+        }
+        appendLog("Assist: default=$assistant handlers=$count [$handlers]")
     }
 
     private fun unregisterEcarxSteeringWheel() {
