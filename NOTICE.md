@@ -77,7 +77,7 @@ Both are licensed under GNU GPL-3.0.
 
 This is **not** an official release of either upstream project, and it implies **no affiliation
 with or endorsement by** their authors. The source repository contains **no MFi accessory
-identity and no Android signing key**; the accessory identity bundled in prebuilt APKs is a
+identity and no Android signing key**; any accessory identity bundled into a prebuilt APK is a
 certificate/key pair recovered from public Carlinkit C2Air firmware as described upstream, and
 **its private key is extractable by anyone**. If you redistribute this repository or a modified
 version of it, **keep this file** and the notices listed in `docs/THIRD_PARTY_NOTICES.md`.
