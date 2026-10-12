@@ -914,6 +914,9 @@ class CarPlayHostActivity : ComponentActivity() {
         val context = applicationContext
         // 1. ROM key interception (the reference app's media.oneOsKey + Input.requestKeysInterception).
         if (com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)) {
+            // The ROM's interception API is per-process and a registration outlives the activity
+            // that made it, so a stale one from a previous instance would answer the same press too.
+            unregisterEcarxSteeringWheel()
             ecarxSwKeyHandle = com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.register(context, object :
                 com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.Listener {
                 override fun onKeyPressed(keyCode: Int): Boolean {
@@ -923,8 +926,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     return true
                 }
                 override fun onKeyReleased(keyCode: Int): Boolean = false
-            })
-            appendLog("SWKey: interception ${if (ecarxSwKeyHandle != null) "registered" else "unavailable"}")
+            }, "carplay")
+            appendLog("SWKey: interception ${ecarxSwKeyHandle?.describe() ?: "unavailable"}")
         }
         // 2. Private voice-key broadcast (ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT).
         ecarxVoiceKeyReceiver = com.shilapi.xcertplay.hud.EcarxKeyBroadcasts.registerVoice(this) {
@@ -3474,8 +3477,11 @@ class CarPlayHostActivity : ComponentActivity() {
                         appendLog("Non-active AirPlay connection ended; keeping the live session")
                         return@runOnUiThread
                     }
-                    if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
+                    // Handed back before the generation checks below, because a restart makes them
+                    // fail on purpose — and a restart is exactly when adapter mode must return the
+                    // head unit's Bluetooth, or nothing turns it back on until the app is killed.
                     restoreCarBluetooth()
+                    if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
                     CarPlayBackgroundSession.active = false
@@ -4055,6 +4061,10 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
+        // Wireless CarPlay's handshake needs the head unit's own adapter. Adapter mode may have
+        // switched it off moments ago and the session-end restore runs on the guard's own thread,
+        // so ask for it here rather than letting this reconnect be the one that fails.
+        if (wirelessEnabled) CarBluetoothProfileGuard.ensureAdapterOn(this)?.let { appendLog(it) }
         startupRetryBudget.disconnected()
         startupRetryButton?.visibility = View.GONE
         appendLog(reason)

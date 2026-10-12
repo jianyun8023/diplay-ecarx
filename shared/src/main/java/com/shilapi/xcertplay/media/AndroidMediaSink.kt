@@ -51,6 +51,8 @@ internal class AudioFocusCoordinator(
     private var mediaVolume = FULL_VOLUME
     private var closed = false
     private var focusGeneration = 0L
+    private val rampHandler = Handler(Looper.getMainLooper())
+    private var rampToken = 0
     private var currentListener = listenerFor(focusGeneration)
     internal val listener: AudioManager.OnAudioFocusChangeListener get() = currentListener
 
@@ -110,9 +112,50 @@ internal class AudioFocusCoordinator(
      * already finished. This is the synchronous path; the focus listener above stays as a backstop.
      */
     @Synchronized
-    fun setDucked(ducked: Boolean) {
+    fun setDucked(ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {
         if (closed || active.isEmpty()) return
-        setMediaVolume(if (ducked) DUCKED_VOLUME else FULL_VOLUME)
+        val target = if (ducked) (volume?.coerceIn(0f, 1f) ?: DUCKED_VOLUME) else FULL_VOLUME
+        val from = mediaVolume
+        rampToken += 1
+        val token = rampToken
+        // The iPhone states the fade it wants; without one the gain is stepped as before, because
+        // "ducked fast" is wanted and a fade nobody asked for only makes the prompt feel late.
+        val steps = ((durationMs ?: 0) / RAMP_STEP_MILLIS).coerceIn(0, MAX_RAMP_STEPS)
+        report(
+            "Audio: duck=$ducked requestedMs=${durationMs ?: -1} requestedVolume=${volume ?: -1f} " +
+                "from=$from to=$target steps=$steps",
+        )
+        if (steps <= 1 || from == target) {
+            setMediaVolume(target)
+            return
+        }
+        rampHandler.post(RampStep(token, from, target, steps))
+    }
+
+    /**
+     * One scheduled gain step. [token] voids a ramp that a newer command has already superseded, so
+     * the gain only ever travels from wherever it currently is towards the newest target.
+     */
+    private inner class RampStep(
+        private val token: Int,
+        private val from: Float,
+        private val target: Float,
+        private val steps: Int,
+    ) : Runnable {
+        private var index = 1
+
+        override fun run() {
+            synchronized(this@AudioFocusCoordinator) {
+                if (closed || token != rampToken) return
+                index += 1
+                if (index >= steps) {
+                    setMediaVolume(target)
+                    return
+                }
+                setMediaVolume(from + (target - from) * index / steps)
+                rampHandler.postDelayed(this, RAMP_STEP_MILLIS.toLong())
+            }
+        }
     }
 
     @Synchronized
@@ -182,6 +225,9 @@ internal class AudioFocusCoordinator(
         const val TAG = "DiPlay-AudioFocus"
         const val FULL_VOLUME = 1f
         const val DUCKED_VOLUME = 0.2f
+        /** A requested fade steps every 25 ms; anything past 1 s is not worth riding out. */
+        const val RAMP_STEP_MILLIS = 25
+        const val MAX_RAMP_STEPS = 40
     }
 }
 
@@ -242,8 +288,8 @@ class AndroidMediaSink(
      * Direct duck/un-duck for a navigation prompt, driven by the iPhone's `duckAudio`/`unduckAudio`
      * command rather than the lagging system focus callback (see [AudioFocusCoordinator.setDucked]).
      */
-    override fun setMediaDucked(ducked: Boolean) {
-        audioFocusCoordinator.setDucked(ducked)
+    override fun setMediaDucked(ducked: Boolean, durationMs: Int?, volume: Float?) {
+        audioFocusCoordinator.setDucked(ducked, durationMs, volume)
     }
 
     private val screenStateLock = Any()

@@ -33,7 +33,7 @@ interface MediaSink {
     fun onMicrophoneStopped(id: AudioStreamId) {}
     fun onIapMessage(bytes: ByteArray) {}
     /** The iPhone asks the sink to duck (or un-duck) media for a navigation prompt. */
-    fun setMediaDucked(ducked: Boolean) {}
+    fun setMediaDucked(ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {}
 }
 
 /**
@@ -513,8 +513,8 @@ class CarPlayMediaEngine(
         audioCaptures.clear()
     }
 
-    override fun onDuckAudio(session: AirPlaySession, ducked: Boolean) {
-        sink.setMediaDucked(ducked)
+    override fun onDuckAudio(session: AirPlaySession, ducked: Boolean, durationMs: Int?, volume: Float?) {
+        sink.setMediaDucked(ducked, durationMs, volume)
     }
 
     /** Removes ownership before a close that may block on delivery or invoke the sink. */

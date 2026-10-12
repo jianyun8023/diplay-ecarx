@@ -47,8 +47,14 @@ object EcarxSwKeyIntercept {
 
     data class Result(val ok: Boolean, val reason: String)
 
-    /** Reflectively registers the nine wheel keys; the returned handle must be released on teardown. */
-    fun register(context: Context, listener: Listener): Handle? {
+    /**
+     * Reflectively registers the nine wheel keys; the returned handle must be released on teardown.
+     *
+     * [label] only names the caller in diagnostics: the ROM's key-interception API is per-process,
+     * so two live registrations (the settings screen and the CarPlay screen) can both answer one
+     * press, and the log has to say which one did.
+     */
+    fun register(context: Context, listener: Listener, label: String = "app"): Handle? {
         val input = createInput(context) ?: return null
         val callbackClass = callbackClass() ?: return null
         val proxy = Proxy.newProxyInstance(
@@ -56,21 +62,24 @@ object EcarxSwKeyIntercept {
             arrayOf(callbackClass),
             CallbackHandler(listener),
         )
-        runCatching {
+        val refused = runCatching {
             lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
-                ?.invoke(input, oneOsKey, proxy)
+                ?.invoke(input, oneOsKey, proxy) as? IntArray
         }.getOrElse {
             Log.i(TAG, "requestKeysInterception failed: ${describe(it)}")
             return null
         }
-        // The reference app treats a non-throwing call as accepted; the returned int[] (null on success) holds
-        // the keys the ROM refused, which is not acted on here.
-        return Handle(input, proxy, callbackClass) { inputObj, callbackObj ->
+        // The reference app treats a non-throwing call as accepted, but the returned int[] is the
+        // ROM's actual answer: it lists the keys it refused, and a refused voice key is exactly what
+        // leaves the factory HMI still answering the same press. Keep it, do not drop it on the floor.
+        val handle = Handle(input, proxy, callbackClass, label, refused) { inputObj, callbackObj ->
             runCatching {
                 lookup(inputObj, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
                     ?.invoke(inputObj, oneOsKey, callbackObj)
             }.isSuccess
         }
+        Log.i(TAG, "interception $label ${handle.describe()}")
+        return handle
     }
 
     /** A held interception registration; [release] hands the keys back to the platform. */
@@ -78,10 +87,22 @@ object EcarxSwKeyIntercept {
         private val input: Any,
         private val callback: Any,
         private val callbackClass: Class<*>,
+        val label: String,
+        /** The keys the ROM refused to intercept, or null when it accepted the whole set. */
+        val refused: IntArray?,
         private val release: (Any, Any) -> Boolean,
     ) {
         fun release() {
             runCatching { release(input, callback) }
+        }
+
+        /** One log line: which key set went out and what the ROM answered. */
+        fun describe(): String {
+            val answer = refused?.let { refusedKeys ->
+                if (refusedKeys.isEmpty()) "accepted=all"
+                else "refused=" + refusedKeys.joinToString("|")
+            } ?: "accepted=all"
+            return "keys=${oneOsKey.size} $answer"
         }
     }
 

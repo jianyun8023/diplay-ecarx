@@ -176,16 +176,39 @@ public object CarBluetoothProfileGuard {
     /**
      * A previous process can die while the profiles are forbidden, and the policy persists in the
      * head unit's Bluetooth configuration. Startup calls this once so the next run puts them back.
+     *
+     * The applied flag is read before the once-per-process gate: a run that starts with nothing to
+     * undo must not consume it, or a state that this process itself applies later can never be
+     * recovered without a restart. A live session still owns the state and restores it on the way
+     * out, so it is left alone.
      */
     fun recoverIfStale(context: Context, log: (String) -> Unit = logcat) {
         val app = context.applicationContext
+        if (!applied(app)) return
         synchronized(lock) {
+            if (session != null) return
             if (recovered) return
             recovered = true
         }
-        if (!applied(app)) return
-        log("BT guard: a previous run left the head unit's Bluetooth profiles forbidden; restoring")
+        log("BT guard: a previous run left the head unit's Bluetooth alone; restoring")
         restore(app, log)
+    }
+
+    /**
+     * Wireless CarPlay's iAP2 handshake and its reconnects run over an RFCOMM channel of the head
+     * unit's own adapter, so a reconnect that starts while adapter mode has it switched off cannot
+     * succeed — that is the reported "the first reconnect fails, the second one works" pattern.
+     * Called before a wireless connect (never for USB) so the adapter is asked for again instead of
+     * relying on the session-end restore having won the race.
+     *
+     * @return the line to log, or null when the adapter was already on and nothing was done.
+     */
+    fun ensureAdapterOn(context: Context): String? {
+        val app = context.applicationContext
+        val adapter = adapter(app) ?: return "BT guard connect: no Bluetooth adapter on this head unit"
+        if (adapter.isEnabled) return null
+        val accepted = runCatching { adapter.enable() }.getOrDefault(false)
+        return "BT guard connect: head unit Bluetooth was off; switching it back on accepted=$accepted"
     }
 
     /** A switch moved. Re-applies inside a live session, undoes it when both switches are off. */
@@ -364,8 +387,14 @@ public object CarBluetoothProfileGuard {
             val accepted = try {
                 adapter.isEnabled || adapter.enable()
             } catch (error: RuntimeException) {
-                log("BT guard restore: switching Bluetooth back on failed ${error.javaClass.simpleName}")
-                clearApplied(context)
+                // Keep the applied flag: wireless CarPlay cannot reconnect without this adapter, so
+                // forgetting the state here is what makes the head unit's Bluetooth stay off until
+                // the app is killed and restarted.
+                log("BT guard restore: switching Bluetooth back on failed ${error.javaClass.simpleName}; keeping the state to retry")
+                return
+            }
+            if (!accepted) {
+                log("BT guard restore: the ROM refused to switch Bluetooth back on; keeping the state to retry")
                 return
             }
             clearApplied(context)
@@ -509,26 +538,46 @@ public object CarBluetoothProfileGuard {
         val interfaceName = if (profileId == A2DP) "IBluetoothA2dp" else "IBluetoothHeadset"
         return try {
             val manager = Class.forName("android.os.ServiceManager")
-            val names = ((manager.getMethod("listServices").invoke(null) as? Array<*>)
-                ?.mapNotNull { it as? String } ?: emptyList()) +
-                listOf("bluetooth_a2dp", "bluetooth_headset")
-            val wanted = names.distinct().filter { name ->
-                if (profileId == A2DP) {
-                    name.contains("a2dp")
-                } else {
-                    name.contains("headset") || name.contains("handsfree") || name.contains("hfp")
+            val listed = ArrayList<String>()
+            for (entry in (manager.getMethod("listServices").invoke(null) as? Array<*>) ?: emptyArray<Any>()) {
+                if (entry is String) listed.add(entry)
+            }
+            // Say what the ROM actually registers. The earlier build logged only the names it had
+            // already decided to look for, so a renamed service was indistinguishable from an absent
+            // one; both profiles are resolved from this same list, so one line answers both.
+            val related = ArrayList<String>()
+            for (name in listed) {
+                val lower = name.lowercase()
+                if (lower.contains("bluetooth") || lower.contains("a2dp") || lower.contains("headset") ||
+                    lower.contains("handsfree") || lower.contains("hfp") || lower.contains("bt_")) {
+                    related.add(name)
                 }
             }
+            log("BT guard link: $label ROM services=" + related.size + " [" + related.joinToString("|") + "]")
+            val wanted = ArrayList<String>()
+            for (name in related) {
+                val lower = name.lowercase()
+                val match = if (profileId == A2DP) {
+                    lower.contains("a2dp")
+                } else {
+                    lower.contains("headset") || lower.contains("handsfree") || lower.contains("hfp")
+                }
+                if (match && !wanted.contains(name)) wanted.add(name)
+            }
+            // The AOSP name as a backstop for a ROM that hides the profile services from listServices.
+            val backstop = if (profileId == A2DP) "bluetooth_a2dp" else "bluetooth_headset"
+            if (!wanted.contains(backstop)) wanted.add(backstop)
             val getService = manager.getMethod("getService", String::class.java)
             val stub = Class.forName("android.bluetooth.$interfaceName\$Stub")
             val asInterface = stub.getMethod("asInterface", android.os.IBinder::class.java)
-            val found = wanted.firstNotNullOfOrNull { name ->
-                val binder = getService.invoke(null, name) as? android.os.IBinder
-                    ?: return@firstNotNullOfOrNull null
-                runCatching { asInterface.invoke(null, binder) }.getOrNull()
+            var found: Any? = null
+            for (name in wanted) {
+                val binder = getService.invoke(null, name) as? android.os.IBinder ?: continue
+                found = runCatching { asInterface.invoke(null, binder) }.getOrNull() ?: continue
+                break
             }
             if (found == null) {
-                log("BT guard link: no binder for $label tried=${wanted.joinToString("|")}")
+                log("BT guard link: no binder for " + label + " tried=" + wanted.joinToString("|"))
             }
             found
         } catch (error: Throwable) {

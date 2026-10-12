@@ -57,8 +57,14 @@ interface AirPlayMediaHandler {
     fun onSessionClosed(session: AirPlaySession) {}
     fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {}
     fun onSetupResponseSent(session: AirPlaySession) {}
-    /** The iPhone's `duckAudio` (true) / `unduckAudio` (false) command for a navigation prompt. */
-    fun onDuckAudio(session: AirPlaySession, ducked: Boolean) {}
+    /**
+     * The iPhone's `duckAudio` (true) / `unduckAudio` (false) command for a navigation prompt.
+     *
+     * [durationMs] and [volume] are the iPhone's own parameters for the command; each is null when
+     * the command omits it. They are carried through rather than discarded because the prompt's
+     * intended depth and fade length are the iPhone's decision, not this app's.
+     */
+    fun onDuckAudio(session: AirPlaySession, ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {}
 }
 
 /**

@@ -360,15 +360,24 @@ class CarPlayController(
         }
 
         override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {
-            debugLog(
-                "AirPlay command type=$type params=${params.keys.sorted().joinToString(",")}",
-            )
+            // Values, not just keys. `duckAudio` carries the iPhone's own durationMs/volume, and
+            // without them a duck of the wrong depth cannot be told apart from one fired at the
+            // wrong moment. Iterated by hand so no lambda (and so no new class) is introduced.
+            val rendered = StringBuilder()
+            for ((key, value) in params) {
+                if (rendered.isNotEmpty()) rendered.append(',')
+                rendered.append(key).append('=').append(value)
+            }
+            debugLog("AirPlay command type=$type params=$rendered")
+            // The parameters arrive from a plist, so they may be integer or real.
+            val duckDurationMs = (params["durationMs"] as? Number)?.toInt()
+            val duckVolume = (params["volume"] as? Number)?.toFloat()
             // The iPhone sends duckAudio/unduckAudio right before/after a navigation prompt. Acting
             // on them directly avoids the 2-3 s lag of Android's focus callback on 820A (the prompt
             // finished before the media ducked); the focus callback remains as a backstop.
             when (type) {
-                "duckAudio" -> media.onDuckAudio(session, true)
-                "unduckAudio" -> media.onDuckAudio(session, false)
+                "duckAudio" -> media.onDuckAudio(session, true, duckDurationMs, duckVolume)
+                "unduckAudio" -> media.onDuckAudio(session, false, duckDurationMs, duckVolume)
             }
             if (
                 config.transport == CarPlayTransport.WIRELESS &&

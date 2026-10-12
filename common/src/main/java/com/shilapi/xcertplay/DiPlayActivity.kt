@@ -251,7 +251,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         languagePreferenceAtCreate = AppLocale.preference(this)
         NavigationOutputs.onAppOpened(applicationContext)
         WheelKeyService.restoreIfNeeded(this)
-        registerEcarxSwKeyIntercept()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= 28) {
             window.attributes = window.attributes.apply {
@@ -415,8 +414,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         cancelUsbPermissionSetup()
         cancelKeyLearning()
         cancelEcarxSwLearning()
-        ecarxSwKeyHandle?.release()
-        ecarxSwKeyHandle = null
         super.onDestroy()
     }
 
@@ -2454,6 +2451,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         ecarxSwLearning = action
         ecarxSwLearningDone = done
         ecarxSwLearningCancelled = cancelled
+        armEcarxSwKeyIntercept()
         handler.postDelayed(endEcarxSwLearning, WheelKeyService.LEARNING_TIMEOUT_MILLIS)
         return true
     }
@@ -2621,6 +2619,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         ecarxSwLearning = null
         ecarxSwLearningDone = null
         ecarxSwLearningCancelled = null
+        disarmEcarxSwKeyIntercept()
         cancelled?.invoke()
         applyPendingAppearanceRender()
     }
@@ -2633,6 +2632,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         ecarxSwLearning = null
         ecarxSwLearningDone = null
         ecarxSwLearningCancelled = null
+        disarmEcarxSwKeyIntercept()
         com.shilapi.xcertplay.airplay.EcarxSwKey.assign(
             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), action, keyCode)
         Log.i(WheelKeyService.TAG, "ECARX swKey ${action.prefKey} = $keyCode")
@@ -2643,8 +2643,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
      * Registers the ECARX wheel-key interception so the learning UI can capture the 200000-offset
      * wheel codes, which a normal `dispatchKeyEvent` never receives. Without this the "方控学习后
      * 按键无反应" symptom occurs: the wheel reports private codes the standard key path ignores.
+     *
+     * Held only while a key is being learnt. The ROM's interception API is per-process and every
+     * live registration answers the same press, so a permanent one here would sit next to the
+     * CarPlay screen's own registration; a press this screen does not consume can then fall through
+     * to the factory voice assistant — the double answer reported from the car.
      */
-    private fun registerEcarxSwKeyIntercept() {
+    private fun armEcarxSwKeyIntercept() {
+        if (ecarxSwKeyHandle != null) return
         if (!com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)) return
         ecarxSwKeyHandle = com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.register(applicationContext, object :
             com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.Listener {
@@ -2656,7 +2662,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 return false
             }
             override fun onKeyReleased(keyCode: Int): Boolean = false
-        })
+        }, "settings")
+    }
+
+    /** Hands the wheel keys back once nothing is being learnt; see [armEcarxSwKeyIntercept]. */
+    private fun disarmEcarxSwKeyIntercept() {
+        ecarxSwKeyHandle?.release()
+        ecarxSwKeyHandle = null
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
