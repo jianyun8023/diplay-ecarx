@@ -24,9 +24,10 @@
 - **修改日期**：起始于 **2026-10-09**（首个本地提交），其后持续修改；准确日期见 git 提交历史。
 - **修改内容**：完整记录见 [`CHANGELOG.md`](CHANGELOG.md) 与 git 历史，概要如下——
   - 移除上游面向 BYD / DiLink 的专用内容（不影响 ECARX 路径）；
-  - 新增面向 ECARX 车机的适配与修复，按序标记为 `fix1` … `fix9`，含：ECARX DIM 仪表投送、
-    车机权限声明与参数修正、RTP 时钟探针与 Opus 编码器支持、通话回声参考、
-    音频焦点与路由、**蓝牙 profile 级让出（保留 iAP2 握手）** 等；
+  - 新增面向 ECARX 车机的适配与修复，按序标记为 `fix1` … `fix10`，含：ECARX DIM 仪表投送、
+    车机权限声明与参数修正、RTP 时钟探针与 Opus 编码器支持、通话回声参考、音频焦点与路由、
+    **蓝牙 profile 级让出（保留 iAP2 握手）**、**车机品牌化**（品牌名统一为 `Lynk&Co`，并移除设置里的
+    「自定义车机图标 / 品牌名」入口，改为只读卡片）等；
   - 原生库改为预编译 `.so` 随仓库提供，**构建不再需要 NDK**；
   - 平台签名改用 AOSP 默认 platform 密钥（本车机固件为 `test-keys`，厂商未更换该密钥），
     以取得清单中 `signature` 级权限——见 [`BUILD.md`](BUILD.md)。
@@ -70,10 +71,11 @@ Both are licensed under GNU GPL-3.0.
 - **Modifier**: the maintainer of this repository (see the git commit metadata).
 - **Date of modification**: from **2026-10-09** onward; see the git history for exact dates.
 - **Nature of the changes**: upstream BYD/DiLink-specific content removed; ECARX head-unit
-  adaptation and fixes added (marked `fix1`…`fix9`); native libraries shipped prebuilt so the
-  NDK is no longer required; release signing switched to the AOSP default platform key so that
-  `signature`-level permissions are granted on this head unit. Details in `CHANGELOG.md`,
-  `README.md` and `BUILD.md`.
+  adaptation and fixes added (marked `fix1`…`fix10`), including head-unit branding -- the
+  upstream custom car-icon/name setting was removed in favour of a read-only card; native
+  libraries shipped prebuilt so the NDK is no longer required; release signing switched to the
+  AOSP default platform key so that `signature`-level permissions are granted on this head unit.
+  Details in `CHANGELOG.md`, `README.md` and `BUILD.md`.
 
 This is **not** an official release of either upstream project, and it implies **no affiliation
 with or endorsement by** their authors. The source repository contains **no MFi accessory
