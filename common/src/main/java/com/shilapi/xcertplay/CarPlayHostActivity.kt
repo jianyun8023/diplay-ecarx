@@ -427,6 +427,47 @@ class CarPlayHostActivity : ComponentActivity() {
         applyDisplaySize(size)
     }
 
+    /**
+     * Nudges the iPhone once the head unit's Bluetooth is out of the way.
+     *
+     * iOS restores whatever it was playing within about a second of CarPlay coming up, but adapter
+     * mode is still counting down its delay at that point, so iOS hands the audio to the Bluetooth
+     * link that is still up — the reported "it starts playing and then stops". The adapter is off
+     * for good a moment later, by which time iOS has nothing playing at all, and the owner hears
+     * silence until they press play by hand. An explicit Play on the CarPlay link closes that gap;
+     * it is a no-op when iOS already resumed on its own, which is the other possible ending.
+     *
+     * It checks the adapter rather than trusting the clock, because `disable()` only *asks*: if the
+     * radio is still on, a Play now would simply be handed back to the same Bluetooth link.
+     */
+    private val autoPlayAfterYield = object : Runnable {
+        private var checks = 0
+
+        override fun run() {
+            if (shuttingDown.get() || activeAirPlaySession == null) return
+            if (headUnitBluetoothOn()) {
+                checks += 1
+                if (checks <= AUTO_PLAY_MAX_CHECKS) {
+                    mainHandler.postDelayed(this, AUTO_PLAY_RETRY_MILLIS)
+                    appendLog("AutoPlay: head unit Bluetooth still on; check $checks of $AUTO_PLAY_MAX_CHECKS")
+                    return
+                }
+                appendLog("AutoPlay: head unit Bluetooth never went off; no Play sent")
+                return
+            }
+            val sent = controller?.sendMediaButton(CarPlayMediaButton.PLAY) == true
+            appendLog("AutoPlay: Play sent after the Bluetooth yield sent=$sent")
+        }
+    }
+
+    /** Whether the head unit's own radio is still on, read fresh because it turns off asynchronously. */
+    @Suppress("DEPRECATION")
+    private fun headUnitBluetoothOn(): Boolean = try {
+        android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.isEnabled == true
+    } catch (error: RuntimeException) {
+        false
+    }
+
     private val textureListener = object : TextureView.SurfaceTextureListener {
         override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
             val existing = currentSurface
@@ -1116,6 +1157,7 @@ class CarPlayHostActivity : ComponentActivity() {
         fallbackVideoView?.holder?.removeCallback(fallbackSurfaceCallback)
         AirPlayPersistence.overlaySettingsListener = null
         mainHandler.removeCallbacks(hideIdleCenterMap)
+        mainHandler.removeCallbacks(autoPlayAfterYield)
         homeMonitor?.stop()
         CenterMapOverlay.hide()
         if (CenterMapOverlay.requestShow == (::showCenterMap)) CenterMapOverlay.requestShow = null
@@ -3462,6 +3504,17 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Adapter mode only: profile-level yielding leaves the adapter on, so iOS keeps routing its
+     * audio to Bluetooth and a Play would land nowhere. Cancels any pending nudge first, because a
+     * resumed session arms a fresh delay rather than inheriting the old one.
+     */
+    private fun scheduleAutoPlayAfterYield() {
+        mainHandler.removeCallbacks(autoPlayAfterYield)
+        if (!CarBluetoothProfileGuard.adapterEnabled(this)) return
+        mainHandler.postDelayed(autoPlayAfterYield, AUTO_PLAY_AFTER_YIELD_MILLIS)
+    }
+
     private fun restoreCarBluetooth() {
         CarBluetoothProfileGuard.restore(this) { message ->
             mainHandler.post { appendLog(message) }
@@ -3483,6 +3536,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     logThemeState(ThemeModeDiagnostics.Source.SESSION_ACTIVE, resources.configuration)
                     syncAirPlayDarkMode(ThemeModeDiagnostics.Source.SESSION_ACTIVE)
                     yieldCarBluetooth()
+                    scheduleAutoPlayAfterYield()
                     if (menuOpen) return@runOnUiThread
                     appendLog("AirPlay session active")
                 }
@@ -3514,6 +3568,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     // fail on purpose — and a restart is exactly when adapter mode must return the
                     // head unit's Bluetooth, or nothing turns it back on until the app is killed.
                     restoreCarBluetooth()
+                    mainHandler.removeCallbacks(autoPlayAfterYield)
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
@@ -4623,6 +4678,10 @@ class CarPlayHostActivity : ComponentActivity() {
         // this budget when a codec is still busy.
         const val SINK_RELEASE_WAIT_MILLIS = 2_000L
         private const val CENTER_MAP_IDLE_MILLIS = 3_000L // a reconnect is quicker; a session end is not
+        // The guard's own adapter delay, plus the moment the adapter itself takes to go off.
+        private const val AUTO_PLAY_AFTER_YIELD_MILLIS = 3_000L
+        private const val AUTO_PLAY_RETRY_MILLIS = 2_000L
+        private const val AUTO_PLAY_MAX_CHECKS = 5
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         const val CONFIGURATION_POLL_INTERVAL_MILLIS = 2_000L

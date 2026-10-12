@@ -75,17 +75,20 @@ public object CarBluetoothProfileGuard {
     private const val MODE_ADAPTER = "adapter"
 
     /**
-     * Let the handshake and the first media frames settle before touching the profiles.
+     * Let the handshake settle before touching the profiles.
      *
      * Adapter mode used to wait 10 s, on the theory that switching the whole adapter off too early
      * would break the wireless handshake that runs over its RFCOMM channel. The field log settled
-     * it: `arm` fires 0.12 s *after* `session established`, and the sessions switched off 10 s
-     * later then ran a full minute at 35 fps with audio and iAP2 traffic intact — the handshake
-     * does not depend on the adapter once the session is up. 3 s keeps a settle margin without
-     * making the "Bluetooth is still on" window the owner notices.
+     * that: `arm` fires 0.12 s *after* `session established`, and a session switched off this way
+     * then ran minutes at 35 fps with audio and iAP2 traffic intact.
+     *
+     * What the delay *does* cost is the owner's music: iOS restores its audio within a second of
+     * CarPlay coming up, and while the adapter is still on iOS hands that audio to the Bluetooth
+     * link instead of to CarPlay — the reported "it starts playing and stops right away". So the
+     * delay is kept just long enough to be off the handshake's critical path and no longer.
      */
     private const val LINK_DELAY_MILLIS = 5_000L
-    private const val ADAPTER_DELAY_MILLIS = 3_000L
+    private const val ADAPTER_DELAY_MILLIS = 500L
     private const val REASSERT_PERIOD_MILLIS = 30_000L
     private const val REDROP_THROTTLE_MILLIS = 3_000L
     private const val PROFILE_TIMEOUT_SECONDS = 5L
