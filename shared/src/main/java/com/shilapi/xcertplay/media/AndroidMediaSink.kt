@@ -50,6 +50,14 @@ internal class AudioFocusCoordinator(
     private var request: AudioFocusRequestCompat? = null
     private var requestedChannel: AudioChannel? = null
     private var mediaVolume = FULL_VOLUME
+
+    /**
+     * The gain iOS last asked for with `duckAudio`, or null while it has not ducked. Every path that
+     * rebuilds the gain — a fresh focus request, an emptied track list, a focus regain — must land on
+     * this rather than on [FULL_VOLUME], or a navigation prompt loses its duck the moment CarPlay
+     * opens the guidance track that owns it.
+     */
+    private var duckIntentGain: Float? = null
     private var closed = false
     private var focusGeneration = 0L
     private val rampHandler = Handler(Looper.getMainLooper())
@@ -81,7 +89,7 @@ internal class AudioFocusCoordinator(
                         setMediaVolume(0f)
                     }
                 }
-                AudioManager.AUDIOFOCUS_GAIN -> setMediaVolume(FULL_VOLUME)
+                AudioManager.AUDIOFOCUS_GAIN -> setMediaVolume(duckIntentGain ?: FULL_VOLUME)
                 // Keep CarPlay audio running on permanent loss. Some head units
                 // do not send a later gain callback after taking focus back.
             }
@@ -114,8 +122,12 @@ internal class AudioFocusCoordinator(
      */
     @Synchronized
     fun setDucked(ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {
-        if (closed || active.isEmpty()) return
+        if (closed) return
         val target = if (ducked) duckedGain(volume) else FULL_VOLUME
+        // Recorded before the track check: a prompt can outlive the media track that was playing when
+        // it began, and the next track has to come back ducked rather than at full volume.
+        duckIntentGain = if (ducked) target else null
+        if (active.isEmpty()) return
         val from = mediaVolume
         rampToken += 1
         val token = rampToken
@@ -190,7 +202,7 @@ internal class AudioFocusCoordinator(
             val abandoned = request
             request = null
             requestedChannel = null
-            mediaVolume = FULL_VOLUME
+            mediaVolume = duckIntentGain ?: FULL_VOLUME
             manager?.let { abandoned?.abandon(it) }
             return
         }
@@ -210,8 +222,14 @@ internal class AudioFocusCoordinator(
         request = next
         requestedChannel = primary.channel
         val result = manager?.let(next::request)
-        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) setMediaVolume(FULL_VOLUME)
-        val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
+        // A channel change — guidance or assistant opening its own track — re-requests focus, and
+        // landing on FULL_VOLUME here used to cancel a live navigation duck (10-13 log: duck at
+        // +0.00 s, focus re-granted at +0.52 s, then the unduck arrived with from=1.0 to restore).
+        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            setMediaVolume(duckIntentGain ?: FULL_VOLUME)
+        }
+        val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result " +
+            "activeTracks=${active.size} duckIntent=${duckIntentGain ?: "none"}"
         Log.i(TAG, line)
         runCatching { report(line) }
     }
