@@ -8,8 +8,9 @@
     <string name="contrib_audio_home_toggle_audio_focus_desc">CarPlay 媒体向系统申请音频焦点；导航播报不会压低音乐。若开启后没有声音（部分车机焦点处理异常），请关闭本开关。更改在重新连接后生效。</string>
     <string name="audio_focus_auto_yield">暂时失去音频焦点时静音媒体</string>
     <string name="audio_focus_auto_yield_desc">启用音频焦点后，在 Android 音频被打断（包括来电）时静音媒体，重新获得焦点后恢复。如果车机不恢复音频焦点，请关闭此选项。更改在重新连接后生效。</string>
-    <string name="car_bluetooth_yield_link">CarPlay 期间让出车机蓝牙音频</string>
-    <string name="car_bluetooth_yield_link_desc">CarPlay 连接稳定后，把车机蓝牙对已配对 iPhone 的媒体（A2DP）与通话（HFP）配置改为禁止并断开连接，iOS 便不再把音乐和来电交给车机自带蓝牙。蓝牙适配器本身保持开启，因此无线握手与重连不受影响；会话结束后自动恢复。</string>
     <string name="car_bluetooth_yield_adapter">改为一并关闭车机蓝牙</string>
-    <string name="car_bluetooth_yield_adapter_desc">当车机蓝牙协议栈忽略上面的配置时使用：会话稳定后关闭蓝牙适配器，会话结束时重新打开。关闭期间无线握手不可用，重连需等待适配器恢复。仅在上一项无效时开启。</string>
+    <string name="car_bluetooth_yield_adapter_desc">在这台车机上实测 profile 级设置不产生任何效果，因此关闭蓝牙适配器是本机唯一有效的让位方式：会话稳定后关闭适配器，会话结束时重新打开。关闭期间无线握手不可用，重连需等待适配器恢复。</string>
+    <string name="car_bluetooth_yield_delay">蓝牙关断兜底延时</string>
+    <string name="car_bluetooth_yield_delay_desc">当无线交班从未回报时，等待多久就把车机蓝牙关掉。正常路径是事件驱动的：交班一完成（实测约 1.5 秒）蓝牙就关，并取消这个计时器。把它调到 1.5 秒以下，蓝牙就会按设定的时间更早关掉——这正是它便于实测的地方，而且现在交班期间中断的引导通道已不再被判为失败，所以是安全的。下次连接生效。</string>
+    <string name="car_bluetooth_yield_delay_value">%1$d 秒</string>
 </resources>

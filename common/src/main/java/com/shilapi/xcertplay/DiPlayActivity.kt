@@ -3492,21 +3492,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             AirPlayPersistence.saveAudioFocusAutoYield(this, it)
         }
         parent.addView(dependent)
-        toggle(parent, getString(R.string.car_bluetooth_yield_link),
-            getString(R.string.car_bluetooth_yield_link_desc),
-            CarBluetoothProfileGuard.linkEnabled(this)) {
-            CarBluetoothProfileGuard.saveLinkEnabled(this, it)
-            carBluetoothYieldChanged()
-        }
         toggle(parent, getString(R.string.car_bluetooth_yield_adapter),
             getString(R.string.car_bluetooth_yield_adapter_desc),
             CarBluetoothProfileGuard.adapterEnabled(this)) {
             CarBluetoothProfileGuard.saveAdapterEnabled(this, it)
             carBluetoothYieldChanged()
         }
+        // Deliberately no [carBluetoothYieldChanged] here: saving the delay must not restore() and
+        // re-arm, which would switch the head unit's Bluetooth back on and off again inside a live
+        // session. The new value is read when the guard is next armed.
+        stepper(
+            parent,
+            getString(R.string.car_bluetooth_yield_delay),
+            getString(R.string.car_bluetooth_yield_delay_desc),
+            CarBluetoothProfileGuard.adapterDelaySeconds(this),
+            CarBluetoothProfileGuard.ADAPTER_SECONDS_MIN..CarBluetoothProfileGuard.ADAPTER_SECONDS_MAX,
+        ) { seconds ->
+            CarBluetoothProfileGuard.saveAdapterDelaySeconds(this, seconds)
+        }
     }
 
-    /** A switch moved: re-apply inside a live session, undo it when both are off. */
+    /** A switch moved: re-apply inside a live session, undo it when the switch is off. */
     private fun carBluetoothYieldChanged() {
         CarBluetoothProfileGuard.preferenceChanged(
             this,
@@ -3560,6 +3566,29 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         )
         parent.addView(result.rowView)
         return result.switch
+    }
+    // A stepper row: the same scaffold as [toggle], with a "− value +" group where the switch would be.
+    private fun stepper(
+        parent: LinearLayout,
+        title: String,
+        description: String,
+        value: Int,
+        range: IntRange,
+        save: (Int) -> Unit,
+    ) {
+        searchIndexSink?.add(title)
+        val result = SettingsWidgets.createStepperRow(
+            context = this,
+            label = title,
+            description = description,
+            value = value,
+            range = range,
+            format = getString(R.string.car_bluetooth_yield_delay_value),
+            theme = SettingsTheme.card(palette),
+            contentDescription = title,
+            onChange = save,
+        )
+        parent.addView(result.rowView)
     }
     // [announcesReconnect] labels a choice whose [save] reconnects by itself.
     private fun choice(parent: LinearLayout, title: String, options: List<String>, current: Int, reconnects: Boolean = true,

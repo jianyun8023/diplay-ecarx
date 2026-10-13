@@ -40,11 +40,12 @@ import java.util.concurrent.atomic.AtomicReference
  * — it is persistent, so the profiles stay down without a fight — and keeps `disconnect()` as the
  * immediate effect plus a throttled re-assert as a belt-and-braces path.
  *
- * The Bluetooth adapter itself is never touched by the default mode, because wireless CarPlay's
- * iAP2 handshake and its reconnects run over an RFCOMM channel of that same adapter; only `hfp` and
- * `a2dp` are profile-level concerns. [adapterEnabled] keeps the older, blunter adapter-off mode for
- * head units whose Bluetooth stack ignores profile policy, and that mode must wake the adapter
- * before any reconnect.
+ * Profile-level yield never took effect on this head unit (see reachability below), so
+ * `setConnectionPolicy(FORBIDDEN)` was never reached and the switch that drove it was removed in
+ * fix16. The profile code is kept only so `restoreNow` can release the state an older build may
+ * still have left behind; [adapterEnabled] is now the only yield path, and it must wake the adapter
+ * before any reconnect, because wireless CarPlay's iAP2 handshake and its reconnects run over an
+ * RFCOMM channel of that same adapter.
  *
  * Reachability is the open question on this ROM: the earlier attempt logged
  * `a2dp=timeout hfp=timeout` — `getProfileProxy` answered `true` and `onServiceConnected` never
@@ -66,8 +67,13 @@ public object CarBluetoothProfileGuard {
 
     private const val TAG = "DiPlay-BT-Yield"
     private const val PREFS = "diplay_bt_profile_guard"
-    private const val KEY_LINK_ENABLED = "yield_link"
     private const val KEY_ADAPTER_ENABLED = "yield_adapter"
+    private const val KEY_ADAPTER_DELAY_SECONDS = "adapter_delay_seconds"
+
+    /** The adapter-off fallback delay, in seconds. The settings stepper writes it. */
+    const val ADAPTER_SECONDS_MIN = 1
+    const val ADAPTER_SECONDS_MAX = 10
+    const val ADAPTER_SECONDS_DEFAULT = 3
     private const val KEY_APPLIED = "applied"
     private const val KEY_APPLIED_MODE = "applied_mode"
     private const val KEY_APPLIED_TARGETS = "applied_targets"
@@ -92,9 +98,13 @@ public object CarBluetoothProfileGuard {
      * down and retried forever. This delay therefore only stands as the fallback now: the normal
      * path is [yieldNow], fired the instant the wireless handoff completes, and this timer only
      * covers a handoff that never reports back.
+     *
+     * fix16: how long that fallback waits is the user's to set (1–10 s, default 3). Set it below the
+     * handoff's ~1.5 s and the adapter goes off at the chosen value instead of on handoff
+     * completion — deliberate, because a bootstrap channel closed during the handoff is no longer
+     * judged a failure.
      */
     private const val LINK_DELAY_MILLIS = 5_000L
-    private const val ADAPTER_DELAY_MILLIS = 3_000L
     private const val REASSERT_PERIOD_MILLIS = 30_000L
     private const val REDROP_THROTTLE_MILLIS = 3_000L
     private const val PROFILE_TIMEOUT_SECONDS = 5L
@@ -138,20 +148,22 @@ public object CarBluetoothProfileGuard {
 
     // ------------------------------------------------------------------ settings
 
-    /** Profile-level mode: the default, and the only one that leaves the handshake alone. */
-    fun linkEnabled(context: Context): Boolean =
-        preferences(context).getBoolean(KEY_LINK_ENABLED, true)
-
-    fun saveLinkEnabled(context: Context, enabled: Boolean) {
-        preferences(context).edit().putBoolean(KEY_LINK_ENABLED, enabled).apply()
-    }
-
     /** Adapter-off mode. It kills the wireless handshake while it holds, so it stays opt-in. */
     fun adapterEnabled(context: Context): Boolean =
         preferences(context).getBoolean(KEY_ADAPTER_ENABLED, false)
 
     fun saveAdapterEnabled(context: Context, enabled: Boolean) {
         preferences(context).edit().putBoolean(KEY_ADAPTER_ENABLED, enabled).apply()
+    }
+
+    fun adapterDelaySeconds(context: Context): Int =
+        preferences(context).getInt(KEY_ADAPTER_DELAY_SECONDS, ADAPTER_SECONDS_DEFAULT)
+            .coerceIn(ADAPTER_SECONDS_MIN, ADAPTER_SECONDS_MAX)
+
+    fun saveAdapterDelaySeconds(context: Context, seconds: Int) {
+        preferences(context).edit()
+            .putInt(KEY_ADAPTER_DELAY_SECONDS, seconds.coerceIn(ADAPTER_SECONDS_MIN, ADAPTER_SECONDS_MAX))
+            .apply()
     }
 
     /**
@@ -170,12 +182,12 @@ public object CarBluetoothProfileGuard {
     fun yieldForSession(context: Context, peerAddress: String?, log: (String) -> Unit = logcat) {
         val app = context.applicationContext
         val adapterMode = adapterEnabled(app)
-        if (!adapterMode && !linkEnabled(app)) {
-            log("BT guard: both switches off; the head unit keeps its Bluetooth to itself")
+        if (!adapterMode) {
+            log("BT guard: the adapter switch is off; the head unit keeps its Bluetooth to itself")
             return
         }
         val state = Session(app, adapterMode, peerAddress, log)
-        val delay = if (adapterMode) ADAPTER_DELAY_MILLIS else LINK_DELAY_MILLIS
+        val delay = if (adapterMode) adapterDelaySeconds(app) * 1_000L else LINK_DELAY_MILLIS
         synchronized(lock) {
             pending?.cancel(false)
             session = state
@@ -190,7 +202,7 @@ public object CarBluetoothProfileGuard {
     /**
      * Wireless handoff completed, so the bootstrap RFCOMM channel is already closed and the
      * adapter is no longer carrying anything this app needs: apply the yield now instead of
-     * waiting out [ADAPTER_DELAY_MILLIS]. Cancels the fallback timer so the drop happens once.
+     * waiting out [adapterDelaySeconds]. Cancels the fallback timer so the drop happens once.
      */
     fun yieldNow() {
         val state = synchronized(lock) {
@@ -256,7 +268,7 @@ public object CarBluetoothProfileGuard {
         return "BT guard connect: head unit Bluetooth was off; switching it back on accepted=$accepted"
     }
 
-    /** A switch moved. Re-applies inside a live session, undoes it when both switches are off. */
+    /** A switch moved. Re-applies inside a live session, undoes it when the switch is off. */
     fun preferenceChanged(
         context: Context,
         sessionActive: Boolean,
@@ -264,7 +276,7 @@ public object CarBluetoothProfileGuard {
         log: (String) -> Unit = logcat,
     ) {
         val app = context.applicationContext
-        if (!linkEnabled(app) && !adapterEnabled(app)) {
+        if (!adapterEnabled(app)) {
             restore(app, log)
             return
         }

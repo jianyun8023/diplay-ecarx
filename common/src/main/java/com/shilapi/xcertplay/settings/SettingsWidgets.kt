@@ -182,6 +182,128 @@ object SettingsWidgets {
         return SwitchRowResult(row, switch)
     }
 
+    data class StepperRowResult(
+        val rowView: View,
+        val valueView: TextView,
+        val minusButton: View,
+        val plusButton: View,
+    )
+
+    /**
+     * The same card row as [createSwitchRow], with a "− value +" group where the switch would be:
+     * two tap targets and the current value between them. Only the card layout
+     * ([SettingsTheme.isOverlay] false) is built — the stepper is only used from the card-based
+     * settings page, and the overlay variant would need its own control sizing.
+     */
+    fun createStepperRow(
+        context: Context,
+        label: String,
+        description: String,
+        value: Int,
+        range: IntRange,
+        format: String,
+        theme: SettingsTheme = SettingsTheme.OVERLAY,
+        contentDescription: String = label,
+        enabled: Boolean = true,
+        onChange: (Int) -> Unit,
+    ): StepperRowResult {
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            this.contentDescription = contentDescription
+        }
+        row.setPadding(0, theme.dp(context, 12), 0, theme.dp(context, 12))
+        val textCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        val labelView = TextView(context).apply {
+            text = label
+            textSize = 18f
+            setTextColor(theme.textPrimary)
+            applyTextStyle(context, theme, bold = true)
+        }
+        val descView = TextView(context).apply {
+            text = description
+            textSize = 14f
+            setTextColor(theme.textSecondary)
+            setPadding(0, theme.dp(context, 6), theme.dp(context, 16), 0)
+            applyTextStyle(context, theme)
+        }
+        textCol.addView(labelView)
+        textCol.addView(descView)
+        row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+        val controls = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val minusButton = TextView(context).apply {
+            text = "\u2212"
+            textSize = 30f
+            setTextColor(theme.textPrimary)
+            gravity = Gravity.CENTER
+            minWidth = theme.dp(context, 56)
+            minHeight = theme.dp(context, 56)
+            isClickable = true
+            isFocusable = true
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(theme.ripple), null, android.graphics.drawable.ColorDrawable(Color.WHITE))
+        }
+        controls.addView(minusButton, LinearLayout.LayoutParams(theme.dp(context, 56), theme.dp(context, 56)))
+        val valueView = TextView(context).apply {
+            text = String.format(format, value)
+            textSize = 20f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(theme.accent)
+            gravity = Gravity.CENTER
+            minWidth = theme.dp(context, 90)
+        }
+        controls.addView(
+            valueView,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+        )
+        val plusButton = TextView(context).apply {
+            text = "+"
+            textSize = 30f
+            setTextColor(theme.textPrimary)
+            gravity = Gravity.CENTER
+            minWidth = theme.dp(context, 56)
+            minHeight = theme.dp(context, 56)
+            isClickable = true
+            isFocusable = true
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(theme.ripple), null, android.graphics.drawable.ColorDrawable(Color.WHITE))
+        }
+        controls.addView(plusButton, LinearLayout.LayoutParams(theme.dp(context, 56), theme.dp(context, 56)))
+        row.addView(controls)
+
+        var current = value.coerceIn(range.first, range.last)
+        fun refresh() {
+            valueView.text = String.format(format, current)
+            minusButton.isEnabled = enabled && current > range.first
+            plusButton.isEnabled = enabled && current < range.last
+            minusButton.alpha = if (minusButton.isEnabled) 1f else 0.4f
+            plusButton.alpha = if (plusButton.isEnabled) 1f else 0.4f
+        }
+        minusButton.setOnClickListener {
+            if (current > range.first) {
+                current -= 1
+                refresh()
+                onChange(current)
+            }
+        }
+        plusButton.setOnClickListener {
+            if (current < range.last) {
+                current += 1
+                refresh()
+                onChange(current)
+            }
+        }
+        refresh()
+
+        return StepperRowResult(row, valueView, minusButton, plusButton)
+    }
+
     fun <T> createChoiceRow(
         context: Context,
         label: String,
