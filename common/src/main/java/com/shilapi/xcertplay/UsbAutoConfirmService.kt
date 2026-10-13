@@ -88,15 +88,31 @@ class UsbAutoConfirmService : AccessibilityService() {
             "com.android.systemui.usb.UsbPermissionActivity",
             "com.android.systemui.usb.UsbConfirmActivity",
         )
+        /**
+         * Both USB activities extend AlertActivity, which reports its window to accessibility as
+         * android.app.Dialog rather than by activity name, on Android 7 to 14 alike. So the USB
+         * dialog never matched, and auto-confirm did nothing even when the system showed the
+         * UsbPermissionActivity (#409). Other systemui dialog activities, such as screen-capture
+         * consent, report the same name, so [isTargetPrompt] must also find a USB device.
+         */
+        private const val ALERT_ACTIVITY_CLASS = "android.app.Dialog"
         private val CONFIRM_LABELS = setOf("确定", "允许", "OK", "Allow", "Confirm")
+        private val USB_DEVICE_WORDS = Regex("USB|iPhone|iPad", RegexOption.IGNORE_CASE)
 
         internal fun isSystemUsbWindow(pkg: String?, className: String?): Boolean =
-            pkg in SYSTEM_PACKAGES && className in USB_ACTIVITIES
+            pkg in SYSTEM_PACKAGES && (className in USB_ACTIVITIES || className == ALERT_ACTIVITY_CLASS)
 
+        /**
+         * The prompt must name this app and a USB device. Android 10+ words it "Allow DiPlay to
+         * access iPhone?" with no "USB", Android 7.1 names "the USB device" instead of the phone,
+         * and Chinese puts the name between letters ("要允许DiPlay访问iPhone吗？"), so only ASCII
+         * word characters count as part of a longer name such as "FakeDiPlay".
+         */
         internal fun isTargetPrompt(text: String, appLabel: String): Boolean =
             appLabel.isNotBlank() &&
-                Regex("(?<![\\p{L}\\p{N}_])${Regex.escape(appLabel)}(?![\\p{L}\\p{N}_])", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(text) && text.contains("USB", ignoreCase = true)
+                Regex("(?<![A-Za-z0-9_])${Regex.escape(appLabel)}(?![A-Za-z0-9_])", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(text) &&
+                USB_DEVICE_WORDS.containsMatchIn(text)
 
 
         fun isEnabled(context: Context): Boolean {

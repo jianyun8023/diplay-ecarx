@@ -3303,6 +3303,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun logCarBluetoothAudio() {
         appendLog("Car Bluetooth audio: on; CarPlay audio not offered")
         val adapter = runCatching { getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter }.getOrNull()
+            ?: android.bluetooth.BluetoothAdapter.getDefaultAdapter()
             ?: return appendLog("Car Bluetooth audio: no Bluetooth adapter")
         fun probe(moment: String) {
             for ((name, profile) in listOf("A2DP" to android.bluetooth.BluetoothProfile.A2DP,
@@ -3932,11 +3933,21 @@ class CarPlayHostActivity : ComponentActivity() {
             Log.i(TAG, message)
             videoView?.let { updateVideoLayout(it.width, it.height) }
         } else {
+            if (statusBarShown() == false && !hideTopBar) {
+                appendLog(
+                    "Display changed ${previous.width}x${previous.height} -> ${size.width}x${size.height} " +
+                        "while another window hides the status bar",
+                )
+            }
             restartCarPlay(
                 "Display changed ${previous.width}x${previous.height} -> ${size.width}x${size.height}",
             )
         }
     }
+
+    /** Whether the status bar is on screen now, or null when the window has no insets yet. */
+    private fun statusBarShown(): Boolean? =
+        ViewCompat.getRootWindowInsets(window.decorView)?.isVisible(WindowInsetsCompat.Type.statusBars())
 
     /**
      * Entering or leaving the head unit's split screen, or turning the screen with a square canvas, moves

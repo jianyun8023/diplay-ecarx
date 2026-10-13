@@ -102,6 +102,12 @@ class IphoneUsbHost(
         requireConfiguredDevice(device)
         if (usbManager.hasPermission(device)) return PermissionRequest.AlreadyGranted(device)
 
+        // Read-only: tells a report whether this head unit still ships the system USB permission
+        // activity at all. Nothing here changes how permission is requested.
+        val ui = UsbPermissionActivityProbe.inspect(appContext)
+        if (ui.state != UsbPermissionActivityProbe.State.UNKNOWN) {
+            runCatching { onDiagnostic(ui.diagnostic()) }
+        }
         usbManager.requestPermission(device, permissionPendingIntent())
         return PermissionRequest.Requested(device)
     }

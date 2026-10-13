@@ -148,6 +148,18 @@ public object CarBluetoothProfileGuard {
         preferences(context).edit().putBoolean(KEY_ADAPTER_ENABLED, enabled).apply()
     }
 
+    /**
+     * True while the head unit's Bluetooth is off because this app turned it off for a CarPlay
+     * session. Wireless startup turns it back on before the handshake, so this must not be
+     * reported to the driver as "Bluetooth is off in the head unit's settings".
+     */
+    fun pausedByUs(context: Context): Boolean {
+        if (!applied(context)) return false
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+            ?: BluetoothAdapter.getDefaultAdapter()
+        return adapter?.isEnabled == false
+    }
+
     /** Called when a CarPlay session is live. Returns at once; the drop runs on the guard's thread. */
     fun yieldForSession(context: Context, peerAddress: String?, log: (String) -> Unit = logcat) {
         val app = context.applicationContext

@@ -1899,7 +1899,20 @@ private class AudioRenderer(
     private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
         val codec = codec ?: run { decoderUnavailablePackets++; return }
         diagnosticStage = "decoder-input"
-        val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        // While a blocking track write holds this thread, decoded output fills up and the decoder
+        // stops taking input. Dropping the packet after one 10 ms wait cut ~21 ms of music every
+        // 10-20 s on DiLink 3.0 (#381); drain the output and wait again instead. Waiting the video's
+        // 500 ms for every packet let a slowed decoder fall ever further behind instead: with the
+        // CarPlay screen in the background, the queue grew to 190 packets and the track underran
+        // every few seconds (#649).
+        var index = -1
+        val pumpStartNs = System.nanoTime()
+        while (running) {
+            drainCodec(codec)
+            index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+            if (index >= 0) break
+            if (System.nanoTime() - pumpStartNs >= AUDIO_INPUT_WAIT_NS) break
+        }
         if (index < 0) {
             inputDropped++
             if (inputDropped == 1) {
@@ -2198,6 +2211,7 @@ private class AudioRenderer(
         const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
+        const val AUDIO_INPUT_WAIT_NS = 100_000_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
