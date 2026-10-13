@@ -84,11 +84,17 @@ public object CarBluetoothProfileGuard {
      *
      * What the delay *does* cost is the owner's music: iOS restores its audio within a second of
      * CarPlay coming up, and while the adapter is still on iOS hands that audio to the Bluetooth
-     * link instead of to CarPlay — the reported "it starts playing and stops right away". So the
-     * delay is kept just long enough to be off the handshake's critical path and no longer.
+     * link instead of to CarPlay — the reported "it starts playing and stops right away".
+     *
+     * fix15: a 500 ms adapter delay is not safe either, and the field log showed why — it landed in
+     * the middle of the iAP2 handshake, whose natural completion takes about 1.5 s, so the adapter
+     * went off with the handshake half-finished, the controller judged that session failed, tore it
+     * down and retried forever. This delay therefore only stands as the fallback now: the normal
+     * path is [yieldNow], fired the instant the wireless handoff completes, and this timer only
+     * covers a handoff that never reports back.
      */
     private const val LINK_DELAY_MILLIS = 5_000L
-    private const val ADAPTER_DELAY_MILLIS = 500L
+    private const val ADAPTER_DELAY_MILLIS = 3_000L
     private const val REASSERT_PERIOD_MILLIS = 30_000L
     private const val REDROP_THROTTLE_MILLIS = 3_000L
     private const val PROFILE_TIMEOUT_SECONDS = 5L
@@ -179,6 +185,21 @@ public object CarBluetoothProfileGuard {
             "BT guard armed mode=${if (adapterMode) MODE_ADAPTER else MODE_LINK} delayMs=$delay " +
                 "peer=${peerAddress ?: "unknown"}",
         )
+    }
+
+    /**
+     * Wireless handoff completed, so the bootstrap RFCOMM channel is already closed and the
+     * adapter is no longer carrying anything this app needs: apply the yield now instead of
+     * waiting out [ADAPTER_DELAY_MILLIS]. Cancels the fallback timer so the drop happens once.
+     */
+    fun yieldNow() {
+        val state = synchronized(lock) {
+            val armed = session ?: return
+            pending?.cancel(false)
+            pending = null
+            armed
+        }
+        worker.execute { apply(state) }
     }
 
     /** Puts the profiles back on the way out. Safe (and silent) when nothing was applied. */

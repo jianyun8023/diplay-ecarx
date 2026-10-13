@@ -1462,8 +1462,16 @@ class CarPlayController(
             if (isStaleWirelessRun(generation)) {
                 return
             }
-            if (wirelessActiveReported.get() && error !is Error) {
-                debugLog("wireless RFCOMM control ended after tunnel handoff: ${error.message}")
+            val handoffInProgress = isWirelessHandoffInProgress(
+                handoffRequested = wirelessHandoffRequested.get(),
+                tunnelActive = wirelessTunnelChannel != null,
+                sessionActive = activeSession != null,
+            )
+            if ((wirelessActiveReported.get() || handoffInProgress) && error !is Error) {
+                debugLog(
+                    "wireless RFCOMM control ended during or after the tunnel handoff: ${error.message} " +
+                        "(active=${wirelessActiveReported.get()} handoffInProgress=$handoffInProgress)",
+                )
             } else {
                 debugLog("wireless bring-up failed", error)
                 if (error is Error) throw error
@@ -1632,6 +1640,7 @@ class CarPlayController(
                         wirelessFailureReported.get() || !wirelessTunnelReady.get()) return@Thread
                     debugLog("wireless handoff ready; closing Bluetooth bootstrap transport")
                     closeBluetoothBootstrapTransport()
+                    CarBluetoothProfileGuard.yieldNow()
                     onStatus(CarPlayStatus.WirelessActive, generation)
                 }
             },
