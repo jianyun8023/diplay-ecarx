@@ -25,11 +25,17 @@ import java.util.concurrent.TimeUnit
  *    set is exhaustive (`s1/r.smali` implements exactly these); `updateDistanceToDestination`,
  *    `updateDistanceToNextGuidancePoint`, `updateETA`, `updateNextGuidancePointName`,
  *    `updateLaneInfo`, `notifyTurnByTurnStarted/Stopped` take the arguments used below.
- *  * **Needs calibration.** `getNavigationTurnId()` is a bare `int` with no lookup table in either
- *    shipped app — the toolkit fills it from a counter that also feeds `updateTurnByTurnArrow`,
- *    i.e. a demo ramp, not a real code table. The same holds for `getDrivingDirection()`. So the
- *    arrow is only pushed behind [EcarxOutputSettings.turnArrowExperimental], and the two
- *    unverified fields carry documented placeholders instead of a guessed enum.
+ *  * **Proven — and the arrow is drawn, not coded.** The head unit's own navigation app
+ *    (`ecarx.naviservice`, the shipped 导航) renders the manoeuvre into SVG markup in
+ *    `ecarx/naviservice/widget/f.smali` and pushes it through `updateTurnByTurnArrow(String)`
+ *    (`ecarx/naviservice/a/g.smali`, log tag `NaviDashboardManager`); it never calls the `(Bitmap)`
+ *    overload, and it skips the `int` overload entirely when the code is `<= 0`. So the SVG
+ *    overload is the primary path here ([turnArrowSvg]); a locally drawn bitmap is the fallback for
+ *    a head unit that lacks it, and the recovered code table ([EcarxArrowCode]) the last resort.
+ *  * **Needs calibration.** `getDrivingDirection()` is a bare `int` whose scale was never
+ *    recovered, so it carries [DRIVING_DIRECTION_UNKNOWN] instead of Apple's flag dressed up as
+ *    data. The arrow is still gated behind [EcarxOutputSettings.turnArrowExperimental] until the
+ *    car confirms what the cluster actually draws.
  *
  * Every ECARX call is reflection-only (see [EcarxDimApi]): a direct reference would turn a
  * missing system class into a `NoClassDefFoundError` on every non-ECARX head unit.
@@ -55,6 +61,32 @@ internal object EcarxHudBridge {
     private const val DRIVING_DIRECTION_UNKNOWN = 0
 
     /**
+     * The cluster's SVG dial: the markup skeleton, byte for byte, that the head unit's navigation
+     * app hands to `updateTurnByTurnArrow(String)`.
+     *
+     * Recovered from `ecarx/naviservice/widget/f.smali`: the document template at `.line 46`, the
+     * per-path template at `.line 52`, and the two layers it fills them with — a thick dark edge
+     * `rgb(88,90,102)` at stroke-width `28.2` first, then the `rgb(255,255,255)` core on top. The
+     * canvas is 255×255, and the two `%s` in the document are the two `<path>` elements, in that
+     * order (the format call at `.line 187` passes `[0xff, 0xff, edge, core]`).
+     *
+     * Our geometry is a stroked footprint rather than the closed contour Amap sends, so the fill is
+     * `none` — the document template appends its own `Z`, and filling an open footprint would paint
+     * a sliver across the arrow instead of the arrow.
+     */
+    private const val SVG_DOC =
+        "<svg width=\"%s\" height=\"%s\" xmlns=\"http://www.w3.org/2000/svg\">\n   %s   %s</svg>"
+    private const val SVG_PATH = "<path  d=\"%sZ\" stroke-width=\"%s\" stroke=\"%s\" fill=\"%s\"/>\n"
+    private const val SVG_SIZE = 255
+    private const val SVG_EDGE = "rgb(88,90,102)"
+    private const val SVG_CORE = "rgb(255,255,255)"
+    private const val SVG_NO_FILL = "none"
+    private const val SVG_EDGE_WIDTH = "28.2"
+    private const val SVG_CORE_WIDTH = "10"
+    private const val SVG_HALF = SVG_SIZE / 2f
+    private const val SVG_RADIUS = SVG_SIZE * 0.34f
+
+    /**
      * The projection watch. `setPresentationToDimSwitch` is a **runtime** call, not a saved
      * setting: the cluster service is torn down with the ignition and comes back with it, so a
      * single call at app start is thrown away on a car that is only on accessory power — which is
@@ -78,6 +110,9 @@ internal object EcarxHudBridge {
     private var dim: Any? = null
     private var navi: Any? = null
     private var protocol: Any? = null
+    /** Non-null once the DIM can reach us; the proxies are held so the platform cannot collect them. */
+    private var dimCallback: Any? = null
+    private var naviCallback: Any? = null
     private var tickerStarted = false
     private var displayWatchRegistered = false
 
@@ -86,9 +121,6 @@ internal object EcarxHudBridge {
     private var presentationCountdown = 0
     private var presentationAttempts = 0
 
-    /** Bumped whenever the maneuver changes; the closest honest analogue of the toolkit's counter. */
-    private var turnId = 0
-    private var lastManeuverKey: String? = null
     private var lastPushed: EcarxDimApi.Guidance? = null
     private var ticksSincePush = 0
     private var guidanceActive = false
@@ -123,6 +155,7 @@ internal object EcarxHudBridge {
         Log.i(
             TAG,
             "DIM ready navi=${navi != null} protocol=${protocol != null} " +
+                "dimCb=${dimCallback != null} naviCb=${naviCallback != null} " +
                 "projection=$presentationWanted ${EcarxCapabilities.describe(app)}",
         )
         // Re-assert the persisted OEM-side switches so a restart restores the cluster state.
@@ -148,6 +181,16 @@ internal object EcarxHudBridge {
         val interaction = dim ?: return false
         if (navi == null) navi = EcarxDimApi.naviInteraction(interaction)
         if (protocol == null) protocol = EcarxDimApi.dimProtocolManager(app)
+        // The DIM does not only receive, it asks: the stock navigation app registers a callback and
+        // its handler logs `onDoInteractionAction ACTION_GET_FAVORITE`, i.e. the cluster queries the
+        // navigation side for data. Without a registration those requests have no receiver on our
+        // side and simply time out, so register both handles the stock app registers (`a/g.smali`
+        // lines 146 and 149). The proxies are only logged for now — see [EcarxDimApi.DimCallbackHandler].
+        if (dimCallback == null) dimCallback = EcarxDimApi.registerInteractionCallback(interaction, "diplay")
+        val naviRef = navi
+        if (naviRef != null && naviCallback == null) {
+            naviCallback = EcarxDimApi.registerNavigationInteractionCallback(naviRef, "diplay")
+        }
         return true
     }
 
@@ -321,12 +364,17 @@ internal object EcarxHudBridge {
         maneuver.road.takeIf { it.isNotEmpty() }
             ?.let { EcarxDimApi.updateNextGuidancePointName(naviRef, it) }
         if (EcarxOutputSettings.turnArrowExperimental(app)) {
-            // The int overload has no recovered code table, so draw the arrow locally and push it
-            // through the (Bitmap) overload instead — the one code-table-free channel the device
-            // exposes (see 亿咖通DIM-真机契约转储.md). The int counter stays as a fallback.
-            val bitmap = turnArrowBitmap(maneuver.type, maneuver.drivingSide)
-            if (bitmap != null) EcarxDimApi.updateTurnByTurnArrow(naviRef, bitmap)
-            else EcarxDimApi.updateTurnByTurnArrow(naviRef, guidance.turnId)
+            // The channel the head unit's own navigation app uses: a drawing, pushed as markup.
+            // The SVG carries the shape, so no code table is involved at all. Bitmap and then the
+            // recovered code are the fallbacks, for a head unit that declares fewer overloads.
+            val svg = turnArrowSvg(maneuver.type, maneuver.drivingSide)
+            if (svg != null) {
+                EcarxDimApi.updateTurnByTurnArrow(naviRef, svg)
+            } else {
+                val bitmap = turnArrowBitmap(maneuver.type, maneuver.drivingSide)
+                if (bitmap != null) EcarxDimApi.updateTurnByTurnArrow(naviRef, bitmap)
+                else EcarxDimApi.updateTurnByTurnArrow(naviRef, guidance.turnId)
+            }
         }
 
         lastPushed = guidance
@@ -342,14 +390,17 @@ internal object EcarxHudBridge {
         if (naviRef != null) {
             EcarxDimApi.notifyTurnByTurnStopped(naviRef)
             if (context?.let(EcarxOutputSettings::turnArrowExperimental) == true) {
-                EcarxDimApi.updateTurnByTurnArrow(naviRef, 0)
+                // Clear through the same family that drew it: an empty drawing first (the stock app's
+                // own "no arrow" payload on the SVG channel), then the id the stock app reserves for
+                // "nothing to show". Whichever overload this head unit lacks just refuses.
+                EcarxDimApi.updateTurnByTurnArrow(naviRef, "")
+                EcarxDimApi.updateTurnByTurnArrow(naviRef, EcarxArrowCode.NO_ARROW)
             }
             EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, 0)
             EcarxDimApi.updateNextGuidancePointName(naviRef, "")
             EcarxDimApi.updateLaneInfoEmpty(naviRef)
         }
         lastPushed = null
-        lastManeuverKey = null
         ticksSincePush = 0
         if (guidanceActive) {
             guidanceActive = false
@@ -358,28 +409,21 @@ internal object EcarxHudBridge {
     }
 
     /**
-     * One [EcarxDimApi.Guidance] per maneuver. Only distance, destination distance, ETA, the road
-     * name and the live/idle status are recovered data; `turnId` and `drivingDirection` are
-     * documented placeholders (see the class comment).
+     * One [EcarxDimApi.Guidance] per maneuver. Distance, destination distance, ETA, the road name
+     * and the live/idle status are recovered data; `turnId` comes from the recovered code table and
+     * `drivingDirection` is the documented placeholder (see the class comment).
      */
-    private fun guidanceFor(maneuver: AppleManeuver): EcarxDimApi.Guidance {
-        val key = "${maneuver.type}|${maneuver.drivingSide}|${maneuver.road}"
-        if (key != lastManeuverKey) {
-            lastManeuverKey = key
-            turnId += 1
-        }
-        return EcarxDimApi.Guidance(
-            turnId = turnId,
-            distanceToNextMeters = maneuver.distanceMeters.toLong(),
-            distanceToDestinationMeters = maneuver.remainingMeters ?: -1L,
-            etaEpochSeconds = maneuver.arrivalEpochSeconds ?: -1L,
-            drivingDirection = DRIVING_DIRECTION_UNKNOWN,
-            status = NAVI_STATUS_ACTIVE,
-            muteState = 0,
-            dayNightMode = dayNightMode(),
-            nextGuidancePointName = maneuver.road,
-        )
-    }
+    private fun guidanceFor(maneuver: AppleManeuver): EcarxDimApi.Guidance = EcarxDimApi.Guidance(
+        turnId = EcarxArrowCode.arrowId(maneuver.type, maneuver.drivingSide),
+        distanceToNextMeters = maneuver.distanceMeters.toLong(),
+        distanceToDestinationMeters = maneuver.remainingMeters ?: -1L,
+        etaEpochSeconds = maneuver.arrivalEpochSeconds ?: -1L,
+        drivingDirection = DRIVING_DIRECTION_UNKNOWN,
+        status = NAVI_STATUS_ACTIVE,
+        muteState = 0,
+        dayNightMode = dayNightMode(),
+        nextGuidancePointName = maneuver.road,
+    )
 
     /** `getDayNightMode()` is 0/1 in `s1/r`; the head unit's own day/night split drives the choice. */
     private fun dayNightMode(): Int {
@@ -389,26 +433,74 @@ internal object EcarxHudBridge {
     }
 
     /**
-     * Draws the next-turn arrow locally and returns it as a bitmap, so the cluster gets a real icon
-     * without any recovered `turnId` code table. `type`/`drivingSide` are Apple's
-     * `RouteGuidanceManeuverType`/`DrivingSide` values, mapped with the same grouping DiPlay's own
-     * dashboard widget uses (see `NavigationWidget.arrow`).
+     * The next-turn drawing as SVG markup, for the cluster's `updateTurnByTurnArrow(String)`
+     * overload — the channel the head unit's own navigation app uses, and the one whose shape we
+     * control without needing a code table.
      *
-     * Returns null for an unrecognised maneuver so the caller falls back to the int overload.
+     * The document and both `<path>` layers are the stock templates (see [SVG_DOC]); the footprint
+     * is [arrowPath], the same geometry the bitmap fallback strokes, so the two renderers cannot
+     * drift apart. Returns null when Apple's maneuver has no arrow shape of ours, or on a platform
+     * that predates `Path.approximate`.
+     */
+    private fun turnArrowSvg(type: Int, drivingSide: Int): String? {
+        val kind = arrowKind(type, drivingSide) ?: return null
+        val data = svgPathData(kind) ?: return null
+        val edge = SVG_PATH.format(data, SVG_EDGE_WIDTH, SVG_EDGE, SVG_NO_FILL)
+        val core = SVG_PATH.format(data, SVG_CORE_WIDTH, SVG_CORE, SVG_NO_FILL)
+        return SVG_DOC.format(SVG_SIZE, SVG_SIZE, edge, core)
+    }
+
+    /**
+     * [arrowPath] flattened into SVG `d` data, so one geometry definition serves both the SVG push
+     * and the bitmap fallback. `Path.approximate` prefixes every sample with its contour index,
+     * which is what turns the first sample of each contour into an `M` and the rest into `L`.
+     */
+    private fun svgPathData(kind: ArrowKind): String? {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return null
+        val points = runCatching { arrowPath(kind, SVG_HALF, SVG_RADIUS).approximate(0.5f) }
+            .getOrNull() ?: return null
+        val out = StringBuilder()
+        var contour = -1
+        var i = 0
+        while (i + 2 < points.size) {
+            val next = points[i].toInt()
+            if (next != contour) {
+                contour = next
+                out.append("M ")
+            } else {
+                out.append(" L ")
+            }
+            out.append(points[i + 1]).append(' ').append(points[i + 2])
+            i += 3
+        }
+        return out.toString().takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Apple's `RouteGuidanceManeuverType`/`DrivingSide` to one of our arrow shapes, grouped the way
+     * DiPlay's own dashboard widget groups them (see `NavigationWidget.arrow`). Null means Apple sent
+     * a maneuver we have no drawing for, and the caller falls back.
+     */
+    private fun arrowKind(type: Int, drivingSide: Int): ArrowKind? = when (type) {
+        1, 20 -> ArrowKind.LEFT
+        2, 21 -> ArrowKind.RIGHT
+        47 -> ArrowKind.SHARP_LEFT
+        48 -> ArrowKind.SHARP_RIGHT
+        13, 22, 49, 52 -> ArrowKind.SLIGHT_LEFT
+        14, 23, 50, 53 -> ArrowKind.SLIGHT_RIGHT
+        4, 18, 19, 26 -> if (drivingSide == 1) ArrowKind.U_TURN_RIGHT else ArrowKind.U_TURN_LEFT
+        6, 7, in 28..46 -> ArrowKind.ROUNDABOUT
+        10, 12, 24, 25, 27 -> ArrowKind.DESTINATION
+        else -> null
+    }
+
+    /**
+     * Draws the next-turn arrow locally and returns it as a bitmap — the fallback for a head unit
+     * that has no `updateTurnByTurnArrow(String)` overload. Returns null for an unrecognised
+     * maneuver so the caller falls back to the recovered code.
      */
     private fun turnArrowBitmap(type: Int, drivingSide: Int): android.graphics.Bitmap? {
-        val kind = when (type) {
-            1, 20 -> ArrowKind.LEFT
-            2, 21 -> ArrowKind.RIGHT
-            47 -> ArrowKind.SHARP_LEFT
-            48 -> ArrowKind.SHARP_RIGHT
-            13, 22, 49, 52 -> ArrowKind.SLIGHT_LEFT
-            14, 23, 50, 53 -> ArrowKind.SLIGHT_RIGHT
-            4, 18, 19, 26 -> if (drivingSide == 1) ArrowKind.U_TURN_RIGHT else ArrowKind.U_TURN_LEFT
-            6, 7, in 28..46 -> ArrowKind.ROUNDABOUT
-            10, 12, 24, 25, 27 -> ArrowKind.DESTINATION
-            else -> return null
-        }
+        val kind = arrowKind(type, drivingSide) ?: return null
         val size = 128
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
@@ -531,9 +623,14 @@ internal object EcarxHudBridge {
             append(" dim=").append(dim != null)
             append(" navi=").append(navi != null)
             append(" protocol=").append(protocol != null)
+            append(" dimCb=").append(dimCallback != null)
+            append(" naviCb=").append(naviCallback != null)
+            // Which updateTurnByTurnArrow overloads this head unit declares, so one report line says
+            // whether the cluster is being fed the stock app's SVG channel or a fallback.
+            append(" arrow=").append(EcarxDimApi.arrowOverloads(navi))
             append(" projectionWanted=").append(presentationWanted)
             append(" projectionAttempts=").append(presentationAttempts)
-            append(" turnId=").append(turnId)
+            append(" arrowId=").append(lastPushed?.turnId ?: -1)
             append(" active=").append(lastPushed != null)
             append(" status=").append(if (lastPushed != null) NAVI_STATUS_ACTIVE else NAVI_STATUS_IDLE)
             // The only read-back the API offers. Uninterpreted on purpose — it stays -1 while the

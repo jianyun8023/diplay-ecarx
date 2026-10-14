@@ -20,6 +20,13 @@ object EcarxCapabilities {
     const val MEDIA_INTERACTION = "com.ecarx.xui.adaptapi.diminteraction.IMediaInteraction"
     const val PHONE_INTERACTION = "com.ecarx.xui.adaptapi.diminteraction.IPhoneCallInteraction"
     const val CALL_INFO = "com.ecarx.xui.adaptapi.diminteraction.IPhoneCallInteraction\$ICallInfo"
+
+    // The callback interfaces the head unit's own navigation app registers on the DIM handles.
+    // Registering them is what gives the cluster's own requests (`onDoInteractionAction`, e.g.
+    // ACTION_GET_FAVORITE) a receiver on our side instead of dropping them on the floor.
+    const val DIM_CALLBACK = "com.ecarx.xui.adaptapi.diminteraction.DimInteraction\$IInteractionCallback"
+    const val NAVI_CALLBACK = "com.ecarx.xui.adaptapi.diminteraction.INaviInteraction\$INavigationInteractionCallback"
+
     const val DIM_PROTOCOL_MANAGER = "ecarx.dimprotocol.DIMProtocolManager"
     const val CAR = "com.ecarx.xui.adaptapi.car.Car"
     const val DEVICE = "com.ecarx.xui.adaptapi.device.Device"

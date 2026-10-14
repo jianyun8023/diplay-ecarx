@@ -125,6 +125,55 @@ internal object EcarxDimApi {
         "setPresentationToDimSwitch($screenId,\"\",\"\",$show)",
     )
 
+    /**
+     * `DimInteraction.registerInteractionCallback(IInteractionCallback)`.
+     *
+     * The head unit's own navigation app registers one (`ecarx/naviservice/a/g.smali`, line 149), and
+     * that is how the cluster's *own* questions reach the navigation side — the app's callback logs
+     * `onDoInteractionAction ACTION_GET_FAVORITE`, i.e. the DIM asks the navigation app for data, it
+     * does not only receive pushes. Without a registration those requests have no receiver here.
+     *
+     * Nothing is interpreted yet: the handler logs every call it gets and answers with the return
+     * type's default value, so the first drive tells us which actions this head unit actually asks
+     * for instead of us guessing the set.
+     *
+     * Returns the proxy to pass to `unregisterInteractionCallback`, or null when this head unit has
+     * no such callback interface or the registration was refused.
+     */
+    fun registerInteractionCallback(dim: Any, label: String): Any? =
+        registerCallback(dim, EcarxCapabilities.DIM_CALLBACK, "registerInteractionCallback", label, "dim")
+
+    /**
+     * `INaviInteraction.registerNavigationInteractionCallback(INavigationInteractionCallback)` — the
+     * navigation-scoped half of the same idea. The stock app registers both (same file, line 146).
+     */
+    fun registerNavigationInteractionCallback(navi: Any, label: String): Any? =
+        registerCallback(
+            navi, EcarxCapabilities.NAVI_CALLBACK, "registerNavigationInteractionCallback", label, "navi",
+        )
+
+    private fun registerCallback(
+        target: Any,
+        interfaceName: String,
+        method: String,
+        label: String,
+        scope: String,
+    ): Any? {
+        val itf = runCatching { Class.forName(interfaceName) }.getOrNull() ?: return null
+        val proxy = runCatching {
+            Proxy.newProxyInstance(itf.classLoader, arrayOf(itf), DimCallbackHandler(label, scope))
+        }.getOrElse {
+            Log.i(TAG, "$scope callback proxy failed: ${describe(it)}")
+            return null
+        }
+        val result = call(target, method, arrayOf(itf), arrayOf<Any?>(proxy), method)
+        if (!result.ok) {
+            Log.w(TAG, "$method failed: ${result.reason}")
+            return null
+        }
+        return proxy
+    }
+
     // ---------------------------------------------------------------- INaviInteraction
 
     fun updateNavigationInfo(navi: Any, guidance: Guidance): EcarxResult {
@@ -140,14 +189,56 @@ internal object EcarxDimApi {
         callInt(navi, "updateTurnByTurnArrow", arrow)
 
     /**
-     * Pushes a drawn arrow bitmap through the `(Bitmap)` overload. This is the code-table-free path:
-     * `turnId` has no recovered mapping on this head unit (the shipped apps feed it a demo counter),
-     * but the DIM interface also accepts a `Bitmap`, so a locally drawn arrow bypasses the unknown
-     * int code table entirely (see 适配文件/亿咖通DIM-真机契约转储.md).
+     * Pushes a turn-arrow *drawing* as SVG markup — the overload the head unit's own navigation app
+     * uses, and therefore the one the cluster is known to render.
+     *
+     * Recovered from `ecarx.naviservice` (the shipped "导航" app): its DIM bridge
+     * `ecarx/naviservice/a/g.smali` logs `updateTurnByTurnArrow svg:%s` and then calls
+     * `updateTurnByTurnArrow(Ljava/lang/String;)V`; the markup is built in
+     * `ecarx/naviservice/widget/f.smali` as
+     * `<svg width="…" height="…" xmlns="…">…<path d="…Z" stroke-width="…" stroke="…" fill="…"/></svg>`.
+     * The drawing reaches that method through an internal event carrying the string produced by
+     * `widget/g.a()`.
+     *
+     * That app never calls the `(Bitmap)` overload, so SVG is the channel with a working reference
+     * implementation behind it.
+     */
+    fun updateTurnByTurnArrow(navi: Any, svg: String): EcarxResult =
+        call(
+            navi, "updateTurnByTurnArrow", arrayOf(String::class.java), arrayOf<Any?>(svg),
+            "updateTurnByTurnArrow(svg ${svg.length}B)",
+        )
+
+    /**
+     * Pushes a drawn arrow bitmap through the `(Bitmap)` overload — the fallback when the head unit
+     * has no `(String)` overload. It is the code-table-free channel: the stock app feeds the int
+     * overload from its own table (see 适配文件/ecarx-arrowId-码表.tsv), never from a counter, so a
+     * locally drawn arrow is the honest way out when no mapping is recovered.
      */
     fun updateTurnByTurnArrow(navi: Any, arrow: android.graphics.Bitmap): EcarxResult =
         call(navi, "updateTurnByTurnArrow", arrayOf(android.graphics.Bitmap::class.java), arrayOf<Any?>(arrow),
             "updateTurnByTurnArrow(Bitmap)")
+
+    /**
+     * Which `updateTurnByTurnArrow` overloads this head unit actually declares, as `int`/`string`/
+     * `bitmap` joined by `/`, or `none`.
+     *
+     * Worth a report line because the three are not interchangeable and the stock app only ever uses
+     * two of them: knowing whether `string` is there says whether the cluster is being fed the same
+     * channel it is fed by its own navigation app, or a fallback of ours.
+     */
+    fun arrowOverloads(target: Any?): String {
+        if (target == null) return "none"
+        val names = arrayOf("int", "string", "bitmap")
+        val types = arrayOf<Class<*>>(Int::class.javaPrimitiveType!!, String::class.java, android.graphics.Bitmap::class.java)
+        val found = StringBuilder()
+        for (i in names.indices) {
+            if (lookup(target, "updateTurnByTurnArrow", arrayOf(types[i])) == null) continue
+            if (found.isNotEmpty()) found.append('/')
+            found.append(names[i])
+        }
+        return found.toString().ifEmpty { "none" }
+    }
 
     fun updateDistanceToNextGuidancePoint(navi: Any, meters: Long): EcarxResult =
         callInt(navi, "updateDistanceToNextGuidancePoint", meters.toInt())
@@ -342,6 +433,38 @@ internal object EcarxDimApi {
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()
             else -> defaultValue(method.returnType)
+        }
+
+        private fun defaultValue(type: Class<*>): Any? = when (type) {
+            java.lang.Boolean.TYPE -> false
+            java.lang.Byte.TYPE -> 0.toByte()
+            java.lang.Short.TYPE -> 0.toShort()
+            java.lang.Integer.TYPE -> 0
+            java.lang.Long.TYPE -> 0L
+            java.lang.Float.TYPE -> 0f
+            java.lang.Double.TYPE -> 0.0
+            java.lang.Character.TYPE -> '\u0000'
+            else -> null
+        }
+    }
+
+    /**
+     * Receiver for the DIM's own calls (see [registerInteractionCallback]).
+     *
+     * It answers nothing useful on purpose: every call is logged with its name and arguments and
+     * the return value is the declared return type's default. That turns the first drive into an
+     * inventory of what this head unit asks for, which is the only way to learn the set — the
+     * interface is not in any ECARX SDK we have.
+     */
+    private class DimCallbackHandler(private val label: String, private val scope: String) : InvocationHandler {
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
+            when (method.name) {
+                "toString" -> return "EcarxDimCallback($scope/$label)"
+                "hashCode" -> return System.identityHashCode(proxy)
+                "equals" -> return proxy === args?.firstOrNull()
+            }
+            Log.i(TAG, "callback $scope.$label ${method.name}(${java.util.Arrays.toString(args)})")
+            return defaultValue(method.returnType)
         }
 
         private fun defaultValue(type: Class<*>): Any? = when (type) {
