@@ -64,6 +64,25 @@ import java.lang.reflect.Proxy
 internal object EcarxDimApi {
     private const val TAG = "DiPlay-Ecarx-DIM"
 
+    /**
+     * A second destination for [report], set by the HUD bridge so every refusal in this file also
+     * lands in the session report.
+     *
+     * A car has no adb, and "the call was never even attempted" is exactly the kind of fact that
+     * otherwise exists only in logcat.
+     */
+    @Volatile private var reportSink: ((String) -> Unit)? = null
+
+    fun attachReport(sink: (String) -> Unit) {
+        reportSink = sink
+    }
+
+    /** logcat *and* the report; see [attachReport]. */
+    private fun report(line: String) {
+        Log.i(TAG, line)
+        reportSink?.invoke(line)
+    }
+
     /** The screen id the stock ECARX apps pass; both of them hardcode `1`. */
     const val DEFAULT_SCREEN_ID = 1
 
@@ -93,7 +112,7 @@ internal object EcarxDimApi {
         val cls = Class.forName(EcarxCapabilities.DIM_INTERACTION)
         cls.getMethod("create", Context::class.java).invoke(null, context)
     }.getOrElse {
-        Log.i(TAG, "DimInteraction.create failed: ${describe(it)}")
+        report("DimInteraction.create failed: ${describe(it)}")
         null
     }
 
@@ -163,12 +182,12 @@ internal object EcarxDimApi {
         val proxy = runCatching {
             Proxy.newProxyInstance(itf.classLoader, arrayOf(itf), DimCallbackHandler(label, scope))
         }.getOrElse {
-            Log.i(TAG, "$scope callback proxy failed: ${describe(it)}")
+            report("$scope callback proxy failed: ${describe(it)}")
             return null
         }
         val result = call(target, method, arrayOf(itf), arrayOf<Any?>(proxy), method)
         if (!result.ok) {
-            Log.w(TAG, "$method failed: ${result.reason}")
+            report("$method failed: ${result.reason}")
             return null
         }
         return proxy
@@ -337,7 +356,7 @@ internal object EcarxDimApi {
             getInstance.invoke(ctor.newInstance(), context)
         }
     }.getOrElse {
-        Log.i(TAG, "DIMProtocolManager.getInstance failed: ${describe(it)}")
+        report("DIMProtocolManager.getInstance failed: ${describe(it)}")
         null
     }
 
@@ -361,7 +380,9 @@ internal object EcarxDimApi {
     private fun read(target: Any, name: String): Any? {
         val method = lookup(target, name, emptyArray()) ?: return null
         return runCatching { method.invoke(target) }.getOrElse {
-            Log.i(TAG, "$name failed: ${describe(it)}")
+            // getNaviInteraction is how the whole bridge gets its handle, so a refusal here has to
+            // reach the report, not just logcat.
+            report("$name failed: ${describe(it)}")
             null
         }
     }
@@ -396,7 +417,10 @@ internal object EcarxDimApi {
             "getHighwayExitInfo" -> null
             "getRoadCameraInfo" -> null
             "getServiceAreaInfo" -> null
-            "getNavigationTurnSVG" -> null
+            // The head unit's own navigation app returns an empty string here, never markup — it
+            // pushes its drawing through updateTurnByTurnArrow(String) instead. Answering the
+            // declared String type with `null` would hand the cluster a NPE waiting to happen.
+            "getNavigationTurnSVG" -> ""
             // toString/hashCode/equals must stay sane so the platform can log the object.
             "toString" ->
                 "EcarxNavigationInfo(turn=${g.turnId} next=${g.distanceToNextMeters} dest=${g.distanceToDestinationMeters})"
@@ -463,7 +487,7 @@ internal object EcarxDimApi {
                 "hashCode" -> return System.identityHashCode(proxy)
                 "equals" -> return proxy === args?.firstOrNull()
             }
-            Log.i(TAG, "callback $scope.$label ${method.name}(${java.util.Arrays.toString(args)})")
+            EcarxDimApi.report("callback $scope.$label ${method.name}(${java.util.Arrays.toString(args)})")
             return defaultValue(method.returnType)
         }
 

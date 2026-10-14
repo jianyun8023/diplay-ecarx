@@ -52,6 +52,15 @@ object NavigationOutputs {
         if (EcarxOutputSettings.enabled(app)) ecarx.start { EcarxHudBridge.initialize(app) } else ecarx.clear()
     }
 
+    /**
+     * Routes the cluster bridge's own lines into the session report. Called once the session log
+     * exists — see `AndroidMediaSink`'s `onAudioDiagnostic` for the same seam on the audio side.
+     *
+     * Without it the whole HUD story ("did the call even happen, and on which channel") exists only
+     * in logcat, which a car has no way to return.
+     */
+    fun attachReport(sink: (String) -> Unit) = EcarxHudBridge.attachReport(sink)
+
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_UPDATE &&
             frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE

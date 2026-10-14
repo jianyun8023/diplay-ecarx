@@ -3457,6 +3457,10 @@ class CarPlayHostActivity : ComponentActivity() {
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
         val diagnosticLog = sessionLog
+        // The instrument-cluster bridge logs to logcat only, and a car without adb cannot return
+        // logcat, so its lines are routed into the same session report the audio sink writes to.
+        // Fully qualified on purpose: nothing else in this file needs the hud package.
+        com.shilapi.xcertplay.hud.NavigationOutputs.attachReport(HudReportSink(diagnosticLog))
         return AndroidMediaSink(
             surface = null,
             videoWidth = videoWidth,
@@ -4803,5 +4807,20 @@ internal object CarPlayBackgroundSession {
         width = 0
         height = 0
         display = null
+    }
+}
+
+/**
+ * Appends one line to the session report, for producers that are not the media sink — currently the
+ * instrument-cluster bridge, which otherwise exists only in logcat.
+ *
+ * A named class rather than a lambda on purpose. Kotlin numbers `CarPlayHostActivity`'s lambda
+ * classes by their position in the file, so one more lambda in there renames an unrelated one and
+ * the class-set regression check lights up; named classes sit outside that numbering. It also gets
+ * the bounded, serialised writer in [AsyncDiagnosticLog], which the bridge's own ticker thread needs.
+ */
+private class HudReportSink(private val target: SessionLogFile?) : (String) -> Unit {
+    override fun invoke(message: String) {
+        AsyncDiagnosticLog.append(target, message)
     }
 }
