@@ -21,6 +21,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.util.concurrent.Executors
@@ -74,7 +75,12 @@ internal object CarPlayMediaKeys {
         appContext = context.applicationContext
         controller = next
         next.playbackListener = { playing -> onIphonePlaying(next, playing) }
-        next.nowPlayingListener = { update -> onNowPlayingChanged(next, update) }
+        next.nowPlayingListener = { update ->
+            onNowPlayingChanged(next, update)
+            // The same metadata the car's media session shows is what an ECARX cluster's media card
+            // wants, so it is forwarded from here rather than read a second time off the controller.
+            NavigationOutputs.onNowPlaying(update)
+        }
         next.artworkListener = { id, bytes -> onArtworkChanged(next, id, bytes) }
     }
 
@@ -234,6 +240,10 @@ internal object CarPlayMediaKeys {
         session = null
         mediaAudioActive = false
         nowPlaying = CarPlayNowPlaying()
+        // Whatever the cluster's media card was showing belongs to a session that just ended. The
+        // controller pushes its own cleared frame on teardown, but that goes through the listener
+        // this method may itself be clearing, so the blank state is pushed from here as well.
+        NavigationOutputs.onNowPlaying(nowPlaying)
         artwork = null
         artworkCache.clear()
         focusRequest?.let { request -> appContext?.getSystemService(AudioManager::class.java)?.let(request::abandon) }

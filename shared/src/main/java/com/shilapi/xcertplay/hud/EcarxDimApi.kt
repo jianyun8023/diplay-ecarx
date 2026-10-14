@@ -55,6 +55,20 @@ import java.lang.reflect.Proxy
  *  * `ecarx.dimprotocol.DIMProtocolManager` — the class is not in the system image at all, so
  *    [setNaviMode] can only ever fail there. See [EcarxOutputSettings.naviModeSupported].
  *
+ * The media half of the same API is called from the bytecode of the shipped ECARX toolkit
+ * (`com/hyphp/hywebviewdcltools/l.smali`, `i.smali`, `m.smali`) rather than from a device dump, and
+ * it is only four methods:
+ * ```
+ * IMediaInteraction.updateCurrentSourceType(int)              -- the toolkit sends 6, once
+ * IMediaInteraction.updatePlaybackInfo(IMediaInteraction$IPlaybackInfo)
+ * IMediaInteraction.updatePlaylist(int, List<IMediaInteraction$IMedia>)   -- one entry
+ * IMediaInteraction.updateCurrentProgress(long)               -- milliseconds
+ * ```
+ * There is no `registerMediaInteractionCallback` on it: the feed is one-way, and steering-wheel
+ * keys still arrive through Android's media session. Because no dump exists, these four are resolved
+ * by name and arity ([callAny]) and their numeric payload fields are matched to whatever the
+ * interface declared ([coerceNumber]) — see those two for why that is the honest choice here.
+ *
  * **Return values carry no authority.** The probe showed a normal-signed build with every ECARX
  * permission denied gets byte-identical results — `create()`, `setPresentationToDimSwitch()` and
  * `updateNavigationInfo()` all report success. These are `void` methods and the platform does not
@@ -344,6 +358,100 @@ internal object EcarxDimApi {
             "updateConnectedMobileDeviceState(\"$name\",$state,$feature)",
         )
 
+    // ---------------------------------------------------------------- IMediaInteraction
+
+    /**
+     * One track as the cluster's media card sees it.
+     *
+     * There is deliberately no artwork field. The cluster service resolves cover art by handing the
+     * `Uri` to `com.nostra13.universalimageloader`, which fetches `http`/`file`/`content` URLs and
+     * nothing else — not a bitmap, and not the `bitmap://` scheme a naive implementation reaches
+     * for. A track that exists only inside CarPlay's audio stream has no such URL, so the honest
+     * answer is the `null` the artwork getters already return; a field that could never hold
+     * anything else is worse than no field.
+     */
+    data class PlaybackInfo(
+        val title: String = "",
+        val artist: String = "",
+        val album: String = "",
+        val durationMillis: Long = 0L,
+        val playing: Boolean = false,
+    )
+
+    /**
+     * The source type every stock call site passes — `updateCurrentSourceType(6)` and
+     * `updatePlaylist(6, …)`. Its meaning was never recovered: `IMediaInteraction` ships no
+     * constants and the toolkit never uses another value. Reproduced, not decoded.
+     */
+    const val MEDIA_SOURCE_TYPE = 6
+
+    /** `getPlaybackStatus()`; the only two values `MediaHandler.formatPlaybackStatus` understands. */
+    private const val PLAYBACK_PLAYING = 1
+    private const val PLAYBACK_PAUSED = 2
+
+    /**
+     * The payload interface the platform declared for `updatePlaybackInfo`, read off the method
+     * signature so it cannot drift from a class name we typed.
+     */
+    fun playbackInfoInterface(media: Any): Class<*>? =
+        parameterType(media, "updatePlaybackInfo")
+            ?: runCatching { Class.forName(EcarxCapabilities.MEDIA_PLAYBACK_INFO) }.getOrNull()
+
+    /**
+     * `updatePlaylist`'s element interface. Unlike the track, its type is erased behind
+     * `java.util.List`, so there is no signature to read and the class name is the only handle.
+     */
+    fun mediaItemInterface(): Class<*>? =
+        runCatching { Class.forName(EcarxCapabilities.MEDIA_ITEM) }.getOrNull()
+
+    private fun parameterType(target: Any, name: String): Class<*>? = runCatching {
+        target.javaClass.methods.firstOrNull { it.name == name && it.parameterTypes.size == 1 }
+            ?.parameterTypes?.get(0)
+    }.getOrNull()
+
+    /** Tells the cluster which source is playing. The toolkit sends it once, before the first track. */
+    fun updateCurrentSourceType(media: Any, sourceType: Int): EcarxResult =
+        callAny(
+            media, "updateCurrentSourceType", arrayOf<Any?>(sourceType),
+            "updateCurrentSourceType($sourceType)",
+        )
+
+    /** `updatePlaybackInfo(IMediaInteraction$IPlaybackInfo)` — the track on the card. */
+    fun updatePlaybackInfo(media: Any, itf: Class<*>, info: PlaybackInfo): EcarxResult {
+        val proxy = mediaProxy(itf, info) ?: return EcarxResult.failed("IPlaybackInfo proxy failed")
+        return callAny(media, "updatePlaybackInfo", arrayOf<Any?>(proxy), "updatePlaybackInfo")
+    }
+
+    /**
+     * `updatePlaylist(int, List)`. Its element is a *different* interface from the track —
+     * `IMediaInteraction$IMedia`, whose getter names are a subset of `IPlaybackInfo`'s — so
+     * [MediaItemHandler] answers both and the same payload serves here. One entry, as the toolkit
+     * sends: CarPlay exposes the current item, not a queue.
+     */
+    fun updatePlaylist(media: Any, itf: Class<*>, sourceType: Int, info: PlaybackInfo): EcarxResult {
+        val proxy = mediaProxy(itf, info) ?: return EcarxResult.failed("IMedia proxy failed")
+        val list = ArrayList<Any>(1).apply { add(proxy) }
+        return callAny(media, "updatePlaylist", arrayOf<Any?>(sourceType, list), "updatePlaylist($sourceType,1)")
+    }
+
+    /**
+     * `updateCurrentProgress(long)`.
+     *
+     * The unit belongs to the caller: `MediaHandler.updateCurrentProgress` publishes the number it
+     * was handed straight into `ihu/info/media/progress` under the key `"value"`, with no
+     * arithmetic at all, and skips the message when it equals the last one. Milliseconds, as the
+     * toolkit's `m.smali` sends.
+     */
+    fun updateCurrentProgress(media: Any, millis: Long): EcarxResult =
+        callAny(media, "updateCurrentProgress", arrayOf<Any?>(millis), "updateCurrentProgress(${millis}ms)")
+
+    private fun mediaProxy(itf: Class<*>, info: PlaybackInfo): Any? = runCatching {
+        Proxy.newProxyInstance(itf.classLoader, arrayOf(itf), MediaItemHandler(info))
+    }.getOrElse {
+        report("media payload proxy failed: ${describe(it)}")
+        null
+    }
+
     // ---------------------------------------------------------------- DIMProtocolManager
 
     fun dimProtocolManager(context: Context): Any? = runCatching {
@@ -375,6 +483,64 @@ internal object EcarxDimApi {
         val method = lookup(target, name, params) ?: return EcarxResult.failed("$label: method not found")
         return runCatching { method.invoke(target, *args) }
             .fold({ EcarxResult.ok(label) }, { EcarxResult.failed("$label threw ${describe(it)}") })
+    }
+
+    /**
+     * The answer for a getter on a payload proxy we do not implement: the declared return type's
+     * zero. Shared by every handler in this file, because the platform does not only ask for the
+     * fields we chose to fill in.
+     */
+    private fun defaultValue(type: Class<*>): Any? = when (type) {
+        java.lang.Boolean.TYPE -> false
+        java.lang.Byte.TYPE -> 0.toByte()
+        java.lang.Short.TYPE -> 0.toShort()
+        java.lang.Integer.TYPE -> 0
+        java.lang.Long.TYPE -> 0L
+        java.lang.Float.TYPE -> 0f
+        java.lang.Double.TYPE -> 0.0
+        java.lang.Character.TYPE -> '\u0000'
+        else -> null
+    }
+
+    /**
+     * [value] as the return type the interface actually declared.
+     *
+     * The navigation payloads are filled against the descriptors probe v2 dumped off the car, so
+     * their handler can return a bare `Long` or `Int`. There is no such dump for the media payloads
+     * — their getters come from the shipped toolkit's bytecode, where `getDuration` is `long` and
+     * every status field is `int` — and a payload proxy throws `ClassCastException` when the answer
+     * does not match the declaration. On these `void` binder calls that would surface as a silent
+     * refusal, so the declaration is read instead of assumed.
+     */
+    private fun coerceNumber(type: Class<*>, value: Long): Any = when (type) {
+        java.lang.Long.TYPE -> value
+        java.lang.Integer.TYPE -> value.toInt()
+        java.lang.Short.TYPE -> value.toShort()
+        java.lang.Byte.TYPE -> value.toByte()
+        java.lang.Float.TYPE -> value.toFloat()
+        java.lang.Double.TYPE -> value.toDouble()
+        else -> value
+    }
+
+    /**
+     * Invokes one `IMediaInteraction` method by **name and arity**, not by descriptor, adjusting the
+     * numeric argument to whatever the head unit declared. See [coerceNumber] for why the media half
+     * cannot use exact descriptors the way the navigation half does.
+     */
+    private fun callAny(target: Any, name: String, args: Array<Any?>, label: String): EcarxResult {
+        val method = runCatching {
+            target.javaClass.methods.firstOrNull { it.name == name && it.parameterTypes.size == args.size }
+        }.getOrNull() ?: return EcarxResult.failed("$label: method not found")
+        val coerced = Array(args.size) { index -> coerceArgument(method.parameterTypes[index], args[index]) }
+        return runCatching { method.invoke(target, *coerced) }
+            .fold({ EcarxResult.ok(label) }, { EcarxResult.failed("$label threw ${describe(it)}") })
+    }
+
+    /** [value] as the declared parameter type. Only the two integer widths are ever mismatched. */
+    private fun coerceArgument(type: Class<*>, value: Any?): Any? = when {
+        value is Long && type == java.lang.Integer.TYPE -> value.toInt()
+        value is Int && type == java.lang.Long.TYPE -> value.toLong()
+        else -> value
     }
 
     private fun read(target: Any, name: String): Any? {
@@ -426,19 +592,7 @@ internal object EcarxDimApi {
                 "EcarxNavigationInfo(turn=${g.turnId} next=${g.distanceToNextMeters} dest=${g.distanceToDestinationMeters})"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()
-            else -> defaultValue(method.returnType)
-        }
-
-        private fun defaultValue(type: Class<*>): Any? = when (type) {
-            java.lang.Boolean.TYPE -> false
-            java.lang.Byte.TYPE -> 0.toByte()
-            java.lang.Short.TYPE -> 0.toShort()
-            java.lang.Integer.TYPE -> 0
-            java.lang.Long.TYPE -> 0L
-            java.lang.Float.TYPE -> 0f
-            java.lang.Double.TYPE -> 0.0
-            java.lang.Character.TYPE -> '\u0000'
-            else -> null
+            else -> EcarxDimApi.defaultValue(method.returnType)
         }
     }
 
@@ -456,19 +610,53 @@ internal object EcarxDimApi {
                 "EcarxCallInfo(id=${c.callId} status=${c.callStatus} name=${c.contactName} number=${c.contactNumber})"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()
-            else -> defaultValue(method.returnType)
+            else -> EcarxDimApi.defaultValue(method.returnType)
         }
+    }
 
-        private fun defaultValue(type: Class<*>): Any? = when (type) {
-            java.lang.Boolean.TYPE -> false
-            java.lang.Byte.TYPE -> 0.toByte()
-            java.lang.Short.TYPE -> 0.toShort()
-            java.lang.Integer.TYPE -> 0
-            java.lang.Long.TYPE -> 0L
-            java.lang.Float.TYPE -> 0f
-            java.lang.Double.TYPE -> 0.0
-            java.lang.Character.TYPE -> '\u0000'
-            else -> null
+    /**
+     * Answers both media payload interfaces: `IPlaybackInfo` (the track on the card, 20 getters)
+     * and `IMedia` (one queue entry, 14 of the same names). One handler because both are answered
+     * from one [PlaybackInfo] and the names line up — the only difference is which getters exist.
+     *
+     * The toolkit fills the getters it does not care about with plausible-looking junk
+     * (`"radioFrequency"`, `"lyricContent"`, a `getPlaybackStatus()` pinned at `1`), and whatever
+     * the cluster republishes from that is read as fact. Ours answers the empty string instead, and
+     * only reports what it actually has: title, artist, album, duration — plus the play/pause
+     * state, which the toolkit never varies from "playing".
+     */
+    private class MediaItemHandler(private val info: PlaybackInfo) : InvocationHandler {
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
+            "getTitle" -> info.title
+            "getArtist" -> info.artist
+            "getAlbum" -> info.album
+            "getDuration" -> EcarxDimApi.coerceNumber(method.returnType, info.durationMillis)
+            "getPlaybackStatus" -> EcarxDimApi.coerceNumber(
+                method.returnType,
+                (if (info.playing) EcarxDimApi.PLAYBACK_PLAYING else EcarxDimApi.PLAYBACK_PAUSED).toLong(),
+            )
+            "getSourceType" -> EcarxDimApi.coerceNumber(method.returnType, EcarxDimApi.MEDIA_SOURCE_TYPE.toLong())
+            // No cover, and no local file to point at: see [PlaybackInfo]. All five are `Uri`.
+            "getArtwork" -> null
+            "getNextArtwork" -> null
+            "getPreviousArtwork" -> null
+            "getLyric" -> null
+            "getMediaPath" -> null
+            // Declared as `String`, so answer with one: a cluster that reads them gets an empty value
+            // rather than the `null` its own code would trip over.
+            "getCurrentLyricSentence" -> ""
+            "getLyricContent" -> ""
+            "getRadioFrequency" -> ""
+            "getRadioStationName" -> ""
+            "getUUID" -> ""
+            "getFavoriteState" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+            "getLoopMode" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+            "getPlayingItemPositionInQueue" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+            "getRadioMode" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+            "toString" -> "EcarxMediaItem(\"${info.title}\" playing=${info.playing})"
+            "hashCode" -> System.identityHashCode(proxy)
+            "equals" -> proxy === args?.firstOrNull()
+            else -> EcarxDimApi.defaultValue(method.returnType)
         }
     }
 
@@ -488,19 +676,7 @@ internal object EcarxDimApi {
                 "equals" -> return proxy === args?.firstOrNull()
             }
             EcarxDimApi.report("callback $scope.$label ${method.name}(${java.util.Arrays.toString(args)})")
-            return defaultValue(method.returnType)
-        }
-
-        private fun defaultValue(type: Class<*>): Any? = when (type) {
-            java.lang.Boolean.TYPE -> false
-            java.lang.Byte.TYPE -> 0.toByte()
-            java.lang.Short.TYPE -> 0.toShort()
-            java.lang.Integer.TYPE -> 0
-            java.lang.Long.TYPE -> 0L
-            java.lang.Float.TYPE -> 0f
-            java.lang.Double.TYPE -> 0.0
-            java.lang.Character.TYPE -> '\u0000'
-            else -> null
+            return EcarxDimApi.defaultValue(method.returnType)
         }
     }
 }

@@ -2759,6 +2759,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.turnArrowExperimental(this)) {
             EcarxOutputSettings.setTurnArrowExperimental(this, it)
         }
+        // A separate DIM channel from everything above — the media card, not the guidance feed — so
+        // it is gated on the media interface being there, not on the navigation one.
+        if (EcarxOutputSettings.mediaSupported()) {
+            toggle(card, getString(R.string.ecarx_media_on_instrument_cluster),
+                getString(R.string.ecarx_media_on_instrument_cluster_description),
+                EcarxOutputSettings.mediaEnabled(this),
+                save = this::onEcarxMediaToggled)
+        }
+    }
+
+    /**
+     * The cluster's media card. Applies at once: the cluster bridge reads the switch every second, so
+     * nothing has to be restarted and no reconnect is needed.
+     *
+     * Bound as a method reference rather than written as a lambda at the call site because Kotlin
+     * numbers `DiPlayActivity`'s lambda classes by their position in this file — one more lambda
+     * anywhere in here renames every later one and trips the class-set regression check.
+     */
+    private fun onEcarxMediaToggled(enabled: Boolean) {
+        EcarxOutputSettings.setMediaEnabled(this, enabled)
+        NavigationOutputs.ecarxChanged(this)
     }
 
     private fun hasPreciseLocation() =

@@ -133,6 +133,8 @@
     <string name="ecarx_cluster_navigation_mode_description">请求车机优先使用本导航源，而不是内置导航。关闭后把仪表还给原车导航。</string>
     <string name="ecarx_turn_arrow_experimental">仪表转向箭头（实验）</string>
     <string name="ecarx_turn_arrow_experimental_description">额外推送原始转向箭头。其取值码表无法从随车应用中还原，箭头可能与实际转向不符，请在实车上标定后再依赖它。</string>
+    <string name="ecarx_media_on_instrument_cluster">仪表媒体卡片</string>
+    <string name="ecarx_media_on_instrument_cluster_description">把 CarPlay 的曲名、歌手、专辑和播放状态推送到仪表盘。这是媒体通道，与上面的导航开关相互独立。不开的话，仪表只在车机自带蓝牙音乐源运行时才显示媒体；一旦关掉车机蓝牙，卡片就会变空。</string>
     <string name="cancel">取消</string>
     <string name="car_home">车机主页</string>
     <string name="car_hotspot_details">车机热点详情</string>

@@ -18,6 +18,11 @@ object EcarxCapabilities {
     const val NAVI_INFO = "com.ecarx.xui.adaptapi.diminteraction.INaviInteraction\$INavigationInfo"
     const val LANE_INFO = "com.ecarx.xui.adaptapi.diminteraction.INaviInteraction\$ILaneInfo"
     const val MEDIA_INTERACTION = "com.ecarx.xui.adaptapi.diminteraction.IMediaInteraction"
+    // `IMediaInteraction` takes two different payloads and they are not the same type: the track on
+    // the card (`IPlaybackInfo`, 20 getters) and one queue entry (`IMedia`, 14). The shipped toolkit
+    // implements both, and `updatePlaylist`'s erased `List` is the only place `IMedia` is named.
+    const val MEDIA_PLAYBACK_INFO = "com.ecarx.xui.adaptapi.diminteraction.IMediaInteraction\$IPlaybackInfo"
+    const val MEDIA_ITEM = "com.ecarx.xui.adaptapi.diminteraction.IMediaInteraction\$IMedia"
     const val PHONE_INTERACTION = "com.ecarx.xui.adaptapi.diminteraction.IPhoneCallInteraction"
     const val CALL_INFO = "com.ecarx.xui.adaptapi.diminteraction.IPhoneCallInteraction\$ICallInfo"
 

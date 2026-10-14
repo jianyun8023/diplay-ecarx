@@ -775,6 +775,7 @@ internal object EcarxHudBridge {
             EcarxOutputSettings.naviMode(context).takeIf { it >= 0 } ?: "unset",
         )
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
+        append(" media=").append(EcarxOutputSettings.mediaEnabled(context))
         synchronized(lock) {
             append(" wired=").append(available)
             append(" dim=").append(dim != null)
@@ -794,5 +795,8 @@ internal object EcarxHudBridge {
             // cluster mirrors (probe v3/v4), so it is printed for correlation, never acted on.
             dim?.let { append(" showPresentationOption=").append(EcarxDimApi.showPresentationOption(it)) }
         }
+        // Outside the lock above: the media half has its own lock and its own state, and nesting the
+        // two here would only buy an ordering rule to remember.
+        append(EcarxMediaBridge.state())
     }
 }

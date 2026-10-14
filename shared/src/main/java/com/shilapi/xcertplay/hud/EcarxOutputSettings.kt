@@ -15,6 +15,7 @@ object EcarxOutputSettings {
     private const val KEY_PRESENTATION = "dim_presentation_switch"
     private const val KEY_NAVI_MODE = "dim_navi_mode"
     private const val KEY_ARROW_EXPERIMENTAL = "dim_turn_arrow_experimental"
+    private const val KEY_MEDIA = "dim_media_enabled"
 
     /**
      * NAVI_MODE_OFF leaves the cluster's own navigation source alone. Every other value asks the
@@ -45,6 +46,12 @@ object EcarxOutputSettings {
      */
     fun naviModeSupported(): Boolean =
         EcarxCapabilities.classPresent(EcarxCapabilities.DIM_PROTOCOL_MANAGER)
+
+    /**
+     * Whether the head unit ships the DIM media interface — present on the target unit, and hidden
+     * from the settings screen where it is not, for the same reason as [naviModeSupported].
+     */
+    fun mediaSupported(): Boolean = EcarxCapabilities.classPresent(EcarxCapabilities.MEDIA_INTERACTION)
 
     fun enabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
@@ -83,6 +90,23 @@ object EcarxOutputSettings {
     fun setTurnArrowExperimental(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_ARROW_EXPERIMENTAL, enabled).commit()) {
             "Could not persist the ECARX turn-arrow setting"
+        }
+    }
+
+    /**
+     * Whether CarPlay's now-playing state is also published to the cluster's media card.
+     *
+     * Off by default until the car has confirmed the cluster takes it, and independent of [enabled]:
+     * this is the DIM *media* channel, not the navigation one. Either is worth having without the
+     * other — the cluster's media card used to be fed by the head unit's own Bluetooth source
+     * reading AVRCP metadata off the iPhone, which is exactly what stops happening when the head
+     * unit's Bluetooth adapter is switched off.
+     */
+    fun mediaEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_MEDIA, false)
+
+    fun setMediaEnabled(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_MEDIA, enabled).commit()) {
+            "Could not persist the ECARX media output setting"
         }
     }
 

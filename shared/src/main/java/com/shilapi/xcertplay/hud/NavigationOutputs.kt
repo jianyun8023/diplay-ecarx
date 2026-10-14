@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.hud
 
 import android.content.Context
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.media.CarPlayNowPlaying
 
 /**
  * Nonblocking boundary between phone control messages and the head unit's instrument-cluster service.
@@ -26,6 +27,9 @@ object NavigationOutputs {
     fun onAppOpened(context: Context) {
         val app = context.applicationContext
         if (!EcarxOutputSettings.available(app)) return
+        // The media card has its own switch and its own session-independent life, so it is armed on
+        // its own condition rather than being folded into the guidance one below.
+        if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app) || EcarxOutputSettings.presentationSwitch(app)) {
             EcarxHudBridge.initialize(app)
         }
@@ -34,7 +38,10 @@ object NavigationOutputs {
     fun start(context: Context) {
         val app = context.applicationContext
         useEcarx = EcarxOutputSettings.available(app)
-        if (useEcarx) ecarx.start { EcarxHudBridge.initialize(app) }
+        if (useEcarx) {
+            ecarx.start { EcarxHudBridge.initialize(app) }
+            EcarxMediaBridge.initialize(app)
+        }
     }
 
     /**
@@ -49,17 +56,29 @@ object NavigationOutputs {
         if (!EcarxOutputSettings.available(app)) return
         useEcarx = true
         EcarxHudBridge.initialize(app)
+        EcarxMediaBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app)) ecarx.start { EcarxHudBridge.initialize(app) } else ecarx.clear()
     }
 
     /**
-     * Routes the cluster bridge's own lines into the session report. Called once the session log
+     * The iPhone's retained now-playing state, for the cluster's media card. May run on any thread.
+     *
+     * A separate entry point from [onFrame] on purpose: guidance and media are different DIM
+     * channels behind different switches, and a fault in one must not take the other down.
+     */
+    fun onNowPlaying(now: CarPlayNowPlaying) = EcarxMediaBridge.onNowPlaying(now)
+
+    /**
+     * Routes the cluster bridges' own lines into the session report. Called once the session log
      * exists — see `AndroidMediaSink`'s `onAudioDiagnostic` for the same seam on the audio side.
      *
-     * Without it the whole HUD story ("did the call even happen, and on which channel") exists only
-     * in logcat, which a car has no way to return.
+     * Without it the whole cluster story ("did the call even happen, and on which channel") exists
+     * only in logcat, which a car has no way to return.
      */
-    fun attachReport(sink: (String) -> Unit) = EcarxHudBridge.attachReport(sink)
+    fun attachReport(sink: (String) -> Unit) {
+        EcarxHudBridge.attachReport(sink)
+        EcarxMediaBridge.attachReport(sink)
+    }
 
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_UPDATE &&
