@@ -119,30 +119,44 @@ internal class AudioFocusCoordinator(
      * The iPhone sends `duckAudio`/`unduckAudio` right before/after a navigation prompt, and on 820A
      * the system's `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK` callback lags 2-3 s — after the prompt has
      * already finished. This is the synchronous path; the focus listener above stays as a backstop.
+     *
+     * A duck is applied at once; a recovery is not. The iPhone announces a prompt only when it has a
+     * whole sentence ready, so a long instruction arrives as several prompts a few hundred ms apart,
+     * and rising on the first unduck is heard as a dip — see the hold in the body.
      */
     @Synchronized
     fun setDucked(ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {
         if (closed) return
         val target = if (ducked) duckedGain(volume) else FULL_VOLUME
         // Recorded before the track check: a prompt can outlive the media track that was playing when
-        // it began, and the next track has to come back ducked rather than at full volume.
-        duckIntentGain = if (ducked) target else null
-        if (active.isEmpty()) return
+        // it began, and the next track has to come back ducked rather than at full volume. An unduck
+        // leaves it in place — it is released when the recovery actually starts (see [RampStep]) — so
+        // a focus re-request during the hold below keeps the media at the ducked gain instead of
+        // forcing it back to full volume the moment the prompt ends.
+        if (ducked) duckIntentGain = target
         val from = mediaVolume
         rampToken += 1
         val token = rampToken
         // The iPhone states the fade it wants; without one the gain is stepped as before, because
         // "ducked fast" is wanted and a fade nobody asked for only makes the prompt feel late.
         val steps = ((durationMs ?: 0) / RAMP_STEP_MILLIS).coerceIn(0, MAX_RAMP_STEPS)
+        // A prompt is over only when the iPhone stops talking. The field log has the unduck followed
+        // by the next prompt's duck 210-421 ms later, so a recovery that starts on the unduck is
+        // always part-way up (from=0.45 / from=0.85) when it is pushed down again — the reported
+        // "recovers, dips once more, recovers". Wait out the fade the iPhone itself asked for
+        // instead; a duck inside that window cancels this recovery and the gain never moves at all.
+        val holdMs = if (ducked) 0L else (durationMs ?: 0).coerceIn(0, MAX_HOLD_MILLIS).toLong()
         report(
             "Audio: duck=$ducked requestedMs=${durationMs ?: -1} requestedVolume=${volume ?: -1f} " +
-                "from=$from to=$target steps=$steps",
+                "from=$from to=$target steps=$steps holdMs=$holdMs",
         )
-        if (steps <= 1 || from == target) {
+        if (holdMs == 0L && (steps <= 1 || from == target)) {
             setMediaVolume(target)
+            if (!ducked) duckIntentGain = null
             return
         }
-        rampHandler.post(RampStep(token, from, target, steps))
+        val step = RampStep(token, from, target, steps, releaseIntent = !ducked)
+        if (holdMs > 0L) rampHandler.postDelayed(step, holdMs) else rampHandler.post(step)
     }
 
     /**
@@ -164,18 +178,24 @@ internal class AudioFocusCoordinator(
     /**
      * One scheduled gain step. [token] voids a ramp that a newer command has already superseded, so
      * the gain only ever travels from wherever it currently is towards the newest target.
+     *
+     * A recovery is posted with the iPhone's own fade as a start delay (the hold in [setDucked]) and
+     * with [releaseIntent] set, so the duck stays in force for the whole hold and is dropped only
+     * once the gain genuinely starts rising.
      */
     private inner class RampStep(
         private val token: Int,
         private val from: Float,
         private val target: Float,
         private val steps: Int,
+        private val releaseIntent: Boolean = false,
     ) : Runnable {
         private var index = 1
 
         override fun run() {
             synchronized(this@AudioFocusCoordinator) {
                 if (closed || token != rampToken) return
+                if (releaseIntent) duckIntentGain = null
                 index += 1
                 if (index >= steps) {
                     setMediaVolume(target)
@@ -263,6 +283,9 @@ internal class AudioFocusCoordinator(
         /** A requested fade steps every 25 ms; anything past 1 s is not worth riding out. */
         const val RAMP_STEP_MILLIS = 25
         const val MAX_RAMP_STEPS = 40
+
+        /** How long a recovery may be held back while waiting for the prompt sequence to be over. */
+        const val MAX_HOLD_MILLIS = 1_000
     }
 }
 
