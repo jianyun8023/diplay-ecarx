@@ -80,7 +80,7 @@ internal object EcarxHudBridge {
      *
      * The two spaces after `<path` are the template's, and reproducing the markup exactly is the
      * whole point: the cluster parses it itself, and a previous version of this file got the two
-     * `fill` values, the core width and the geometry wrong (see [arrowSubpaths]).
+     * `fill` values, the core width and the geometry wrong (see [arrowDrawing]).
      */
     private const val SVG_DOC =
         "<svg width=\"%s\" height=\"%s\" xmlns=\"http://www.w3.org/2000/svg\">\n   %s   %s</svg>"
@@ -94,23 +94,39 @@ internal object EcarxHudBridge {
     private const val SVG_CORE_WIDTH = "3"
     private const val SVG_HALF = SVG_SIZE / 2f
     private const val SVG_RADIUS = SVG_SIZE * 0.34f
-    /** [arrowSubpaths] is written in `[-100, 100]`; this maps it onto the 255 canvas. */
+    /** The shapes are written in `[-100, 100]`; this maps that onto the 255 canvas. */
     private const val SVG_SCALE = SVG_RADIUS / 100f
 
-    /** Silhouette proportions, in the same `[-100, 100]` space [arrowSubpaths] uses. */
-    private const val SHAFT_HALF = 22
-    private const val HEAD_HALF = 62
-    private const val HEAD_LEN = 80
-    /** A U-turn is a band, not a stroke: these are its outer and inner radii. */
-    private const val UTURN_OUTER = 62
-    private const val UTURN_INNER = 20
-    /** Roundabout ring, and the pin head of the destination marker. */
-    private const val RING_OUTER = 58
-    private const val RING_INNER = 32
-    private const val PIN_HEAD = 45
+    /**
+     * Shape proportions, in the same `[-100, 100]` space the drawings are written in.
+     *
+     * [STEM_X] is the stem's offset from the centre line, which is what gives a turn somewhere to
+     * bend to; [STEM_BOTTOM] is deliberately near the bottom edge so the stem leaves the canvas the
+     * way a road leaves a junction.
+     */
+    private const val STEM_X = 28
+    private const val STEM_BOTTOM = 112
+    private const val ARM_LENGTH = 74
+    private const val HEAD_LENGTH = 52
+    private const val HEAD_HALF = 38
+    /** Where the bend sits for a 45/90/135-degree turn, highest first. */
+    private const val SLIGHT_CORNER_Y = -6
+    private const val TURN_CORNER_Y = -26
+    private const val SHARP_CORNER_Y = -54
+    /** A U-turn is wide enough for its own band: the half-circle's radius is the leg offset. */
+    private const val UTURN_LEG = 46
+    private const val UTURN_CORNER_Y = -30
+    private const val UTURN_ARM_Y = 30
+    /** Roundabout ring, and the pin of the destination marker. */
+    private const val RING_CENTRE_Y = 26
+    private const val RING_RADIUS = 72
+    private const val PIN_CENTRE_Y = -24
+    private const val PIN_RADIUS = 48
+    private const val PIN_SHOULDER = 34
+    private const val PIN_TIP_Y = 78
 
-    /** Points per half-circle. Sixteen is smooth at this size and keeps the markup short. */
-    private const val ARC_STEPS = 16
+    /** Points per arc. Twelve is smooth at this size and keeps the markup short. */
+    private const val ARC_STEPS = 12
 
     /** Reported when every arrow overload this head unit declares refused the drawing. */
     private const val ARROW_OFF = "off"
@@ -192,6 +208,12 @@ internal object EcarxHudBridge {
                 "dimCb=${dimCallback != null} naviCb=${naviCallback != null} " +
                 "projection=$presentationWanted ${EcarxCapabilities.describe(app)}",
         )
+        // What the two interfaces actually declare on *this* head unit. Everything else in this file
+        // resolves methods by name from another app's bytecode, which says what can be called and not
+        // what exists; the projection decision the cluster cards hinge on is the one call nobody has
+        // a name for yet, so the real surface is printed rather than inferred. See [EcarxDimApi.surface].
+        report("DIM surface ${EcarxDimApi.surface(dim, "dim")} ${EcarxDimApi.surface(navi, "navi")}")
+        report("DIM cevt ${EcarxDimApi.cevt()}")
         // Re-assert the persisted OEM-side switches so a restart restores the cluster state.
         // Only the projection switch: setNaviMode is an unverified call (see NAVI_MODE_UNSET) and
         // is left alone until the user actually asks for it.
@@ -217,6 +239,7 @@ internal object EcarxHudBridge {
     fun attachReport(sink: (String) -> Unit) = synchronized(lock) {
         reportSink = sink
         EcarxDimApi.attachReport(sink)
+        EcarxProjectionChannel.attachReport(sink)
         unreported.forEach(sink)
         unreported.clear()
     }
@@ -322,8 +345,20 @@ internal object EcarxHudBridge {
     // ---------------------------------------------------------------- OEM switches
 
     /**
-     * The 仪表投屏 switch. Mirrors the centre screen onto the cluster; both shipped ECARX apps
-     * toggle it with `setPresentationToDimSwitch(1, "", "", show)`.
+     * The 仪表投屏 switch — mirrors a window onto the cluster's navigation card.
+     *
+     * The stock navigation app calls `setPresentationToDimSwitch(1, "com.autonavi.amapauto",
+     * "com.autonavi.amapauto", show)` (`ecarx/naviservice/a/g.smali`, the two strings are its own
+     * static `a` field): the 2nd/3rd arguments are the package whose window is to be mirrored, passed
+     * twice. This project passes `""` instead, which asks the platform to mirror the centre screen —
+     * DiPlay draws CarPlay into a full-screen surface rather than into a named package's window.
+     * That difference is recorded rather than resolved: it is the one thing that separates our call
+     * from the stock one, so if the switch ever misbehaves, naming a package is the first variant to
+     * try (see [EcarxDimApi.setPresentationToDimSwitch]).
+     *
+     * **This switch is no longer how the arrow reaches the cluster** — the projection topic is
+     * ([EcarxProjectionChannel]), and this file drives both. The switch is kept because it is the
+     * only path that has ever been seen working on this head unit.
      *
      * Turning it on records the intent and arms the watch. It does **not** report whether the
      * cluster changed, because nothing can: the platform call is `void`, unchecked, and returns the
@@ -401,6 +436,11 @@ internal object EcarxHudBridge {
      */
     private fun watchProjectionLocked() {
         if (!presentationWanted) return
+        // The 仪表投屏 switch is the one feature whose effect cannot be read back on this head unit
+        // (`getShowPresentationOption()` stays -1 even while the cluster is mirroring), so while it is
+        // on, watch what actually moves on the cluster service's own broker. See
+        // [EcarxProjectionChannel.startObserver].
+        EcarxProjectionChannel.startObserver()
         if (presentationCountdown > 0) {
             presentationCountdown -= 1
             return
@@ -446,6 +486,12 @@ internal object EcarxHudBridge {
         maneuver.road.takeIf { it.isNotEmpty() }
             ?.let { EcarxDimApi.updateNextGuidancePointName(naviRef, it) }
         if (EcarxOutputSettings.turnArrowExperimental(app)) {
+            // Point the cluster's navigation card at the phone before feeding it. Without this the
+            // card is drawn by the head unit's own source and the arrow is sent into nothing — which
+            // is exactly what the car showed: arrows only while the 仪表投屏 switch was on. The frame
+            // is published once per state change, so a per-frame call here costs nothing; see
+            // [EcarxProjectionChannel].
+            EcarxProjectionChannel.setNavigationProjection(true)
             val channel = pushArrowLocked(naviRef, maneuver, guidance)
             if (channel != lastArrowChannel) {
                 lastArrowChannel = channel
@@ -509,6 +555,9 @@ internal object EcarxHudBridge {
         lastPushed = null
         lastArrowChannel = null
         ticksSincePush = 0
+        // Hand the cluster's navigation card back. Only after the clear calls above, so the card is
+        // blank before it is re-pointed at whatever the head unit wanted to show.
+        if (guidanceActive) EcarxProjectionChannel.setNavigationProjection(false)
         if (guidanceActive) {
             guidanceActive = false
             report("DIM guidance ended")
@@ -545,15 +594,12 @@ internal object EcarxHudBridge {
      * control without needing a code table.
      *
      * The document and both `<path>` layers are the stock templates verbatim (see [SVG_DOC]); the
-     * geometry is ours. The stock app drives `d` from the navigation protocol's own vector points
-     * (`IconRoadInfo.getVectorPoints()`), which a third-party CarPlay feed does not have, so both
-     * layers are filled with the same silhouette instead: the thick dark layer then reads as a
-     * ~12.6 px outline drawn round the thin white one — the stock icon's two-tone look, from one
-     * contour. Returns null for a maneuver we have no drawing for.
+     * geometry is ours, drawn the way the stock app draws it — see [ArrowDrawing]. Returns null for
+     * a maneuver we have no drawing for.
      */
     private fun turnArrowSvg(type: Int, drivingSide: Int): String? {
-        val kind = arrowKind(type, drivingSide) ?: return null
-        val data = svgContour(kind)
+        val drawing = arrowDrawing(type, drivingSide) ?: return null
+        val data = svgContour(drawing)
         if (data.isEmpty()) return null
         val edge = SVG_PATH.format(data, SVG_EDGE_WIDTH, SVG_EDGE, SVG_EDGE)
         val core = SVG_PATH.format(data, SVG_CORE_WIDTH, SVG_CORE, SVG_CORE)
@@ -561,111 +607,158 @@ internal object EcarxHudBridge {
     }
 
     /**
-     * [arrowSubpaths] as SVG `d` data: one `M…L…` run per subpath.
+     * An [ArrowDrawing]'s bands and head as SVG `d` data.
      *
-     * The template's own `Z` closes the *last* subpath, so every subpath except the last is closed
-     * explicitly, before the next one starts. Closing after the last one as well would put `ZZ` at
-     * the end of the attribute, which the cluster's parser has no reason to be lenient about.
-     *
-     * Subpaths overlap rather than being merged, which is deliberate: `fill` and `stroke` are the
-     * same colour within each layer, so the interior seams a boolean union would remove are already
-     * invisible — and a real polygon union is a lot of code for no visible gain.
+     * The stock app appends one `M%s,%s L%s,%s` per segment and lets the document template's own
+     * `Z` close whatever happens to be last, so nothing here adds a `Z` either — and that is not a
+     * style choice. A band subpath is **two points**, and a two-point subpath closed has zero area,
+     * so the template's `fill` draws nothing and the band shows only through its `stroke`. The head
+     * is the one subpath with area, and it is meant to be filled. (Closing every subpath with `Z`,
+     * as an earlier version did, is what turned the whole drawing into a filled silhouette.)
      *
      * Coordinates are integers all the way through, so nothing here can reach SVG as `1.0E-4`. That
      * was a live failure mode of the previous `StringBuilder.append(Float)` over `Path.approximate`.
      */
-    private fun svgContour(kind: ArrowKind): String {
+    private fun svgContour(drawing: ArrowDrawing): String {
         val out = StringBuilder()
-        for (sub in arrowSubpaths(kind)) {
-            if (sub.size < 6) continue
-            if (out.isNotEmpty()) out.append('Z')
+        for (stroke in drawing.strokes) {
             var i = 0
-            while (i + 1 < sub.size) {
-                out.append(if (i == 0) 'M' else 'L')
-                out.append(px(sub[i])).append(',').append(px(sub[i + 1]))
+            while (i + 3 < stroke.size) {
+                out.append('M').append(px(stroke[i])).append(',').append(px(stroke[i + 1]))
+                out.append('L').append(px(stroke[i + 2])).append(',').append(px(stroke[i + 3]))
                 i += 2
             }
         }
+        drawing.head?.let { out.append(headContour(it)) }
         return out.toString()
+    }
+
+    /**
+     * The head as one closed triangle — tip, then the two barbs — in the template's own pixel space.
+     *
+     * Three points on purpose: it is the only subpath that has to fill, and two points could not.
+     */
+    private fun headContour(head: IntArray): String {
+        val points = headVertices(head)
+        val out = StringBuilder()
+        var i = 0
+        while (i + 1 < points.size) {
+            out.append(if (i == 0) 'M' else 'L').append(px(points[i])).append(',').append(px(points[i + 1]))
+            i += 2
+        }
+        return out.toString()
+    }
+
+    /**
+     * [head] is `[tipX, tipY, dirX, dirY]` in the shapes' own `[-100, 100]` space, with the direction
+     * given as any non-zero integer vector — `(±1, 0)`, `(±1, ±1)` is all the shapes ever need, and
+     * the vector is normalised here so a 45-degree arm gets a head 45 degrees round.
+     */
+    private fun headVertices(head: IntArray): IntArray {
+        val length = Math.hypot(head[2].toDouble(), head[3].toDouble()).coerceAtLeast(1.0)
+        val ux = head[2] / length
+        val uy = head[3] / length
+        // Clockwise normal, so the two barbs land symmetrically either side of the axis.
+        val nx = -uy
+        val ny = ux
+        val baseX = head[0] - ux * HEAD_LENGTH
+        val baseY = head[1] - uy * HEAD_LENGTH
+        return intArrayOf(
+            head[0], head[1],
+            Math.round(baseX + nx * HEAD_HALF).toInt(), Math.round(baseY + ny * HEAD_HALF).toInt(),
+            Math.round(baseX - nx * HEAD_HALF).toInt(), Math.round(baseY - ny * HEAD_HALF).toInt(),
+        )
     }
 
     /** A normalised `[-100, 100]` coordinate as a canvas pixel, rounded to the nearest. */
     private fun px(normalised: Int): Int = (SVG_HALF + normalised * SVG_SCALE + 0.5f).toInt()
 
     /**
-     * The arrow silhouettes: one entry per closed polygon, in a normalised space whose centre is
-     * `(0, 0)`, `x` grows right, `y` grows down, and `100` maps to [SVG_RADIUS]. A shape is usually
-     * two polygons — a shaft and a head — which the non-zero fill rule unions for us.
+     * One maneuver as the cluster draws it: stroked bands it can follow, plus one filled head.
      *
-     * These are ours, not ECARX's: the stock set is Amap vector data we do not have. Apple's maneuver
-     * is grouped into ten shapes the way DiPlay's own dashboard widget groups them, and the angled
-     * ones are the straight arrow rotated, so a shape can only ever be wrong in one dimension.
+     * **Why bands and not a silhouette.** The stock app (`ecarx/naviservice/widget/f.smali`) builds
+     * `d` out of `M%s,%s L%s,%s` segments — one per piece of the icon's road geometry, taken from
+     * `IconRoadInfo.getVectorPoints()` — and hands the same string to both `<path>` layers: the
+     * dark `rgb(88,90,102)` one stroked at 28.235294, and the `rgb(255,255,255)` core at 3. So the
+     * stock arrow is a **thick dark band with a thin white line down the middle** following a path,
+     * with a template polygon for the head. That is what makes it read as a turning arrow.
+     *
+     * This file used to fill one closed contour per maneuver instead, and the cluster duly drew a
+     * flat arrow glyph pointing at the exit — a left turn came out as `←` rather than a left-turn
+     * arrow, which is not what the driver reads off a cluster. The band model is the recovered one.
+     *
+     * All coordinates are in a normalised space whose centre is `(0, 0)`, `x` grows right, `y` grows
+     * down, and 100 maps to [SVG_RADIUS].
      */
-    private fun arrowSubpaths(kind: ArrowKind): List<IntArray> = when (kind) {
-        ArrowKind.LEFT -> straightArrow(facingRight = false)
-        ArrowKind.RIGHT -> straightArrow(facingRight = true)
-        // `y` grows downwards, so a positive angle turns the head downwards on screen. A slight turn
-        // points the arrow further "ahead"; a sharp one points it past the plain turn.
-        ArrowKind.SLIGHT_LEFT -> rotate(straightArrow(facingRight = false), 45.0)
-        ArrowKind.SLIGHT_RIGHT -> rotate(straightArrow(facingRight = true), -45.0)
-        ArrowKind.SHARP_LEFT -> rotate(straightArrow(facingRight = false), -45.0)
-        ArrowKind.SHARP_RIGHT -> rotate(straightArrow(facingRight = true), 45.0)
-        // The U-turn doubles back, so it is an arc and not a rotated straight arrow.
-        ArrowKind.U_TURN_LEFT -> uTurn(openLeft = true)
-        ArrowKind.U_TURN_RIGHT -> uTurn(openLeft = false)
-        ArrowKind.ROUNDABOUT -> listOf(
-            circle(0, 0, RING_OUTER, clockwise = true),
-            // Opposite winding, so the non-zero rule reads the inner ring as a hole.
-            circle(0, 0, RING_INNER, clockwise = false),
-            // The entry arrow, seated on the top of the band: the ring would read as a map pin
-            // without it, and the head would punch through the hole if it reached any lower.
-            intArrayOf(-28, -60, 28, -60, 0, -102),
-        )
-        ArrowKind.DESTINATION -> listOf(
-            circle(0, -30, PIN_HEAD, clockwise = true),
-            intArrayOf(-32, -14, 32, -14, 0, 66),
+    private class ArrowDrawing(val strokes: List<IntArray>, val head: IntArray?)
+
+    /**
+     * A turn: a stem rising from the bottom edge of the canvas, a corner, and an arm leaving it at
+     * [degrees] (negative turns left, and the angle is measured from straight up).
+     *
+     * The stem is offset to +[STEM_X] so a left turn has somewhere to bend to; a right turn is this
+     * drawing reflected (see [mirror]).
+     */
+    private fun turn(degrees: Double, cornerY: Int, arm: Int = ARM_LENGTH): ArrowDrawing {
+        val radians = Math.toRadians(degrees)
+        val dx = Math.round(Math.sin(radians) * arm).toInt()
+        val dy = -Math.round(Math.cos(radians) * arm).toInt()
+        val endX = STEM_X + dx
+        val endY = cornerY + dy
+        // Direction as a sign vector: every shape here turns through 45, 90 or 135 degrees, so this
+        // is exact, and [headVertices] normalises it for the head's own geometry.
+        val dirX = dx.compareTo(0)
+        val dirY = dy.compareTo(0)
+        val unit = 1.0 / Math.hypot(dirX.toDouble(), dirY.toDouble())
+        return ArrowDrawing(
+            strokes = listOf(intArrayOf(STEM_X, STEM_BOTTOM, STEM_X, cornerY, endX, endY)),
+            head = intArrayOf(
+                endX + Math.round(dirX * unit * HEAD_LENGTH).toInt(),
+                endY + Math.round(dirY * unit * HEAD_LENGTH).toInt(),
+                dirX, dirY,
+            ),
         )
     }
 
     /**
-     * A straight arrow along `x`: the shaft runs the full width and the head sits on one end. The two
-     * overlap by a few units so the joint cannot leave a notch in the outline.
+     * A U-turn: up one leg, a half-circle over the top, back down the other. The base drawing is the
+     * left-hand one, so [left] only decides whether it is reflected.
      */
-    private fun straightArrow(facingRight: Boolean): List<IntArray> {
-        val base = 100 - HEAD_LEN
-        val parts = listOf(
-            intArrayOf(-100, -SHAFT_HALF, base + 10, -SHAFT_HALF, base + 10, SHAFT_HALF, -100, SHAFT_HALF),
-            intArrayOf(base, -HEAD_HALF, 100, 0, base, HEAD_HALF),
-        )
-        return if (facingRight) parts else parts.map { mirrorX(it, -1) }
-    }
+    private fun uTurn(left: Boolean): ArrowDrawing = mirror(
+        ArrowDrawing(
+            strokes = listOf(
+                intArrayOf(UTURN_LEG, STEM_BOTTOM, UTURN_LEG, UTURN_CORNER_Y),
+                arc(0, UTURN_CORNER_Y, UTURN_LEG, 0.0, -180.0),
+                intArrayOf(-UTURN_LEG, UTURN_CORNER_Y, -UTURN_LEG, UTURN_ARM_Y),
+            ),
+            head = intArrayOf(-UTURN_LEG, UTURN_ARM_Y + HEAD_LENGTH, 0, 1),
+        ),
+        !left,
+    )
 
-    /** A half-annulus opening downwards, with the head on whichever end the driver leaves by. */
-    private fun uTurn(openLeft: Boolean): List<IntArray> {
-        val parts = listOf(
-            arcBand(UTURN_OUTER, UTURN_INNER, 0.0, 180.0),
-            intArrayOf(-UTURN_OUTER, 0, -UTURN_INNER, 0, -(UTURN_OUTER + UTURN_INNER) / 2, 72),
-        )
-        return if (openLeft) parts else parts.map { mirrorX(it, -1) }
-    }
+    /** A roundabout: the ring, with the head seated on its top edge pointing out of it. */
+    private fun roundabout(): ArrowDrawing = ArrowDrawing(
+        strokes = listOf(ring(0, RING_CENTRE_Y, RING_RADIUS)),
+        head = intArrayOf(0, RING_CENTRE_Y - RING_RADIUS - HEAD_LENGTH, 0, -1),
+    )
 
-    /** Rotates every polygon of [points] by [degrees] clockwise on screen. */
-    private fun rotate(points: List<IntArray>, degrees: Double): List<IntArray> {
-        val a = Math.toRadians(degrees)
-        val cos = Math.cos(a)
-        val sin = Math.sin(a)
-        return points.map { p ->
-            val out = IntArray(p.size)
-            var i = 0
-            while (i + 1 < p.size) {
-                val x = p[i].toDouble()
-                val y = p[i + 1].toDouble()
-                out[i] = Math.round(x * cos - y * sin).toInt()
-                out[i + 1] = Math.round(x * sin + y * cos).toInt()
-                i += 2
-            }
-            out
-        }
+    /** The destination marker: a pin — a ring with two strokes down to its point. */
+    private fun destination(): ArrowDrawing = ArrowDrawing(
+        strokes = listOf(
+            ring(0, PIN_CENTRE_Y, PIN_RADIUS),
+            intArrayOf(0, PIN_TIP_Y, -PIN_SHOULDER, PIN_CENTRE_Y + PIN_SHOULDER),
+            intArrayOf(0, PIN_TIP_Y, PIN_SHOULDER, PIN_CENTRE_Y + PIN_SHOULDER),
+        ),
+        head = null,
+    )
+
+    /** Reflects a drawing across the vertical centre line when [apply]; a right turn is a left turn mirrored. */
+    private fun mirror(drawing: ArrowDrawing, apply: Boolean = true): ArrowDrawing {
+        if (!apply) return drawing
+        return ArrowDrawing(
+            strokes = drawing.strokes.map { mirrorX(it, -1) },
+            head = drawing.head?.let { intArrayOf(-it[0], it[1], -it[2], it[3]) },
+        )
     }
 
     /** Mirrors `x` about zero when [sign] is negative; returns [points] untouched otherwise. */
@@ -676,51 +769,39 @@ internal object EcarxHudBridge {
         return out
     }
 
-    /** A closed half-annulus: the outer arc out, the inner arc back. Angles are degrees, `y` up. */
-    private fun arcBand(outer: Int, inner: Int, fromDeg: Double, toDeg: Double): IntArray {
-        val points = IntArray((ARC_STEPS + 1) * 4)
-        var i = 0
-        for (pass in 0..1) {
-            val radius = if (pass == 0) outer else inner
-            for (step in 0..ARC_STEPS) {
-                val index = if (pass == 0) step else ARC_STEPS - step
-                val t = Math.toRadians(fromDeg + (toDeg - fromDeg) * index / ARC_STEPS)
-                points[i++] = Math.round(radius * Math.cos(t)).toInt()
-                points[i++] = -Math.round(radius * Math.sin(t)).toInt()
-            }
+    /** An arc as a polyline. Angles are degrees and `y` grows down, so 0 is to the right. */
+    private fun arc(cx: Int, cy: Int, radius: Int, fromDeg: Double, toDeg: Double): IntArray {
+        val points = IntArray((ARC_STEPS + 1) * 2)
+        for (step in 0..ARC_STEPS) {
+            val t = Math.toRadians(fromDeg + (toDeg - fromDeg) * step / ARC_STEPS)
+            points[step * 2] = cx + Math.round(radius * Math.cos(t)).toInt()
+            points[step * 2 + 1] = cy + Math.round(radius * Math.sin(t)).toInt()
         }
         return points
     }
 
-    /** A closed [steps]-gon. [clockwise] false reverses the winding, which is how a hole is cut. */
-    private fun circle(cx: Int, cy: Int, radius: Int, clockwise: Boolean): IntArray {
-        val steps = ARC_STEPS * 2
-        val points = IntArray(steps * 2)
-        for (step in 0 until steps) {
-            val t = 2.0 * Math.PI * step / steps
-            val x = Math.round(radius * Math.cos(t)).toInt()
-            val y = Math.round(radius * Math.sin(t)).toInt()
-            points[step * 2] = cx + if (clockwise) x else -x
-            points[step * 2 + 1] = cy + y
-        }
-        return points
-    }
+    /** A full turn as a polyline; the last point repeats the first, which closes the ring. */
+    private fun ring(cx: Int, cy: Int, radius: Int): IntArray = arc(cx, cy, radius, 0.0, 360.0)
 
     /**
      * Apple's `RouteGuidanceManeuverType`/`DrivingSide` to one of our arrow shapes, grouped the way
      * DiPlay's own dashboard widget groups them (see `NavigationWidget.arrow`). Null means Apple sent
      * a maneuver we have no drawing for, and the caller falls back.
+     *
+     * The corner heights are what keep the whole drawing inside the 255-unit canvas once the
+     * 28.235294 stroke is accounted for: the shallower the turn, the higher the bend has to sit,
+     * because a 45-degree arm needs the room a 135-degree one spends going back down.
      */
-    private fun arrowKind(type: Int, drivingSide: Int): ArrowKind? = when (type) {
-        1, 20 -> ArrowKind.LEFT
-        2, 21 -> ArrowKind.RIGHT
-        47 -> ArrowKind.SHARP_LEFT
-        48 -> ArrowKind.SHARP_RIGHT
-        13, 22, 49, 52 -> ArrowKind.SLIGHT_LEFT
-        14, 23, 50, 53 -> ArrowKind.SLIGHT_RIGHT
-        4, 18, 19, 26 -> if (drivingSide == 1) ArrowKind.U_TURN_RIGHT else ArrowKind.U_TURN_LEFT
-        6, 7, in 28..46 -> ArrowKind.ROUNDABOUT
-        10, 12, 24, 25, 27 -> ArrowKind.DESTINATION
+    private fun arrowDrawing(type: Int, drivingSide: Int): ArrowDrawing? = when (type) {
+        1, 20 -> turn(-90.0, TURN_CORNER_Y)
+        2, 21 -> mirror(turn(-90.0, TURN_CORNER_Y))
+        47 -> turn(-135.0, SHARP_CORNER_Y)
+        48 -> mirror(turn(-135.0, SHARP_CORNER_Y))
+        13, 22, 49, 52 -> turn(-45.0, SLIGHT_CORNER_Y)
+        14, 23, 50, 53 -> mirror(turn(-45.0, SLIGHT_CORNER_Y))
+        4, 18, 19, 26 -> uTurn(left = drivingSide != 1)
+        6, 7, in 28..46 -> roundabout()
+        10, 12, 24, 25, 27 -> destination()
         else -> null
     }
 
@@ -729,11 +810,11 @@ internal object EcarxHudBridge {
      * that has no `updateTurnByTurnArrow(String)` overload. Returns null for an unrecognised
      * maneuver so the caller falls back to the recovered code.
      *
-     * It strokes the same [arrowSubpaths] the SVG push fills, so the two channels cannot show
-     * different arrows.
+     * It strokes the same bands the SVG push strokes and outlines the same head, so the two channels
+     * cannot show different arrows.
      */
     private fun turnArrowBitmap(type: Int, drivingSide: Int): android.graphics.Bitmap? {
-        val kind = arrowKind(type, drivingSide) ?: return null
+        val drawing = arrowDrawing(type, drivingSide) ?: return null
         val size = 128
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
@@ -744,14 +825,24 @@ internal object EcarxHudBridge {
             strokeCap = android.graphics.Paint.Cap.ROUND
             strokeJoin = android.graphics.Paint.Join.ROUND
         }
-        // Normalised 110 rather than 100, so a 12 px stroke cannot touch the edge of the bitmap.
-        val scale = size / 2f / 110f
+        // Normalised 130 rather than 100, so a 12 px stroke cannot touch the edge of the bitmap.
+        val scale = size / 2f / 130f
         val path = android.graphics.Path()
-        for (sub in arrowSubpaths(kind)) {
+        for (stroke in drawing.strokes) {
             var i = 0
-            while (i + 1 < sub.size) {
-                val x = size / 2f + sub[i] * scale
-                val y = size / 2f + sub[i + 1] * scale
+            while (i + 1 < stroke.size) {
+                val x = size / 2f + stroke[i] * scale
+                val y = size / 2f + stroke[i + 1] * scale
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                i += 2
+            }
+        }
+        drawing.head?.let { head ->
+            val points = headVertices(head)
+            var i = 0
+            while (i + 1 < points.size) {
+                val x = size / 2f + points[i] * scale
+                val y = size / 2f + points[i + 1] * scale
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 i += 2
             }
@@ -759,11 +850,6 @@ internal object EcarxHudBridge {
         }
         canvas.drawPath(path, paint)
         return bitmap
-    }
-
-    private enum class ArrowKind {
-        LEFT, RIGHT, SHARP_LEFT, SHARP_RIGHT, SLIGHT_LEFT, SLIGHT_RIGHT,
-        U_TURN_LEFT, U_TURN_RIGHT, ROUNDABOUT, DESTINATION,
     }
 
     /** One-line state for the settings diagnostics block. */
@@ -797,6 +883,7 @@ internal object EcarxHudBridge {
         }
         // Outside the lock above: the media half has its own lock and its own state, and nesting the
         // two here would only buy an ordering rule to remember.
+        append(EcarxProjectionChannel.state())
         append(EcarxMediaBridge.state())
     }
 }

@@ -104,6 +104,10 @@ internal object EcarxMediaBridge {
             "DIM media ready media=${media != null} track=${trackInterface != null} " +
                 "item=${itemInterface != null}",
         )
+        // The media interface's real method set on *this* head unit. The four calls this file makes
+        // are the shipped toolkit's, and none of them is the projection decision the cluster's media
+        // card hinges on (see [EcarxProjectionChannel]) — so the surface is printed, not assumed.
+        report("DIM media surface ${EcarxDimApi.surface(media, "media")}")
         startTickerLocked()
     }
 
@@ -116,6 +120,7 @@ internal object EcarxMediaBridge {
      */
     fun attachReport(sink: (String) -> Unit) = synchronized(lock) {
         reportSink = sink
+        EcarxProjectionChannel.attachReport(sink)
         unreported.forEach(sink)
         unreported.clear()
     }
@@ -221,6 +226,10 @@ internal object EcarxMediaBridge {
         pushed = info
         secondsSincePush = 0
         lastProgress = -1L
+        // Point the cluster's media card at the phone. Without this the card reads 无媒体 no matter
+        // what is sent on the DIM media channel, because the card is drawn from the head unit's own
+        // sources; see [EcarxProjectionChannel]. Published once per state change, so per-frame is free.
+        EcarxProjectionChannel.setMediaProjection(true)
         report(
             "DIM media \"${info.title}\" by \"${info.artist}\" album=\"${info.album}\" " +
                 "duration=${info.durationMillis}ms playing=${info.playing}",
@@ -238,6 +247,7 @@ internal object EcarxMediaBridge {
     private fun clearLocked(handle: Any) {
         if (sendLocked(handle, EcarxDimApi.PlaybackInfo())) report("DIM media cleared")
         pushed = null
+        EcarxProjectionChannel.setMediaProjection(false)
     }
 
     /**

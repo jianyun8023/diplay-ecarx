@@ -137,9 +137,14 @@ internal object EcarxDimApi {
     fun phoneCallInteraction(dim: Any): Any? = read(dim, "getPhoneCallInteraction")
 
     /**
-     * The 仪表投屏 switch. On this head unit both stock ECARX apps call
-     * `setPresentationToDimSwitch(1, "", "", true/false)` — the two strings are always empty,
-     * so the platform does not use them for identification here.
+     * The 仪表投屏 switch. The head unit's own navigation app calls
+     * `setPresentationToDimSwitch(1, "com.autonavi.amapauto", "com.autonavi.amapauto", show)`
+     * (`ecarx/naviservice/a/g.smali`), i.e. it names the package whose window is to be mirrored.
+     *
+     * This project passes `""` for both strings instead: DiPlay renders CarPlay into a full-screen
+     * surface rather than a named package's window, so there is no package to name. That is the one
+     * difference from the stock call, and it is left recorded rather than resolved — it is the first
+     * variant to try if the switch is ever seen behaving differently from the stock app's.
      */
     fun setPresentationToDimSwitch(
         dim: Any,
@@ -272,6 +277,71 @@ internal object EcarxDimApi {
         }
         return found.toString().ifEmpty { "none" }
     }
+
+    /**
+     * The declared method set of a DIM handle, for the report.
+     *
+     * Every call in this file is resolved by name, and the names came from somebody else's bytecode —
+     * the shipped toolkit for the media half, the head unit's own navigation app for the guidance
+     * half. That is enough to make the calls this project needs work, and not enough to know what
+     * *else* the interface offers: the projection decision that decides whether the cluster's
+     * navigation and media cards read the phone at all (see [EcarxProjectionChannel]) has no known
+     * method on either interface. A car has no adb and no `javap`, so the interface is printed into
+     * the session report once and read off the log instead of guessed at from a decompile.
+     */
+    fun surface(target: Any?, label: String): String {
+        val type = target?.javaClass ?: return "$label=absent"
+        return methodSurface(type, label)
+    }
+
+    /**
+     * Whether the *cluster service's* own client library is reachable from a third-party app.
+     *
+     * `android.cevt.dimsupportservice` is the package the shipped toolkit binds
+     * (`DimSupportManager`, see [EcarxProjectionChannel]); `se.cevt.dimsupportservice` is the service
+     * those calls land on, and it is the only thing that owns `updateNavigationPhoneProjection` and
+     * `updateMediaPhoneProjection`. If the client classes are on this head unit's class path, the
+     * projection decision is a binder call rather than an MQTT frame — a much shorter road than the
+     * one this project currently takes — so the presence test and `DimSupportManager`'s own method
+     * list are both worth having in the report.
+     */
+    fun cevt(): String = buildString {
+        for (name in CEVT_CLASSES) {
+            val short = name.substringAfterLast('.')
+            val type = runCatching { Class.forName(name) }.getOrNull()
+            append(short).append('=')
+            append(if (type == null) "absent" else runCatching { type.methods.size }.getOrDefault(0))
+            append(' ')
+        }
+        val manager = runCatching { Class.forName(CEVT_CLASSES.first()) }.getOrNull()
+        if (manager != null) append(methodSurface(manager, "DimSupportManager"))
+    }
+
+    private fun methodSurface(type: Class<*>, label: String): String {
+        val names = runCatching { type.methods.toList() }.getOrElse { return "$label=<${describe(it)}>" }
+            .filter { it.declaringClass != Any::class.java }
+            .map { method ->
+                method.name + "(" + method.parameterTypes.joinToString(",") { simple(it) } + ")" +
+                    (if (method.returnType == Void.TYPE) "" else ":" + simple(method.returnType))
+            }
+            .distinct()
+            .sorted()
+        return "$label=${names.size}{${names.joinToString(" ")}}"
+    }
+
+    /** Simple names, so a payload type reads as `IPlaybackInfo` rather than its whole descriptor. */
+    private fun simple(type: Class<*>): String = when {
+        type.isArray -> simple(type.componentType) + "[]"
+        else -> type.simpleName.ifEmpty { type.name.substringAfterLast('.') }
+    }
+
+    private val CEVT_CLASSES = arrayOf(
+        "android.cevt.dimsupportservice.DimSupportManager",
+        "android.cevt.dimsupportservice.DimSupportServiceHost",
+        "android.cevt.dimsupportservice.INavigationCallback",
+        "android.cevt.dimsupportservice.IMediaCallback",
+        "android.cevt.dimsupportservice.IAudioCallback",
+    )
 
     fun updateDistanceToNextGuidancePoint(navi: Any, meters: Long): EcarxResult =
         callInt(navi, "updateDistanceToNextGuidancePoint", meters.toInt())
