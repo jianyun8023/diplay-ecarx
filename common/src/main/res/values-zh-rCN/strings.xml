@@ -127,7 +127,8 @@
     <string name="ecarx_navigation_on_instrument_cluster">仪表导航</string>
     <string name="ecarx_navigation_on_instrument_cluster_description">通过车机 DIM 接口，在亿咖通仪表上显示 CarPlay 的转向箭头、距离、预计到达时间和路名。</string>
     <string name="ecarx_instrument_cluster_projection">仪表投屏</string>
-    <string name="ecarx_instrument_cluster_projection_description">把中控画面整屏镜像到仪表。这就是车机自带的投屏开关（随车工具箱用的同一个），实车已验证会把整个中控画面投上去。仪表屏只在发动机启动后才上电，所以每次点火都会重新投一次，而不是只在 App 启动时投一次。</string>
+    <string name="ecarx_instrument_cluster_projection_description">把中控画面整屏镜像到仪表。仪表导航改用投屏通道后已经不需要它，打开反而会盖住仪表上的箭头和媒体卡片。只想要箭头或媒体卡片时请保持关闭。</string>
+    <string name="ecarx_cluster_mirror_confirm">打开后会把整个中控画面镜像到仪表，并盖住仪表上的导航箭头与媒体卡片。\n\n确定要打开吗？</string>
     <string name="ecarx_cluster_call_rejected">车机拒绝了这次调用：需要系统签名且 DIM 权限被授予。</string>
     <string name="ecarx_cluster_navigation_mode">仪表导航模式</string>
     <string name="ecarx_cluster_navigation_mode_description">请求车机优先使用本导航源，而不是内置导航。关闭后把仪表还给原车导航。</string>

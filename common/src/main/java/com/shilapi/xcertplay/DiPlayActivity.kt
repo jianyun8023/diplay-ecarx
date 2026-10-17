@@ -2728,16 +2728,16 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.setEnabled(this, it)
             NavigationOutputs.ecarxChanged(this)
         }
-        toggle(card, getString(R.string.ecarx_instrument_cluster_projection),
+        // The 仪表投屏 switch mirrors the centre screen onto the cluster. It is no longer needed for
+        // the arrow or the media card — both go over the projection topic now — and turning it on
+        // covers exactly the cards this page configures, which is how it was mistaken for "the arrow
+        // stopped working". It asks before it takes effect, and the row is held so a cancel can put
+        // the switch back.
+        var projectionRow: Switch? = null
+        projectionRow = toggle(card, getString(R.string.ecarx_instrument_cluster_projection),
             getString(R.string.ecarx_instrument_cluster_projection_description),
-            EcarxOutputSettings.presentationSwitch(this)) {
-            // requestPresentation records the intent and arms the retry watch. It only reports a
-            // failure when the head unit has no DIM interface at all: the platform call is `void`
-            // and unchecked, so nothing can tell us whether the cluster — which is only powered
-            // once the engine runs — actually took the mirror.
-            if (!EcarxOutputSettings.requestPresentation(this, it)) {
-                toast(getString(R.string.ecarx_cluster_call_rejected))
-            }
+            EcarxOutputSettings.presentationSwitch(this)) { on ->
+            if (on) confirmClusterMirror(projectionRow) else applyClusterMirror(false)
         }
         // Only on head units that actually ship DIMProtocolManager: the target unit does not, and a
         // switch that can never take effect is worse than no switch (probe v2, 23/26 classes).
@@ -2780,6 +2780,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun onEcarxMediaToggled(enabled: Boolean) {
         EcarxOutputSettings.setMediaEnabled(this, enabled)
         NavigationOutputs.ecarxChanged(this)
+    }
+
+    /** Asks before the mirror goes up, because it is the one switch that hides the other outputs. */
+    private fun confirmClusterMirror(row: Switch?) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.ecarx_instrument_cluster_projection)
+            .setMessage(R.string.ecarx_cluster_mirror_confirm)
+            .setPositiveButton(android.R.string.ok) { _, _ -> applyClusterMirror(true) }
+            .setNegativeButton(android.R.string.cancel) { _, _ -> row?.isChecked = false }
+            .setOnCancelListener { row?.isChecked = false }
+            .show()
+    }
+
+    private fun applyClusterMirror(show: Boolean) {
+        // requestPresentation records the intent and arms the retry watch. It only reports a failure
+        // when the head unit has no DIM interface at all: the platform call is `void` and unchecked,
+        // so nothing can tell us whether the cluster — which is only powered once the engine runs —
+        // actually took the mirror.
+        if (!EcarxOutputSettings.requestPresentation(this, show)) {
+            toast(getString(R.string.ecarx_cluster_call_rejected))
+        }
     }
 
     private fun hasPreciseLocation() =

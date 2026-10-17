@@ -373,7 +373,9 @@ internal object EcarxHudBridge {
         if (!show) {
             presentationAttempts = 0
             presentationCountdown = 0
-            return applyPresentationLocked(false)
+            val result = applyPresentationLocked(false)
+            resendLocked()
+            return result
         }
         if (!available) return EcarxDimApi.EcarxResult.failed("no DIM interface on this head unit")
         requestPresentationLocked()
@@ -395,6 +397,23 @@ internal object EcarxHudBridge {
         if (!result.ok) report("presentation switch failed: ${result.reason}")
         else report("presentation switch -> $show")
         return result
+    }
+
+    /**
+     * Re-sends what the cluster should be showing after something else cleared it.
+     *
+     * Only the delivery bookkeeping is reset, never the guidance: [lastArrowChannel] is what
+     * suppresses a repeat of an unchanged arrow and [ticksSincePush] is what schedules the
+     * keepalive. Releasing the mirror makes the cluster hand its navigation card back to the head
+     * unit, so the arrow leaves the screen while the value it carries never changed — the same
+     * frames have to go out again for the card to be re-pointed at the phone.
+     */
+    private fun resendLocked() {
+        if (lastPushed == null) return
+        lastArrowChannel = null
+        ticksSincePush = 0
+        pushLocked(force = true)
+        report("DIM re-sent after the mirror was released")
     }
 
     /** `DIMProtocolManager.setNaviMode` — makes the cluster prefer an external navigation source. */

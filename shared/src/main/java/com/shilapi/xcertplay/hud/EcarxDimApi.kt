@@ -6,6 +6,7 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The reflective face of the ECARX XUI DIM API.
@@ -455,6 +456,14 @@ internal object EcarxDimApi {
      */
     const val MEDIA_SOURCE_TYPE = 6
 
+    /**
+     * Calls the cluster made into the payload object, by getter name.
+     *
+     * Written from [MediaItemHandler], which runs on whatever thread the platform calls it from, so
+     * it is a concurrent map rather than a plain one; read only when building a report line.
+     */
+    private val MEDIA_READS = ConcurrentHashMap<String, Int>()
+
     /** `getPlaybackStatus()`; the only two values `MediaHandler.formatPlaybackStatus` understands. */
     private const val PLAYBACK_PLAYING = 1
     private const val PLAYBACK_PAUSED = 2
@@ -514,6 +523,43 @@ internal object EcarxDimApi {
      */
     fun updateCurrentProgress(media: Any, millis: Long): EcarxResult =
         callAny(media, "updateCurrentProgress", arrayOf<Any?>(millis), "updateCurrentProgress(${millis}ms)")
+
+    /**
+     * `updateMediaSourceTypeList(int[])` — declares which media sources this app can serve.
+     *
+     * The card is drawn from `getSelectedMediaSourceCache(sourceType)`, i.e. from the sources the
+     * media service has been **told about**. `updateCurrentSourceType(6)` selects a source; it does
+     * not introduce one. Neither the shipped toolkit nor any build of this bridge before this one
+     * ever called this method, which fits the symptom exactly: every `updatePlaybackInfo` is
+     * accepted, and the card still says 无媒体 because source 6 has never existed in its cache.
+     */
+    fun updateMediaSourceTypeList(media: Any, sourceTypes: IntArray): EcarxResult =
+        callAny(
+            media, "updateMediaSourceTypeList", arrayOf<Any?>(sourceTypes),
+            "updateMediaSourceTypeList(${sourceTypes.joinToString(",")})",
+        )
+
+    /** `updateMediaMuteState(int)` — `0` is unmuted. The card dims itself on `1`. */
+    fun updateMediaMuteState(media: Any, muted: Int): EcarxResult =
+        callAny(media, "updateMediaMuteState", arrayOf<Any?>(muted), "updateMediaMuteState($muted)")
+
+    /**
+     * Which payload getters the cluster has actually called, and how often.
+     *
+     * This is the one measurement that separates "the cluster never read the track" from "it read
+     * the track and drew nothing", and it needs no guesswork: `updatePlaybackInfo` hands the
+     * platform an object that calls straight back into [MediaItemHandler]. An empty summary after a
+     * whole session of accepted calls means the channel is not being consumed at all, whatever the
+     * binder said.
+     */
+    fun mediaReads(): String {
+        val snapshot = MEDIA_READS.entries.sortedByDescending { it.value }
+        if (snapshot.isEmpty()) return "media reads=none"
+        return "media reads=" + snapshot.take(10).joinToString(",") { "${it.key}x${it.value}" }
+    }
+
+    /** Clears the getter counters; called when a session starts so the line describes one drive. */
+    fun resetMediaReads() = MEDIA_READS.clear()
 
     private fun mediaProxy(itf: Class<*>, info: PlaybackInfo): Any? = runCatching {
         Proxy.newProxyInstance(itf.classLoader, arrayOf(itf), MediaItemHandler(info))
@@ -696,37 +742,44 @@ internal object EcarxDimApi {
      * state, which the toolkit never varies from "playing".
      */
     private class MediaItemHandler(private val info: PlaybackInfo) : InvocationHandler {
-        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
-            "getTitle" -> info.title
-            "getArtist" -> info.artist
-            "getAlbum" -> info.album
-            "getDuration" -> EcarxDimApi.coerceNumber(method.returnType, info.durationMillis)
-            "getPlaybackStatus" -> EcarxDimApi.coerceNumber(
-                method.returnType,
-                (if (info.playing) EcarxDimApi.PLAYBACK_PLAYING else EcarxDimApi.PLAYBACK_PAUSED).toLong(),
-            )
-            "getSourceType" -> EcarxDimApi.coerceNumber(method.returnType, EcarxDimApi.MEDIA_SOURCE_TYPE.toLong())
-            // No cover, and no local file to point at: see [PlaybackInfo]. All five are `Uri`.
-            "getArtwork" -> null
-            "getNextArtwork" -> null
-            "getPreviousArtwork" -> null
-            "getLyric" -> null
-            "getMediaPath" -> null
-            // Declared as `String`, so answer with one: a cluster that reads them gets an empty value
-            // rather than the `null` its own code would trip over.
-            "getCurrentLyricSentence" -> ""
-            "getLyricContent" -> ""
-            "getRadioFrequency" -> ""
-            "getRadioStationName" -> ""
-            "getUUID" -> ""
-            "getFavoriteState" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
-            "getLoopMode" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
-            "getPlayingItemPositionInQueue" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
-            "getRadioMode" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
-            "toString" -> "EcarxMediaItem(\"${info.title}\" playing=${info.playing})"
-            "hashCode" -> System.identityHashCode(proxy)
-            "equals" -> proxy === args?.firstOrNull()
-            else -> EcarxDimApi.defaultValue(method.returnType)
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? {
+            // The three Object methods are the JVM's, not the platform's: counting them would drown
+            // the reading in `toString` calls from binder tracing.
+            when (method.name) {
+                "toString" -> return "EcarxMediaItem(\"${info.title}\" playing=${info.playing})"
+                "hashCode" -> return System.identityHashCode(proxy)
+                "equals" -> return proxy === args?.firstOrNull()
+            }
+            MEDIA_READS.merge(method.name, 1) { seen, add -> seen + add }
+            return when (method.name) {
+                "getTitle" -> info.title
+                "getArtist" -> info.artist
+                "getAlbum" -> info.album
+                "getDuration" -> EcarxDimApi.coerceNumber(method.returnType, info.durationMillis)
+                "getPlaybackStatus" -> EcarxDimApi.coerceNumber(
+                    method.returnType,
+                    (if (info.playing) EcarxDimApi.PLAYBACK_PLAYING else EcarxDimApi.PLAYBACK_PAUSED).toLong(),
+                )
+                "getSourceType" -> EcarxDimApi.coerceNumber(method.returnType, EcarxDimApi.MEDIA_SOURCE_TYPE.toLong())
+                // No cover, and no local file to point at: see [PlaybackInfo]. All five are `Uri`.
+                "getArtwork" -> null
+                "getNextArtwork" -> null
+                "getPreviousArtwork" -> null
+                "getLyric" -> null
+                "getMediaPath" -> null
+                // Declared as `String`, so answer with one: a cluster that reads them gets an empty value
+                // rather than the `null` its own code would trip over.
+                "getCurrentLyricSentence" -> ""
+                "getLyricContent" -> ""
+                "getRadioFrequency" -> ""
+                "getRadioStationName" -> ""
+                "getUUID" -> ""
+                "getFavoriteState" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+                "getLoopMode" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+                "getPlayingItemPositionInQueue" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+                "getRadioMode" -> EcarxDimApi.coerceNumber(method.returnType, 0L)
+                else -> EcarxDimApi.defaultValue(method.returnType)
+            }
         }
     }
 

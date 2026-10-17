@@ -107,6 +107,13 @@ internal object EcarxProjectionChannel {
         TOPIC_PROJECTION,
         "ihu/info/navigation/turn-by-turn/icon",
         "ihu/info/media/playback/status",
+        "ihu/info/media/progress",
+        // The two list topics are retained, so subscribing is enough to read back whatever the head
+        // unit's own player last published — the template for the card's track, without asking the
+        // driver to start a track first. `registerListTopic` in `MediaHandler` registers exactly
+        // three: 7 = sources, 8 = radio stations, 9 = playlist.
+        "ihu/info/media/playlist",
+        "ihu/info/media/sources",
     )
 
     /** A local loopback broker answers or fails immediately; these are a liveness check, not a budget. */
@@ -134,16 +141,19 @@ internal object EcarxProjectionChannel {
     private var lastConnectReason = "not attempted"
 
     /**
-     * What each half wants, and what the cluster has been told about each one.
+     * What the two halves want, and the **one** value the cluster was last told.
      *
-     * Two axes, not one value: the service publishes `…Navigation` and `…Media` as separate values
-     * of the same key, and a third publisher does the same for the telephone axis (see the class
-     * doc). Collapsing them here would let the media ticker silently take the arrow off the cluster.
+     * This is a single state, not three independent axes. Measured on this head unit: a track
+     * change and a guidance start fired 2 ms apart, `carPlayMedia` then `carPlayNavigation`, and the
+     * cluster stayed on the navigation value — the later frame won and the media card it had just
+     * been handed never appeared. `noProjection` is likewise the only "off" value, so one half
+     * cannot be turned off while the other stays on; the honest frame to send is the survivor.
      */
     private var navigationWanted = false
     private var mediaWanted = false
-    private var navigationPublished = false
-    private var mediaPublished = false
+
+    /** The value the cluster was last told, or `null` before the first successful frame. */
+    private var published: String? = null
 
     /** True once a frame has gone out, so `noProjection` only ever undoes this project's own work. */
     private var touched = false
@@ -202,16 +212,10 @@ internal object EcarxProjectionChannel {
 
     /** One line of state for the settings diagnostics block. */
     fun state(): String = synchronized(lock) {
-        " projection=" + (if (touched) "navi=$navigationPublished media=$mediaPublished" else "unset") +
+        " projection=" + (published ?: "unset") + " wanted=" + describeLocked() +
             " broker=" + lastConnectReason + " observed=" + observed.get()
     }
 
-    /**
-     * Recomputed on every input change, one axis at a time: the topic carries a single `statusType`
-     * per frame, so each axis that has actually changed gets its own frame. `noProjection` is only
-     * ever sent once both axes are off *and* something was projected — an install that enabled
-     * neither feature leaves the head unit's own sources alone ([touched] stays false).
-     */
     private fun update(mutate: () -> Unit): String = synchronized(lock) {
         mutate()
         val wanted = describeLocked()
@@ -227,9 +231,26 @@ internal object EcarxProjectionChannel {
     private fun describeLocked(): String =
         (if (navigationWanted) "navi" else "-") + "/" + (if (mediaWanted) "media" else "-")
 
-    /** Whether either axis differs from what the cluster has been told. */
-    private fun dirtyLocked(): Boolean =
-        navigationWanted != navigationPublished || mediaWanted != mediaPublished
+    /**
+     * The single value the cluster should be showing.
+     *
+     * Navigation outranks media because the turn arrow is what a driver reads at a glance, and the
+     * topic cannot say both. This is also what keeps a guidance stop from blanking the card: with
+     * media still on, the answer is `carPlayMedia` rather than `noProjection`.
+     */
+    private fun desiredLocked(): String = when {
+        navigationWanted -> STATUS_CARPLAY_NAVIGATION
+        mediaWanted -> STATUS_CARPLAY_MEDIA
+        else -> STATUS_NONE
+    }
+
+    /** Whether the single value differs from what the cluster has been told. */
+    private fun dirtyLocked(): Boolean {
+        val wanted = desiredLocked()
+        // Nothing to say while both halves were never on: the head unit's own sources stay untouched.
+        if (wanted == STATUS_NONE) return touched && published != STATUS_NONE
+        return wanted != published
+    }
 
     /**
      * Runs on [worker]. Publishes whatever the state is **when it runs**, not what it was when the
@@ -237,53 +258,31 @@ internal object EcarxProjectionChannel {
      * one frame carrying the *later* value.
      */
     private fun flush() {
-        val frames = synchronized(lock) {
+        val frame = synchronized(lock) {
             if (!queued) return
             queued = false
             planLocked()
-        }
-        for (frame in frames) {
-            val outcome = synchronized(lock) { publishLocked(frame) }
-            report("projection $frame -> $outcome")
-            if (outcome != "ok") return
-            synchronized(lock) {
-                touched = true
-                when (frame) {
-                    STATUS_CARPLAY_NAVIGATION -> navigationPublished = true
-                    STATUS_CARPLAY_MEDIA -> mediaPublished = true
-                    STATUS_NONE -> {
-                        navigationPublished = false
-                        mediaPublished = false
-                    }
-                }
-            }
+        } ?: return
+        val outcome = synchronized(lock) { publishLocked(frame) }
+        report("projection $frame -> $outcome")
+        if (outcome != "ok") return
+        synchronized(lock) {
+            touched = true
+            published = frame
         }
     }
 
     /**
-     * The frames this change needs, oldest concern first.
+     * The one frame this change needs, or `null` when the cluster already agrees.
      *
-     * Media is published before navigation on purpose. If some consumer of this topic really does
-     * collapse the axis suffixes into a single state, then the last frame wins — and the turn arrow
-     * is the one thing on the cluster a driver reads at a glance, so it has to be the survivor.
-     *
-     * Turning a single axis *off* while the other stays on cannot be expressed at all: the only
-     * "off" value is `noProjection`, which would clear both. Nothing is sent in that case and the
-     * stale axis is left for the next time both go quiet — the alternative is turning off the arrow
-     * to turn off a media card.
+     * Exactly one: the payload carries a single `statusType`, and a second frame would silently
+     * overwrite the first (see the state fields).
      */
-    private fun planLocked(): List<String> {
-        if (!navigationWanted && !mediaWanted) {
-            return if (touched) listOf(STATUS_NONE) else emptyList()
-        }
-        val frames = ArrayList<String>(2)
-        if (mediaWanted != mediaPublished) {
-            frames.add(if (mediaWanted) STATUS_CARPLAY_MEDIA else STATUS_NONE)
-        }
-        if (navigationWanted != navigationPublished) {
-            frames.add(if (navigationWanted) STATUS_CARPLAY_NAVIGATION else STATUS_NONE)
-        }
-        return frames
+    private fun planLocked(): String? {
+        val wanted = desiredLocked()
+        if (wanted == STATUS_NONE && !touched) return null
+        if (wanted == published) return null
+        return wanted
     }
 
     // ---------------------------------------------------------------- publish
@@ -388,10 +387,16 @@ internal object EcarxProjectionChannel {
             report("projection observer subscribed ${OBSERVED_TOPICS.joinToString(",")}")
             // No read timeout from here on: this thread does nothing but wait for the broker.
             connection.soTimeout = 0
+            // Repeats are dropped, changes are kept. A state topic re-sends the same payload every
+            // second while guidance runs, and counting each one would fill the ceiling below with
+            // the arrow and push the media topics out of it — those arrive once, as retained
+            // messages, the moment the subscription is made.
+            val seen = HashSet<String>()
             while (observed.get() < OBSERVE_LIMIT) {
                 val packet = readPacket(input) ?: break
                 if ((packet.first and 0xF0) != 0x30) continue
                 val text = publishText(packet.first, packet.second) ?: continue
+                if (!seen.add(text)) continue
                 observed.incrementAndGet()
                 report("projection observed $text")
             }

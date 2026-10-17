@@ -76,6 +76,7 @@ internal object EcarxMediaBridge {
     /** What the cluster was last told, so an unchanged frame is not sent again. */
     private var pushed: EcarxDimApi.PlaybackInfo? = null
     private var sourceTypeSent = false
+    private var sourceListSent = false
     private var secondsSincePush = 0
     private var lastProgress = -1L
     /** When [CarPlayNowPlaying.elapsedMillis] was measured, for extrapolating between updates. */
@@ -152,8 +153,9 @@ internal object EcarxMediaBridge {
     fun state(): String = synchronized(lock) {
         " media=" + (media != null) +
             " sourceType=" + sourceTypeSent +
+            " sourceList=" + sourceListSent +
             " pushed=" + (pushed != null) +
-            " progress=" + lastProgress
+            " progress=" + lastProgress + " " + EcarxDimApi.mediaReads()
     }
 
     private fun startTickerLocked() {
@@ -264,6 +266,22 @@ internal object EcarxMediaBridge {
             }
             sourceTypeSent = true
             report("DIM media source type -> ${EcarxDimApi.MEDIA_SOURCE_TYPE}")
+        }
+        // Selecting a source does not introduce it: the card is drawn from the media service's cache
+        // of *declared* sources, so source 6 has to be listed once or every track below is filed
+        // under a source the card does not know about. Best effort — a head unit without the method
+        // is the status quo this project shipped before.
+        if (!sourceListSent) {
+            val listed = EcarxDimApi.updateMediaSourceTypeList(
+                handle, intArrayOf(EcarxDimApi.MEDIA_SOURCE_TYPE),
+            )
+            if (listed.ok) {
+                sourceListSent = true
+                EcarxDimApi.updateMediaMuteState(handle, 0)
+                report("DIM media source list -> [${EcarxDimApi.MEDIA_SOURCE_TYPE}]")
+            } else {
+                report("DIM media source list refused: ${listed.reason}")
+            }
         }
         val track = trackInterface ?: return false
         val result = EcarxDimApi.updatePlaybackInfo(handle, track, info)
