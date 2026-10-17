@@ -199,9 +199,9 @@ object EcarxOutputSettings {
      * [EcarxHudBridge] directly. These delegates wire a switch straight to the head unit and
      * return whether the platform accepted the call.
      */
-    fun requestPresentation(context: Context, show: Boolean): Boolean {
+    fun requestPresentation(context: Context, show: Boolean, origin: String = ""): Boolean {
         EcarxHudBridge.initialize(context)
-        return EcarxHudBridge.applyPresentation(show).ok
+        return EcarxHudBridge.applyPresentation(show, origin).ok
     }
 
     /** Applies the projection-channel switch at once, withdrawing any claim already published. */

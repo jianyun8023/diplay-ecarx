@@ -386,7 +386,12 @@ internal object EcarxHudBridge {
      * owns delivery now"; the switch reports a failure only when the head unit has no DIM
      * interface at all, which is the one case where retrying is pointless.
      */
-    fun applyPresentation(show: Boolean): EcarxDimApi.EcarxResult = synchronized(lock) {
+    fun applyPresentation(show: Boolean, origin: String = ""): EcarxDimApi.EcarxResult = synchronized(lock) {
+        // Who asked. The 18:24 report shows the mirror being turned *off* half a second after the
+        // process started, while the settings screen held "on" — and nothing in this file can tell
+        // the difference between the driver, a dialog that cancelled itself, and a switch the
+        // settings screen rebuilt. This line is what separates them next time.
+        report("presentation request show=$show origin=$origin")
         val app = context ?: return EcarxDimApi.EcarxResult.failed("DIM not initialized")
         EcarxOutputSettings.setPresentationSwitch(app, show)
         presentationWanted = show
@@ -463,7 +468,14 @@ internal object EcarxHudBridge {
         val app = context ?: return false
         EcarxOutputSettings.setPresentationPackage(app, packageName)
         report("presentation package -> \"$packageName\"")
-        if (!presentationWanted) return false
+        if (!presentationWanted) {
+            // Nothing reads the name while the mirror is off, so changing this row then produces the
+            // same picture as before and reads as "the platform ignored the argument". The 18:24
+            // report has exactly that shape: the switch was turned off half a second after the
+            // process started, and every later package change in that session was a no-op.
+            report("presentation package change ignored: the mirror is off")
+            return false
+        }
         presentationAttempts = 0
         presentationCountdown = 0
         requestPresentationLocked().ok

@@ -2842,13 +2842,25 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     /** Asks before the mirror goes up, because it is the one switch that hides the other outputs. */
+    /** Why the mirror dialog closed without a confirmation; cleared once it has been reported. */
+    private var clusterMirrorCancelReason: String? = null
+
     private fun confirmClusterMirror(row: Switch?) {
         AlertDialog.Builder(this)
             .setTitle(R.string.ecarx_instrument_cluster_projection)
             .setMessage(R.string.ecarx_cluster_mirror_confirm)
             .setPositiveButton(android.R.string.ok) { _, _ -> applyClusterMirror(true) }
-            .setNegativeButton(android.R.string.cancel) { _, _ -> row?.isChecked = false }
-            .setOnCancelListener { row?.isChecked = false }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                // Both buttons land in applyClusterMirror(false) through the switch listener, so the
+                // reason has to be carried across; without it a cancelled dialog is indistinguishable
+                // from the driver turning the switch off.
+                clusterMirrorCancelReason = "dialog-negative"
+                row?.isChecked = false
+            }
+            .setOnCancelListener {
+                clusterMirrorCancelReason = "dialog-cancel"
+                row?.isChecked = false
+            }
             .show()
     }
 
@@ -2857,7 +2869,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // when the head unit has no DIM interface at all: the platform call is `void` and unchecked,
         // so nothing can tell us whether the cluster — which is only powered once the engine runs —
         // actually took the mirror.
-        if (!EcarxOutputSettings.requestPresentation(this, show)) {
+        //
+        // The origin goes into the session report. One drive showed the mirror switched off half a
+        // second after the process started, with the settings screen still reading "on"; that line
+        // is the only thing that says whether the driver, a cancelled dialog or a rebuilt switch did it.
+        val origin = clusterMirrorCancelReason ?: if (show) "settings-on" else "settings-off"
+        clusterMirrorCancelReason = null
+        if (!EcarxOutputSettings.requestPresentation(this, show, origin)) {
             toast(getString(R.string.ecarx_cluster_call_rejected))
         }
     }
