@@ -231,7 +231,12 @@ internal object EcarxMediaBridge {
         // Point the cluster's media card at the phone. Without this the card reads 无媒体 no matter
         // what is sent on the DIM media channel, because the card is drawn from the head unit's own
         // sources; see [EcarxProjectionChannel]. Published once per state change, so per-frame is free.
-        EcarxProjectionChannel.setMediaProjection(true)
+        // Gated by the projection-channel switch, which exists because the same topic is what puts
+        // the phone's picture on the cluster (see EcarxOutputSettings.projectionChannel).
+        val app = context
+        if (app != null && EcarxOutputSettings.projectionChannel(app)) {
+            EcarxProjectionChannel.setMediaProjection(true)
+        }
         report(
             "DIM media \"${info.title}\" by \"${info.artist}\" album=\"${info.album}\" " +
                 "duration=${info.durationMillis}ms playing=${info.playing}",
@@ -249,7 +254,10 @@ internal object EcarxMediaBridge {
     private fun clearLocked(handle: Any) {
         if (sendLocked(handle, EcarxDimApi.PlaybackInfo())) report("DIM media cleared")
         pushed = null
-        EcarxProjectionChannel.setMediaProjection(false)
+        val app = context
+        if (app != null && EcarxOutputSettings.projectionChannel(app)) {
+            EcarxProjectionChannel.setMediaProjection(false)
+        }
     }
 
     /**

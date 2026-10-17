@@ -16,6 +16,7 @@ object EcarxOutputSettings {
     private const val KEY_NAVI_MODE = "dim_navi_mode"
     private const val KEY_ARROW_EXPERIMENTAL = "dim_turn_arrow_experimental"
     private const val KEY_MEDIA = "dim_media_enabled"
+    private const val KEY_PROJECTION = "dim_projection_channel"
 
     /**
      * NAVI_MODE_OFF leaves the cluster's own navigation source alone. Every other value asks the
@@ -110,6 +111,28 @@ object EcarxOutputSettings {
         }
     }
 
+    /**
+     * Whether guidance also claims the phone as the cluster's navigation source
+     * (`ihu/info/phoneprojection` ⇒ `carPlayNavigation`).
+     *
+     * On by default, because that is the only configuration in which the arrow has ever reached the
+     * cluster. It is also, on this head unit, the same value that makes the cluster **display**
+     * CarPlay's navigation view — the driver sees a mirror while this page's 仪表投屏 switch still
+     * reads off. `NavigationHandler.updateNavigationPhoneProjection` accepts exactly three values
+     * (`androidAutoNavigation` / `carPlayNavigation` / `noProjection`), so there is no "data only"
+     * state to fall back on and the question "does the arrow survive without it" can only be
+     * answered on the car. Turning this off is that experiment: the structured DIM frames keep
+     * going out, only the projection claim stops.
+     */
+    fun projectionChannel(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PROJECTION, true)
+
+    fun setProjectionChannel(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_PROJECTION, enabled).commit()) {
+            "Could not persist the ECARX projection-channel setting"
+        }
+    }
+
     // ---------------------------------------------------------------- live apply
 
     /**
@@ -120,6 +143,13 @@ object EcarxOutputSettings {
     fun requestPresentation(context: Context, show: Boolean): Boolean {
         EcarxHudBridge.initialize(context)
         return EcarxHudBridge.applyPresentation(show).ok
+    }
+
+    /** Applies the projection-channel switch at once, withdrawing any claim already published. */
+    fun requestProjectionChannel(context: Context, enabled: Boolean): Boolean {
+        EcarxHudBridge.initialize(context)
+        EcarxHudBridge.applyProjectionChannel(enabled)
+        return true
     }
 
     fun requestNaviMode(context: Context, mode: Int): Boolean {

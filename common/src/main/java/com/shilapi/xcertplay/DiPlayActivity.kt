@@ -2767,6 +2767,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 EcarxOutputSettings.mediaEnabled(this),
                 save = this::onEcarxMediaToggled)
         }
+        // The projection topic is what makes the cluster accept the phone as its navigation source,
+        // and on this head unit it is also what puts the phone's picture there. The service takes
+        // exactly three values with no "data only" state, so whether the arrow survives without it
+        // is a question only the car can answer — this switch is that question.
+        toggle(card, getString(R.string.ecarx_projection_channel),
+            getString(R.string.ecarx_projection_channel_description),
+            EcarxOutputSettings.projectionChannel(this)) {
+            EcarxOutputSettings.requestProjectionChannel(this, it)
+        }
     }
 
     /**

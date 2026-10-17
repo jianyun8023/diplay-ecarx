@@ -170,6 +170,9 @@ internal object EcarxHudBridge {
     private var presentationCountdown = 0
     private var presentationAttempts = 0
 
+    /** Set once the driver has been left with no mirror for this guidance run; see [guardMirrorOffLocked]. */
+    private var mirrorGuarded = false
+
     private var lastPushed: EcarxDimApi.Guidance? = null
     /** Which arrow channel the last frame left on, so the report prints the changes and not the ticks. */
     private var lastArrowChannel: String? = null
@@ -370,6 +373,9 @@ internal object EcarxHudBridge {
         val app = context ?: return EcarxDimApi.EcarxResult.failed("DIM not initialized")
         EcarxOutputSettings.setPresentationSwitch(app, show)
         presentationWanted = show
+        // A fresh intent re-arms the guard: turning the mirror on must not be undone by a later
+        // guidance start, and turning it off must let the guard run again on the next one.
+        mirrorGuarded = false
         if (!show) {
             presentationAttempts = 0
             presentationCountdown = 0
@@ -416,8 +422,21 @@ internal object EcarxHudBridge {
         report("DIM re-sent after the mirror was released")
     }
 
-    /** `DIMProtocolManager.setNaviMode` — makes the cluster prefer an external navigation source. */
-    fun applyNaviMode(mode: Int): EcarxDimApi.EcarxResult = synchronized(lock) {
+    /**
+     * The projection-channel switch. Turning it off withdraws the claim already on the topic, so the
+     * experiment starts from a clean state instead of waiting for the next guidance to end.
+     */
+    fun applyProjectionChannel(enabled: Boolean) = synchronized(lock) {
+        val app = context ?: return@synchronized
+        EcarxOutputSettings.setProjectionChannel(app, enabled)
+        if (!enabled) {
+            EcarxProjectionChannel.setNavigationProjection(false)
+            EcarxProjectionChannel.setMediaProjection(false)
+        }
+        report("projection channel -> $enabled")
+    }
+
+    /** `DIMProtocolManager.setNaviMode` — makes the cluster prefer an external navigation source. */    fun applyNaviMode(mode: Int): EcarxDimApi.EcarxResult = synchronized(lock) {
         val app = context ?: return EcarxDimApi.EcarxResult.failed("DIM not initialized")
         EcarxOutputSettings.setNaviMode(app, mode)
         applyNaviModeLocked(mode)
@@ -509,8 +528,11 @@ internal object EcarxHudBridge {
             // card is drawn by the head unit's own source and the arrow is sent into nothing — which
             // is exactly what the car showed: arrows only while the 仪表投屏 switch was on. The frame
             // is published once per state change, so a per-frame call here costs nothing; see
-            // [EcarxProjectionChannel].
-            EcarxProjectionChannel.setNavigationProjection(true)
+            // [EcarxProjectionChannel]. Gated by the switch because the same value is what puts the
+            // CarPlay view on the cluster — see EcarxOutputSettings.projectionChannel.
+            if (EcarxOutputSettings.projectionChannel(app)) {
+                EcarxProjectionChannel.setNavigationProjection(true)
+            }
             val channel = pushArrowLocked(naviRef, maneuver, guidance)
             if (channel != lastArrowChannel) {
                 lastArrowChannel = channel
@@ -529,7 +551,30 @@ internal object EcarxHudBridge {
                 "DIM guidance started arrowId=${guidance.turnId} next=${maneuver.distanceMeters}m " +
                     "road=\"${maneuver.road}\"",
             )
+            guardMirrorOffLocked("guidance start")
         }
+    }
+
+    /**
+     * Re-asserts "stop mirroring" when the driver has not asked for the mirror.
+     *
+     * The last report showed the cluster displaying CarPlay's navigation view while this page's
+     * 仪表投屏 switch still read off, so the mirror can exist without that switch ever having been
+     * set. `setPresentationToDimSwitch` is the only call on this head unit that has ever been seen
+     * to release it, and it is idempotent, so writing `false` once per guidance start costs nothing
+     * and the report line says whether the platform took the call. If the mirror comes back anyway,
+     * that line is the evidence that the projection topic — not this switch — is what draws it.
+     */
+    private fun guardMirrorOffLocked(reason: String) {
+        if (presentationWanted || mirrorGuarded) return
+        val interaction = dim ?: return
+        val result = EcarxDimApi.setPresentationToDimSwitch(interaction, false)
+        if (!result.ok) {
+            report("presentation guard failed ($reason): ${result.reason}")
+            return
+        }
+        mirrorGuarded = true
+        report("presentation forced off ($reason)")
     }
 
     /**
@@ -576,7 +621,10 @@ internal object EcarxHudBridge {
         ticksSincePush = 0
         // Hand the cluster's navigation card back. Only after the clear calls above, so the card is
         // blank before it is re-pointed at whatever the head unit wanted to show.
-        if (guidanceActive) EcarxProjectionChannel.setNavigationProjection(false)
+        val app = context
+        if (guidanceActive && app != null && EcarxOutputSettings.projectionChannel(app)) {
+            EcarxProjectionChannel.setNavigationProjection(false)
+        }
         if (guidanceActive) {
             guidanceActive = false
             report("DIM guidance ended")

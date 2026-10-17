@@ -143,6 +143,8 @@
     <string name="ecarx_turn_arrow_experimental_description">Also push the raw turn arrow. Its code table could not be recovered from the shipped apps, so the arrow may not match the maneuver; calibrate on the car before relying on it.</string>
     <string name="ecarx_media_on_instrument_cluster">Cluster media card</string>
     <string name="ecarx_media_on_instrument_cluster_description">Also send CarPlay\'s track, artist, album and play state to the instrument cluster. This is the media channel — separate from the navigation switches above. Without it the cluster shows media only while the head unit\'s own Bluetooth music source is running, so turning the head unit\'s Bluetooth off leaves the card empty.</string>
+    <string name="ecarx_projection_channel">Cluster projection channel</string>
+    <string name="ecarx_projection_channel_description">Tell the cluster that navigation comes from the phone. It is the only known way to get the arrow onto the cluster, and on this head unit it also makes the cluster show the phone\'s navigation view. Turn it off to send only the structured guidance frames — arrow, distance, road — without asking the cluster to show that view. If the arrow disappears when this is off, the two are bound together here.</string>
     <string name="cancel">Cancel</string>
     <string name="car_home">Car home</string>
     <string name="car_hotspot_details">Car hotspot details</string>
