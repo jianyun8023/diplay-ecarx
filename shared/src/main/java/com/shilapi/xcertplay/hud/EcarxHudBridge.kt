@@ -148,6 +148,12 @@ internal object EcarxHudBridge {
     private const val PRESENTATION_FAST_ATTEMPTS = 30
     private const val PRESENTATION_SLOW_SECONDS = 10
 
+    /**
+     * Ticks to wait after releasing the mirror before naming a different package, so the release
+     * and the re-open are two separate platform calls rather than one that the service coalesces.
+     */
+    private const val PRESENTATION_REBUILD_TICKS = 2
+
     private val lock = Any()
     private val route = RouteGuidanceState()
     private var context: Context? = null
@@ -169,6 +175,17 @@ internal object EcarxHudBridge {
     private var presentationWanted = false
     private var presentationCountdown = 0
     private var presentationAttempts = 0
+
+    /**
+     * The package the running mirror was opened with; null while no mirror is open.
+     *
+     * `setPresentationToDimSwitch(true, pkg, pkg, true)` fixes the mirrored source when the mirror
+     * opens, and repeating it with a different package name changes nothing — fix25 offered three
+     * values for that argument and all three produced the same picture. So the name is only read
+     * when a session opens, which is why changing it needs the session released first; see
+     * [applyPresentationLocked].
+     */
+    private var presentedPackage: String? = null
 
     /** Set once the driver has been left with no mirror for this guidance run; see [guardMirrorOffLocked]. */
     private var mirrorGuarded = false
@@ -392,7 +409,11 @@ internal object EcarxHudBridge {
     private fun requestPresentationLocked(): EcarxDimApi.EcarxResult {
         val result = applyPresentationLocked(true)
         presentationAttempts = 1
-        presentationCountdown = PRESENTATION_FAST_SECONDS - 1
+        // A package change armed its own wait in [applyPresentationLocked]; do not shorten it, or the
+        // release and the re-open land in the same tick and the platform coalesces them.
+        if (presentationCountdown < PRESENTATION_FAST_SECONDS - 1) {
+            presentationCountdown = PRESENTATION_FAST_SECONDS - 1
+        }
         report("projection armed; first attempt ${result.reason}")
         return result
     }
@@ -400,9 +421,28 @@ internal object EcarxHudBridge {
     private fun applyPresentationLocked(show: Boolean): EcarxDimApi.EcarxResult {
         val interaction = dim ?: return EcarxDimApi.EcarxResult.failed("DimInteraction missing")
         val packageName = presentationPackage()
+        val running = presentedPackage
+        if (show && running != null && running != packageName) {
+            // A running mirror keeps the source it was opened with, so a `true` naming another
+            // package is a no-op (fix25: three settings, one picture). Release it and let the watch
+            // re-assert on a later tick, so the next `true` opens a session naming the new one.
+            val released = EcarxDimApi.setPresentationToDimSwitch(interaction, false, packageName = running)
+            val releaseNote = if (released.ok) "ok" else released.reason
+            presentedPackage = null
+            presentationCountdown = PRESENTATION_REBUILD_TICKS
+            report(
+                "presentation rebuild \"$running\" -> \"$packageName\" released=$releaseNote " +
+                    "re-assert in ${PRESENTATION_REBUILD_TICKS}s",
+            )
+            return released
+        }
         val result = EcarxDimApi.setPresentationToDimSwitch(interaction, show, packageName = packageName)
-        if (!result.ok) report("presentation switch failed: ${result.reason}")
-        else report("presentation switch -> $show package=\"$packageName\"")
+        if (!result.ok) {
+            report("presentation switch failed: ${result.reason}")
+            return result
+        }
+        presentedPackage = if (show) packageName else null
+        report("presentation switch -> $show package=\"$packageName\"")
         return result
     }
 
@@ -615,12 +655,13 @@ internal object EcarxHudBridge {
     private fun guardMirrorOffLocked(reason: String) {
         if (presentationWanted || mirrorGuarded) return
         val interaction = dim ?: return
-        val packageName = presentationPackage()
+        val packageName = presentedPackage ?: presentationPackage()
         val result = EcarxDimApi.setPresentationToDimSwitch(interaction, false, packageName = packageName)
         if (!result.ok) {
             report("presentation guard failed ($reason): ${result.reason}")
             return
         }
+        presentedPackage = null
         mirrorGuarded = true
         report("presentation forced off ($reason) package=\"$packageName\"")
     }
@@ -992,6 +1033,9 @@ internal object EcarxHudBridge {
             append(" arrow=").append(EcarxDimApi.arrowOverloads(navi))
             append(" projectionWanted=").append(presentationWanted)
             append(" projectionAttempts=").append(presentationAttempts)
+            // The package the running mirror was opened with; empty means "the whole centre screen",
+            // which is the picture the driver rejected as not fitting the cluster.
+            append(" projectionPackage=").append(presentedPackage ?: "")
             append(" arrowId=").append(lastPushed?.turnId ?: -1)
             append(" active=").append(lastPushed != null)
             append(" status=").append(if (lastPushed != null) NAVI_STATUS_ACTIVE else NAVI_STATUS_IDLE)
