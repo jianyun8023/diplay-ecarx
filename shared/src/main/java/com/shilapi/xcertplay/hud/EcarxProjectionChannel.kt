@@ -158,6 +158,9 @@ internal object EcarxProjectionChannel {
     /** Ceiling on observer lines, so a chatty session cannot crowd out the rest of the report. */
     private const val OBSERVE_LIMIT = 300
 
+    /** How long one observation window lasts before its counters are cleared and summarised. */
+    private const val OBSERVE_WINDOW_MS = 60_000L
+
     /** Longest observed payload echoed into a report line. */
     private const val OBSERVE_PAYLOAD_LIMIT = 160
 
@@ -481,19 +484,26 @@ internal object EcarxProjectionChannel {
             report("projection observer subscribed ${OBSERVED_TOPICS.joinToString(",")},$OBSERVE_TOPIC_ALL")
             // No read timeout from here on: this thread does nothing but wait for the broker.
             connection.soTimeout = 0
-            // Repeats are dropped, changes are kept. A state topic re-sends the same payload every
-            // second while guidance runs, and counting each one would fill the ceiling below with
-            // the arrow and push the media topics out of it — those arrive once, as retained
-            // messages, the moment the subscription is made.
-            val seen = HashSet<String>()
-            // Topic -> how many distinct payloads it carried. Printed once when the trace closes, so
-            // a topic that speaks in a format this project does not model still shows up as a number
-            // instead of as noise.
-            val topics = LinkedHashMap<String, Int>()
+            // Repeats are dropped, changes are kept, and both are counted per window rather than
+            // per connection. Across one process the earlier version remembered every payload it
+            // had ever echoed, so a topic heard once at 16:10 was invisible for the rest of the
+            // run, and the per-topic caps quietly retired a topic for good after it had spoken
+            // forty times. Three reports taken minutes apart then looked like three different
+            // buses. Every window closes with its own summary and starts counting again.
+            var windowStart = System.currentTimeMillis()
+            var seen = HashSet<String>()
+            var topics = LinkedHashMap<String, Int>()
             while (observed.get() < OBSERVE_LIMIT) {
                 val packet = readPacket(input) ?: break
                 if ((packet.first and 0xF0) != 0x30) continue
                 val text = publishText(packet.first, packet.second) ?: continue
+                val now = System.currentTimeMillis()
+                if (now - windowStart >= OBSERVE_WINDOW_MS) {
+                    report("projection topics ${topicSummary(topics)}")
+                    windowStart = now
+                    seen = HashSet()
+                    topics = LinkedHashMap()
+                }
                 if (!seen.add(text)) continue
                 val topic = text.substringBefore(' ')
                 val count = (topics[topic] ?: 0) + 1
@@ -505,12 +515,7 @@ internal object EcarxProjectionChannel {
                 observed.incrementAndGet()
                 report("projection observed $text")
             }
-            val summary = StringBuilder()
-            for ((topic, count) in topics) {
-                if (summary.isNotEmpty()) summary.append(',')
-                summary.append(topic.substringAfterLast('/')).append('=').append(count)
-            }
-            report("projection topics $summary")
+            report("projection topics ${topicSummary(topics)}")
         } catch (error: Exception) {
             report("projection observer stopped: ${reason(error)}")
         } finally {
@@ -532,6 +537,21 @@ internal object EcarxProjectionChannel {
         topic == TOPIC_PROJECTION -> 40
         topic == "ihu/info/media/progress" -> 3
         else -> 2
+    }
+
+    /**
+     * One line per window: every topic heard and how many distinct payloads it carried.
+     *
+     * Full topic names, not their last segment: `ongoing`, `status` and `progress` each appear
+     * under two parents, and a summary that drops the parent cannot be compared with another run.
+     */
+    private fun topicSummary(topics: Map<String, Int>): String {
+        val summary = StringBuilder()
+        for ((topic, count) in topics) {
+            if (summary.isNotEmpty()) summary.append(',')
+            summary.append(topic).append('=').append(count)
+        }
+        return if (summary.isEmpty()) "none" else summary.toString()
     }
 
     private fun connectPacket(clientId: String): ByteArray {

@@ -548,9 +548,9 @@ internal object EcarxHudBridge {
         if (firstFrame && EcarxOutputSettings.naviCardEvent(app)) {
             EcarxProjectionChannel.setNavigationOngoing(true, maneuver.road)
         }
-        EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, maneuver.distanceMeters.toLong())
-        maneuver.remainingMeters?.let { EcarxDimApi.updateDistanceToDestination(naviRef, it) }
-        maneuver.arrivalEpochSeconds?.let { EcarxDimApi.updateEta(naviRef, it) }
+        val nextPoint = EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, maneuver.distanceMeters.toLong())
+        val remaining = maneuver.remainingMeters?.let { EcarxDimApi.updateDistanceToDestination(naviRef, it) }
+        val eta = maneuver.arrivalEpochSeconds?.let { EcarxDimApi.updateEta(naviRef, it) }
         maneuver.road.takeIf { it.isNotEmpty() }
             ?.let { EcarxDimApi.updateNextGuidancePointName(naviRef, it) }
         if (EcarxOutputSettings.turnArrowExperimental(app)) {
@@ -581,8 +581,25 @@ internal object EcarxHudBridge {
                 "DIM guidance started arrowId=${guidance.turnId} next=${maneuver.distanceMeters}m " +
                     "road=\"${maneuver.road}\"",
             )
+            // Every one of these calls has always been fired and its answer thrown away, so a
+            // field the cluster never received looked exactly like one the cluster ignored. The
+            // 16:10 comparison showed the head unit's own app publishing `distance` while this
+            // project never did — one line per guidance start now says whether that field was
+            // absent from the phone, refused by the platform, or accepted and then dropped.
+            report(
+                "DIM fields next=${outcome(nextPoint)} " +
+                    "distance=${outcome(remaining)}:${maneuver.remainingMeters ?: -1}m " +
+                    "eta=${outcome(eta)}:at=${maneuver.arrivalEpochSeconds ?: -1} " +
+                    "raw=${maneuver.etaRawSeconds ?: -1}",
+            )
             guardMirrorOffLocked("guidance start")
         }
+    }
+
+    private fun outcome(result: EcarxDimApi.EcarxResult?): String = when {
+        result == null -> "absent"
+        result.ok -> "ok"
+        else -> "failed"
     }
 
     /**

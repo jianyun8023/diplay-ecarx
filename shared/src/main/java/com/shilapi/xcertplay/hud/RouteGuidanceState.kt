@@ -15,6 +15,8 @@ internal data class AppleManeuver(
     val remainingSeconds: Long? = null,
     val remainingMeters: Long? = null,
     val arrivalEpochSeconds: Long? = null,
+    /** What 0x05 actually carried, before any epoch conversion. Reported, never displayed. */
+    val etaRawSeconds: Long? = null,
 )
 
 internal enum class RouteGuidanceChange {
@@ -48,6 +50,7 @@ internal class RouteGuidanceState(
     private var distanceMeters = 0
     private var currentRoad = ""
     private var arrivalEpochSeconds: Long? = null
+    private var etaRawSeconds: Long? = null
     private var remainingSeconds: Long? = null
     private var remainingMeters: Long? = null
     private var emptyListSinceNs: Long? = null
@@ -67,7 +70,7 @@ internal class RouteGuidanceState(
         val maneuver = activeManeuver() ?: return null
         return AppleManeuver(
             distanceMeters, maneuver.type, maneuver.drivingSide,
-            roadFor(maneuver), remainingSeconds, remainingMeters, arrivalEpochSeconds,
+            roadFor(maneuver), remainingSeconds, remainingMeters, arrivalEpochSeconds, etaRawSeconds,
         )
     }
 
@@ -78,6 +81,7 @@ internal class RouteGuidanceState(
         distanceMeters = 0
         currentRoad = ""
         arrivalEpochSeconds = null
+        etaRawSeconds = null
         remainingSeconds = null
         remainingMeters = null
         emptyListSinceNs = null
@@ -117,7 +121,18 @@ internal class RouteGuidanceState(
             when {
                 type == 0x01 && valueLength >= 1 -> state = data[value].toInt() and 0xff
                 type == 0x03 -> currentRoad = utf8(data, value, valueLength)
-                type == 0x05 && valueLength >= 8 -> arrivalEpochSeconds = u64(data, value).takeIf { it > 0 }
+                // Apple's 0x05 is not always an absolute timestamp: this phone sends the time
+                // *remaining*. Handing that straight to the head unit made it render a 41-minute
+                // remainder as the clock time "24:41", because it formats whatever integer it
+                // receives. A value below 2001-09-09 cannot be a timestamp, so treat those as a
+                // duration and convert once, here, where the phone's intent is still known.
+                type == 0x05 && valueLength >= 8 -> {
+                    val raw = u64(data, value).takeIf { it > 0 }
+                    etaRawSeconds = raw
+                    arrivalEpochSeconds = raw?.let {
+                        if (it >= EPOCH_FLOOR_SECONDS) it else System.currentTimeMillis() / 1000 + it
+                    }
+                }
                 type == 0x06 && valueLength >= 8 -> remainingSeconds = u64(data, value).takeIf { it >= 0 }
                 type == 0x07 && valueLength >= 4 -> remainingMeters = u32(data, value)
                 type == 0x0a && valueLength >= 4 -> {
@@ -213,5 +228,7 @@ internal class RouteGuidanceState(
         private const val TLV_HEADER_BYTES = 4
         private const val STALE_ROUTE_NS = 30_000_000_000L
         private const val EMPTY_LIST_HIDE_NS = 3_000_000_000L
+        /** 2001-09-09. Anything below this in the ETA field is a duration, not a timestamp. */
+        private const val EPOCH_FLOOR_SECONDS = 1_000_000_000L
     }
 }
