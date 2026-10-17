@@ -18,6 +18,7 @@ object EcarxOutputSettings {
     private const val KEY_MEDIA = "dim_media_enabled"
     private const val KEY_PROJECTION = "dim_projection_channel"
     private const val KEY_PRESENTATION_PACKAGE = "dim_presentation_package"
+    private const val KEY_NAVI_CARD = "dim_navi_card_event"
 
     /**
      * The package whose window the cluster should mirror, taken from the stock navigation app's own
@@ -171,6 +172,25 @@ object EcarxOutputSettings {
      */
     fun presentationPackages(context: Context): List<String> =
         listOf("", context.packageName, STOCK_NAVIGATION_PACKAGE)
+
+    /**
+     * Whether guidance also publishes the head unit's "a navigation is running" event
+     * (`ihu/events/navigation/ongoing`).
+     *
+     * On by default, because it is the last candidate for the one thing still missing: the cluster's
+     * card does not appear unless the 仪表投屏 switch is on, yet our arrow, distance and road name are
+     * *proven* to be on the broker already (the 12:06 report shows our SVG echoed back on
+     * `ihu/info/navigation/turn-by-turn/icon`). Something else therefore decides whether the cluster
+     * shows its navigation page, and this event is the only navigation-shaped signal this project
+     * never sent itself. Turn it off to restore the exact behaviour of fix25.
+     */
+    fun naviCardEvent(context: Context): Boolean = prefs(context).getBoolean(KEY_NAVI_CARD, true)
+
+    fun setNaviCardEvent(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_NAVI_CARD, enabled).commit()) {
+            "Could not persist the ECARX navigation-card event setting"
+        }
+    }
 
     // ---------------------------------------------------------------- live apply
 

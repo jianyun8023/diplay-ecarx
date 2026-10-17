@@ -542,6 +542,12 @@ internal object EcarxHudBridge {
         }
         val firstFrame = lastPushed == null
         if (firstFrame) EcarxDimApi.notifyTurnByTurnStarted(naviRef)
+        // The `void` notification above has never been confirmed to reach the service. Publish the
+        // event the service itself would have published, so the cluster is told a navigation exists
+        // even if that call went nowhere; see EcarxProjectionChannel.setNavigationOngoing.
+        if (firstFrame && EcarxOutputSettings.naviCardEvent(app)) {
+            EcarxProjectionChannel.setNavigationOngoing(true, maneuver.road)
+        }
         EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, maneuver.distanceMeters.toLong())
         maneuver.remainingMeters?.let { EcarxDimApi.updateDistanceToDestination(naviRef, it) }
         maneuver.arrivalEpochSeconds?.let { EcarxDimApi.updateEta(naviRef, it) }
@@ -630,6 +636,9 @@ internal object EcarxHudBridge {
         val naviRef = navi
         if (naviRef != null) {
             EcarxDimApi.notifyTurnByTurnStopped(naviRef)
+            if (context?.let(EcarxOutputSettings::naviCardEvent) == true) {
+                EcarxProjectionChannel.setNavigationOngoing(false, "")
+            }
             if (context?.let(EcarxOutputSettings::turnArrowExperimental) == true) {
                 // Clear through the same family that drew it: an empty drawing first (the stock app's
                 // own "no arrow" payload on the SVG channel), then the id the stock app reserves for

@@ -150,6 +150,8 @@
     <string name="ecarx_presentation_package_screen">Whole centre screen</string>
     <string name="ecarx_presentation_package_self">This app\'s window</string>
     <string name="ecarx_presentation_package_stock">Stock navigation app</string>
+    <string name="ecarx_navi_card_event">Navigation-in-progress event</string>
+    <string name="ecarx_navi_card_event_description">Also publish the head unit\'s own "a navigation is running" event to the cluster. The arrow, distance and road name are already reaching the cluster on its own topics — this is the one navigation signal this app never sent itself, and the last candidate for why the cluster still hides its navigation card unless the projection switch is on. Turn it off to restore the previous behaviour exactly.</string>
     <string name="cancel">Cancel</string>
     <string name="car_home">Car home</string>
     <string name="car_hotspot_details">Car hotspot details</string>

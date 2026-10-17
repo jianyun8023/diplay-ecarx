@@ -91,6 +91,20 @@ internal object EcarxProjectionChannel {
     /** The topic both projection publishers in the service use. */
     private const val TOPIC_PROJECTION = "ihu/info/phoneprojection"
 
+    /**
+     * `NavigationHandler.updateOngoingNavigation(boolean, String, boolean)` — the head unit's "a
+     * navigation is running" event, payload `{"naviEvent":"ongoingNavi"|"idle", …}`.
+     *
+     * This is the one navigation signal the XUI API may not produce at all: our arrow, distance and
+     * road name are all visible on the broker (`projection observed
+     * ihu/info/navigation/turn-by-turn/icon {"imageData":"<svg…"}` in the 12:06 report), so the data
+     * path is not the problem — but the cluster still draws nothing unless its navigation
+     * *presentation* is on. `notifyTurnByTurnStarted()` is the only call on our side that could have
+     * set that state, it returns `void`, and nothing has ever confirmed it reached this handler.
+     * Publishing the event makes that question answerable on the car.
+     */
+    private const val TOPIC_NAV_ONGOING = "ihu/events/navigation/ongoing"
+
     /** The single key in that topic's payload (`NavigationHandler`/`MediaHandler` both `put` it). */
     private const val KEY_STATUS = "statusType"
 
@@ -106,6 +120,13 @@ internal object EcarxProjectionChannel {
     private val OBSERVED_TOPICS = arrayOf(
         TOPIC_PROJECTION,
         "ihu/info/navigation/turn-by-turn/icon",
+        // The rest of the navigation set, so the report can say which of them this head unit
+        // publishes on its own — `ongoing` above all: if it turns up here while the mirror is on and
+        // never while it is off, then that event *is* the presentation gate.
+        TOPIC_NAV_ONGOING,
+        "ihu/events/navigation/distance",
+        "ihu/info/navigation/turn-by-turn/next-turn",
+        "ihu/info/navigation/turn-by-turn/next-exit",
         "ihu/info/media/playback/status",
         "ihu/info/media/progress",
         // The two list topics are retained, so subscribing is enough to read back whatever the head
@@ -158,6 +179,9 @@ internal object EcarxProjectionChannel {
     /** True once a frame has gone out, so `noProjection` only ever undoes this project's own work. */
     private var touched = false
 
+    /** The `ongoing` payload last published, so an unchanged road name is not re-sent. */
+    private var lastOngoing: String? = null
+
     private val observerStarted = AtomicBoolean(false)
     private val observed = AtomicInteger(0)
 
@@ -209,6 +233,55 @@ internal object EcarxProjectionChannel {
 
     /** The media axis. Called when the now-playing card goes up and when it is cleared. */
     fun setMediaProjection(on: Boolean): String = update { mediaWanted = on }
+
+    /**
+     * Tells the cluster that a navigation is running (or has stopped), on the event topic the head
+     * unit's own navigation app uses.
+     *
+     * Separate from [setNavigationProjection]: that one points the cluster's navigation *source* at
+     * the phone and is the value that also puts the picture on the cluster, while this one only says
+     * "a navigation exists". If the cluster's card is gated on the second, the card can appear with
+     * the first left alone — which is the whole point of the experiment.
+     *
+     * `destination` is the road text the cluster shows beside its own navigation icons. Empty is
+     * valid: the stock handler is called with an empty address when no destination string exists.
+     */
+    fun setNavigationOngoing(on: Boolean, destination: String): String = synchronized(lock) {
+        val payload = ongoingPayload(on, destination)
+        if (payload == lastOngoing) return@synchronized "navi ongoing unchanged"
+        lastOngoing = payload
+        startObserver()
+        worker.execute {
+            val outcome = synchronized(lock) { publishRawLocked(TOPIC_NAV_ONGOING, payload) }
+            report("navi ongoing ${if (on) "on" else "off"} -> $outcome")
+        }
+        "navi ongoing ${if (on) "on" else "off"} (queued)"
+    }
+
+    /**
+     * `NavigationHandler`'s own payload, field for field: `naviEvent` carries the state and the four
+     * icon names are the ones the cluster's card chrome expects. `iconRight` is `unmuteIcon` because
+     * CarPlay's mute state is not something this project tracks.
+     */
+    private fun ongoingPayload(on: Boolean, destination: String): String {
+        val event = if (on) "ongoingNavi" else "idle"
+        return "{\"naviEvent\":\"$event\",\"naviIcon\":\"hubsNavi\",\"destination\":\"" +
+            escapeJson(destination) + "\",\"iconLeft\":\"naviNewIcon\",\"iconCenter\":\"cancelNaviIcon\"," +
+            "\"iconRight\":\"unmuteIcon\",\"destinationFlagIcon\":\"destinationFlagIcon\"}"
+    }
+
+    private fun escapeJson(value: String): String {
+        val out = StringBuilder(value.length + 8)
+        for (ch in value) {
+            when (ch) {
+                '"' -> out.append("\\\"")
+                '\\' -> out.append("\\\\")
+                '\n', '\r' -> out.append(' ')
+                else -> if (ch < ' ') out.append(' ') else out.append(ch)
+            }
+        }
+        return out.toString()
+    }
 
     /** One line of state for the settings diagnostics block. */
     fun state(): String = synchronized(lock) {
@@ -287,8 +360,11 @@ internal object EcarxProjectionChannel {
 
     // ---------------------------------------------------------------- publish
 
-    private fun publishLocked(statusType: String): String {
-        val payload = "{\"$KEY_STATUS\":\"$statusType\"}"
+    private fun publishLocked(statusType: String): String =
+        publishRawLocked(TOPIC_PROJECTION, "{\"$KEY_STATUS\":\"$statusType\"}")
+
+    /** One QoS-1 publish on an already-known topic, with the PUBACK as the only delivery evidence. */
+    private fun publishRawLocked(topic: String, payload: String): String {
         var last = "no attempt"
         var attempt = 0
         // One retry, and only through a fresh connection: a broker that took the first frame but ate
@@ -300,7 +376,7 @@ internal object EcarxProjectionChannel {
             val id = nextPacketId()
             try {
                 val out = connection.getOutputStream()
-                out.write(publishPacket(id, TOPIC_PROJECTION, payload))
+                out.write(publishPacket(id, topic, payload))
                 out.flush()
                 val ack = readPacket(connection.getInputStream())
                 val acked = if (ack != null && (ack.first and 0xF0) == 0x40 && ack.second.size >= 2) {

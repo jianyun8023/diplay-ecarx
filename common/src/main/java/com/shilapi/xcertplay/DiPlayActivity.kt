@@ -2784,6 +2784,23 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         choice(card, getString(R.string.ecarx_presentation_package), presentationPackageLabels(),
             presentationPackageIndex(), reconnects = false,
             save = this::onEcarxPresentationPackageChosen)
+        // The last untested navigation signal: the arrow data already reaches the cluster's own
+        // topics, so what the cluster is missing is the state, not the payload.
+        toggle(card, getString(R.string.ecarx_navi_card_event),
+            getString(R.string.ecarx_navi_card_event_description),
+            EcarxOutputSettings.naviCardEvent(this),
+            save = this::onEcarxNaviCardEventToggled)
+    }
+
+    /**
+     * Stores the navigation-event switch. Read at every guidance start and stop, so nothing has to be
+     * applied live and no reconnect is needed.
+     *
+     * A method reference rather than a lambda at the call site for the same reason as
+     * [onEcarxPresentationPackageChosen].
+     */
+    private fun onEcarxNaviCardEventToggled(enabled: Boolean) {
+        EcarxOutputSettings.setNaviCardEvent(this, enabled)
     }
 
     /** Labels for [EcarxOutputSettings.presentationPackages], in the same order. */

@@ -143,6 +143,8 @@
     <string name="ecarx_presentation_package_screen">整个中控画面</string>
     <string name="ecarx_presentation_package_self">本应用窗口</string>
     <string name="ecarx_presentation_package_stock">车机自带导航</string>
+    <string name="ecarx_navi_card_event">导航进行中事件</string>
+    <string name="ecarx_navi_card_event_description">额外把车机自己的「导航进行中」事件推给仪表。箭头、距离、路名本来就已经通过仪表自己的主题送达了 —— 唯独这个信号本应用从没发过，它是「不开投屏就不显示导航卡片」的最后一个候选原因。关掉即可完全恢复上一版行为。</string>
     <string name="cancel">取消</string>
     <string name="car_home">车机主页</string>
     <string name="car_hotspot_details">车机热点详情</string>
