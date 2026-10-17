@@ -137,12 +137,26 @@ internal object EcarxProjectionChannel {
         "ihu/info/media/sources",
     )
 
+    /**
+     * What the observer actually subscribes to: one wildcard, not the list above.
+     *
+     * The head unit's own navigation app draws a navigation card on this cluster while its
+     * presentation switch is *off* — its `notifyV2DIMState` passes the ready flag, and that flag is
+     * false on this unit (`map/c;->B()` is a constant `false`), so it writes `setPresentationToDimSwitch`
+     * with `false` and still gets a card. That is the one behaviour this project could not reproduce,
+     * and the difference is therefore not in a topic this project already knows it publishes: it is
+     * either a topic never published here or a frame not sent. Watching all of `ihu/` is the only way
+     * to see it, so the subscription is the wildcard and [OBSERVED_TOPICS] keeps its old job of
+     * deciding which lines are worth echoing payloads for.
+     */
+    private const val OBSERVE_TOPIC_ALL = "ihu/#"
+
     /** A local loopback broker answers or fails immediately; these are a liveness check, not a budget. */
     private const val CONNECT_TIMEOUT_MS = 1500
     private const val READ_TIMEOUT_MS = 1500
 
     /** Ceiling on observer lines, so a chatty session cannot crowd out the rest of the report. */
-    private const val OBSERVE_LIMIT = 120
+    private const val OBSERVE_LIMIT = 300
 
     /** Longest observed payload echoed into a report line. */
     private const val OBSERVE_PAYLOAD_LIMIT = 160
@@ -459,8 +473,12 @@ internal object EcarxProjectionChannel {
             for (topic in OBSERVED_TOPICS) {
                 out.write(subscribePacket(nextPacketId(), topic))
             }
+            // The exact filters above keep working, and the wildcard adds everything else: the
+            // broker may deliver a match once per overlapping subscription, and [seen] below drops
+            // those repeats, so the cost is a few duplicate bytes on the wire and no duplicate lines.
+            out.write(subscribePacket(nextPacketId(), OBSERVE_TOPIC_ALL))
             out.flush()
-            report("projection observer subscribed ${OBSERVED_TOPICS.joinToString(",")}")
+            report("projection observer subscribed ${OBSERVED_TOPICS.joinToString(",")},$OBSERVE_TOPIC_ALL")
             // No read timeout from here on: this thread does nothing but wait for the broker.
             connection.soTimeout = 0
             // Repeats are dropped, changes are kept. A state topic re-sends the same payload every
@@ -468,14 +486,31 @@ internal object EcarxProjectionChannel {
             // the arrow and push the media topics out of it — those arrive once, as retained
             // messages, the moment the subscription is made.
             val seen = HashSet<String>()
+            // Topic -> how many distinct payloads it carried. Printed once when the trace closes, so
+            // a topic that speaks in a format this project does not model still shows up as a number
+            // instead of as noise.
+            val topics = LinkedHashMap<String, Int>()
             while (observed.get() < OBSERVE_LIMIT) {
                 val packet = readPacket(input) ?: break
                 if ((packet.first and 0xF0) != 0x30) continue
                 val text = publishText(packet.first, packet.second) ?: continue
                 if (!seen.add(text)) continue
+                val topic = text.substringBefore(' ')
+                val count = (topics[topic] ?: 0) + 1
+                topics[topic] = count
+                // Capped per topic rather than globally: a progress topic changes every second and
+                // would eat the whole ceiling by itself, while the navigation frames — the ones the
+                // question is about — need room for a whole turn sequence.
+                if (count > observeCap(topic)) continue
                 observed.incrementAndGet()
                 report("projection observed $text")
             }
+            val summary = StringBuilder()
+            for ((topic, count) in topics) {
+                if (summary.isNotEmpty()) summary.append(',')
+                summary.append(topic.substringAfterLast('/')).append('=').append(count)
+            }
+            report("projection topics $summary")
         } catch (error: Exception) {
             report("projection observer stopped: ${reason(error)}")
         } finally {
@@ -484,6 +519,20 @@ internal object EcarxProjectionChannel {
     }
 
     // ---------------------------------------------------------------- MQTT 3.1.1 framing
+
+    /**
+     * How many distinct payloads a topic may echo into the report.
+     *
+     * Navigation topics get room for a full guidance sequence; topics that tick — progress,
+     * heartbeats — get just enough to prove they exist. Everything else gets two, which shows the
+     * payload shape without turning an unfamiliar topic into a flood.
+     */
+    private fun observeCap(topic: String): Int = when {
+        topic.startsWith("ihu/events/navigation/") || topic.startsWith("ihu/info/navigation/") -> 40
+        topic == TOPIC_PROJECTION -> 40
+        topic == "ihu/info/media/progress" -> 3
+        else -> 2
+    }
 
     private fun connectPacket(clientId: String): ByteArray {
         val body = ByteArrayOutputStream()
