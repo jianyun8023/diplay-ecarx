@@ -58,6 +58,19 @@ internal object EcarxMediaBridge {
      */
     private const val KEEPALIVE_SECONDS = 15
 
+    /**
+     * How often the media counter line reaches the report.
+     *
+     * The counters live on the *cluster's* side of the binder: they count the getters the head unit's
+     * own card code calls on our payload object, so they are the only evidence of whether the card
+     * reads what is pushed at all. They used to be reachable only from the settings screen's
+     * diagnostics block, which a drive never opens — the 12:06 report therefore could not say
+     * "channel dead" or "payload wrong", which is exactly the question the empty card leaves open.
+     * Thirty seconds is slow enough not to bury the guidance lines and fast enough to appear twice in
+     * a short drive.
+     */
+    private const val MEDIA_REPORT_SECONDS = 30
+
     private val lock = Any()
     private var context: Context? = null
     private var available = false
@@ -77,6 +90,8 @@ internal object EcarxMediaBridge {
     private var pushed: EcarxDimApi.PlaybackInfo? = null
     private var sourceTypeSent = false
     private var sourceListSent = false
+    /** Seconds since the counter line was last written; see [MEDIA_REPORT_SECONDS]. */
+    private var secondsSinceReport = 0
     private var secondsSincePush = 0
     private var lastProgress = -1L
     /** When [CarPlayNowPlaying.elapsedMillis] was measured, for extrapolating between updates. */
@@ -167,6 +182,14 @@ internal object EcarxMediaBridge {
     }
 
     private fun tick() = synchronized(lock) {
+        // Before the early returns below: "nothing is playing" and "the media interface is gone" are
+        // both states the counters have to be able to describe, and a counter line that only appeared
+        // while pushing would be silent in exactly the case worth diagnosing.
+        secondsSinceReport += 1
+        if (secondsSinceReport >= MEDIA_REPORT_SECONDS) {
+            secondsSinceReport = 0
+            report("media counters" + state())
+        }
         if (!available) return@synchronized
         val app = context ?: return@synchronized
         if (dim == null || media == null) reclaimLocked()

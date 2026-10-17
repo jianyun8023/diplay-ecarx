@@ -142,15 +142,17 @@ internal object EcarxDimApi {
      * `setPresentationToDimSwitch(1, "com.autonavi.amapauto", "com.autonavi.amapauto", show)`
      * (`ecarx/naviservice/a/g.smali`), i.e. it names the package whose window is to be mirrored.
      *
-     * This project passes `""` for both strings instead: DiPlay renders CarPlay into a full-screen
-     * surface rather than a named package's window, so there is no package to name. That is the one
-     * difference from the stock call, and it is left recorded rather than resolved — it is the first
-     * variant to try if the switch is ever seen behaving differently from the stock app's.
+     * This project has always passed `""` for both strings: DiPlay renders CarPlay into a full-screen
+     * surface rather than a named package's window, so there seemed to be no package to name. The
+     * driver's verdict on that choice is that the cluster then shows a square picture which does not
+     * fit its shape — so the argument is exposed instead of assumed. See
+     * [EcarxOutputSettings.presentationPackage] for the three values offered.
      */
     fun setPresentationToDimSwitch(
         dim: Any,
         show: Boolean,
         screenId: Int = DEFAULT_SCREEN_ID,
+        packageName: String = "",
     ): EcarxResult = call(
         dim,
         "setPresentationToDimSwitch",
@@ -160,8 +162,8 @@ internal object EcarxDimApi {
             String::class.java,
             Boolean::class.javaPrimitiveType!!,
         ),
-        arrayOf<Any?>(screenId, "", "", show),
-        "setPresentationToDimSwitch($screenId,\"\",\"\",$show)",
+        arrayOf<Any?>(screenId, packageName, packageName, show),
+        "setPresentationToDimSwitch($screenId,\"$packageName\",\"$packageName\",$show)",
     )
 
     /**

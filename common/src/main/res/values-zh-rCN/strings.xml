@@ -138,6 +138,11 @@
     <string name="ecarx_media_on_instrument_cluster_description">把 CarPlay 的曲名、歌手、专辑和播放状态推送到仪表盘。这是媒体通道，与上面的导航开关相互独立。不开的话，仪表只在车机自带蓝牙音乐源运行时才显示媒体；一旦关掉车机蓝牙，卡片就会变空。</string>
     <string name="ecarx_projection_channel">仪表投影通道</string>
     <string name="ecarx_projection_channel_description">告诉仪表「导航来自手机」。这是箭头能上仪表的唯一已知途径，但它同时会让仪表显示手机导航画面。关掉后只推送箭头、距离、路名等结构化数据，不要求仪表显示手机画面 —— 若关掉后箭头消失，说明这台车机上两者是绑定的。</string>
+    <string name="ecarx_presentation_package">投屏窗口</string>
+    <string name="ecarx_presentation_package_description">投屏开启时，仪表镜像的是谁的窗口。车机自带导航会把「自己」填进这个位置；本应用一直填的是空值，等于要求镜像整个中控画面 —— 实车反馈就是一个方方正正、与异形仪表不搭的画面。改动后会立即重新下发投屏开关。</string>
+    <string name="ecarx_presentation_package_screen">整个中控画面</string>
+    <string name="ecarx_presentation_package_self">本应用窗口</string>
+    <string name="ecarx_presentation_package_stock">车机自带导航</string>
     <string name="cancel">取消</string>
     <string name="car_home">车机主页</string>
     <string name="car_hotspot_details">车机热点详情</string>

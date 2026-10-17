@@ -17,6 +17,13 @@ object EcarxOutputSettings {
     private const val KEY_ARROW_EXPERIMENTAL = "dim_turn_arrow_experimental"
     private const val KEY_MEDIA = "dim_media_enabled"
     private const val KEY_PROJECTION = "dim_projection_channel"
+    private const val KEY_PRESENTATION_PACKAGE = "dim_presentation_package"
+
+    /**
+     * The package whose window the cluster should mirror, taken from the stock navigation app's own
+     * call (`ecarx/naviservice/a/g.smali` passes its `a` field twice).
+     */
+    const val STOCK_NAVIGATION_PACKAGE = "com.autonavi.amapauto"
 
     /**
      * NAVI_MODE_OFF leaves the cluster's own navigation source alone. Every other value asks the
@@ -133,6 +140,38 @@ object EcarxOutputSettings {
         }
     }
 
+    /**
+     * The package whose window the cluster mirrors, i.e. the two string arguments of
+     * `setPresentationToDimSwitch`.
+     *
+     * `""` asks the platform to mirror the centre screen, which is what this project has always
+     * sent: the driver reports the resulting card as a square picture that does not fit the
+     * cluster's shape. The stock navigation app names its own package instead, and that is the only
+     * argument of that call never yet varied, so it is exposed rather than guessed at — the car has
+     * to say whether naming a package changes *what* is mirrored or only *whether* it is.
+     *
+     * Read at every switch write rather than cached, so a change reaches the cluster on the next
+     * watch attempt without restarting anything.
+     */
+    fun presentationPackage(context: Context): String =
+        prefs(context).getString(KEY_PRESENTATION_PACKAGE, "") ?: ""
+
+    fun setPresentationPackage(context: Context, value: String) {
+        check(prefs(context).edit().putString(KEY_PRESENTATION_PACKAGE, value).commit()) {
+            "Could not persist the ECARX presentation package"
+        }
+    }
+
+    /**
+     * The packages offered in the settings screen: the centre screen, this app's own window (the
+     * stock app names itself, so this is the closest analogue), and the stock navigation app.
+     *
+     * No free-text entry on purpose — every value here is one the head unit is known to name itself,
+     * and a typo would be indistinguishable from "the platform ignored the call".
+     */
+    fun presentationPackages(context: Context): List<String> =
+        listOf("", context.packageName, STOCK_NAVIGATION_PACKAGE)
+
     // ---------------------------------------------------------------- live apply
 
     /**
@@ -150,6 +189,17 @@ object EcarxOutputSettings {
         EcarxHudBridge.initialize(context)
         EcarxHudBridge.applyProjectionChannel(enabled)
         return true
+    }
+
+    /**
+     * Stores the presentation package and re-issues the switch if the mirror is currently wanted.
+     *
+     * Re-issued rather than waited for: the watch's next attempt is up to [EcarxHudBridge]'s slow
+     * phase away, and a test that has to guess when it took effect is a worse test.
+     */
+    fun requestPresentationPackage(context: Context, value: String): Boolean {
+        EcarxHudBridge.initialize(context)
+        return EcarxHudBridge.applyPresentationPackage(value)
     }
 
     fun requestNaviMode(context: Context, mode: Int): Boolean {

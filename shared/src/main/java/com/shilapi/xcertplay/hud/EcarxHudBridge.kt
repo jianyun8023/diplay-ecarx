@@ -399,10 +399,34 @@ internal object EcarxHudBridge {
 
     private fun applyPresentationLocked(show: Boolean): EcarxDimApi.EcarxResult {
         val interaction = dim ?: return EcarxDimApi.EcarxResult.failed("DimInteraction missing")
-        val result = EcarxDimApi.setPresentationToDimSwitch(interaction, show)
+        val packageName = presentationPackage()
+        val result = EcarxDimApi.setPresentationToDimSwitch(interaction, show, packageName = packageName)
         if (!result.ok) report("presentation switch failed: ${result.reason}")
-        else report("presentation switch -> $show")
+        else report("presentation switch -> $show package=\"$packageName\"")
         return result
+    }
+
+    /** The package the cluster should mirror right now; see [EcarxOutputSettings.presentationPackage]. */
+    private fun presentationPackage(): String {
+        val app = context ?: return ""
+        return EcarxOutputSettings.presentationPackage(app)
+    }
+
+    /**
+     * Stores a new presentation package and, when the mirror is currently wanted, re-issues the
+     * switch so the change takes effect now rather than at the watch's next slow attempt.
+     *
+     * Returns whether the platform accepted the re-issue; `false` also covers "nothing to do",
+     * which is the honest answer when the driver has not asked for the mirror.
+     */
+    fun applyPresentationPackage(packageName: String): Boolean = synchronized(lock) {
+        val app = context ?: return false
+        EcarxOutputSettings.setPresentationPackage(app, packageName)
+        report("presentation package -> \"$packageName\"")
+        if (!presentationWanted) return false
+        presentationAttempts = 0
+        presentationCountdown = 0
+        requestPresentationLocked().ok
     }
 
     /**
@@ -568,13 +592,14 @@ internal object EcarxHudBridge {
     private fun guardMirrorOffLocked(reason: String) {
         if (presentationWanted || mirrorGuarded) return
         val interaction = dim ?: return
-        val result = EcarxDimApi.setPresentationToDimSwitch(interaction, false)
+        val packageName = presentationPackage()
+        val result = EcarxDimApi.setPresentationToDimSwitch(interaction, false, packageName = packageName)
         if (!result.ok) {
             report("presentation guard failed ($reason): ${result.reason}")
             return
         }
         mirrorGuarded = true
-        report("presentation forced off ($reason)")
+        report("presentation forced off ($reason) package=\"$packageName\"")
     }
 
     /**

@@ -2776,6 +2776,39 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.projectionChannel(this)) {
             EcarxOutputSettings.requestProjectionChannel(this, it)
         }
+        // The one argument of `setPresentationToDimSwitch` never yet varied: the two package strings.
+        // The driver's report is that an empty pair makes the cluster mirror the whole centre screen,
+        // a square picture on an irregular cluster — the stock navigation app names its own package
+        // instead. Offered as three known-good values rather than free text, because a typo and "the
+        // platform ignored the call" would look identical in the report.
+        choice(card, getString(R.string.ecarx_presentation_package), presentationPackageLabels(),
+            presentationPackageIndex(), reconnects = false,
+            save = this::onEcarxPresentationPackageChosen)
+    }
+
+    /** Labels for [EcarxOutputSettings.presentationPackages], in the same order. */
+    private fun presentationPackageLabels(): List<String> = listOf(
+        getString(R.string.ecarx_presentation_package_screen),
+        getString(R.string.ecarx_presentation_package_self),
+        getString(R.string.ecarx_presentation_package_stock),
+    )
+
+    /** Which of those is stored now; an unknown stored value falls back to the first entry. */
+    private fun presentationPackageIndex(): Int =
+        EcarxOutputSettings.presentationPackages(this)
+            .indexOf(EcarxOutputSettings.presentationPackage(this)).coerceAtLeast(0)
+
+    /**
+     * Persists the chosen package and re-issues the switch at once.
+     *
+     * A method reference rather than a lambda at the call site on purpose: Kotlin numbers this
+     * activity's lambda classes by their position in the file, so one more lambda here renames every
+     * later one and trips the class-set regression check.
+     */
+    private fun onEcarxPresentationPackageChosen(index: Int) {
+        val packages = EcarxOutputSettings.presentationPackages(this)
+        if (index !in packages.indices) return
+        EcarxOutputSettings.requestPresentationPackage(this, packages[index])
     }
 
     /**
