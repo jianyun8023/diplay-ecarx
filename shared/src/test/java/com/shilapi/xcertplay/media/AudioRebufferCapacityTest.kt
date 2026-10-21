@@ -16,7 +16,7 @@ import org.robolectric.annotation.Implements
 @Config(sdk = [25, 28, 33], manifest = Config.NONE, shadows = [AudioRebufferCapacityTest.CapacityTrack::class])
 class AudioRebufferCapacityTest {
     @Test fun residualAudioCountsTowardRestartBeforeAPausedTrackFills() {
-        for (millis in listOf(500, 1000)) {
+        for (millis in MediaAudioBuffer.presets) {
             val plan = MediaAudioBuffer.plan(true, 48_000, 2, 4096, millis)
             val threshold = MediaAudioBuffer.startBytesFor(plan.startBytes, plan.trackBufferBytes, 4096)
             CapacityTrack.capacity = plan.trackBufferBytes
@@ -29,10 +29,10 @@ class AudioRebufferCapacityTest {
                     .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_STEREO).build())
                 .setBufferSizeInBytes(plan.trackBufferBytes).build()
             val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-            val renderer = type.declaredConstructors.single { it.parameterCount == 11 }
+            val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
                 .apply { isAccessible = true }.newInstance(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"), false, false, 0, 0,
-                    AudioFocusCoordinator(null, false, false), 0, millis, { _: String -> }, null, false)
+                    AudioFocusCoordinator(null, false, false), 0, millis, { _: String -> }, 0L, false, null, false)
             fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
             fun get(name: String) = type.getDeclaredField(name).apply { isAccessible = true }.get(renderer)
             try {

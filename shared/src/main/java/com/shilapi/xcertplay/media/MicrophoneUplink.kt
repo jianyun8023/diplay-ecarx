@@ -5,7 +5,6 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
-import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AudioCodecKind
@@ -18,6 +17,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 
 /**
  * Captures one PCM microphone stream and sends it back to the phone as sealed CarPlay RTP.
@@ -28,11 +28,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
+    private val speakerphoneCall: Boolean = false,
     /** The call's far-end audio; when set, telephony capture runs DiPlay's own echo canceller. */
     private val echoReference: EchoReference? = null,
     private val echoCancellerFactory: (Int, Int, Int) -> CallEchoCanceller? = { frame, rate, tail ->
         SpeexEchoCanceller.create(frame, rate, tail)
     },
+    private val opusEncoderFactory: (Int) -> MicrophoneOpusEncoder? = { bitrate ->
+        MicrophoneOpusEncoders.create(
+            bitrate = bitrate,
+            software = { value ->
+                SoftwareOpusEncoder(value, onError = { message, error -> Log.w(TAG, message, error) })
+            },
+        )
+    },
+    private val noAudioRestartMillis: Long = NO_AUDIO_RESTART_MILLIS,
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
@@ -41,7 +51,7 @@ internal class MicrophoneUplink(
     })
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
-    @Volatile private var opusEncoder: OpusEncoder? = null
+    @Volatile private var opusEncoder: MicrophoneOpusEncoder? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
     @Volatile private var echoCanceller: CallEchoCanceller? = null
     private var thread: Thread? = null
@@ -66,13 +76,24 @@ internal class MicrophoneUplink(
             return false
         }
 
-        val source = when (config.audioType) {
-            "telephony" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
-            "speechrecognition" -> MediaRecorder.AudioSource.VOICE_RECOGNITION
+        val source = when {
+            config.audioType == "telephony" -> telephonyMicrophoneSource(
+                speakerphoneCall = speakerphoneCall,
+                carPhoneState = PhoneAudioRoute.carPlayCallsUseCarAudio(),
+                geelyHeadUnit = com.shilapi.xcertplay.network.GeelyHeadUnit.detected,
+            )
+            // The Geely/Lynk head unit only opens the microphone for the voice-communication
+            // source; its voice-recognition source records silence, so Siri never hears.
+            config.audioType == "speechrecognition" ->
+                if (com.shilapi.xcertplay.network.GeelyHeadUnit.detected) {
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                } else {
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION
+                }
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            OpusEncoder(config.bitrate ?: 48_000).takeIf { it.available }
+            opusEncoderFactory(config.bitrate ?: 48_000)
         } else {
             null
         }
@@ -81,6 +102,12 @@ internal class MicrophoneUplink(
             stats.failure(MicrophoneFailureStage.ENCODER)
             running.set(false)
             return false
+        }
+        if (nextEncoder != null) {
+            val message = "Microphone: encoder type=${config.audioType} codec=OPUS " +
+                "implementation=${nextEncoder.implementation}"
+            Log.i(TAG, message)
+            runCatching { onDiagnostic(message) }
         }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
         // Some head units throw on VOICE_RECOGNITION at build(); VOICE_COMMUNICATION works there.
@@ -117,7 +144,7 @@ internal class MicrophoneUplink(
         return try {
             if (config.audioType == "telephony") {
                 echoCanceller = createEchoCanceller()
-                effects = voiceEffects(nextRecorder.audioSessionId)
+                if (!speakerphoneCall) effects = voiceEffects(nextRecorder.audioSessionId)
                 if (echoReference != null) {
                     Log.i(TAG, "microphone echo canceller enabled=${echoCanceller != null} tail=${ECHO_TAIL_MILLIS}ms")
                 }
@@ -174,6 +201,12 @@ internal class MicrophoneUplink(
     }
 
     private fun voiceEffects(sessionId: Int): List<AudioEffect> {
+        if (PhoneAudioRoute.carPlayCallsUseCarAudio()) {
+            // In the car's phone audio state its own processing handles echo and noise, and was only measured
+            // with the platform effects off.
+            Log.i(TAG, "microphone effects left to the car's phone audio state")
+            return emptyList()
+        }
         var aec: AudioEffect? = null
         if (echoCanceller != null) {
             // VOICE_COMMUNICATION can enable AEC by default. Keep its controller alive and
@@ -193,14 +226,18 @@ internal class MicrophoneUplink(
                 if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId) else null
             }
         }
-        return listOfNotNull(aec, enabledEffect("NS") {
-            if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId) else null
-        }, enabledEffect("AGC") {
-            // The reference app chains AEC -> NS -> AGC with AGC on by default, and our
-            // earlier probing showed 48 kHz uplink is near-silent on this head unit. AGC keeps the
-            // uplink level usable regardless of the negotiated capture rate.
-            if (AutomaticGainControl.isAvailable()) AutomaticGainControl.create(sessionId) else null
-        })
+        val ns = if (echoCanceller != null) {
+            // Noise suppression before the canceller distorts the echo it has to model; Speex
+            // denoises after cancelling instead. Keep the controller so a fallback can re-enable it.
+            configuredEffect("NS", false) {
+                if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId) else null
+            }
+        } else {
+            enabledEffect("NS") {
+                if (NoiseSuppressor.isAvailable()) NoiseSuppressor.create(sessionId) else null
+            }
+        }
+        return listOfNotNull(aec, ns)
     }
 
     // Advertised effects may still fail to initialize on a vendor ROM. Keep recording without them.
@@ -237,6 +274,7 @@ internal class MicrophoneUplink(
     }
 
     private fun capture(recorder: AudioRecord, socket: DatagramSocket) {
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         val frame = ByteArray(config.frameBytes)
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
@@ -246,6 +284,8 @@ internal class MicrophoneUplink(
         val reference = canceller?.let { ShortArray(it.frameSamples) }
         var filled = 0
         var readRestarts = 0
+        var noAudioRestarts = 0
+        var lastAudioNs = System.nanoTime()
         try {
             while (running.get()) {
                 stats.reading()
@@ -264,15 +304,33 @@ internal class MicrophoneUplink(
                         readRestarts < MAX_READ_RESTARTS && restartRecording(recorder)
                     ) {
                         readRestarts++
-                        stats.restarted(readRestarts)
+                        stats.restarted(readRestarts, "read-error", routeType(recorder))
                         continue
                     }
                     return
                 }
                 if (count == 0) {
                     stats.flush(routeType = routeInfo)
+                    // A recorder that starts with no input device routed returns 0 bytes at once, for
+                    // as long as it runs: a Leapmotor T03 (Android 7.1) did this for minutes of Siri and
+                    // call capture (#566). Restart it, and pause between empty reads instead of spinning.
+                    val now = System.nanoTime()
+                    if (running.get() && noAudioRestarts < MAX_NO_AUDIO_RESTARTS &&
+                        now - lastAudioNs >= noAudioRestartMillis * 1_000_000L
+                    ) {
+                        noAudioRestarts++
+                        lastAudioNs = now
+                        if (restartRecording(recorder)) {
+                            stats.restarted(noAudioRestarts, "no-audio", routeType(recorder))
+                        } else {
+                            stats.failure(MicrophoneFailureStage.RECORDING, code = recorder.recordingState)
+                        }
+                    } else {
+                        Thread.sleep(EMPTY_READ_PAUSE_MILLIS)
+                    }
                     continue
                 }
+                lastAudioNs = System.nanoTime()
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)
@@ -373,6 +431,10 @@ internal class MicrophoneUplink(
         echoCanceller = null
         current.close()
         if (!running.get()) return // close/release already owns all recorder effects.
+        effects.filterIsInstance<NoiseSuppressor>().forEach { ns ->
+            runCatching { ns.setEnabled(true) }
+                .onFailure { Log.w(TAG, "microphone platform NS could not be restored", it) }
+        }
         val aec = effects.filterIsInstance<AcousticEchoCanceler>().firstOrNull()
         if (aec != null) {
             val enabled = runCatching { aec.setEnabled(true) == AudioEffect.SUCCESS && aec.enabled }.getOrDefault(false)
@@ -450,7 +512,23 @@ internal class MicrophoneUplink(
         const val ECHO_REFERENCE_LEAD_NS = 30_000_000L
         const val MAX_READ_RESTARTS = 3
         const val READ_RESTART_PAUSE_MILLIS = 50L
+        const val NO_AUDIO_RESTART_MILLIS = 1_000L
+        const val MAX_NO_AUDIO_RESTARTS = 3
+        const val EMPTY_READ_PAUSE_MILLIS = 5L
     }
+}
+
+/**
+ * The recorder source for a CarPlay call. While DiPlay holds the car's phone audio state the car's call
+ * processing is on for every source, but VOICE_COMMUNICATION then clips (about a fifth of the samples on a
+ * Han) and the plain microphone source is muted. VOICE_RECOGNITION, which is also what the stock CarPlay
+ * service ends up with, gives a normal level with no clipping, and the car still suppresses the far end's
+ * echo on it. Geely/Lynk head units record silence on VOICE_RECOGNITION, so they keep the old choice.
+ */
+internal fun telephonyMicrophoneSource(speakerphoneCall: Boolean, carPhoneState: Boolean, geelyHeadUnit: Boolean): Int = when {
+    carPhoneState && !geelyHeadUnit -> MediaRecorder.AudioSource.VOICE_RECOGNITION
+    speakerphoneCall -> MediaRecorder.AudioSource.MIC
+    else -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
 }
 
 /**

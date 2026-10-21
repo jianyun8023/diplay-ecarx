@@ -5,11 +5,14 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
+import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 
 /** Starts the CarPlay host after boot when the user has enabled the startup option. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // Starts the watcher for other apps' calls when that setting is on, even without opening DiPlay.
+        PhoneAudioRoute.attach(context)
         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
         StartupDiagnosticSnapshot.received(context, launchEnabled)
         // The profile policy outlives a killed process, so a power cycle is the one moment that is

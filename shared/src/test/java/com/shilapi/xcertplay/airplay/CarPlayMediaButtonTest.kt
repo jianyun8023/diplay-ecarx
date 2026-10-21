@@ -12,37 +12,43 @@ class CarPlayMediaButtonTest {
     fun steeringWheelKeysMapToCarPlayMediaPresses() {
         assertEquals(CarPlayMediaButton.NEXT, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_MEDIA_NEXT))
         assertEquals(CarPlayMediaButton.PREVIOUS, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_MEDIA_PREVIOUS))
-        // A head unit rewrites its play/pause key into PLAY or PAUSE from the session state; both toggle.
+        // BYD rewrites its play/pause key into PLAY or PAUSE from the session state; both toggle.
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_MEDIA_PLAY))
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_MEDIA_PAUSE))
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
         assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_HEADSETHOOK))
+        assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(353))
+        // DiLink 3 (Han, GCC) sends KEYCODE_AUTO_MEDIA_PLAY_PAUSE unchanged.
+        assertNull(CarPlayMediaButton.forKeyCode(331))
+        assertEquals(CarPlayMediaButton.PLAY_PAUSE,
+            CarPlayMediaButton.forKeyCode(331, experimentalDiLink3Keys = true))
     }
 
     @Test
-    fun theVoiceKeysOpenSiri() {
-        // ECARX wheels send the voice key as either the plain assist key or the voice-assist key.
-        assertTrue(CarPlayMediaButton.opensSiri(KeyEvent.KEYCODE_ASSIST))
+    fun dilink3CarPlayVoiceKeysOpenSiriOnlyThroughTheWheelKeyService() {
+        assertTrue(CarPlayMediaButton.opensSiriWhileCarPlay(327))
+        assertTrue(CarPlayMediaButton.opensSiriWhileCarPlay(328))
+        assertFalse(CarPlayMediaButton.opensSiriWhileCarPlay(304))
+        assertFalse(CarPlayMediaButton.opensSiri(327))
+    }
+
+    @Test
+    fun theWheelsShortVoiceKeysAreTheCarPlayAndGenericShortCodes() {
+        assertTrue(CarPlayMediaButton.isShortVoiceKey(327))
+        assertTrue(CarPlayMediaButton.isShortVoiceKey(304))
+        assertFalse(CarPlayMediaButton.isShortVoiceKey(328))
+        assertFalse(CarPlayMediaButton.isShortVoiceKey(312))
+        assertFalse(CarPlayMediaButton.isShortVoiceKey(KeyEvent.KEYCODE_VOICE_ASSIST))
+    }
+
+    @Test
+    fun theVoiceKeyOpensSiri() {
+        // Recorded on DiLink 5.0: short press 304 (scan 290), long press 312 (scan 312).
+        assertTrue(CarPlayMediaButton.opensSiri(304))
+        assertTrue(CarPlayMediaButton.opensSiri(312))
         assertTrue(CarPlayMediaButton.opensSiri(KeyEvent.KEYCODE_VOICE_ASSIST))
         assertFalse(CarPlayMediaButton.opensSiri(KeyEvent.KEYCODE_MEDIA_NEXT))
-        assertNull(CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_ASSIST))
-        assertNull(CarPlayMediaButton.forKeyCode(KeyEvent.KEYCODE_VOICE_ASSIST))
-    }
-
-    @Test
-    fun ecarxPrivateVoiceCodesOpenSiri() {
-        // ECARX's private 0x1F41(8001) voice code and the 200000-offset voice code (200231).
-        assertTrue(CarPlayMediaButton.opensSiri(CarPlayMediaButton.ECARX_VOICE_8001))
-        assertTrue(CarPlayMediaButton.opensSiri(CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_VOICE_ASSIST))
-        assertFalse(CarPlayMediaButton.opensSiri(CarPlayMediaButton.ECARX_ANSWER_8003))
-    }
-
-    @Test
-    fun ecarxOffsetMediaKeysMapToCarPlayPresses() {
-        // The reference app reads the steering wheel's media keys in a 200000-offset code space.
-        assertEquals(CarPlayMediaButton.NEXT, CarPlayMediaButton.forKeyCode(CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_MEDIA_NEXT))
-        assertEquals(CarPlayMediaButton.PREVIOUS, CarPlayMediaButton.forKeyCode(CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_MEDIA_PREVIOUS))
-        assertEquals(CarPlayMediaButton.PLAY_PAUSE, CarPlayMediaButton.forKeyCode(CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE))
+        assertNull(CarPlayMediaButton.forKeyCode(304))
     }
 
     @Test
@@ -52,22 +58,35 @@ class CarPlayMediaButtonTest {
     }
 
     @Test
-    fun callKeysMapToCarPlayTelephonyPresses() {
-        // The steering wheel's answer key (standard KEYCODE_CALL, ECARX 8003, and the offset form)
-        // all answer; KEYCODE_ENDCALL (and its offset form) hang up.
-        assertEquals(CarPlayMediaButton.ANSWER, CarPlayMediaButton.forCallKeyCode(KeyEvent.KEYCODE_CALL))
-        assertEquals(CarPlayMediaButton.ANSWER, CarPlayMediaButton.forCallKeyCode(CarPlayMediaButton.ECARX_ANSWER_8003))
-        assertEquals(CarPlayMediaButton.ANSWER, CarPlayMediaButton.forCallKeyCode(CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_CALL))
-        assertEquals(CarPlayMediaButton.HANGUP, CarPlayMediaButton.forCallKeyCode(KeyEvent.KEYCODE_ENDCALL))
-        assertEquals(CarPlayMediaButton.HANGUP, CarPlayMediaButton.forCallKeyCode(CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_ENDCALL))
-        assertNull(CarPlayMediaButton.forCallKeyCode(KeyEvent.KEYCODE_MEDIA_NEXT))
-    }
-
-    @Test
     fun indicesMatchTheAdvertisedMediaHidReport() {
         // Media report usages: 0 none, 1 play, 2 pause, 3 play/pause, 4 next, 5 previous.
         assertEquals(3, CarPlayMediaButton.PLAY_PAUSE)
         assertEquals(4, CarPlayMediaButton.NEXT)
         assertEquals(5, CarPlayMediaButton.PREVIOUS)
+    }
+
+    @Test
+    fun theWindowClaimsTrackKeysOnlyWhileCarPlayIsRunning() {
+        fun claim(keyCode: Int, sessionActive: Boolean = true, inCall: Boolean = false) =
+            CarPlayMediaButton.forCarPlayWindow(keyCode, sessionActive, inCall)
+
+        assertEquals(CarPlayMediaButton.NEXT, claim(KeyEvent.KEYCODE_MEDIA_NEXT))
+        assertEquals(CarPlayMediaButton.PREVIOUS, claim(KeyEvent.KEYCODE_MEDIA_PREVIOUS))
+        // Without a session, or during a call, the wheel keeps the car's own action.
+        assertNull(claim(KeyEvent.KEYCODE_MEDIA_NEXT, sessionActive = false))
+        assertNull(claim(KeyEvent.KEYCODE_MEDIA_PREVIOUS, sessionActive = false))
+        assertNull(claim(KeyEvent.KEYCODE_MEDIA_NEXT, inCall = true))
+        assertNull(claim(KeyEvent.KEYCODE_MEDIA_PREVIOUS, inCall = true))
+    }
+
+    @Test
+    fun theWindowLeavesPlayPauseAndUnrelatedKeysAlone() {
+        // BYD acts on play/pause itself, and the wheel key service owns it for DiLink 3. Claiming it
+        // in the window too would take it away from the car for every driver.
+        for (keyCode in listOf(KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK, 353, 331,
+            KeyEvent.KEYCODE_MEDIA_STOP, KeyEvent.KEYCODE_VOLUME_UP)) {
+            assertNull("keyCode=$keyCode", CarPlayMediaButton.forCarPlayWindow(keyCode, true, false))
+        }
     }
 }

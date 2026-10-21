@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Lets DiPlay register a self-managed call with Telecom; a normal permission, no prompt. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission
@@ -12,22 +14,11 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-    <!--
-      fix9: while a CarPlay session runs, the head unit's media (A2DP) and call (HFP) profiles are
-      set to "forbidden" for the paired iPhone and disconnected, so iOS stops handing music and
-      calls to the car's own Bluetooth route. BluetoothProfile.setConnectionPolicy is a
-      signature-level permission on Android 9; this build is signed with the head unit's platform
-      key, so the grant lands. Without it the calls raise SecurityException and the guard reports
-      that in its log instead of changing anything, which is also what a non-platform install gets.
-    -->
-    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
+    <!-- No maxSdkVersion: MIUI 13 on Android 12 still checks BLUETOOTH for RFCOMM connections (#671). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
 
     <!--
       ECARX (亿咖通) XUI / CEVT permissions for the instrument-cluster (DIM) output.
@@ -43,16 +34,29 @@
     <uses-permission android:name="ecarx.oem.permission.OPENAPI_NAVI_PERMISSION" />
     <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
     <uses-permission android:name="android.car.permission.CAR_CONTROL_AUDIO_VOLUME" />
+    <!--
+      Signature-level on Android 9. This build is signed with the head unit's platform key, so the
+      grant lands; without it a BluetoothProfile policy write raises SecurityException, which the
+      guard reports instead of changing anything.
+    -->
+    <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
 
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="false" />
 
     <queries>
+        <package android:name="com.byd.carsettings" />
+        <package android:name="com.byd.appmgr" />
+        <package android:name="com.byd.deviceinfo" />
+        <package android:name="com.byd.service" />
         <intent>
             <action android:name="android.settings.WIFI_SETTINGS" />
         </intent>
+        <package android:name="com.byd.clusterdebug" />
         <package android:name="com.ts.car.someip.service" />
+        <package android:name="com.byd.amapservice" />
+        <package android:name="com.byd.automap" />
         <intent>
             <action android:name="com.android.settings.WIFI_TETHER_SETTINGS" />
         </intent>
@@ -88,5 +92,15 @@
             android:name="com.shilapi.xcertplay.network.CarPlayVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false" />
+
+        <!-- Only Telecom can bind it; it carries no UI or audio, see PhoneAudioRoute. -->
+        <service
+            android:name="com.shilapi.xcertplay.telecom.PhoneAudioConnectionService"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

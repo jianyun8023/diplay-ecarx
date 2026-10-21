@@ -19,11 +19,14 @@ class UsbAutoConfirmService : AccessibilityService() {
 
     private var lastClickTime = -DEBOUNCE_MILLIS
     private var usbWindowId: Int? = null
+    private var ignoredWindowId: Int? = null
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            usbWindowId = if (isSystemUsbWindow(event.packageName?.toString(), event.className?.toString())) {
+            val className = event.className?.toString()
+            usbWindowId = if (isSystemUsbWindow(event.packageName?.toString(), className)) {
+                if (event.windowId != usbWindowId) Log.i(TAG, "System dialog window class=$className; checking its prompt")
                 event.windowId
             } else null
         }
@@ -40,7 +43,13 @@ class UsbAutoConfirmService : AccessibilityService() {
                 false
             }
             val appLabel = applicationInfo.loadLabel(packageManager).toString()
-            if (!isTargetPrompt(texts.joinToString(" "), appLabel)) return
+            if (!isTargetPrompt(texts.joinToString(" "), appLabel)) {
+                if (ignoredWindowId != usbWindowId) {
+                    ignoredWindowId = usbWindowId
+                    Log.i(TAG, "System dialog does not ask for DiPlay USB access; left alone")
+                }
+                return
+            }
             // Only the system USB dialog's optional default checkbox may be changed.
             visit(root) { node ->
                 node.isCheckable && !node.isChecked && node.isEnabled &&
@@ -91,7 +100,7 @@ class UsbAutoConfirmService : AccessibilityService() {
         /**
          * Both USB activities extend AlertActivity, which reports its window to accessibility as
          * android.app.Dialog rather than by activity name, on Android 7 to 14 alike. So the USB
-         * dialog never matched, and auto-confirm did nothing even when the system showed the
+         * dialog never matched, and auto-confirm did nothing even when BYD showed the system
          * UsbPermissionActivity (#409). Other systemui dialog activities, such as screen-capture
          * consent, report the same name, so [isTargetPrompt] must also find a USB device.
          */
@@ -135,12 +144,19 @@ class UsbAutoConfirmService : AccessibilityService() {
             return false
         }
 
-        fun openSettings(context: Context): Boolean = runCatching {
-            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-            true
-        }.getOrDefault(false)
+        /** BYD's settings app does not answer the standard action but has its own screen (#409). */
+        private val ACCESSIBILITY_SCREENS = listOf(
+            ComponentName("com.byd.systemsettings", "com.byd.systemsettings.accessibility.AccessibilityMainActivity"),
+            ComponentName("com.android.settings", "com.android.settings.Settings\$AccessibilitySettingsActivity"),
+        )
+
+        fun openSettings(context: Context): Boolean =
+            (listOf(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) + ACCESSIBILITY_SCREENS.map { Intent().setComponent(it) })
+                .any { intent ->
+                    runCatching {
+                        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        true
+                    }.getOrDefault(false)
+                }
     }
 }
