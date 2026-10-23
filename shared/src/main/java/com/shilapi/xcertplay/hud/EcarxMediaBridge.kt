@@ -254,10 +254,11 @@ internal object EcarxMediaBridge {
         // Point the cluster's media card at the phone. Without this the card reads 无媒体 no matter
         // what is sent on the DIM media channel, because the card is drawn from the head unit's own
         // sources; see [EcarxProjectionChannel]. Published once per state change, so per-frame is free.
-        // Gated by the projection-channel switch, which exists because the same topic is what puts
-        // the phone's picture on the cluster (see EcarxOutputSettings.projectionChannel).
+        // Gated by the media-axis switch, which is separate from the navigation-axis one because
+        // the two claims share a topic but not a value: taking the CarPlay mirror off the cluster
+        // must not take the media card with it (see EcarxOutputSettings.mediaProjection).
         val app = context
-        if (app != null && EcarxOutputSettings.projectionChannel(app)) {
+        if (app != null && EcarxOutputSettings.mediaProjection(app)) {
             EcarxProjectionChannel.setMediaProjection(true)
         }
         report(
@@ -278,7 +279,7 @@ internal object EcarxMediaBridge {
         if (sendLocked(handle, EcarxDimApi.PlaybackInfo())) report("DIM media cleared")
         pushed = null
         val app = context
-        if (app != null && EcarxOutputSettings.projectionChannel(app)) {
+        if (app != null && EcarxOutputSettings.mediaProjection(app)) {
             EcarxProjectionChannel.setMediaProjection(false)
         }
     }

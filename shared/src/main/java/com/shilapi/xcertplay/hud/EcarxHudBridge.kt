@@ -499,17 +499,22 @@ internal object EcarxHudBridge {
     }
 
     /**
-     * The projection-channel switch. Turning it off withdraws the claim already on the topic, so the
+     * The navigation-axis claim. Turning it off withdraws the claim already on the topic, so the
      * experiment starts from a clean state instead of waiting for the next guidance to end.
      */
-    fun applyProjectionChannel(enabled: Boolean) = synchronized(lock) {
+    fun applyNavigationProjection(enabled: Boolean) = synchronized(lock) {
         val app = context ?: return@synchronized
-        EcarxOutputSettings.setProjectionChannel(app, enabled)
-        if (!enabled) {
-            EcarxProjectionChannel.setNavigationProjection(false)
-            EcarxProjectionChannel.setMediaProjection(false)
-        }
-        report("projection channel -> $enabled")
+        EcarxOutputSettings.setNavigationProjection(app, enabled)
+        if (!enabled) EcarxProjectionChannel.setNavigationProjection(false)
+        report("projection channel -> navigation=$enabled")
+    }
+
+    /** The media-axis claim, kept separate so the navigation mirror can be off while it stays on. */
+    fun applyMediaProjection(enabled: Boolean) = synchronized(lock) {
+        val app = context ?: return@synchronized
+        EcarxOutputSettings.setMediaProjection(app, enabled)
+        if (!enabled) EcarxProjectionChannel.setMediaProjection(false)
+        report("projection channel -> media=$enabled")
     }
 
     /** `DIMProtocolManager.setNaviMode` — makes the cluster prefer an external navigation source. */    fun applyNaviMode(mode: Int): EcarxDimApi.EcarxResult = synchronized(lock) {
@@ -606,13 +611,12 @@ internal object EcarxHudBridge {
         maneuver.road.takeIf { it.isNotEmpty() }
             ?.let { EcarxDimApi.updateNextGuidancePointName(naviRef, it) }
         if (EcarxOutputSettings.turnArrowExperimental(app)) {
-            // Point the cluster's navigation card at the phone before feeding it. Without this the
-            // card is drawn by the head unit's own source and the arrow is sent into nothing — which
-            // is exactly what the car showed: arrows only while the 仪表投屏 switch was on. The frame
-            // is published once per state change, so a per-frame call here costs nothing; see
-            // [EcarxProjectionChannel]. Gated by the switch because the same value is what puts the
-            // CarPlay view on the cluster — see EcarxOutputSettings.projectionChannel.
-            if (EcarxOutputSettings.projectionChannel(app)) {
+            // The arrow goes to the cluster's own navigation page, which the head unit renders as
+            // soon as the 仪表投屏 switch is on — so nothing here has to claim the phone as the
+            // cluster's navigation source. That claim is the one that turns the page into a
+            // rectangle of mirrored CarPlay; it stays off unless the driver asks for it. See
+            // EcarxOutputSettings.navigationProjection.
+            if (EcarxOutputSettings.navigationProjection(app)) {
                 EcarxProjectionChannel.setNavigationProjection(true)
             }
             val channel = pushArrowLocked(naviRef, maneuver, guidance)
@@ -682,23 +686,25 @@ internal object EcarxHudBridge {
      * Sends the next-turn arrow on the best channel this head unit actually offers, and names the one
      * that took, for the report.
      *
-     * Each fallback is tried only after the one above it *failed the lookup*, which is not the same
-     * as "the cluster ignored it": these are `void` binder calls and a head unit that lacks the
-     * overload reports `method not found`. The head unit's own navigation app uses the `(String)`
-     * overload, so SVG is the primary path ([turnArrowSvg]); a locally drawn bitmap is the fallback
-     * for a head unit without it, and the recovered code table (see [EcarxArrowCode]) the last resort.
+     * The numeric turn id goes first, and it is the only channel whose result can be trusted at all:
+     * every overload here is a `void` binder call, so `ok` means "the method existed and the binder
+     * accepted it", never "the cluster drew it". With the drawing channels ordered first, a call that
+     * was accepted and silently ignored would end the cascade — which is exactly what this project
+     * spent weeks chasing. The id channel is the one the car has been observed to render (ids 101–143,
+     * see [EcarxArrowCode]), so it is asked first and the drawings are kept as the answer for a head
+     * unit that lacks `updateTurnByTurnArrow(int)`.
      */
     private fun pushArrowLocked(
         navi: Any,
         maneuver: AppleManeuver,
         guidance: EcarxDimApi.Guidance,
     ): String {
+        val id = guidance.turnId
+        if (id > 0 && EcarxDimApi.updateTurnByTurnArrow(navi, id).ok) return "id:$id"
         val svg = turnArrowSvg(maneuver.type, maneuver.drivingSide)
         if (svg != null && EcarxDimApi.updateTurnByTurnArrow(navi, svg).ok) return "svg:${svg.length}B"
         val bitmap = turnArrowBitmap(maneuver.type, maneuver.drivingSide)
         if (bitmap != null && EcarxDimApi.updateTurnByTurnArrow(navi, bitmap).ok) return "bitmap"
-        val id = guidance.turnId
-        if (id > 0 && EcarxDimApi.updateTurnByTurnArrow(navi, id).ok) return "id:$id"
         return ARROW_OFF
     }
 
@@ -710,11 +716,11 @@ internal object EcarxHudBridge {
                 EcarxProjectionChannel.setNavigationOngoing(false, "")
             }
             if (context?.let(EcarxOutputSettings::turnArrowExperimental) == true) {
-                // Clear through the same family that drew it: an empty drawing first (the stock app's
-                // own "no arrow" payload on the SVG channel), then the id the stock app reserves for
-                // "nothing to show". Whichever overload this head unit lacks just refuses.
-                EcarxDimApi.updateTurnByTurnArrow(naviRef, "")
+                // Clear through the same family that drew it: the id the stock app reserves for
+                // "nothing to show" first, then an empty drawing for a head unit whose only
+                // overload is the string one. Whichever overload this head unit lacks just refuses.
                 EcarxDimApi.updateTurnByTurnArrow(naviRef, EcarxArrowCode.NO_ARROW)
+                EcarxDimApi.updateTurnByTurnArrow(naviRef, "")
             }
             EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, 0)
             EcarxDimApi.updateNextGuidancePointName(naviRef, "")
@@ -726,7 +732,7 @@ internal object EcarxHudBridge {
         // Hand the cluster's navigation card back. Only after the clear calls above, so the card is
         // blank before it is re-pointed at whatever the head unit wanted to show.
         val app = context
-        if (guidanceActive && app != null && EcarxOutputSettings.projectionChannel(app)) {
+        if (guidanceActive && app != null && EcarxOutputSettings.navigationProjection(app)) {
             EcarxProjectionChannel.setNavigationProjection(false)
         }
         if (guidanceActive) {

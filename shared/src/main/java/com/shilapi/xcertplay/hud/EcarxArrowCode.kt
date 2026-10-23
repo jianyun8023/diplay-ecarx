@@ -5,13 +5,21 @@ package com.shilapi.xcertplay.hud
  *
  * Provenance — `ecarx.naviservice` (the shipped `导航` app, 2.0.20133112.4135), not documentation:
  *  * `ecarx/naviservice/map/amap/a.smali` `protected static a(II)I` + its `<clinit>`
- *    `SparseIntArray` hold the whole table below, verbatim.
+ *    `SparseIntArray` hold [amapToEcarx], verbatim.
  *  * `ecarx/naviservice/a/g.smali` (`NaviDashboardManager`) maps a maneuver to an int and calls
  *    `INaviInteraction.updateTurnByTurnArrow(int)`; it skips the call when the id is `<= 0`.
  *  * `ecarx/naviservice/a/o.smali` `getNavigationTurnId()` returns **0** while navigation is idle,
  *    and the same class returns `""` from `getNavigationTurnSVG()` — so the SVG the cluster renders
  *    does not travel through `INavigationInfo`; it is *pushed* through
  *    `updateTurnByTurnArrow(String)` (see [EcarxDimApi.updateTurnByTurnArrow]).
+ *
+ * The half the bytecode could not give us — which Apple maneuver deserves which id — comes from
+ * the car instead. An independent port of this project for the same head unit swept ids 100–130
+ * and 131–200 through `updateTurnByTurnArrow(int)` on the vehicle and reported an icon for every
+ * id in 101–143; [appleToAmap] encodes that sweep. Where the two vocabularies overlap they agree
+ * point for point (102 left, 103 right, 108 U-turn, 109 straight, 111 enter roundabout, 112 exit
+ * roundabout, 115 destination, 101 start), so the two recoveries cross-check each other rather
+ * than resting on one person's reading.
  *
  * A machine-readable copy lives in `适配文件/ecarx-arrowId-码表.tsv`.
  */
@@ -21,8 +29,10 @@ internal object EcarxArrowCode {
     const val NO_ARROW = 0
 
     /**
-     * The one arrow id the stock app refuses to draw for: `widget/q` skips generating the arrow
-     * drawing when the mapped id is `0x78` (120), which is where Amap's icon id 20 lands.
+     * The id the stock app's own **SVG generator** declines to draw: `widget/q` skips building a
+     * drawing when the mapped id is `0x78` (120), which is where Amap's icon id 20 — "along the
+     * road" — lands. It is a property of that drawing branch only: the numeric channel renders 120
+     * on this car, so [appleToAmap] still sends it for the "along the road" maneuvers.
      */
     const val NO_ICON = 120
 
@@ -74,19 +84,56 @@ internal object EcarxArrowCode {
     }
 
     /**
-     * Apple's `RouteGuidanceManeuverType` to Amap's icon id.
+     * Apple's `RouteGuidanceManeuverType` to the Amap icon id that [amapToEcarx] expects.
      *
-     * **Deliberately unimplemented: this leg is not recoverable from the artifacts we hold.**
-     * The head unit gave us the Amap-to-ECARX half (above) but no Amap icon-id semantics — the icon
-     * ids are Amap's own vocabulary, and the stock app never needs to state what they mean because
-     * it receives them already decoded. Filling this in from guesswork would put fabricated data on
-     * a safety-adjacent display, so it returns `-1` and the callers fall back to the SVG drawing,
-     * which carries the shape and needs no table at all.
+     * Deliberately expressed in Amap's vocabulary rather than straight in cluster ids: the
+     * recovered `SparseIntArray` above stays the single source of truth for the cluster side, and
+     * this leg only has to say *which* maneuver it is. Each right-hand column below is the cluster
+     * id the sweep above observed for that maneuver.
      *
-     * To fill it in: recover Amap's own icon-id to drawable mapping (the `AmapAuto` APK ships the
-     * icons; the order is the semantics) and write the 20-odd entries here.
+     * ```
+     * 0, 3                  ->  9  → 109  no turn / straight ahead
+     * 1, 20, 47             ->  2  → 102  left, end-of-road left, sharp left
+     * 2, 21, 48             ->  3  → 103  right, end-of-road right, sharp right
+     * 13, 49, 52            ->  4  → 104  keep left / slight left / highway change left
+     * 14, 50, 53            ->  5  → 105  keep right / slight right / highway change right
+     * 8, 9                  -> 4|5→ 104|105  ramp; the side follows the traffic side
+     * 4, 18, 26             ->  8  → 108  U-turn, U-turn then start, U-turn when allowed
+     * 19                    -> 24  → 143  U-turn inside a roundabout
+     * 5, 15, 16, 17, 51     -> 20  → 120  along the road / ferry / change highway
+     * 6                     -> 11  → 111  enter roundabout
+     * 7                     -> 12  → 112  exit roundabout
+     * 28..37                -> 28..37 → 121..130  roundabout exit 1..10
+     * 38..46                -> 38..46 → 131..139  roundabout exit 11..19
+     * 10, 12, 24, 25, 27    -> 15  → 115  destination / arrival / guidance ends
+     * 11                    ->  1  → 101  route start
+     * 22, 23                -> 4|5 → 104|105  highway exit left / right
+     * ```
+     *
+     * Types with no trustworthy counterpart answer `-1`, and the caller then leaves the cluster
+     * with the arrow it already had instead of being handed a guess. 106/107 (behind left/right),
+     * 110 (waypoint), 114 (toll gate) and 141/142 (roundabout left/right) are in the id space but
+     * have nothing in Apple's table that reliably distinguishes them.
      */
-    fun appleToAmap(type: Int, drivingSide: Int): Int = -1
+    fun appleToAmap(type: Int, drivingSide: Int): Int = when (type) {
+        0, 3 -> 9
+        1, 20, 47 -> 2
+        2, 21, 48 -> 3
+        13, 49, 52 -> 4
+        14, 50, 53 -> 5
+        8, 9 -> if (drivingSide == 1) 4 else 5
+        4, 18, 26 -> 8
+        19 -> 24
+        5, 15, 16, 17, 51 -> 20
+        6 -> 11
+        7 -> 12
+        in 28..46 -> type + 93
+        10, 12, 24, 25, 27 -> 15
+        11 -> 1
+        22 -> 4
+        23 -> 5
+        else -> -1
+    }
 
     /**
      * The value to report through `getNavigationTurnId()` / `updateTurnByTurnArrow(int)`.

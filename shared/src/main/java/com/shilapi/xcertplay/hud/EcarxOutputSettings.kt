@@ -16,7 +16,8 @@ object EcarxOutputSettings {
     private const val KEY_NAVI_MODE = "dim_navi_mode"
     private const val KEY_ARROW_EXPERIMENTAL = "dim_turn_arrow_experimental"
     private const val KEY_MEDIA = "dim_media_enabled"
-    private const val KEY_PROJECTION = "dim_projection_channel"
+    private const val KEY_PROJECTION_NAVIGATION = "dim_projection_navigation"
+    private const val KEY_PROJECTION_MEDIA = "dim_projection_media"
     private const val KEY_PRESENTATION_PACKAGE = "dim_presentation_package"
     private const val KEY_NAVI_CARD = "dim_navi_card_event"
 
@@ -89,12 +90,16 @@ object EcarxOutputSettings {
     }
 
     /**
-     * Whether the CarPlay maneuver is also pushed as a raw turn arrow. Off by default: the ECARX
-     * turn-id table could not be recovered from either shipped app, so the mapping is a best
-     * effort and must be calibrated on the car before it is trusted.
+     * Whether the CarPlay maneuver is also pushed as a cluster turn arrow.
+     *
+     * On by default. The ids it sends are no longer a best guess: the manoeuvre-to-id mapping was
+     * recovered from Apple's own type table plus an on-car sweep of ids 101–143 on this head unit,
+     * and it agrees with the head unit's own navigation app wherever the two vocabularies overlap
+     * (see [EcarxArrowCode]). Turning it off leaves the cluster's arrow alone so it keeps showing
+     * whatever its own source decided.
      */
     fun turnArrowExperimental(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_ARROW_EXPERIMENTAL, false)
+        prefs(context).getBoolean(KEY_ARROW_EXPERIMENTAL, true)
 
     fun setTurnArrowExperimental(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_ARROW_EXPERIMENTAL, enabled).commit()) {
@@ -120,24 +125,46 @@ object EcarxOutputSettings {
     }
 
     /**
-     * Whether guidance also claims the phone as the cluster's navigation source
+     * Whether guidance claims the phone as the cluster's **navigation source**
      * (`ihu/info/phoneprojection` ⇒ `carPlayNavigation`).
      *
-     * On by default, because that is the only configuration in which the arrow has ever reached the
-     * cluster. It is also, on this head unit, the same value that makes the cluster **display**
-     * CarPlay's navigation view — the driver sees a mirror while this page's 仪表投屏 switch still
-     * reads off. `NavigationHandler.updateNavigationPhoneProjection` accepts exactly three values
-     * (`androidAutoNavigation` / `carPlayNavigation` / `noProjection`), so there is no "data only"
-     * state to fall back on and the question "does the arrow survive without it" can only be
-     * answered on the car. Turning this off is that experiment: the structured DIM frames keep
-     * going out, only the projection claim stops.
+     * **Off by default, which reverses what this switch shipped as.** It was turned on because it
+     * was the only configuration in which an arrow had ever reached the cluster — but the arrow it
+     * produced was not the DIM arrow: the cluster was mirroring CarPlay's own navigation view. That
+     * mirror takes a **rectangular** region of the cluster and does not follow its shape (the
+     * driver's report: "a square picture that does not fit"), whereas the head unit's own renderer —
+     * driven by the 仪表投屏 switch alone — fills the cluster's navigation area exactly.
+     *
+     * The dependency only existed while the numeric turn-id channel was dead. With ids going out
+     * (see [EcarxArrowCode]) the arrow no longer needs the mirror, so the mirror is no longer taken
+     * on the driver's behalf. Turn it back on to see the CarPlay screen on the cluster as one
+     * rectangle; leave it off to let the car draw its own navigation page.
      */
-    fun projectionChannel(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_PROJECTION, true)
+    fun navigationProjection(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PROJECTION_NAVIGATION, false)
 
-    fun setProjectionChannel(context: Context, enabled: Boolean) {
-        check(prefs(context).edit().putBoolean(KEY_PROJECTION, enabled).commit()) {
-            "Could not persist the ECARX projection-channel setting"
+    fun setNavigationProjection(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_PROJECTION_NAVIGATION, enabled).commit()) {
+            "Could not persist the ECARX navigation-projection setting"
+        }
+    }
+
+    /**
+     * Whether the media card claims the phone as its source (`ihu/info/phoneprojection` ⇒
+     * `carPlayMedia`).
+     *
+     * On by default, and **independent of [navigationProjection]**: without the claim the card reads
+     * `无媒体` no matter what is sent on the DIM media channel, because it is drawn from the head
+     * unit's own sources. The two axes share one topic but not one value, so keeping the media claim
+     * costs the navigation area nothing — which is the whole reason the single switch this used to
+     * be got split: turning the mirror off for the driver also took the media card with it.
+     */
+    fun mediaProjection(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PROJECTION_MEDIA, true)
+
+    fun setMediaProjection(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_PROJECTION_MEDIA, enabled).commit()) {
+            "Could not persist the ECARX media-projection setting"
         }
     }
 
@@ -177,14 +204,13 @@ object EcarxOutputSettings {
      * Whether guidance also publishes the head unit's "a navigation is running" event
      * (`ihu/events/navigation/ongoing`).
      *
-     * On by default, because it is the last candidate for the one thing still missing: the cluster's
-     * card does not appear unless the 仪表投屏 switch is on, yet our arrow, distance and road name are
-     * *proven* to be on the broker already (the 12:06 report shows our SVG echoed back on
-     * `ihu/info/navigation/turn-by-turn/icon`). Something else therefore decides whether the cluster
-     * shows its navigation page, and this event is the only navigation-shaped signal this project
-     * never sent itself. Turn it off to restore the exact behaviour of fix25.
+     * Off by default. It was worth trying while the cluster's navigation page never appeared, but
+     * the page is drawn by the head unit's own renderer as soon as the 仪表投屏 switch is on, and
+     * this event additionally raises a **floating distance/turn card** inside that page — which is
+     * the card that made the cluster look like it was being taken over rather than filled. Turn it
+     * on to have DiPlay also tell the cluster that a navigation exists.
      */
-    fun naviCardEvent(context: Context): Boolean = prefs(context).getBoolean(KEY_NAVI_CARD, true)
+    fun naviCardEvent(context: Context): Boolean = prefs(context).getBoolean(KEY_NAVI_CARD, false)
 
     fun setNaviCardEvent(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_NAVI_CARD, enabled).commit()) {
@@ -204,10 +230,17 @@ object EcarxOutputSettings {
         return EcarxHudBridge.applyPresentation(show, origin).ok
     }
 
-    /** Applies the projection-channel switch at once, withdrawing any claim already published. */
-    fun requestProjectionChannel(context: Context, enabled: Boolean): Boolean {
+    /** Applies the navigation-axis claim at once, withdrawing any claim already published. */
+    fun requestNavigationProjection(context: Context, enabled: Boolean): Boolean {
         EcarxHudBridge.initialize(context)
-        EcarxHudBridge.applyProjectionChannel(enabled)
+        EcarxHudBridge.applyNavigationProjection(enabled)
+        return true
+    }
+
+    /** Applies the media-axis claim at once, withdrawing it when turned off. */
+    fun requestMediaProjection(context: Context, enabled: Boolean): Boolean {
+        EcarxHudBridge.initialize(context)
+        EcarxHudBridge.applyMediaProjection(enabled)
         return true
     }
 

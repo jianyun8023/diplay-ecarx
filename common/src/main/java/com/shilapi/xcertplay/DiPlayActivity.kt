@@ -3741,15 +3741,21 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 EcarxOutputSettings.mediaEnabled(this),
                 save = this::onEcarxMediaToggled)
         }
-        // The projection topic is what makes the cluster accept the phone as its navigation source,
-        // and on this head unit it is also what puts the phone's picture there. The service takes
-        // exactly three values with no "data only" state, so whether the arrow survives without it
-        // is a question only the car can answer — this switch is that question.
+        // The projection topic carries two independent claims, one value each: the cluster's
+        // navigation source and its media source. They are separate switches because they do
+        // opposite things to the driver's view — the navigation claim is what turns the cluster's
+        // own navigation page into a rectangle of mirrored CarPlay, while the media claim is the
+        // only thing that makes the media card read a track at all. Tying them together meant
+        // turning the mirror off also blanked the media card, so they are apart now.
         toggle(card, getString(R.string.ecarx_projection_channel),
             getString(R.string.ecarx_projection_channel_description),
-            EcarxOutputSettings.projectionChannel(this)) {
-            EcarxOutputSettings.requestProjectionChannel(this, it)
+            EcarxOutputSettings.navigationProjection(this)) {
+            EcarxOutputSettings.requestNavigationProjection(this, it)
         }
+        toggle(card, getString(R.string.ecarx_projection_media),
+            getString(R.string.ecarx_projection_media_description),
+            EcarxOutputSettings.mediaProjection(this),
+            save = this::onEcarxMediaProjectionToggled)
         // The one argument of `setPresentationToDimSwitch` never yet varied: the two package strings.
         // The driver's report is that an empty pair makes the cluster mirror the whole centre screen,
         // a square picture on an irregular cluster — the stock navigation app names its own package
@@ -3764,6 +3770,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             getString(R.string.ecarx_navi_card_event_description),
             EcarxOutputSettings.naviCardEvent(this),
             save = this::onEcarxNaviCardEventToggled)
+    }
+
+    /**
+     * Stores the media-axis claim. A method reference rather than a lambda at the call site for the
+     * same reason as [onEcarxPresentationPackageChosen]: this activity's lambda classes are numbered
+     * by their position in the file, so one more lambda renames every later one.
+     */
+    private fun onEcarxMediaProjectionToggled(enabled: Boolean) {
+        EcarxOutputSettings.requestMediaProjection(this, enabled)
     }
 
     /**
