@@ -31,7 +31,7 @@ internal object DiagnosticExportStore {
      * report can be reached from a file manager or USB. Order:
      *  1. Android 10+: MediaStore Downloads (no permission needed).
      *  2. Direct file in public Downloads/DiPlay: Android 11+ allows it without permission;
-     *     Android 9 needs WRITE_EXTERNAL_STORAGE. Some DiLink builds lack a working
+     *     Android 9 needs WRITE_EXTERNAL_STORAGE. Some head-unit builds lack a working
      *     MediaStore Downloads provider, so this also covers Android 11+ when step 1 fails.
      *  3. App-specific external storage (Android/data/<package>, hidden on many head units).
      *  4. Internal app storage, shared through the report viewer.

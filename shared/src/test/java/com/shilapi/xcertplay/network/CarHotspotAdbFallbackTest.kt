@@ -58,7 +58,7 @@ class CarHotspotAdbFallbackTest {
     }
 
     @Test fun theReportSaysWhyTheAdbPathStopped() {
-        // #616: an Android 10 DiLink 3.0 failed within 90 ms and the report did not say which step stopped.
+        // #616: one Android 10 head unit failed within 90 ms and the report did not say which step stopped.
         val logs = mutableListOf<String>()
         CarHotspotAdbFallback.start(deadline(), { false }, { null }, { _, _ -> null }, { logs += it })
         assertEquals(listOf("car hotspot: ADB cannot read the AP state; not starting it"), logs)
@@ -142,7 +142,7 @@ class CarHotspotAdbFallbackTest {
     }
 
     @Test fun withoutAFirmwareCommandTheShellStartsTheSavedHotspot() {
-        // #616: Android 10 trinket and Android 12 DiLink 5.0 head units listed no command, and the app-side call failed.
+        // #616: two Android 10 and Android 12 head units listed no command, and the app-side call failed.
         var on = false
         val commands = mutableListOf<String>()
         val logs = mutableListOf<String>()

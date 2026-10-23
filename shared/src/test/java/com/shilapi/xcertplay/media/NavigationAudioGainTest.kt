@@ -44,7 +44,7 @@ class NavigationAudioGainTest {
         assertArrayEquals(pcm16(20000, 10024, 20000) + byteArrayOf(0x7f), part)
     }
 
-    // #719: on a DiLink 3.0 every setVolume on the guidance track succeeded and the guidance stayed as loud.
+    // #719: on one head unit every setVolume on the guidance track succeeded and the guidance stayed as loud.
     @Test fun navigationGuidanceIsScaledAsWrittenAndNeverThroughTheTrack() {
         val sink = AndroidMediaSink(navigationAttenuationDb = -12)
         val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 96, "default")

@@ -100,7 +100,7 @@ class UsbAutoConfirmService : AccessibilityService() {
         /**
          * Both USB activities extend AlertActivity, which reports its window to accessibility as
          * android.app.Dialog rather than by activity name, on Android 7 to 14 alike. So the USB
-         * dialog never matched, and auto-confirm did nothing even when BYD showed the system
+         * dialog never matched, and auto-confirm did nothing even when the car showed the system
          * UsbPermissionActivity (#409). Other systemui dialog activities, such as screen-capture
          * consent, report the same name, so [isTargetPrompt] must also find a USB device.
          */
@@ -144,9 +144,8 @@ class UsbAutoConfirmService : AccessibilityService() {
             return false
         }
 
-        /** BYD's settings app does not answer the standard action but has its own screen (#409). */
+        /** A head unit whose settings app ignores the standard action still has the AOSP screen. */
         private val ACCESSIBILITY_SCREENS = listOf(
-            ComponentName("com.byd.systemsettings", "com.byd.systemsettings.accessibility.AccessibilityMainActivity"),
             ComponentName("com.android.settings", "com.android.settings.Settings\$AccessibilitySettingsActivity"),
         )
 

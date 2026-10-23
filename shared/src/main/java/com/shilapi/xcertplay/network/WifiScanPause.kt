@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.shilapi.xcertplay.adb.LocalAdb
-import com.shilapi.xcertplay.hud.BydAdbShell
+import com.shilapi.xcertplay.adb.LocalAdbShell
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * Pauses the head unit's automatic Wi-Fi network search while a Wi-Fi Direct CarPlay session runs.
  *
  * Wi-Fi Direct needs the car's Wi-Fi client switched on. While that client is not joined to a
- * network, BYD firmware searches every band every 10 s (seen on DiLink 3, 4 and 5). The single radio
+ * network, car firmware searches every band every 10 s. The single radio
  * leaves the CarPlay channel for each search, and the iPhone's audio packets sent meanwhile are lost,
  * so music and voice stutter on a 10 s rhythm. The built-in car hotspot runs with the client off and
  * is not affected, and Same LAN needs the search, so only Wi-Fi Direct sessions pause it.
@@ -101,7 +101,7 @@ private object ProcessWifiScanPause : WifiScanPauseControl {
     private val worker: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor {
         Thread(it, WifiScanPause.TAG).apply { isDaemon = true }
     }
-    private val adb = BydAdbShell(WifiScanPause.TAG)
+    private val adb = LocalAdbShell(WifiScanPause.TAG)
     private var session: WifiScanPauseSession? = null
     private var retry: ScheduledFuture<*>? = null
 

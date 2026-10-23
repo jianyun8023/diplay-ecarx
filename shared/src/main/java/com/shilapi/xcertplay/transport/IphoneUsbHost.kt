@@ -541,7 +541,7 @@ class Iap2UsbSession internal constructor(
     /**
      * Cancels a read that timed out and takes it back from Android. A read that completes between
      * the timeout and the cancel can no longer be cancelled: it is already on its way back. That
-     * race ended the whole session every few minutes on a Telechips and a DiLink 5.1 head unit
+     * race ended the whole session every few minutes on two different head units
      * (#610, #301). The read is drained either way, and any bytes it carries are returned so the
      * USBMUX stream stays intact.
      */

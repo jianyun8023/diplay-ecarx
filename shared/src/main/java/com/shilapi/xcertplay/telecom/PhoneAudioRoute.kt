@@ -3,7 +3,6 @@ package com.shilapi.xcertplay.telecom
 import android.content.Context
 import android.os.Build
 import android.util.Log
-import com.shilapi.xcertplay.hud.BydOutputSettings
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -113,12 +112,11 @@ internal class PhoneAudioRouteController(
 /**
  * Puts the car's audio into its phone state by holding a self-managed Telecom call.
  *
- * On a BYD DiLink 3 head unit, Telecom tells the car's audio layer about any call, and the voice processing
+ * On one head unit, Telecom tells the car's audio layer about any call, and the voice processing
  * the car applies to a phone call, echo cancellation included, only runs in that state. A third-party call
  * played as media never reaches it, so the far end hears its own voice back. Any app may register a
  * self-managed call (the normal permission MANAGE_OWN_CALLS), so DiPlay holds one for as long as a call
- * needs the car's audio. Both uses are off by default, see [BydOutputSettings.phoneAudioRoute] and
- * [BydOutputSettings.phoneAudioRouteApps].
+ * needs the car's audio. Both uses are off by default, see [PhoneAudioRouteSettings].
  */
 object PhoneAudioRoute {
     private const val TAG = "DiPlay-PhoneAudio"
@@ -184,14 +182,14 @@ object PhoneAudioRoute {
     internal fun ownCarPlayCallActive(): Boolean = carPlayCallActive
 
     private fun enabledFor(context: Context, reason: PhoneAudioReason): Boolean = when (reason) {
-        PhoneAudioReason.CARPLAY_CALL -> BydOutputSettings.phoneAudioRoute(context)
-        PhoneAudioReason.VOIP_APP -> BydOutputSettings.phoneAudioRouteApps(context)
+        PhoneAudioReason.CARPLAY_CALL -> PhoneAudioRouteSettings.carPlayCalls(context)
+        PhoneAudioReason.VOIP_APP -> PhoneAudioRouteSettings.voipApps(context)
     }
 
     @Synchronized
     private fun syncWatcher(context: Context) {
         // The recording and playback callbacks the watcher relies on arrive with Android 8.
-        val wantWatcher = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && BydOutputSettings.phoneAudioRouteApps(context)
+        val wantWatcher = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && PhoneAudioRouteSettings.voipApps(context)
         if (wantWatcher && watcher == null) {
             watcher = VoipCallWatcher(context) { active -> voipApp(active) }.also { it.start() }
             Log.i(TAG, "watching for voice-over-IP calls in other apps")

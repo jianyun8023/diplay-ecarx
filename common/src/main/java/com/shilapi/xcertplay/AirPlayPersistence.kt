@@ -86,7 +86,6 @@ object AirPlayPersistence {
     private const val KEY_LOW_LATENCY_DECODER = "low_latency_decoder"
     private const val KEY_FPS_COUNTER = "fps_counter"
     private const val KEY_CLUSTER_MAP = "cluster_map_enabled"
-    private const val KEY_ADB_CLUSTER_ACTIVITY = "adb_cluster_activity_enabled"
     private const val KEY_CENTER_MAP_OVERLAY = "center_map_overlay"
     private const val KEY_CENTER_MAP_AUTO_HIDE = "center_map_auto_hide"
     private const val KEY_LAUNCHER_MAP_SHARING = "launcher_map_sharing"
@@ -119,9 +118,6 @@ object AirPlayPersistence {
     private const val KEY_BLACK_CORNER_RADIUS = "black_corner_radius_dp"
     private const val KEY_ADAPT_PIP_RESOLUTION = "adapt_pip_resolution"
     private const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
-    private const val KEY_BT_SUSPEND_DURING_CARPLAY = "bt_suspend_during_carplay"
-    private const val KEY_HIDE_BYD_CALL_POPUP = "hide_byd_call_popup"
-    private const val KEY_BT_SUSPEND_DELAY = "bt_suspend_delay_seconds"
     private const val KEY_LOCATION_REPORTING_ENABLED = "location_reporting_enabled"
     private const val KEY_EXTERNAL_CONTROLLER = "external_controller"
     private const val KEY_USB_CHARGING_CURRENT = "usb_charging_current"
@@ -134,7 +130,8 @@ object AirPlayPersistence {
 
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
-    const val DEFAULT_OEM_LABEL = "BYD"
+    /** Empty by default: the head unit's own brand is not assumed, the user may set it in settings. */
+    const val DEFAULT_OEM_LABEL = ""
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -519,33 +516,6 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadBtSuspendDuringCarplay(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_BT_SUSPEND_DURING_CARPLAY, false)
-
-    fun loadHideBydCallPopup(context: Context): Boolean =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_HIDE_BYD_CALL_POPUP, false)
-
-    fun saveHideBydCallPopup(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_HIDE_BYD_CALL_POPUP, enabled).apply()
-    }
-
-    fun saveBtSuspendDuringCarplay(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_BT_SUSPEND_DURING_CARPLAY, enabled).apply()
-    }
-
-    fun loadBtSuspendDelaySeconds(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_BT_SUSPEND_DELAY, 10).let { if (it in listOf(5, 10, 15, 30)) it else 10 }
-
-    fun saveBtSuspendDelaySeconds(context: Context, seconds: Int) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_BT_SUSPEND_DELAY, if (seconds in listOf(5, 10, 15, 30)) seconds else 10).apply()
-    }
-
     /** Keys from a paired keyboard, remote or rotary controller drive CarPlay's knob alongside touch. */
     fun loadExternalController(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_EXTERNAL_CONTROLLER, false)
@@ -829,31 +799,6 @@ object AirPlayPersistence {
     fun loadClusterMapEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)
 
-    fun loadAdbClusterEnabled(context: Context): Boolean = loadClusterMapEnabled(context) &&
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ADB_CLUSTER_ACTIVITY, false)
-
-    fun saveAdbClusterEnabled(context: Context, enabled: Boolean) {
-        val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_ADB_CLUSTER_ACTIVITY, enabled)
-            .putBoolean("platform21_cluster_enabled", false)
-        if (enabled) edit.putBoolean(KEY_CLUSTER_MAP, true)
-        edit.apply()
-    }
-
-    /** Either DiLink 4 cluster route, ADB video or the Platform 21 task; on DiLink 3 both stop the dashboard map (#722). */
-    fun loadDiLink4ClusterRouteEnabled(context: Context): Boolean =
-        loadAdbClusterEnabled(context) || loadLegacyClusterEnabled(context)
-
-    fun loadLegacyClusterEnabled(context: Context): Boolean = loadClusterMapEnabled(context) &&
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("platform21_cluster_enabled", false)
-
-    fun saveLegacyClusterEnabled(context: Context, enabled: Boolean) {
-        val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("platform21_cluster_enabled", enabled)
-        if (enabled) edit.putBoolean(KEY_CLUSTER_MAP, true).putBoolean(KEY_ADB_CLUSTER_ACTIVITY, false)
-        edit.apply()
-    }
-
     fun saveClusterMapEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CLUSTER_MAP, enabled).apply()
     }
@@ -975,7 +920,7 @@ object AirPlayPersistence {
     fun loadClusterContent(context: Context): CarPlayClusterDisplay.Content =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CLUSTER_CONTENT, null)
             ?.let { name -> CarPlayClusterDisplay.Content.entries.firstOrNull { it.name == name } }
-            ?: if (AdbClusterRouter.enabled(context) && !loadLegacyClusterEnabled(context)) CarPlayClusterDisplay.Content.INSTRUMENTS else CarPlayClusterDisplay.Content.MAP
+            ?: CarPlayClusterDisplay.Content.MAP
 
     fun saveClusterContent(context: Context, content: CarPlayClusterDisplay.Content) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_CLUSTER_CONTENT, content.name).apply()

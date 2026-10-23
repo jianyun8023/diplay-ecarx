@@ -24,7 +24,7 @@ internal class NavigationWheelKeyPolicy {
     }
 
     companion object {
-        /** +1 or -1 for a volume key, Android's or BYD's; null for any other key. */
+        /** +1 or -1 for a volume key, Android's or the vendor's; null for any other key. */
         fun volumeStep(key: Int): Int? = when (key) {
             24, 291, 307 -> 1
             25, 292, 308 -> -1

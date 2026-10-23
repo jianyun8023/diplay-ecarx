@@ -71,7 +71,7 @@ class CarPlayCallStateTest {
     }
 
     @Test
-    fun theNameFitsBydsCallCard() {
+    fun theNameFitsTheCallCard() {
         assertArrayEquals("Mum".toByteArray(Charsets.UTF_16LE), CarPlayCallState.nameBytes("Mum"))
         val long = CarPlayCallState.nameBytes("A".repeat(40))
         assertEquals(CarPlayCallState.MAX_NAME_BYTES, long.size)
@@ -92,7 +92,7 @@ class CarPlayCallKeyPolicyTest {
     fun theCallKeyAnswersARingingCarPlayCall() {
         assertEquals(Action.CONSUME to Action.ANSWER, press(313, ringing))
         assertEquals(Action.CONSUME to Action.ANSWER, press(KeyEvent.KEYCODE_CALL, ringing))
-        // During the call it must not open BYD's phone app over CarPlay, and does not hang up.
+        // During the call it must not open the car's phone app over CarPlay, and does not hang up.
         assertEquals(Action.CONSUME to Action.CONSUME, press(313, active))
     }
 

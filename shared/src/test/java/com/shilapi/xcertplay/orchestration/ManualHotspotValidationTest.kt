@@ -10,8 +10,8 @@ import org.junit.Test
 class ManualHotspotValidationTest {
     @Test
     fun `accepts a WPA2 car hotspot and an open one`() {
-        assertNull(ManualHotspotValidation.validate("BYD_1234", "12345678"))
-        assertNull(ManualHotspotValidation.validate("BYD_1234", ""))
+        assertNull(ManualHotspotValidation.validate("Car_1234", "12345678"))
+        assertNull(ManualHotspotValidation.validate("Car_1234", ""))
         assertEquals(ManualHotspotSecurity.WPA2, ManualHotspotValidation.securityFor("12345678"))
         assertEquals(ManualHotspotSecurity.OPEN, ManualHotspotValidation.securityFor(""))
     }
@@ -27,8 +27,8 @@ class ManualHotspotValidationTest {
     @Test
     fun chineseHotspotNamesAreFlaggedForTheIphoneWarning() {
         // #303: renaming a Chinese car hotspot to English let CarPlay start.
-        assertTrue(ManualHotspotValidation.nameMayNotReachIphone("比亚迪热点"))
-        assertTrue(ManualHotspotValidation.nameMayNotReachIphone("BYD-汉"))
-        assertFalse(ManualHotspotValidation.nameMayNotReachIphone("BYD_Han-5G 01"))
+        assertTrue(ManualHotspotValidation.nameMayNotReachIphone("车载热点"))
+        assertTrue(ManualHotspotValidation.nameMayNotReachIphone("Car-汉"))
+        assertFalse(ManualHotspotValidation.nameMayNotReachIphone("Car_Han-5G 01"))
     }
 }

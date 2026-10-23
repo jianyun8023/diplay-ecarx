@@ -16,7 +16,7 @@ class Iap2IdentificationRetryTest {
     private val config = Iap2IdentificationConfig(
         name = "DiPlay",
         modelIdentifier = "DiPlay",
-        manufacturer = "BYD",
+        manufacturer = "Test",
         serialNumber = "test",
         firmwareVersion = "1",
         hardwareVersion = "1",

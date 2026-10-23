@@ -24,7 +24,6 @@ import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
-import com.shilapi.xcertplay.hud.BydBluetoothSuspend
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -223,7 +222,6 @@ class AndroidMediaSink(
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
     private val callEchoReferences = ConcurrentHashMap<AudioStreamId, EchoReference>()
     private val appContext = context?.applicationContext
-    private val ambientSinkToken = AmbientMusicController.openSink(appContext)
     private val audioManager = appContext?.getSystemService(AudioManager::class.java)
     private val audioFocusCoordinator = AudioFocusCoordinator(
         appContext,
@@ -539,12 +537,10 @@ class AndroidMediaSink(
     override fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {
         // This callback runs on the downlink thread; microphone failures must not stop playback.
         try {
-            val speakerphoneCall = config.audioType == "telephony" &&
-                appContext != null && BydBluetoothSuspend.isSuspendedByUs(appContext)
-            if (config.audioType == "telephony" && !speakerphoneCall) enterCommunicationMode(id)
+            if (config.audioType == "telephony") enterCommunicationMode(id)
             val uplink = microphoneUplinks.computeIfAbsent(id) {
                 MicrophoneUplink(config, onAudioDiagnostic,
-                    speakerphoneCall = speakerphoneCall,
+                    speakerphoneCall = false,
                     echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null)
             }
             if (!uplink.start()) {
@@ -595,7 +591,7 @@ class AndroidMediaSink(
 
     /**
      * A head unit built on a phone chip plays communication audio on an earpiece, which nobody hears in a car: the
-     * Podofo SM4250 in #782 routed a whole call there (`routeType=1`), and the navigation prompts during it. BYD
+     * Podofo SM4250 in #782 routed a whole call there (`routeType=1`), and the navigation prompts during it. The
      * head units route calls to the loudspeaker (`routeType=2`) and never get here. Once a call's track is routed
      * to the earpiece, the call moves to the loudspeaker as **Calls on the loudspeaker** would, once per call.
      */
@@ -680,7 +676,6 @@ class AndroidMediaSink(
     }
 
     fun close() {
-        AmbientMusicController.closeSink(ambientSinkToken)
         synchronized(videoOwnershipLock) {
             videoClosed = true
             videoDecoders.entries.toList().forEach { (type, decoder) -> retire(type, decoder) }
@@ -769,9 +764,7 @@ class AndroidMediaSink(
             navigationStreamType,
             mediaBufferMillis,
             onAudioDiagnostic,
-            ambientSinkToken,
-            speakerphoneCall = format.audioType == "telephony" &&
-                appContext != null && BydBluetoothSuspend.isSuspendedByUs(appContext),
+            speakerphoneCall = false,
             echoReference = echoReference,
             voiceFilter = callVoiceFilter && format.audioType == TELEPHONY_AUDIO_TYPE,
         ).also {
@@ -1790,7 +1783,6 @@ private class AudioRenderer(
     private val navigationStreamType: Int,
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
-    private val ambientSinkToken: Long,
     private val speakerphoneCall: Boolean = false,
     /** Receives the played call audio so the call microphone can cancel its echo. */
     private val echoReference: EchoReference? = null,
@@ -1837,11 +1829,6 @@ private class AudioRenderer(
     private val maxArrivalGapMs = AtomicLong()
     private val frameBytes = if (format.channels >= 2) 4 else 2
     private var totalWrittenFrames = 0L
-    private val ambientMedia = AmbientMusicActivityPolicy.acceptsAudio(format.audioType, format.payloadType)
-    private val ambientEnvelope = AmbientMusicEnvelope()
-    private val ambientBass = AmbientMusicBassAnalyzer(format.sampleRate, pcmChannels)
-    private val ambientBands = AmbientMusicBandAnalyzer(format.sampleRate, pcmChannels)
-    private var ambientRendererToken = 0L
     private var writtenFramesThisWindow = 0L
     private var writeErrorsThisWindow = 0
     private var lastWriteErrorCode: Int? = null
@@ -1907,7 +1894,6 @@ private class AudioRenderer(
     }
 
     override fun close() {
-        AmbientMusicController.closeRenderer(ambientRendererToken)
         running = false
         NavigationPlayback.close(navigationPlaybackToken)
         thread.interrupt()
@@ -2070,11 +2056,6 @@ private class AudioRenderer(
             }
         }
         applyNavigationAttenuation()
-        if (ambientMedia) {
-            ambientRendererToken = AmbientMusicController.openRenderer(ambientSinkToken, ambientEnvelope) {
-                built.playbackHeadPosition to (running && built.playState == AudioTrack.PLAYSTATE_PLAYING)
-            }
-        }
         diagnosticStage = "track-attributes"
         trackAttributes = audioTrackAttributesForFocus(built, attributes)
         diagnosticStage = "track-capacity"
@@ -2126,7 +2107,7 @@ private class AudioRenderer(
 
     /**
      * Worker-thread only. The guidance is scaled in [attenuateNavigation] as it is written, not with
-     * AudioTrack.setVolume: on a BYD DiLink 3.0 the track accepted every setVolume and the guidance on
+     * AudioTrack.setVolume: on one head unit the track accepted every setVolume and the guidance on
      * stream 14 stayed as loud (#719). Each change is reported once, when it reaches this stream.
      */
     private fun applyNavigationAttenuation() {
@@ -2150,7 +2131,7 @@ private class AudioRenderer(
         streamOverride: Int,
     ): AudioAttributes {
         if (streamOverride in AudioManager.STREAM_SYSTEM..AudioManager.STREAM_ACCESSIBILITY) {
-            // Android accepts only its defined legacy stream IDs here. BYD audio policy can
+            // Android accepts only its defined legacy stream IDs here. Vendor audio policy can
             // map these standard streams to vehicle outputs; arbitrary channel numbers are
             // not valid AudioAttributes legacy stream types.
             try {
@@ -2325,7 +2306,7 @@ private class AudioRenderer(
         diagnosticStage = "decoder-input"
         // While a blocking track write holds this thread, decoded output fills up and the decoder
         // stops taking input. Dropping the packet after one 10 ms wait cut ~21 ms of music every
-        // 10-20 s on DiLink 3.0 (#381); drain the output and wait again instead. One drain and
+        // 10-20 s on one head unit (#381); drain the output and wait again instead. One drain and
         // retry is enough for that, and the pump always makes it. Waiting the video's 500 ms
         // for every packet let a slowed decoder fall ever further behind instead: with the
         // CarPlay screen in the background, the queue grew to 190 packets and the track
@@ -2463,12 +2444,6 @@ private class AudioRenderer(
             }
             if (count < writeLength) partialWritesThisWindow++
             val framesWritten = count / frameBytes
-            if (ambientMedia && AmbientMusicController.wantsPcm(ambientRendererToken)) {
-                ambientEnvelope.append(totalWrittenFrames, framesWritten.toLong(),
-                    AmbientMusicEnvelope.pcmRms(data, offset + written, count),
-                    ambientBass.rms(data, offset + written, count),
-                    if (AmbientMusicController.wantsBands(ambientRendererToken)) ambientBands.analyze(data, offset + written, count) else null)
-            }
             written += count
             totalWrittenFrames += framesWritten
             writtenFramesThisWindow += framesWritten
@@ -2656,7 +2631,6 @@ private class AudioRenderer(
     @Synchronized
     private fun release() {
         NavigationPlayback.close(navigationPlaybackToken)
-        AmbientMusicController.closeRenderer(ambientRendererToken)
         abandonAudioFocus()
         val codec = codec
         this.codec = null

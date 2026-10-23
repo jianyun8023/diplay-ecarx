@@ -33,7 +33,7 @@ class CarHotspotOffReportTest {
         assertTrue(CarHotspotSettings.reportedOff(context, false))
     }
 
-    // #809: DiLink 2.0 keeps its hotspot switch on but starts the hotspot only from its own hotspot screen.
+    // #809: one head unit keeps its hotspot switch on but starts the hotspot only from its own hotspot screen.
     @Test fun aHotspotThatNeverCameUpWhileReportedOffBringsTheWarningBack() {
         CarHotspotSettings.setOffReportIgnored(context, true)
         assertTrue(CarHotspotSettings.hotspotNeverCameUp(context, false))
