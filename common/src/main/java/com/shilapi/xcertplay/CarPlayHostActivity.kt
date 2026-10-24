@@ -1661,15 +1661,20 @@ class CarPlayHostActivity : ComponentActivity() {
     /**
      * Puts CarPlay's instrument-cluster stream on display 1 in place of the platform's mirror.
      *
-     * Order matters. The head unit opens its own navigation page on that display as a native
-     * reaction to the guidance update — that page is the mirror of the centre screen, and
-     * `setPresentationToDimSwitch(false)` is the only call that closes it (fix34 deleted exactly
-     * that call, which is why the mirror stayed up). Only once it is closed does this app's window
-     * go up, so the panel shows the 8:3 cluster stream instead of a 24 %-squeezed centre screen.
+     * ★ The DIM switch was read the wrong way round in fix36, and report 7 shows it. `false` does
+     * not "stop the mirror" — it detaches display 1 from the panel, so the head unit paints its own
+     * instrument page over our window: `Cluster panel: showing on "HDMI 屏幕"` at 17:22:18.743 while
+     * the driver saw the stock cluster, and the same window became visible the moment the switch was
+     * turned on by hand at 17:22:41. `true` is the switch that shows a window on this panel; what
+     * gets shown is the topmost window on display 1, which is now ours instead of the platform's
+     * mirrored copy of the centre screen (C.41 §6, confirmed on the car).
+     *
+     * So the window goes up first and the switch follows, never the other way round: entering the
+     * mode before there is a picture would flash the platform's mirror for as long as the window
+     * takes to come up.
      */
     private fun showClusterPanel() {
         if (isDestroyed || shuttingDown.get() || clusterPresentation != null) return
-        com.shilapi.xcertplay.hud.EcarxOutputSettings.requestPresentation(this, false, "cluster stream")
         val manager = getSystemService(DisplayManager::class.java)
         val display = manager?.getDisplay(CLUSTER_PANEL_DISPLAY_ID)
         if (display == null) {
@@ -1680,21 +1685,29 @@ class CarPlayHostActivity : ComponentActivity() {
         clusterPresentation = presentation
         try {
             presentation.show()
-            appendLog(
-                "Cluster panel: showing on \"${display.name}\" " +
-                    "${display.mode.physicalWidth}x${display.mode.physicalHeight}",
-            )
         } catch (error: Exception) {
-            // A display that refuses the window is the one failure worth not retrying: the mirror
-            // stays closed and the panel goes back to whatever the head unit wants to draw.
+            // A display that refuses the window is the one failure worth not retrying: nothing is
+            // switched on, and the panel stays with whatever the head unit wants to draw.
             clusterPresentation = null
             appendLog("Cluster panel: show failed ${error.message}")
+            return
         }
+        // The panel is handed over only after our window exists: `true` with nothing on display 1
+        // is exactly the mirror the driver has been complaining about since fix33.
+        val accepted = com.shilapi.xcertplay.hud.EcarxOutputSettings
+            .requestPresentation(this, true, "cluster stream")
+        appendLog(
+            "Cluster panel: showing on \"${display.name}\" " +
+                "${display.mode.physicalWidth}x${display.mode.physicalHeight} projection=$accepted",
+        )
     }
 
     private fun hideClusterPanel() {
         val presentation = clusterPresentation ?: return
         clusterPresentation = null
+        // Detach the panel first so the head unit's own instrument page is what appears, rather
+        // than a last frame of ours or the platform mirror left up by a switch nobody turned off.
+        com.shilapi.xcertplay.hud.EcarxOutputSettings.requestPresentation(this, false, "cluster stream")
         runCatching { presentation.dismiss() }
         appendLog("Cluster panel: dismissed")
     }

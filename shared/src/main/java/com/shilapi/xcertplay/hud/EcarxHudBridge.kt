@@ -242,8 +242,16 @@ internal object EcarxHudBridge {
         report("DIM surface ${EcarxDimApi.surface(dim, "dim")} ${EcarxDimApi.surface(navi, "navi")}")
         report("DIM cevt ${EcarxDimApi.cevt()}")
         reportDisplays("at init")
-        // Re-assert the persisted OEM-side switch so a restart restores the cluster state.
-        if (presentationWanted) requestPresentationLocked()
+        // ★ Nothing is restored here any more (fix37). The switch now means "this panel shows what
+        // is on display 1", and at app start nothing of ours is on display 1 — restoring it painted
+        // the platform's mirror of the centre screen on the cluster with no route running, over a
+        // window that did not exist. A route arms it (see [clusterPresentationRequested]) and the
+        // end of a route releases it; the saved value is only brought back in line here.
+        if (presentationWanted) {
+            presentationWanted = false
+            EcarxOutputSettings.setPresentationSwitch(app, false)
+            report("projection not restored at start-up; the cluster panel is route-driven")
+        }
         startTickerLocked()
     }
 
@@ -645,12 +653,12 @@ internal object EcarxHudBridge {
             )
             // ★ fix34 removed the guard that used to sit on the next line, and the mirror came back
             // (fix35 reports): the platform opens its navigation page on display 1 as a *native*
-            // reaction to the guidance update, and `setPresentationToDimSwitch(false)` is the only
-            // call that closes that page. fix36 moves the call into the panel's owner
-            // (`CarPlayHostActivity.showClusterPanel`), which makes it and then opens a window of
-            // its own on the same display — so the 14:30 flash the driver reported is now the panel
-            // changing hands rather than a gap with nothing behind it.
-            report("DIM mirror handed to the cluster panel (wanted=$presentationWanted)")
+            // reaction to the guidance update. fix36 then answered it with `false`, which turned out
+            // to detach the panel from display 1 entirely — our window went up and the driver saw the
+            // stock cluster (report 7, 17:22:18). fix37 leaves the switch alone at a guidance start:
+            // the platform's own `ongoingNavi` is what puts the cluster into navigation, and the
+            // panel's owner turns the switch *on* once its window exists.
+            report("DIM mirror left to the platform at guidance start (wanted=$presentationWanted)")
             // The cluster's own display (HDMI, id 1, 1920x720) gets CarPlay's instrument-cluster
             // stream instead of a scaled-down copy of the centre screen. Fired here and not from
             // the ticker so it lands with the first guidance frame, before the platform's mirror
