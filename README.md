@@ -1,6 +1,6 @@
 # DiPlay · 领克 05 / 亿咖通 ECARX 移植版
 
-[English summary](#english-summary) · [上游原版说明](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
+[English summary](#english-summary) · [上游原版 README（存档）](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
 
 把 CarPlay 车机端接进**领克 05（亿咖通 ECARX 车机）**的移植版本。基于上游
 [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay) 源码，删掉全部比亚迪专用路径，改为亿咖通
@@ -51,8 +51,9 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 | MFi 身份 | 发布包内置实验性身份 | **默认不内置**，构建时用环境变量挂载 |
 | 取证/探针代码 | 少量 | 全部清除，不留在发布包里 |
 
-上游面向 BYD 的说明与文档（`docs/BYD_*.md`、`docs/RELEASE-NOTES-*.md` 等）作为上游历史保留在仓库里，
-**不代表本移植版的行为**。上游英文 README 存档于 [`docs/UPSTREAM-DIPLAY-README.md`](docs/UPSTREAM-DIPLAY-README.md)。
+上游留下的说明与文档（`docs/RELEASE-NOTES-*.md`、`docs/COMPATIBILITY.md` 等）作为上游历史保留在仓库里，
+里面提到 BYD 车机、BYD HUD、DiLink 集群的段落**不代表本移植版的行为**（那部分代码已整体删除）。
+上游英文/繁中 README 存档于 `docs/UPSTREAM-DIPLAY-README*.md`。
 
 ## 状态矩阵：说到哪一步就是哪一步
 
@@ -108,7 +109,7 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 | 位置 | 设置项 | 什么时候动它 |
 |---|---|---|
 | 设置 → 方向盘按键 → 「亿咖通方向盘按键」 | 媒体键控制 CarPlay / 接听挂断 / 语音(Siri) | 想让方向盘按键管 CarPlay 时打开，然后逐个键点按学习。学习过的键继续生效。 |
-| 设置 → 无线 | 无线连接方式（Wi-Fi Direct / 车机热点 / 已有 Wi-Fi） | 默认即可。车机热点那一路需要在弹出提示时允许。 |
+| 设置 → 连接设置 → 「打开连接设置」 | 连接方式（Wi-Fi Direct / 车机热点 / 已有 Wi-Fi） | 默认即可。车机热点那一路需要在弹出提示时允许。 |
 
 两个容易踩的坑：
 
