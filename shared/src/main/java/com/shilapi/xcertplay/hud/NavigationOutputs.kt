@@ -40,7 +40,11 @@ object NavigationOutputs {
         useEcarx = EcarxOutputSettings.available(app)
         if (useEcarx) {
             ecarx.start { EcarxHudBridge.initialize(app) }
-            EcarxMediaBridge.initialize(app)
+            // Same condition as [onAppOpened]: with the card's switch off there is nothing to send,
+            // yet initialize() would still create the DIM handle and start its 1 Hz ticker — the
+            // ticker's own check stops the push, not the wasted binder traffic. Turning the switch
+            // on calls [ecarxChanged], which initializes on demand, so nothing is lost by skipping.
+            if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
         }
     }
 
@@ -56,7 +60,9 @@ object NavigationOutputs {
         if (!EcarxOutputSettings.available(app)) return
         useEcarx = true
         EcarxHudBridge.initialize(app)
-        EcarxMediaBridge.initialize(app)
+        // Gated on the card's own switch, same as [onAppOpened] and [start]. This is also the path
+        // that turns the card back on, so it has to stay a plain check rather than a removal.
+        if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app)) ecarx.start { EcarxHudBridge.initialize(app) } else ecarx.clear()
     }
 
