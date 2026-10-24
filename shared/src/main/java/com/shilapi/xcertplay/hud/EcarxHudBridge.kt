@@ -6,7 +6,6 @@ import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.Display
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -203,12 +202,10 @@ internal object EcarxHudBridge {
      */
     private val displayWatch = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) {
-            reportDisplays("added $displayId")
             nudgeProjection("display $displayId added")
         }
 
         override fun onDisplayRemoved(displayId: Int) {
-            reportDisplays("removed $displayId")
             nudgeProjection("display $displayId removed")
         }
 
@@ -235,13 +232,6 @@ internal object EcarxHudBridge {
                 "dimCb=${dimCallback != null} naviCb=${naviCallback != null} " +
                 "projection=$presentationWanted ${EcarxCapabilities.describe(app)}",
         )
-        // What the two interfaces actually declare on *this* head unit. Everything else in this file
-        // resolves methods by name from another app's bytecode, which says what can be called and not
-        // what exists; the projection decision the cluster cards hinge on is the one call nobody has
-        // a name for yet, so the real surface is printed rather than inferred. See [EcarxDimApi.surface].
-        report("DIM surface ${EcarxDimApi.surface(dim, "dim")} ${EcarxDimApi.surface(navi, "navi")}")
-        report("DIM cevt ${EcarxDimApi.cevt()}")
-        reportDisplays("at init")
         // ★ Nothing is restored here any more (fix37). The switch now means "this panel shows what
         // is on display 1", and at app start nothing of ours is on display 1 — restoring it painted
         // the platform's mirror of the centre screen on the cluster with no route running, over a
@@ -339,73 +329,6 @@ internal object EcarxHudBridge {
         }.getOrElse {
             report("display watch unavailable: ${it.javaClass.simpleName}")
             false
-        }
-    }
-
-    /**
-     * One line per display, so a report can name the cluster's own `Display` before anyone tries to
-     * put a window on it. Read-only: nothing here shows, hides or sizes a display.
-     *
-     * Why this exists — the cluster on this head unit is a separate `Display`, and the projection
-     * API only takes a numeric `screenId` (`setPresentationToDimSwitch(1, …)`). Every attempt so far
-     * has therefore been blind: `1` was assumed, never confirmed, and the mirror that ends up on the
-     * cluster is whatever the process that owns that display put there (C.41 §6). Naming the ids,
-     * their sizes and their owners is the one measurement that separates "the cluster is display 1"
-     * from "the cluster is a private display we cannot open a window on".
-     *
-     * `flags` carries the answer that matters most: `FLAG_PRIVATE` (0x4) means the display only ever
-     * shows windows from its owner, which is why a plain `Presentation` from another process is
-     * refused no matter which `screenId` is passed. `owner` is printed for the same reason and falls
-     * back to `denied` when the field is not readable from here.
-     */
-    private fun reportDisplays(reason: String) {
-        val app = context ?: return
-        val manager = app.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager ?: return
-        val all = manager.displays
-        val out = StringBuilder("displays ")
-        out.append(reason).append(" count=").append(all.size)
-        for (index in all.indices) {
-            val display = all[index]
-            val mode = display.mode
-            out.append(" | #").append(display.displayId)
-            out.append(" \"").append(display.name).append('"')
-            out.append(' ').append(mode.physicalWidth).append('x').append(mode.physicalHeight)
-            out.append('@').append(mode.refreshRate.toInt()).append("Hz")
-            out.append(" flags=0x").append(Integer.toHexString(display.flags))
-            out.append(" state=").append(displayStateOf(display.state))
-            out.append(" valid=").append(display.isValid)
-            out.append(" owner=").append(displayOwnerOf(display))
-        }
-        // The id every ECARX projection call has passed so far. Whether it exists at all is the
-        // cheapest fork in the road: absent means `1` was never a display and the switch only ever
-        // toggled a platform-side flag.
-        out.append(" | screenId1=")
-        out.append(if (manager.getDisplay(1) != null) "present" else "absent")
-        report(out.toString())
-    }
-
-    private fun displayStateOf(state: Int): String = when (state) {
-        Display.STATE_OFF -> "off"
-        Display.STATE_ON -> "on"
-        Display.STATE_DOZE -> "doze"
-        Display.STATE_DOZE_SUSPEND -> "dozeSuspend"
-        Display.STATE_VR -> "vr"
-        Display.STATE_ON_SUSPEND -> "onSuspend"
-        else -> state.toString()
-    }
-
-    /**
-     * `Display.getOwnerPackageName()` is `@hide`, so it is not on the public SDK and has to be
-     * reflected. Android 9's hidden-API policy may refuse it outright, which is why a miss reads
-     * `denied` rather than throwing: the flags on the same line already carry the answer that
-     * matters (`FLAG_PRIVATE`), and this field only names who to blame for it.
-     */
-    private fun displayOwnerOf(display: Display): String {
-        return try {
-            val method = Display::class.java.getMethod("getOwnerPackageName")
-            method.invoke(display) as? String ?: "none"
-        } catch (e: Exception) {
-            "denied"
         }
     }
 
@@ -558,11 +481,6 @@ internal object EcarxHudBridge {
      */
     private fun watchProjectionLocked() {
         if (!presentationWanted) return
-        // The 仪表投屏 switch is the one feature whose effect cannot be read back on this head unit
-        // (`getShowPresentationOption()` stays -1 even while the cluster is mirroring), so while it is
-        // on, watch what actually moves on the cluster service's own broker. See
-        // [EcarxProjectionChannel.startObserver].
-        EcarxProjectionChannel.startObserver()
         if (presentationCountdown > 0) {
             presentationCountdown -= 1
             return

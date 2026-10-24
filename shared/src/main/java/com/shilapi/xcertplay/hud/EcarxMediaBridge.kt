@@ -120,10 +120,6 @@ internal object EcarxMediaBridge {
             "DIM media ready media=${media != null} track=${trackInterface != null} " +
                 "item=${itemInterface != null}",
         )
-        // The media interface's real method set on *this* head unit. The four calls this file makes
-        // are the shipped toolkit's, and none of them is the projection decision the cluster's media
-        // card hinges on (see [EcarxProjectionChannel]) — so the surface is printed, not assumed.
-        report("DIM media surface ${EcarxDimApi.surface(media, "media")}")
         startTickerLocked()
     }
 
@@ -170,7 +166,7 @@ internal object EcarxMediaBridge {
             " sourceType=" + sourceTypeSent +
             " sourceList=" + sourceListSent +
             " pushed=" + (pushed != null) +
-            " progress=" + lastProgress + " " + EcarxDimApi.mediaReads()
+            " progress=" + lastProgress
     }
 
     private fun startTickerLocked() {

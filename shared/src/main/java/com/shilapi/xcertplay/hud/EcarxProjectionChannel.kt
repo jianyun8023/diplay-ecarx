@@ -6,8 +6,6 @@ import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The **phone-projection** channel of the ECARX DIM stack — the switch that decides whether the
@@ -73,10 +71,11 @@ import java.util.concurrent.atomic.AtomicInteger
  *  * **QoS 1, not 0.** These are `void` calls everywhere else in this stack and nothing on the DIM
  *    API reports refusal, so the broker's `PUBACK` is the only delivery evidence a third-party app
  *    can obtain. A refused publish is then a fact in the report rather than a silent drop.
- *  * **An observer, not just a publisher.** A second connection subscribes to the same topic plus
- *    the two the service republishes our own pushes on. That is what tells us whether
- *    `setPresentationToDimSwitch` also lands here, and whether our own arrow reached the service's
- *    side — neither of which can be inferred from the XUI calls, all of which return `void`.
+ *  * **Nothing watches the broker.** The observer that used to subscribe to `ihu/#` and echo
+ *    payloads into the report was removed for the release build: it answered questions that are
+ *    now closed, and it cost a second connection, a background thread and up to 300 report lines
+ *    per run. What remains is one publisher and its PUBACK, which is the only delivery evidence
+ *    available for calls that are `void` everywhere else in this stack.
  *  * **Nothing is published until a feature asks for it.** An untouched install writes nothing to
  *    this topic (see [update]), so a head unit whose owner never enabled the cluster output is not
  *    re-pointed at a phone that is not there.
@@ -112,64 +111,15 @@ internal object EcarxProjectionChannel {
     private const val STATUS_CARPLAY_MEDIA = "carPlayMedia"
     private const val STATUS_NONE = "noProjection"
 
-    /**
-     * What the observer listens to. `ihu/info/phoneprojection` is the state we are trying to set;
-     * the other two are where the service republishes what we hand the XUI API, so a line in the
-     * report separates "the cluster never got the call" from "the cluster got it and drew nothing".
-     */
-    private val OBSERVED_TOPICS = arrayOf(
-        TOPIC_PROJECTION,
-        "ihu/info/navigation/turn-by-turn/icon",
-        // The rest of the navigation set, so the report can say which of them this head unit
-        // publishes on its own — `ongoing` above all: if it turns up here while the mirror is on and
-        // never while it is off, then that event *is* the presentation gate.
-        TOPIC_NAV_ONGOING,
-        "ihu/events/navigation/distance",
-        "ihu/info/navigation/turn-by-turn/next-turn",
-        "ihu/info/navigation/turn-by-turn/next-exit",
-        "ihu/info/media/playback/status",
-        "ihu/info/media/progress",
-        // The two list topics are retained, so subscribing is enough to read back whatever the head
-        // unit's own player last published — the template for the card's track, without asking the
-        // driver to start a track first. `registerListTopic` in `MediaHandler` registers exactly
-        // three: 7 = sources, 8 = radio stations, 9 = playlist.
-        "ihu/info/media/playlist",
-        "ihu/info/media/sources",
-    )
-
-    /**
-     * What the observer actually subscribes to: one wildcard, not the list above.
-     *
-     * The head unit's own navigation app draws a navigation card on this cluster while its
-     * presentation switch is *off* — its `notifyV2DIMState` passes the ready flag, and that flag is
-     * false on this unit (`map/c;->B()` is a constant `false`), so it writes `setPresentationToDimSwitch`
-     * with `false` and still gets a card. That is the one behaviour this project could not reproduce,
-     * and the difference is therefore not in a topic this project already knows it publishes: it is
-     * either a topic never published here or a frame not sent. Watching all of `ihu/` is the only way
-     * to see it, so the subscription is the wildcard and [OBSERVED_TOPICS] keeps its old job of
-     * deciding which lines are worth echoing payloads for.
-     */
-    private const val OBSERVE_TOPIC_ALL = "ihu/#"
-
     /** A local loopback broker answers or fails immediately; these are a liveness check, not a budget. */
     private const val CONNECT_TIMEOUT_MS = 1500
     private const val READ_TIMEOUT_MS = 1500
 
-    /** Ceiling on observer lines, so a chatty session cannot crowd out the rest of the report. */
-    private const val OBSERVE_LIMIT = 300
-
-    /** How long one observation window lasts before its counters are cleared and summarised. */
-    private const val OBSERVE_WINDOW_MS = 60_000L
-
-    /** Longest observed payload echoed into a report line. */
-    private const val OBSERVE_PAYLOAD_LIMIT = 160
-
     /**
-     * Distinct client ids: the broker keys sessions by client id, and reusing the service's own
+     * This connection's client id: the broker keys sessions by it, and reusing the service's own
      * (`"dimsupportservice"`) would evict it and take the whole DIM stack down with it.
      */
     private const val PUBLISH_CLIENT_ID = "diplay-projection-pub"
-    private const val OBSERVE_CLIENT_ID = "diplay-projection-sub"
 
     private val lock = Any()
 
@@ -198,9 +148,6 @@ internal object EcarxProjectionChannel {
 
     /** The `ongoing` payload last published, so an unchanged road name is not re-sent. */
     private var lastOngoing: String? = null
-
-    private val observerStarted = AtomicBoolean(false)
-    private val observed = AtomicInteger(0)
 
     /**
      * Every publish runs here rather than on the caller's thread.
@@ -267,7 +214,6 @@ internal object EcarxProjectionChannel {
         val payload = ongoingPayload(on, destination)
         if (payload == lastOngoing) return@synchronized "navi ongoing unchanged"
         lastOngoing = payload
-        startObserver()
         worker.execute {
             val outcome = synchronized(lock) { publishRawLocked(TOPIC_NAV_ONGOING, payload) }
             report("navi ongoing ${if (on) "on" else "off"} -> $outcome")
@@ -303,7 +249,7 @@ internal object EcarxProjectionChannel {
     /** One line of state for the settings diagnostics block. */
     fun state(): String = synchronized(lock) {
         " projection=" + (published ?: "unset") + " wanted=" + describeLocked() +
-            " broker=" + lastConnectReason + " observed=" + observed.get()
+            " broker=" + lastConnectReason
     }
 
     private fun update(mutate: () -> Unit): String = synchronized(lock) {
@@ -312,7 +258,6 @@ internal object EcarxProjectionChannel {
         if (!dirtyLocked()) return@synchronized "projection=$wanted"
         if (queued) return@synchronized "projection=$wanted (queued)"
         queued = true
-        startObserver()
         worker.execute { flush() }
         "projection=$wanted (queued)"
     }
@@ -444,115 +389,7 @@ internal object EcarxProjectionChannel {
         return packetId
     }
 
-    // ---------------------------------------------------------------- observe
-
-    /**
-     * Mirrors what actually moves on the broker into the report.
-     *
-     * Started lazily — from the first publish, or from the projection watch in [EcarxHudBridge] while
-     * the 仪表投屏 switch is on — so the traffic this sees is exactly the traffic produced by the
-     * features under test.
-     */
-    fun startObserver() {
-        if (!observerStarted.compareAndSet(false, true)) return
-        Thread({ observeLoop() }, "diplay-ecarx-mqtt").apply { isDaemon = true }.start()
-    }
-
-    private fun observeLoop() {
-        var connection: Socket? = null
-        try {
-            connection = Socket()
-            connection.connect(InetSocketAddress(BROKER_HOST, BROKER_PORT), CONNECT_TIMEOUT_MS)
-            val input = connection.getInputStream()
-            val out = connection.getOutputStream()
-            out.write(connectPacket(OBSERVE_CLIENT_ID))
-            out.flush()
-            val ack = readPacket(input)
-            val code = ack?.second?.lastOrNull()?.toInt() ?: -1
-            if (ack == null || (ack.first and 0xF0) != 0x20 || code != 0) {
-                report("projection observer refused: connack=$code")
-                return
-            }
-            for (topic in OBSERVED_TOPICS) {
-                out.write(subscribePacket(nextPacketId(), topic))
-            }
-            // The exact filters above keep working, and the wildcard adds everything else: the
-            // broker may deliver a match once per overlapping subscription, and [seen] below drops
-            // those repeats, so the cost is a few duplicate bytes on the wire and no duplicate lines.
-            out.write(subscribePacket(nextPacketId(), OBSERVE_TOPIC_ALL))
-            out.flush()
-            report("projection observer subscribed ${OBSERVED_TOPICS.joinToString(",")},$OBSERVE_TOPIC_ALL")
-            // No read timeout from here on: this thread does nothing but wait for the broker.
-            connection.soTimeout = 0
-            // Repeats are dropped, changes are kept, and both are counted per window rather than
-            // per connection. Across one process the earlier version remembered every payload it
-            // had ever echoed, so a topic heard once at 16:10 was invisible for the rest of the
-            // run, and the per-topic caps quietly retired a topic for good after it had spoken
-            // forty times. Three reports taken minutes apart then looked like three different
-            // buses. Every window closes with its own summary and starts counting again.
-            var windowStart = System.currentTimeMillis()
-            var seen = HashSet<String>()
-            var topics = LinkedHashMap<String, Int>()
-            while (observed.get() < OBSERVE_LIMIT) {
-                val packet = readPacket(input) ?: break
-                if ((packet.first and 0xF0) != 0x30) continue
-                val text = publishText(packet.first, packet.second) ?: continue
-                val now = System.currentTimeMillis()
-                if (now - windowStart >= OBSERVE_WINDOW_MS) {
-                    report("projection topics ${topicSummary(topics)}")
-                    windowStart = now
-                    seen = HashSet()
-                    topics = LinkedHashMap()
-                }
-                if (!seen.add(text)) continue
-                val topic = text.substringBefore(' ')
-                val count = (topics[topic] ?: 0) + 1
-                topics[topic] = count
-                // Capped per topic rather than globally: a progress topic changes every second and
-                // would eat the whole ceiling by itself, while the navigation frames — the ones the
-                // question is about — need room for a whole turn sequence.
-                if (count > observeCap(topic)) continue
-                observed.incrementAndGet()
-                report("projection observed $text")
-            }
-            report("projection topics ${topicSummary(topics)}")
-        } catch (error: Exception) {
-            report("projection observer stopped: ${reason(error)}")
-        } finally {
-            runCatching { connection?.close() }
-        }
-    }
-
     // ---------------------------------------------------------------- MQTT 3.1.1 framing
-
-    /**
-     * How many distinct payloads a topic may echo into the report.
-     *
-     * Navigation topics get room for a full guidance sequence; topics that tick — progress,
-     * heartbeats — get just enough to prove they exist. Everything else gets two, which shows the
-     * payload shape without turning an unfamiliar topic into a flood.
-     */
-    private fun observeCap(topic: String): Int = when {
-        topic.startsWith("ihu/events/navigation/") || topic.startsWith("ihu/info/navigation/") -> 40
-        topic == TOPIC_PROJECTION -> 40
-        topic == "ihu/info/media/progress" -> 3
-        else -> 2
-    }
-
-    /**
-     * One line per window: every topic heard and how many distinct payloads it carried.
-     *
-     * Full topic names, not their last segment: `ongoing`, `status` and `progress` each appear
-     * under two parents, and a summary that drops the parent cannot be compared with another run.
-     */
-    private fun topicSummary(topics: Map<String, Int>): String {
-        val summary = StringBuilder()
-        for ((topic, count) in topics) {
-            if (summary.isNotEmpty()) summary.append(',')
-            summary.append(topic).append('=').append(count)
-        }
-        return if (summary.isEmpty()) "none" else summary.toString()
-    }
 
     private fun connectPacket(clientId: String): ByteArray {
         val body = ByteArrayOutputStream()
@@ -574,15 +411,6 @@ internal object EcarxProjectionChannel {
         val bytes = payload.toByteArray(Charsets.UTF_8)
         body.write(bytes, 0, bytes.size)
         return frame(0x32, body.toByteArray())
-    }
-
-    private fun subscribePacket(id: Int, topicFilter: String): ByteArray {
-        val body = ByteArrayOutputStream()
-        body.write((id ushr 8) and 0xFF)
-        body.write(id and 0xFF)
-        mqttString(body, topicFilter)
-        body.write(0) // requested QoS 0: observation must never slow the broker down
-        return frame(0x82, body.toByteArray())
     }
 
     private fun frame(type: Int, body: ByteArray): ByteArray {
@@ -628,21 +456,6 @@ internal object EcarxProjectionChannel {
             read += count
         }
         return first to body
-    }
-
-    /** `"<topic> <payload>"` for a PUBLISH, truncated so one frame cannot fill a report line. */
-    private fun publishText(first: Int, body: ByteArray): String? {
-        if (body.size < 4) return null
-        val topicLength = ((body[0].toInt() and 0xFF) shl 8) or (body[1].toInt() and 0xFF)
-        if (topicLength + 2 > body.size) return null
-        val topic = String(body, 2, topicLength, Charsets.UTF_8)
-        var offset = 2 + topicLength
-        if (((first shr 1) and 0x03) > 0) offset += 2 // QoS > 0 carries a packet id
-        if (offset > body.size) return null
-        val payload = String(body, offset, body.size - offset, Charsets.UTF_8)
-            .replace('\n', ' ')
-            .take(OBSERVE_PAYLOAD_LIMIT)
-        return "$topic $payload"
     }
 
     private fun reason(error: Throwable): String = "${error.javaClass.simpleName}: ${error.message}"

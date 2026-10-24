@@ -1,3 +1,58 @@
+# DiPlay ECARX 0.1 — 2026-10-24
+
+领克 05 / 亿咖通 ECARX 移植版首版，基于上游 DiPlay **0.2.21** 源码。版本号 `0.1`
+（versionCode **100**，高于上游同包名的 40，保证能覆盖升级）。
+
+**发布的 APK 不含 MFi 身份**，装上能打开但连不上 iPhone；实车测试请自行把身份打进包，
+步骤见 [README](README.md#如何把-mfi-身份打进-apk)。
+
+## 仪表导航（本次核心）
+
+- 仪表盘改用亿咖通 **DIM** 通道推 CarPlay 的转向箭头、剩余距离、路名与预计到达时间，替换上游的
+  BYD HUD / DiLink 集群实现。箭头 id 映射来自 Apple 自有类型表与在本车上对 101–143 的实测。
+- 仪表画面不再依赖车机镜像：本项目在 display 1 自建 `Presentation`，装 CarPlay **原生集群流**
+  （1920×720，8:3），完美贴合异形仪表区域。
+- **修正仪表投屏开关的语义**：这个开关不是"镜像开关"，而是"把 display 1 接到仪表"的通路——
+  关掉会把 display 1 从仪表上摘掉（车机立刻盖回自己的仪表页），打开才显示该屏上的窗口。
+  因此改为：导航开始时先上窗、再接通路；结束时先摘通路、再关窗；导航开始**不再抢仪表**，
+  启动时也不恢复这个开关。
+- 由此修掉三个连锁现象：导航开始仪表闪一下、必须手动开"仪表投屏"才显示、导航开始时 HUD 与
+  仪表卡片的箭头/距离消失。
+- 箭头改走整型 id 通道（`updateTurnByTurnArrow` 返回 `void`，调用成功不等于画出来了）。
+
+## 仪表媒体卡片
+
+- 曲名、歌手、专辑、播放状态推到仪表盘，与导航开关相互独立。
+- 补上 `updateMediaSourceTypeList` 与 `updateMediaMuteState`：只调 `updateCurrentSourceType`
+  会让车机"选中但不登记音乐源"，卡片一直是"无媒体"。
+
+## 移除与清理
+
+- **删除全部比亚迪专用代码**（BYD HUD 桥、DiLink 集群节点、BYD 车机专用分支），移植到此结束。
+- **删除全部取证/探针代码**：MQTT 全量观察者（`ihu/#` 订阅与回显）、display 逐块转储、
+  DIM surface/cevt 反射转储、媒体读次数计数、投屏主题对照观察。发布包里不再有这些字符串与线程。
+- 投屏包名参数归零为 `""`：平台实现会丢弃前三个参数，传什么名字都无效，相关开关已删。
+
+## 其它
+
+- 车机蓝牙让位：CarPlay 期间切断 iPhone 与车机的经典蓝牙，结束后自动恢复（否则音频停在蓝牙通路）。
+- 方向盘按键学习（媒体键 / 语音键 / 接听挂断）。
+- 诊断报告保留仪表关键行：`Cluster panel: showing on …`、`DIM mirror left to the platform …`、
+  `DIM guidance started arrowId=…` / `DIM arrow=… arrowId=…`、`presentation switch -> …`、
+  `media counters media=… sourceType=… pushed=…`。
+
+## 验证状态
+
+实车通过（报告 8，2026-10-24）：无线连接与投屏、仪表导航（箭头/距离/路名/ETA）、HUD、
+仪表媒体卡片、导航结束交还仪表、蓝牙让位与恢复。
+
+**未验证、不保证**：USB 有线连接、麦克风上行音质、方向盘按键逐键行为、其它亿咖通车型、iOS 版本跨度。
+
+---
+
+> 以下为上游 DiPlay 的变更历史，本移植版基于 **0.2.21**。上游面向比亚迪 DiLink，
+> 其中的 BYD 相关条目（HUD、DiLink 集群、车机热点等）在本移植版里已删除或替换。
+
 # DiPlay 0.2.21 — 2026-10-17
 
 - Fix the 0.2.20 music lag by counting the music still waiting to be decoded in the clock adjustment, and bring music back after an interruption when the iPhone plays again (#814, #804).

@@ -17,8 +17,11 @@ android {
         applicationId = "com.shihab.diplay"
         minSdk = 24
         targetSdk = 37
-        versionCode = 40
-        versionName = "0.2.21"
+        // 100 > the upstream 0.2.21 build's 40, so this installs over a car that still has the
+        // pre-release packages; versionName restarts at 0.1 because this is the first release of
+        // the ECARX adaptation rather than another build of upstream's line.
+        versionCode = 100
+        versionName = "0.1"
 
     }
 

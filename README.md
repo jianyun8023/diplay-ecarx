@@ -1,67 +1,323 @@
-# DiPlay
+# DiPlay · 领克 05 / 亿咖通 ECARX 移植版
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
+[English summary](#english-summary) · [上游原版说明](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
 
-**CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
+把 CarPlay 车机端接进**领克 05（亿咖通 ECARX 车机）**的移植版本。基于上游
+[DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay) 源码，删掉全部比亚迪专用路径，改为亿咖通
+**DIM（DimInteraction）**通道：仪表盘显示 CarPlay 的转向箭头、距离、路名与预计到达时间，中控正常显示
+CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 
-> **BYD support scope:** These projects focus on BYD cars. They may work on other brands, but other brands are unsupported and there are no plans to add support or fix brand-specific incompatibilities.
+当前版本 **0.1**。只在**一辆**车上做过实车验证，见下面的[状态矩阵](#状态矩阵说到哪一步就是哪一步)。
 
-[Download & website](https://shihabal3amri.github.io/DiPlay/) · [Release](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.21) · [Report a problem](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
+> ### ⚠️ 发布的 APK 不含 MFi 身份
+>
+> 要让 iPhone 把车机当成合法 CarPlay 配件，APK 里必须有 Apple 签发的配件身份
+> （`offline-mfi/identity.pk8` + `offline-mfi/certificate.p7b`）。这是 Apple 的授权资产，
+> 本仓库**不提供、不打包、不再分发**。
+>
+> 因此从 Releases 下载的 APK **能安装、能打开，但连不上 iPhone**。要在车上试，请自己构建一版：
+> [如何把 MFi 身份打进 APK](#如何把-mfi-身份打进-apk)。
+>
+> 例外：如果这台车机上**已经装过**含身份的旧版（签名相同），覆盖安装不卸载时，旧版装进私有目录的
+> 身份会被继续沿用，可以直接连。
 
-![DiPlay home](site/assets/home.png)
+---
 
-## 0.2.21 — public preview
+## 适用环境
 
-Install on the **car**, not the iPhone. No jailbreak, dongle, Mac, account or authentication server is required for use. Core CarPlay does not require ADB; optional dashboard, battery, wheel-speed and parked-video features do. Your head unit must permit APK installation. The APK supports Android 7.0+ (API 24); Android 7.0–8.1 support is not yet confirmed on a vehicle. Wireless supports Wi-Fi Direct, the car’s existing hotspot or Existing Wi-Fi / Same LAN. Android 7.0–9 Wi-Fi Direct uses a firmware-dependent legacy path with generated group credentials and unverified requested frequency; see [Android 9 Wi-Fi Direct](docs/ANDROID9_WIFI_DIRECT.md). Android 10+ verifies its negotiated group frequency.
+| 项 | 实测的那一台 |
+|---|---|
+| 车型 | 领克 05 2020（`Lynk & Co 05_IP732`） |
+| 车机 | 亿咖通 ECARX 深度定制，高通 820A / arm64 |
+| 系统 | Android 9（API 28），`dcy11-userdebug`，`test-keys` |
+| 固件 | `AP_DCY11_IHU_CN_DCY11_IP732_20012107` |
+| 屏幕 | 中控 12.7″ 1920×1080；仪表 display 1「HDMI 屏幕」1920×720 |
+| 包名 | `com.shihab.diplay`（与上游同名，但签名不同，两者不能互相覆盖安装） |
+| 签名 | AOSP 平台密钥（车机是 `test-keys`，据此才能拿到 signature 级权限去调 DIM） |
 
-- Wired USB and wireless CarPlay with local authentication.
-- BYD HUD navigation with arrows, distance and street names on verified firmware.
-- Car hotspot support, improved audio buffering and saved receive diagnostics.
-- Automatic address discovery, fixed-channel Wi-Fi fallbacks and successful-configuration memory.
-- Icon/text size, resolution and frame rate; applying a display change reconnects CarPlay.
-- Local diagnostic export. Reports are sent only if you choose to share them.
-- Separate installation alongside DiAuto. Run one projection app at a time.
+亿咖通车机不是这一套的话（不是 `ecarx.adapterapi` / 没有 `DimInteraction`），本版不会比上游更好用：
+设置页里「亿咖通导航」整块会自动隐藏，剩下的就是上游的 CarPlay 本体。
 
-This is **not an Apple-certified product**. The APK bundles an experimental accessory identity recovered from public Carlinkit firmware, not a newly provisioned MFi identity for DiPlay. A bundled private key is extractable. Acceptance after future iOS updates, reliability across head units and suitability of that identity for general distribution are unresolved. This release invites community testing; it is not a guarantee of universal compatibility.
+## 与上游的区别
 
-Earlier releases were tested on the development DiLink5.1 car: live windshield guidance and street names work, Car hotspot now starts CarPlay, and Wi-Fi Direct performance is substantially improved. Audio underrun recovery is improved in 0.2.15; remaining cutouts need current diagnostic reports. The 0.2.16 software Opus microphone fallback was accepted on a BOS Mini A1 head unit (Android 9) with an iPhone 12 on iOS 27. The floating-map test build was installed on the development DiLink 5.1 car; feedback led to the pinch corrections in 0.2.9. Earlier wheel-speed and video contributions were tested on a BYD Tang with DiLink 5.0 and an iPhone 15 Pro on iOS 27; wheel-speed dead reckoning in tunnels remains unverified. Broader head-unit and iOS compatibility is not guaranteed. The HUD firmware scope and cleanup limits are documented in [BYD navigation](docs/BYD_NAVIGATION.md).
+| | 上游 DiPlay 0.2.21 | 本移植版 0.1 |
+|---|---|---|
+| 目标车机 | 比亚迪 DiLink 1.0/3/4/5.x、B 系列等 | 亿咖通 ECARX（领克 05） |
+| 仪表导航 | BYD HUD + DiLink 集群节点 | 亿咖通 DIM：`INaviInteraction` 推箭头 id / 距离 / ETA / 路名 |
+| 仪表画面 | BYD 专用投屏 | 本项目在 display 1 自建 `Presentation`，装 CarPlay **原生集群流**（1920×720，8:3），再由 DIM 开关把这块屏接到仪表 |
+| 仪表媒体卡片 | BYD 自带音乐源 | `IMediaInteraction` 推曲名/歌手/专辑/播放状态（关蓝牙后唯一来源） |
+| BYD 代码 | 有 | **全部删除** |
+| 版本号 | `0.2.21`（versionCode 40） | `0.1`（versionCode **100**，保证能覆盖升级） |
+| MFi 身份 | 发布包内置实验性身份 | **默认不内置**，构建时用环境变量挂载 |
+| 取证/探针代码 | 少量 | 全部清除，不留在发布包里 |
 
-## What’s new in 0.2.21
+上游面向 BYD 的说明与文档（`docs/BYD_*.md`、`docs/RELEASE-NOTES-*.md` 等）作为上游历史保留在仓库里，
+**不代表本移植版的行为**。上游英文 README 存档于 [`docs/UPSTREAM-DIPLAY-README.md`](docs/UPSTREAM-DIPLAY-README.md)。
 
-- Music plays in step with the iPhone again: on 0.2.20, pause, skip and track changes could come seconds late, and the speed could wobble.
-- Wired CarPlay recovers by itself when the iPhone never opens CarPlay, no longer waits forever after **Disconnect**, and keeps a connection that has already recovered.
-- DiPlay no longer closes when the microphone is used on head units without Android's own Opus encoder, and music comes back after a call or a short interruption.
-- Wireless CarPlay says why it cannot start; on BYD head units the dashboard is handed back to the car when CarPlay ends, and DiPlay no longer closes from the DiYou desktop card.
-- DiPlay installs on Android 7.0 and is available in Italian.
-- New options, off by default: temporary system bars, black rounded corners, a play/pause wheel key, double press for Siri, importing the car hotspot details, a home-screen bubble and the car's own music rhythm.
+## 状态矩阵：说到哪一步就是哪一步
 
-See [0.2.21 release notes](docs/RELEASE-NOTES-0.2.21.md) and [validation](docs/VALIDATION.md) for contribution links and remaining physical tests. General stutter, calls/Siri, decoder and model-specific reports still need current-device evidence. [0.2.20 notes](docs/RELEASE-NOTES-0.2.20.md) remain available as historical guidance.
+### ✅ 已实车验证（报告 8，2026-10-24）
 
-If a problem remains, reproduce it on **0.2.21**, then use **Settings → Diagnostics → Save diagnostic report**. Android 10+ normally saves to **Downloads/DiPlay**; Android 7.0–9 asks for storage access and saves there too. If unavailable, use **View report** or **Share** from the confirmation, which identifies external/private fallback storage. Review the `.txt` and add it to a matching [existing issue](https://github.com/shihabal3amri/DiPlay/issues), or [create one](https://github.com/shihabal3amri/DiPlay/issues/new/choose). Include vehicle/head-unit model, exact firmware and Android/DiLink, phone/iOS, connection backend, relevant settings, steps and failure time. Reports are shared only when you choose; never post your hotspot password.
+- **无线 CarPlay 连接、中控投屏**（Wi-Fi Direct / 车机热点两条路都走通了）。
+- **仪表导航**：CarPlay 的转向箭头、剩余距离、路名、预计到达时间显示在亿咖通仪表上，画面贴合
+  1920×720 的异形区域；导航开始时仪表**不再闪一下**，也不需要手动去开「仪表投屏」。
+- **HUD**：导航开始时 HUD 与仪表卡片同时出现箭头与距离，导航结束后一起撤掉。
+- **仪表媒体卡片**：曲名、歌手、专辑、播放状态（前提：关掉 iPhone 蓝牙，见[蓝牙与媒体](#蓝牙与媒体为什么必须关掉它)）。
+- **导航结束收尾**：仪表交回车机自己的页面，不留残影、不盖住原厂仪表。
+- **导航语音压低音乐（duck）**、**车机蓝牙让位与自动恢复**。
 
-## Documentation
+### ⚠️ 已实现但**没有**实车验证，不保证
 
-[Existing Wi-Fi / Same LAN](docs/EXISTING_WIFI.md) keeps the iPhone and head unit
-on an external router. See the guide for setup, build requirements and the
-BYD DiLink 4.0 / Android 10 clean-install validation result.
+- **USB 有线连接。** 本版没有在这台车上试过有线。线材、USB 权限、iAP2 握手都可能有本车前未暴露的
+  问题，请不要把「无线好用」外推到「有线也好用」。
+- **方向盘按键。** 学习界面可用，媒体键 / 语音键 / 接听挂断已接线，但没有逐键系统验证。
+  语音键可能被车机自带语音助手**重复响应**一次，见[功能设置](#功能设置哪些必须开哪些按需开哪些不要开)。
+- **麦克风上行。** 通话与 Siri 的采音未在这台车上测过音质与回声，不要假设和上游一样。
+- **iOS 版本跨度。** 只在测试机的 iOS 上验证过；系统升级后 Apple 端的认证与投屏行为可能变。
+- **多车型。** 只在一台 05 上验证。其它亿咖通车型的 display 编号、仪表尺寸、DIM 版本都可能不同。
 
-- [Install and connect](docs/INSTALL.md)
-- [Compatibility and troubleshooting](docs/COMPATIBILITY.md)
-- [Smooth wireless CarPlay](docs/SMOOTH_WIRELESS.md)
-- [Privacy and diagnostic reports](docs/PRIVACY.md)
-- [Build from source](docs/BUILD.md) — select `mobile` for the main DiPlay app; `maphost` is a map sample.
-- [Validation](docs/VALIDATION.md)
-- [Release notes](CHANGELOG.md)
-- [Credits and licenses](docs/THIRD_PARTY_NOTICES.md)
+### 🚧 未适配，计划中
 
-The app and the website source include English, Arabic, Russian, Ukrainian, Spanish, Simplified Chinese, Traditional Chinese (Taiwan), and Japanese. Traditional Chinese uses Taiwan wording; the app also recognizes Hong Kong/Macao and explicit Hant selections without claiming separate regional translations. Choose the app language in Settings; on Android 13+, it stays synchronized with Android’s per-app language setting. See the [Traditional Chinese guide](README.zh-TW.md) for installation, settings, troubleshooting, privacy and build instructions.
+- **USB 有线连接**的完整验证与修复（优先级最高）。
+- **仪表显示整幅地图**（车道级导航画面铺到仪表），目前仪表上是箭头 + 距离 + 路名，不是地图。
+- **百度地图的转向数据**（未测试；高德与苹果地图已可用）。
+- **其它亿咖通车型**的 display 探测与仪表尺寸自适应。
 
-## Source and credits
+## 安装与升级
 
-Based on [xcertplay](https://github.com/shilapi/xcertplay), GPL-3.0. The home/settings UI and website adapt [DiAuto](https://github.com/shihabal3amri/DiAuto), AGPL-3.0; that license is included in `docs/licenses`. Preserve those notices when distributing modifications. CarPlay and its icon belong to Apple Inc.; no Apple or BYD affiliation or endorsement is implied.
+1. 车机允许安装第三方 APK（本车是 `test-keys`，可装）。
+2. **换过签名就要先卸载**：`adb uninstall com.shihab.diplay`，或在车机应用管理里卸载。
+   签名不同的 APK 不能覆盖安装，而强停旧版再装会残留 USB 授权状态。
+3. `adb install -r <apk>`，或拷到 U 盘用文件管理器装。
+4. 首次启动建议先看一遍[功能设置](#功能设置哪些必须开哪些按需开哪些不要开)。
 
-This repository starts with a clean public source snapshot. Local research, tester reports and release-signing secrets are excluded. The complete source corresponding to the APK is provided with every release; experimental runtime identity assets are described separately in the build instructions and notices.
+同一台车机上**只留一个投屏 App**（DiPlay 与 EasyPlay 只能装一个，两者会抢同一批 USB/网络资源）。
 
-## Local release packaging
+## 功能设置：哪些必须开，哪些按需开，哪些不要开
 
-The release APK intentionally contains the experimental accessory identity. The Git repository and source archive exclude all accessory and Android signing keys; tests generate synthetic identities at runtime. Source/CI builds omit runtime identity assets by default. Local release builds explicitly select an external asset directory. Publishing the APK makes its bundled identity extractable; building locally does not preserve that identity's confidentiality.
+全部集中在 **设置 → 位置 → 「亿咖通导航」** 一张卡片里，三个开关，都是"司机看得见的那三张画面"。
+
+| 设置项 | 默认 | 建议 | 说明 |
+|---|---|---|---|
+| **仪表导航** | 开 | **必须开** | 不开就不向仪表推任何 DIM 数据，仪表与 HUD 都不会有箭头、距离、路名。导航开始时"仪表投屏"也由它驱动。 |
+| **仪表媒体卡片** | 开 | **按需开**（建议开） | 把 CarPlay 的曲名/歌手/专辑/播放状态推到仪表。关掉后，仪表只在你**用车机自带蓝牙放歌**时才有内容；一旦按下面的做法关掉 iPhone 蓝牙，卡片就会一直是空的。 |
+| **仪表投屏** | 关 | **不要开** | 它把**整块中控画面镜像到仪表**，会盖住仪表上的箭头和媒体卡片——这就是之前"开了投屏反而看不到箭头"的原因。导航开始时本项目会自己接管这块屏，不需要手动开；手动打开前它会弹确认框。 |
+
+另外两组按需：
+
+| 位置 | 设置项 | 什么时候动它 |
+|---|---|---|
+| 设置 → 方向盘按键 → 「亿咖通方向盘按键」 | 媒体键控制 CarPlay / 接听挂断 / 语音(Siri) | 想让方向盘按键管 CarPlay 时打开，然后逐个键点按学习。学习过的键继续生效。 |
+| 设置 → 无线 | 无线连接方式（Wi-Fi Direct / 车机热点 / 已有 Wi-Fi） | 默认即可。车机热点那一路需要在弹出提示时允许。 |
+
+两个容易踩的坑：
+
+- **语音键被响应两次。** 车机自己的语音助手和本 App 会同时接这一下按键，ROM 拒绝把按键独占交给
+  第三方，侧工具改不了。解法是把车机自带助手停用：
+  ```bash
+  adb shell pm disable-user --user 0 <车机语音助手的包名>
+  ```
+- **不要同时用车机自带导航。** 车机自己的导航一开始就会去抢仪表那块屏，两套导航同时跑，画面会互相盖。
+
+## 蓝牙与媒体：为什么必须关掉它
+
+**症状**：CarPlay 连上了、画面也有了，但**没有声音**；或者有声音却和 iPhone 不同步；或者仪表媒体卡片
+显示的是车机蓝牙里的歌，不是 CarPlay 正在放的那首。
+
+**原因**：iPhone 同时被两条通道牵着——CarPlay（AirPlay 音频）和**车机经典蓝牙**（A2DP/HFP）。
+只要经典蓝牙还连着，iPhone 就倾向把音频交给蓝牙通道，车机的音源也还停在蓝牙音乐上。所以：
+
+> **必须切断 iPhone 与车机之间的经典蓝牙，音频才会走 CarPlay。**
+
+**解法**：用 iPhone 自带的「快捷指令 → 自动化」，连上/断开 CarPlay 时自动关/开蓝牙。截图：
+
+<p align="center">
+  <img src="docs/screenshots/shortcut-connect.png" width="260" alt="连接 CarPlay 时：等待 2 秒 → 关闭蓝牙 → 等待 1 秒 → QQ音乐-继续播放" />
+  <img src="docs/screenshots/shortcut-disconnect.png" width="260" alt="断开 CarPlay 时：打开蓝牙" />
+  <img src="docs/screenshots/shortcut-list.png" width="260" alt="两条自动化都设为启用" />
+</p>
+
+### 那 2 秒是干什么的 —— 顺序不能改
+
+```
+「连接 CarPlay 车载时」
+  1. 等待 2 秒      ← ★ 不能少，也不能改成 1 秒
+  2. 关闭 蓝牙
+  3. 等待 1 秒
+  4. 播放音乐（例：QQ音乐-继续播放）
+```
+
+- **为什么等 2 秒**：CarPlay 的会话建立（iAP2 认证 → AirPlay 启动）大约需要 1 秒多。**1 秒就关蓝牙，
+  正好落在握手中间，会话被打断 ⇒ 有画面没声音**；等 2 秒再关，握手已经完成，音频顺利切到 CarPlay。
+  这是实测结论：`1 s ⇒ 无声，2 s ⇒ 正常`。
+- **为什么还要等 1 秒再播放**：关闭蓝牙以后车机的音频路由要重新选一次，立刻播放会被吞掉开头。
+- **断开时反过来**：`断开连接 CarPlay 车载时 → 打开蓝牙`。不打开的话下次上车车机蓝牙是关的，
+  电话和车机自带音乐都用不了。
+
+自动化本身还有两个开关要设对：
+
+- **「运行时显示」关掉**（截图里就是关的）。开着的话每次连接都会在手机上弹一条通知。
+- 新建自动化时选**「立即运行」**（不要「运行前询问」），否则每次上车还得手动点一下"运行"。
+  iOS 版本不同措辞不同，位置在自动化编辑页底部。
+
+### 副作用（这是取舍，不是 bug）
+
+蓝牙一关，车机就收不到 iPhone 的 AVRCP 元数据，**仪表媒体卡片只能靠本 App 自己推**
+（就是「仪表媒体卡片」那个开关）。所以这两个设置是一套的：关蓝牙 + 开仪表媒体卡片。
+
+## 导航投屏：仪表和中控只能二选一
+
+CarPlay 给仪表的画面和给中控的画面是**同一个地图 App 渲染的两路视图**，导航 App 只能让其中一路进
+「车道级」。
+
+### 高德地图
+
+- **「3D 车道级」与「线路总览」在仪表和中控上只能二选一。**
+  仪表用车道级，中控就只能是线路总览；中控用车道级，仪表就退成线路总览。
+- 切换方法：**在中控的导航界面上点「线路总览 / 3D 车道级」**那个按钮，两路画面会一起换。
+- 本版仪表上显示的是**箭头 + 距离 + 路名 + ETA**（亿咖通 DIM 通道），不是整幅地图；
+  车道级/总览的差别主要体现在中控那一路的画面上。
+
+### 苹果地图
+
+- 点屏幕**右上角的方向箭头**切换（跟随车头 / 正北朝上）。
+
+### 百度地图
+
+- **未测试。** 它的转向数据能不能进仪表没有验证过，不保证。
+
+## 第一次连接：iPhone 上要点「允许」
+
+第一次连接时 iPhone 会弹几个框，**都必须点允许**，点错一次后面就会一直连不上：
+
+1. 插线或发起无线连接后，iPhone 弹「**允许此配件访问**」/「**信任此电脑**」→ 点**允许**，需要时输入锁屏密码。
+2. 蓝牙配对框 → 点**配对**，再点**允许**。
+3. CarPlay 首次连接提示 → 允许。
+
+如果之前误点过「不允许」：**设置 → 通用 → 传输或还原 iPhone → 还原 → 还原位置与隐私**，
+然后重新连接，弹框会再次出现。
+
+## 如何把 MFi 身份打进 APK
+
+发布版故意不含身份；要在车上试，自己构建一版带上它。
+
+### 1. 准备两个文件
+
+```
+改造/auth-assets/offline-mfi/identity.pk8       ← Apple 签发的配件私钥
+改造/auth-assets/offline-mfi/certificate.p7b    ← 对应的配件证书链
+```
+
+**本项目不提供这两个文件**，也不教怎么获取。你要么持有 Apple MFi 授权拿到的身份，要么从你合法持有的
+配件里自己取。两个文件缺一个、或长度为 0，构建会在 `verifyStandaloneAuthentication` 这一步直接失败。
+
+### 2. 用环境变量挂上去再构建
+
+```bash
+cd /d/carplay-ecarx
+DIPLAY_WITH_AUTH=1 bash 改造/build-platform.sh :mobile:assembleRelease
+```
+
+- 不加 `DIPLAY_WITH_AUTH=1` 就是**不含身份**的发布包（默认）。
+- 脚本只有在 `DIPLAY_WITH_AUTH=1` 时才导出 `DIPLAY_AUTH_ASSETS_DIR`，`mobile/build.gradle.kts`
+  用 `assets.srcDir` 把那个目录挂进 APK。
+- 不想用脚本、直接调 Gradle 时，等价写法：
+
+  ```bash
+  DIPLAY_AUTH_ASSETS_DIR=/d/carplay-ecarx/改造/auth-assets \
+    ./gradlew :mobile:assembleRelease
+  ```
+
+### 3. 确认真的打进去了
+
+```bash
+unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep offline-mfi
+# 期望两行：assets/offline-mfi/identity.pk8、assets/offline-mfi/certificate.p7b
+```
+
+`apksigner verify --print-certs` 看到的是你的平台密钥（不是身份证书）——两者不是一回事。
+
+### 4. 风险，先说清楚
+
+- **把含身份的 APK 发给别人 = 公开分发 Apple 的授权资产**，私钥可被提取，滥用后果自负。
+  所以本仓库的发布包不含它，只写方法。
+- 身份装进 APK 以后就不保密了：谁拿到包，谁就拿到私钥。
+- 首次启动时 App 会把资产拷到私有目录（`noBackupFilesDir/offline-mfi`），之后从那里读。
+  因此**覆盖安装（不卸载）会沿用旧身份**，`adb uninstall` 或换车机后必须重新打包。
+
+## 诊断报告
+
+出问题先抓报告，不要凭现象猜。
+
+1. 复现问题，记下发生时间。
+2. **设置 → 诊断 → 保存诊断报告**，Android 10 以上一般在 `Downloads/DiPlay`，
+   Android 7–9 会先要存储权限，也是存到那里。
+3. 报告里对仪表问题最有用的几行：
+   - `Cluster panel: showing on "HDMI 屏幕" 1920x720 projection=true` — 仪表窗口上屏了
+   - `DIM mirror left to the platform at guidance start` — 导航开始没有强抢仪表（正常应出现一次）
+   - `DIM guidance started arrowId=NNN` / `DIM arrow=… arrowId=NNN` — 箭头 id 在发
+     （`arrowId=0` 表示这一帧没拿到转向类型）
+   - `DIM guidance ended` → `presentation switch -> false` → `Cluster panel: dismissed` — 结束收尾的
+     三步，顺序反了会留残影
+   - `media counters media=true sourceType=… sourceList=… pushed=…` — 媒体卡片通道是否活着
+
+## 从源码构建
+
+需要 JDK 21+、Android SDK 37、Gradle（仓库自带 wrapper）。详细依赖见 [BUILD.md](docs/BUILD.md)，
+本仓库用脚本一键出包：
+
+```bash
+DIPLAY_WITH_AUTH=1 bash 改造/build-platform.sh :mobile:assembleRelease   # 含 MFi 身份（实车测试）
+DIPLAY_SRC=/d/carplay-ecarx/src bash 改造/build-platform.sh :mobile:assembleRelease   # 发布包
+```
+
+产物：`mobile/build/outputs/apk/release/mobile-release.apk`。
+
+自检脚本（本仓库自带，不属于上游）：
+
+```bash
+python 改造/verify-ecarx.py <apk>                    # 45 项 DIM/资源/原生库契约
+python 改造/tmp/classdiff.py <旧apk> <新apk> old new  # 类集合回归（removed 必须可归因）
+```
+
+## 已知限制
+
+- 只在一台领克 05 上验证；其它亿咖通车型未适配。
+- 仪表是箭头 + 距离 + 路名，不是整幅地图。
+- 关掉 iPhone 蓝牙后，车机蓝牙电话、车机自带音乐都不可用（这是换取声音的代价）。
+- 语音键可能双响应，需停用车机自带语音助手。
+- 「仪表投屏」开关留着是历史遗留，正确用法是不碰它。
+
+## 许可与致谢
+
+- 上游 [DiPlay](https://github.com/shihabal3amri/DiPlay)（BSD/Apache 与 GPL 混合，见 `LICENSE` 与
+  `docs/licenses`），其上游为 [xcertplay](https://github.com/shilapi/xcertplay)（GPL-3.0）。
+- 界面与站点部分改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto)（AGPL-3.0）。
+- 分发修改版时请保留这些声明。CarPlay 与相关图标属于 Apple Inc.；本项目与 Apple、领克、亿咖通均无
+  隶属或背书关系。
+- 本仓库发布版**不含**任何 Apple 授权资产；MFi 身份的获取与使用由使用者自行负责。
+
+---
+
+## English summary
+
+A CarPlay head-unit port for the **Lynk & Co 05** (Geely/ECARX head unit, Snapdragon 820A, Android 9),
+based on upstream [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay). All BYD-specific code paths are
+removed; the instrument cluster is driven through ECARX **DIM (`DimInteraction`)** — turn arrows, distance,
+street names and ETA — while the cluster stream itself is a `Presentation` this app owns on display 1
+(1920×720 CarPlay cluster stream). A media card (title/artist/album/state) goes over `IMediaInteraction`.
+
+Version **0.1**, verified on one car only: wireless CarPlay, cluster guidance, HUD, cluster media card,
+cluster hand-back on route end, Bluetooth yield/restore. **Not verified:** wired USB, microphone quality,
+steering-wheel keys per key, other ECARX models.
+
+**The published APK contains no MFi identity**, so it installs and opens but cannot authenticate with an
+iPhone. Build your own with `DIPLAY_WITH_AUTH=1 bash 改造/build-platform.sh :mobile:assembleRelease`
+after placing `identity.pk8` and `certificate.p7b` in `改造/auth-assets/offline-mfi/`. Bundling an identity
+means redistributing Apple-issued material if you share the APK.
+
+iPhone Bluetooth must be switched off after CarPlay connects, or audio stays on the car's classic-Bluetooth
+path — use a Shortcuts automation: *CarPlay connected → wait 2 s → turn Bluetooth off → wait 1 s → play*.
+Waiting only 1 s breaks the iAP2 handshake and produces silence.
+
+Full details (settings matrix, Bluetooth/2-second timing, guidance view limitations) are in Chinese above.

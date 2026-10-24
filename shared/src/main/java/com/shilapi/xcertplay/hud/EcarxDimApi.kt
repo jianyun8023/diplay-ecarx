@@ -6,7 +6,6 @@ import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The reflective face of the ECARX XUI DIM API.
@@ -282,22 +281,6 @@ internal object EcarxDimApi {
     }
 
     /**
-     * The declared method set of a DIM handle, for the report.
-     *
-     * Every call in this file is resolved by name, and the names came from somebody else's bytecode —
-     * the shipped toolkit for the media half, the head unit's own navigation app for the guidance
-     * half. That is enough to make the calls this project needs work, and not enough to know what
-     * *else* the interface offers: the projection decision that decides whether the cluster's
-     * navigation and media cards read the phone at all (see [EcarxProjectionChannel]) has no known
-     * method on either interface. A car has no adb and no `javap`, so the interface is printed into
-     * the session report once and read off the log instead of guessed at from a decompile.
-     */
-    fun surface(target: Any?, label: String): String {
-        val type = target?.javaClass ?: return "$label=absent"
-        return methodSurface(type, label)
-    }
-
-    /**
      * Whether the *cluster service's* own client library is reachable from a third-party app.
      *
      * `android.cevt.dimsupportservice` is the package the shipped toolkit binds
@@ -458,14 +441,6 @@ internal object EcarxDimApi {
      */
     const val MEDIA_SOURCE_TYPE = 6
 
-    /**
-     * Calls the cluster made into the payload object, by getter name.
-     *
-     * Written from [MediaItemHandler], which runs on whatever thread the platform calls it from, so
-     * it is a concurrent map rather than a plain one; read only when building a report line.
-     */
-    private val MEDIA_READS = ConcurrentHashMap<String, Int>()
-
     /** `getPlaybackStatus()`; the only two values `MediaHandler.formatPlaybackStatus` understands. */
     private const val PLAYBACK_PLAYING = 1
     private const val PLAYBACK_PAUSED = 2
@@ -544,24 +519,6 @@ internal object EcarxDimApi {
     /** `updateMediaMuteState(int)` — `0` is unmuted. The card dims itself on `1`. */
     fun updateMediaMuteState(media: Any, muted: Int): EcarxResult =
         callAny(media, "updateMediaMuteState", arrayOf<Any?>(muted), "updateMediaMuteState($muted)")
-
-    /**
-     * Which payload getters the cluster has actually called, and how often.
-     *
-     * This is the one measurement that separates "the cluster never read the track" from "it read
-     * the track and drew nothing", and it needs no guesswork: `updatePlaybackInfo` hands the
-     * platform an object that calls straight back into [MediaItemHandler]. An empty summary after a
-     * whole session of accepted calls means the channel is not being consumed at all, whatever the
-     * binder said.
-     */
-    fun mediaReads(): String {
-        val snapshot = MEDIA_READS.entries.sortedByDescending { it.value }
-        if (snapshot.isEmpty()) return "media reads=none"
-        return "media reads=" + snapshot.take(10).joinToString(",") { "${it.key}x${it.value}" }
-    }
-
-    /** Clears the getter counters; called when a session starts so the line describes one drive. */
-    fun resetMediaReads() = MEDIA_READS.clear()
 
     private fun mediaProxy(itf: Class<*>, info: PlaybackInfo): Any? = runCatching {
         Proxy.newProxyInstance(itf.classLoader, arrayOf(itf), MediaItemHandler(info))
@@ -752,7 +709,6 @@ internal object EcarxDimApi {
                 "hashCode" -> return System.identityHashCode(proxy)
                 "equals" -> return proxy === args?.firstOrNull()
             }
-            MEDIA_READS.merge(method.name, 1) { seen, add -> seen + add }
             return when (method.name) {
                 "getTitle" -> info.title
                 "getArtist" -> info.artist
