@@ -171,18 +171,11 @@ internal object EcarxHudBridge {
     private var presentationAttempts = 0
 
     /**
-     * The package the running mirror was opened with; null while no mirror is open.
-     *
-     * `setPresentationToDimSwitch(true, pkg, pkg, true)` fixes the mirrored source when the mirror
-     * opens, and repeating it with a different package name changes nothing — fix25 offered three
-     * values for that argument and all three produced the same picture. So the name is only read
-     * when a session opens, which is why changing it needs the session released first; see
-     * [applyPresentationLocked].
+     * What the last accepted `setPresentationToDimSwitch` named — the empty string while a mirror is
+     * open, null when none is. Printed by [diagnostics] so a report can tell "the switch is off" from
+     * "the switch is off but the platform still has a session open".
      */
     private var presentedPackage: String? = null
-
-    /** Set once the driver has been left with no mirror for this guidance run; see [guardMirrorOffLocked]. */
-    private var mirrorGuarded = false
 
     private var lastPushed: EcarxDimApi.Guidance? = null
     /** Which arrow channel the last frame left on, so the report prints the changes and not the ticks. */
@@ -354,26 +347,32 @@ internal object EcarxHudBridge {
     // ---------------------------------------------------------------- OEM switches
 
     /**
-     * The 仪表投屏 switch — mirrors a window onto the cluster's navigation card.
+     * The 仪表投屏 switch — mirrors the **centre screen as it is at that moment** onto the cluster.
      *
-     * The stock navigation app calls `setPresentationToDimSwitch(1, "com.autonavi.amapauto",
-     * "com.autonavi.amapauto", show)` (`ecarx/naviservice/a/g.smali`, the two strings are its own
-     * static `a` field): the 2nd/3rd arguments are the package whose window is to be mirrored, passed
-     * twice. This project passes `""` instead, which asks the platform to mirror the centre screen —
-     * DiPlay draws CarPlay into a full-screen surface rather than into a named package's window.
-     * That difference is recorded rather than resolved: it is the one thing that separates our call
-     * from the stock one, so if the switch ever misbehaves, naming a package is the first variant to
-     * try (see [EcarxDimApi.setPresentationToDimSwitch]).
+     * The call is `setPresentationToDimSwitch(1, "", "", show)`: what both shipped ECARX apps send,
+     * and the only form measured working on the car. The two package strings stay empty because the platform
+     * ignores them — every named variant (`com.autonavi.amapauto`, this app's own package) produced
+     * the same picture on the car.
      *
-     * **This switch is no longer how the arrow reaches the cluster** — the projection topic is
-     * ([EcarxProjectionChannel]), and this file drives both. The switch is kept because it is the
-     * only path that has ever been seen working on this head unit.
+     * Two things are measured now rather than assumed:
+     *  * what gets mirrored is **whatever the centre screen is showing when the call lands**. Opening
+     *    this switch from the settings screen puts the settings screen on the cluster, which is
+     *    exactly what the driver reported as "the whole picture moved over" (10-24 14:32: the switch
+     *    was on for 27 s and the driver never left this page);
+     *  * the platform answers immediately, in the other direction: `true` makes it publish
+     *    `firstFrameReady` on `ihu/events/navigation/ongoing` within 1 ms, `false` makes it publish
+     *    `naviAppOff` within 3 ms. Those two events are the **reply**, not the input — which is why
+     *    this project no longer publishes anything on that topic.
      *
-     * Turning it on records the intent and arms the watch. It does **not** report whether the
-     * cluster changed, because nothing can: the platform call is `void`, unchecked, and returns the
-     * same thing whether or not the cluster is even powered. [EcarxResult.ok] here means "the watch
-     * owns delivery now"; the switch reports a failure only when the head unit has no DIM
-     * interface at all, which is the one case where retrying is pointless.
+     * Turning it on records the intent and arms the watch; turning it off releases once. Nothing else
+     * in this file writes the switch — in particular a guidance start no longer forces it off, which
+     * is what the cluster's flash turned out to be (fix34).
+     *
+     * It does **not** report whether the cluster changed, because nothing can: the platform call is
+     * `void`, unchecked, and returns the same thing whether or not the cluster is even powered.
+     * [EcarxResult.ok] here means "the watch owns delivery now"; the switch reports a failure only
+     * when the head unit has no DIM interface at all, which is the one case where retrying is
+     * pointless.
      */
     fun applyPresentation(show: Boolean, origin: String = ""): EcarxDimApi.EcarxResult = synchronized(lock) {
         // Who asked. The 18:24 report shows the mirror being turned *off* half a second after the
@@ -384,9 +383,6 @@ internal object EcarxHudBridge {
         val app = context ?: return EcarxDimApi.EcarxResult.failed("DIM not initialized")
         EcarxOutputSettings.setPresentationSwitch(app, show)
         presentationWanted = show
-        // A fresh intent re-arms the guard: turning the mirror on must not be undone by a later
-        // guidance start, and turning it off must let the guard run again on the next one.
-        mirrorGuarded = false
         if (!show) {
             presentationAttempts = 0
             presentationCountdown = 0
@@ -558,7 +554,15 @@ internal object EcarxHudBridge {
                     "eta=${outcome(eta)}:at=${maneuver.arrivalEpochSeconds ?: -1} " +
                     "raw=${maneuver.etaRawSeconds ?: -1}",
             )
-            guardMirrorOffLocked("guidance start")
+            // ★ Nothing is forced off here any more (fix34). The driver's report — "starting a
+            // route makes the cluster flash, as if a navigation projection were being opened and
+            // something stopped it" — is this exact spot: the platform opens its navigation page
+            // 7 ms after the first guidance frame, and the guard that used to live on the next line
+            // answered with `setPresentationToDimSwitch(false)` 9 ms later. The 10-24 14:30 report
+            // has the pair: `ongoingNavi` at .240, `presentation forced off` at .249, `naviAppOff`
+            // at .251. So the flash was ours, and the page is left alone now — the marker below is
+            // what tells the next report whether the page stayed up by itself.
+            report("DIM mirror left alone at guidance start (wanted=$presentationWanted)")
         }
     }
 
@@ -566,30 +570,6 @@ internal object EcarxHudBridge {
         result == null -> "absent"
         result.ok -> "ok"
         else -> "failed"
-    }
-
-    /**
-     * Re-asserts "stop mirroring" when the driver has not asked for the mirror.
-     *
-     * The last report showed the cluster displaying CarPlay's navigation view while this page's
-     * 仪表投屏 switch still read off, so the mirror can exist without that switch ever having been
-     * set. `setPresentationToDimSwitch` is the only call on this head unit that has ever been seen
-     * to release it, and it is idempotent, so writing `false` once per guidance start costs nothing
-     * and the report line says whether the platform took the call. If the mirror comes back anyway,
-     * that line is the evidence that the projection topic — not this switch — is what draws it.
-     */
-    private fun guardMirrorOffLocked(reason: String) {
-        if (presentationWanted || mirrorGuarded) return
-        val interaction = dim ?: return
-        val packageName = EcarxOutputSettings.PRESENTATION_PACKAGE
-        val result = EcarxDimApi.setPresentationToDimSwitch(interaction, false, packageName = packageName)
-        if (!result.ok) {
-            report("presentation guard failed ($reason): ${result.reason}")
-            return
-        }
-        presentedPackage = null
-        mirrorGuarded = true
-        report("presentation forced off ($reason) package=\"$packageName\"")
     }
 
     /**
