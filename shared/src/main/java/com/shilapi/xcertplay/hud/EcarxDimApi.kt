@@ -54,7 +54,7 @@ import java.util.concurrent.ConcurrentHashMap
  * Not in the contract, because it does not exist on the target head unit:
  *  * `INaviInteraction.notifyNavigationStatus(int)` — absent (probe printed "未找到重载").
  *  * `ecarx.dimprotocol.DIMProtocolManager` — the class is not in the system image at all, so
- *    [setNaviMode] can only ever fail there. See [EcarxOutputSettings.naviModeSupported].
+ *    [setNaviMode] can only ever fail there, so it is never offered.
  *
  * The media half of the same API is called from the bytecode of the shipped ECARX toolkit
  * (`com/hyphp/hywebviewdcltools/l.smali`, `i.smali`, `m.smali`) rather than from a device dump, and

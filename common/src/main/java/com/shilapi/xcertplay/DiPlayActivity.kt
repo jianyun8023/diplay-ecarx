@@ -3691,9 +3691,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     /**
-     * The ECARX (亿咖通) instrument-cluster outputs. The first switch publishes CarPlay guidance
-     * through the XUI DIM API; the next two are the OEM-side switches from the shipped ECARX
-     * toolkit (仪表投屏 and the DIM navigation mode); the last exposes the unverified turn arrow.
+     * The ECARX (亿咖通) instrument-cluster outputs — **three** switches, nothing else.
+     *
+     * Six more used to live here: 投屏窗口包名、箭头实验开关、导航投影轴、媒体投影轴、导航进行中事件、
+     * 集群导航模式. Each was a question the car had already answered, and each wrong answer made the
+     * cluster show nothing — so they now carry their correct value in code and are gone from this
+     * page (fix33). What is left is the three pictures the driver can actually see: the guidance on
+     * the cluster, the full-screen mirror, and the media card.
      */
     private fun ecarxNavigationOutputs(card: LinearLayout) {
         toggle(card, getString(R.string.ecarx_navigation_on_instrument_cluster),
@@ -3702,9 +3706,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.setEnabled(this, it)
             NavigationOutputs.ecarxChanged(this)
         }
-        // The 仪表投屏 switch mirrors the centre screen onto the cluster. It is no longer needed for
-        // the arrow or the media card — both go over the projection topic now — and turning it on
-        // covers exactly the cards this page configures, which is how it was mistaken for "the arrow
+        // The 仪表投屏 switch mirrors the whole centre screen onto the cluster. It is not needed for
+        // the arrow or the media card — both go over the DIM channels — and turning it on covers
+        // exactly the cards this page configures, which is how it was mistaken for "the arrow
         // stopped working". It asks before it takes effect, and the row is held so a cancel can put
         // the switch back.
         var projectionRow: Switch? = null
@@ -3712,26 +3716,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             getString(R.string.ecarx_instrument_cluster_projection_description),
             EcarxOutputSettings.presentationSwitch(this)) { on ->
             if (on) confirmClusterMirror(projectionRow) else applyClusterMirror(false)
-        }
-        // Only on head units that actually ship DIMProtocolManager: the target unit does not, and a
-        // switch that can never take effect is worse than no switch (probe v2, 23/26 classes).
-        if (EcarxOutputSettings.naviModeSupported()) {
-            toggle(card, getString(R.string.ecarx_cluster_navigation_mode),
-                getString(R.string.ecarx_cluster_navigation_mode_description),
-                EcarxOutputSettings.naviMode(this) == EcarxOutputSettings.NAVI_MODE_ON) {
-                if (!EcarxOutputSettings.requestNaviMode(
-                        this,
-                        if (it) EcarxOutputSettings.NAVI_MODE_ON else EcarxOutputSettings.NAVI_MODE_OFF,
-                    )
-                ) {
-                    toast(getString(R.string.ecarx_cluster_call_rejected))
-                }
-            }
-        }
-        toggle(card, getString(R.string.ecarx_turn_arrow_experimental),
-            getString(R.string.ecarx_turn_arrow_experimental_description),
-            EcarxOutputSettings.turnArrowExperimental(this)) {
-            EcarxOutputSettings.setTurnArrowExperimental(this, it)
         }
         // A separate DIM channel from everything above — the media card, not the guidance feed — so
         // it is gated on the media interface being there, not on the navigation one.
@@ -3741,80 +3725,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 EcarxOutputSettings.mediaEnabled(this),
                 save = this::onEcarxMediaToggled)
         }
-        // The projection topic carries two independent claims, one value each: the cluster's
-        // navigation source and its media source. They are separate switches because they do
-        // opposite things to the driver's view — the navigation claim is what turns the cluster's
-        // own navigation page into a rectangle of mirrored CarPlay, while the media claim is the
-        // only thing that makes the media card read a track at all. Tying them together meant
-        // turning the mirror off also blanked the media card, so they are apart now.
-        toggle(card, getString(R.string.ecarx_projection_channel),
-            getString(R.string.ecarx_projection_channel_description),
-            EcarxOutputSettings.navigationProjection(this)) {
-            EcarxOutputSettings.requestNavigationProjection(this, it)
-        }
-        toggle(card, getString(R.string.ecarx_projection_media),
-            getString(R.string.ecarx_projection_media_description),
-            EcarxOutputSettings.mediaProjection(this),
-            save = this::onEcarxMediaProjectionToggled)
-        // The one argument of `setPresentationToDimSwitch` never yet varied: the two package strings.
-        // The driver's report is that an empty pair makes the cluster mirror the whole centre screen,
-        // a square picture on an irregular cluster — the stock navigation app names its own package
-        // instead. Offered as three known-good values rather than free text, because a typo and "the
-        // platform ignored the call" would look identical in the report.
-        choice(card, getString(R.string.ecarx_presentation_package), presentationPackageLabels(),
-            presentationPackageIndex(), reconnects = false,
-            save = this::onEcarxPresentationPackageChosen)
-        // The last untested navigation signal: the arrow data already reaches the cluster's own
-        // topics, so what the cluster is missing is the state, not the payload.
-        toggle(card, getString(R.string.ecarx_navi_card_event),
-            getString(R.string.ecarx_navi_card_event_description),
-            EcarxOutputSettings.naviCardEvent(this),
-            save = this::onEcarxNaviCardEventToggled)
-    }
-
-    /**
-     * Stores the media-axis claim. A method reference rather than a lambda at the call site for the
-     * same reason as [onEcarxPresentationPackageChosen]: this activity's lambda classes are numbered
-     * by their position in the file, so one more lambda renames every later one.
-     */
-    private fun onEcarxMediaProjectionToggled(enabled: Boolean) {
-        EcarxOutputSettings.requestMediaProjection(this, enabled)
-    }
-
-    /**
-     * Stores the navigation-event switch. Read at every guidance start and stop, so nothing has to be
-     * applied live and no reconnect is needed.
-     *
-     * A method reference rather than a lambda at the call site for the same reason as
-     * [onEcarxPresentationPackageChosen].
-     */
-    private fun onEcarxNaviCardEventToggled(enabled: Boolean) {
-        EcarxOutputSettings.setNaviCardEvent(this, enabled)
-    }
-
-    /** Labels for [EcarxOutputSettings.presentationPackages], in the same order. */
-    private fun presentationPackageLabels(): List<String> = listOf(
-        getString(R.string.ecarx_presentation_package_screen),
-        getString(R.string.ecarx_presentation_package_self),
-        getString(R.string.ecarx_presentation_package_stock),
-    )
-
-    /** Which of those is stored now; an unknown stored value falls back to the first entry. */
-    private fun presentationPackageIndex(): Int =
-        EcarxOutputSettings.presentationPackages(this)
-            .indexOf(EcarxOutputSettings.presentationPackage(this)).coerceAtLeast(0)
-
-    /**
-     * Persists the chosen package and re-issues the switch at once.
-     *
-     * A method reference rather than a lambda at the call site on purpose: Kotlin numbers this
-     * activity's lambda classes by their position in the file, so one more lambda here renames every
-     * later one and trips the class-set regression check.
-     */
-    private fun onEcarxPresentationPackageChosen(index: Int) {
-        val packages = EcarxOutputSettings.presentationPackages(this)
-        if (index !in packages.indices) return
-        EcarxOutputSettings.requestPresentationPackage(this, packages[index])
     }
 
     /**
@@ -3867,7 +3777,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             toast(getString(R.string.ecarx_cluster_call_rejected))
         }
     }
-
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return super.dispatchKeyEvent(event)

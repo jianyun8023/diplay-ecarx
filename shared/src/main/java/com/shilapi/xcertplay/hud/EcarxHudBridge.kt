@@ -148,12 +148,6 @@ internal object EcarxHudBridge {
     private const val PRESENTATION_FAST_ATTEMPTS = 30
     private const val PRESENTATION_SLOW_SECONDS = 10
 
-    /**
-     * Ticks to wait after releasing the mirror before naming a different package, so the release
-     * and the re-open are two separate platform calls rather than one that the service coalesces.
-     */
-    private const val PRESENTATION_REBUILD_TICKS = 2
-
     private val lock = Any()
     private val route = RouteGuidanceState()
     private var context: Context? = null
@@ -234,12 +228,7 @@ internal object EcarxHudBridge {
         // a name for yet, so the real surface is printed rather than inferred. See [EcarxDimApi.surface].
         report("DIM surface ${EcarxDimApi.surface(dim, "dim")} ${EcarxDimApi.surface(navi, "navi")}")
         report("DIM cevt ${EcarxDimApi.cevt()}")
-        // Re-assert the persisted OEM-side switches so a restart restores the cluster state.
-        // Only the projection switch: setNaviMode is an unverified call (see NAVI_MODE_UNSET) and
-        // is left alone until the user actually asks for it.
-        EcarxOutputSettings.naviMode(app)
-            .takeIf { it >= 0 }
-            ?.let { applyNaviModeLocked(it) }
+        // Re-assert the persisted OEM-side switch so a restart restores the cluster state.
         if (presentationWanted) requestPresentationLocked()
         startTickerLocked()
     }
@@ -425,22 +414,7 @@ internal object EcarxHudBridge {
 
     private fun applyPresentationLocked(show: Boolean): EcarxDimApi.EcarxResult {
         val interaction = dim ?: return EcarxDimApi.EcarxResult.failed("DimInteraction missing")
-        val packageName = presentationPackage()
-        val running = presentedPackage
-        if (show && running != null && running != packageName) {
-            // A running mirror keeps the source it was opened with, so a `true` naming another
-            // package is a no-op (fix25: three settings, one picture). Release it and let the watch
-            // re-assert on a later tick, so the next `true` opens a session naming the new one.
-            val released = EcarxDimApi.setPresentationToDimSwitch(interaction, false, packageName = running)
-            val releaseNote = if (released.ok) "ok" else released.reason
-            presentedPackage = null
-            presentationCountdown = PRESENTATION_REBUILD_TICKS
-            report(
-                "presentation rebuild \"$running\" -> \"$packageName\" released=$releaseNote " +
-                    "re-assert in ${PRESENTATION_REBUILD_TICKS}s",
-            )
-            return released
-        }
+        val packageName = EcarxOutputSettings.PRESENTATION_PACKAGE
         val result = EcarxDimApi.setPresentationToDimSwitch(interaction, show, packageName = packageName)
         if (!result.ok) {
             report("presentation switch failed: ${result.reason}")
@@ -449,36 +423,6 @@ internal object EcarxHudBridge {
         presentedPackage = if (show) packageName else null
         report("presentation switch -> $show package=\"$packageName\"")
         return result
-    }
-
-    /** The package the cluster should mirror right now; see [EcarxOutputSettings.presentationPackage]. */
-    private fun presentationPackage(): String {
-        val app = context ?: return ""
-        return EcarxOutputSettings.presentationPackage(app)
-    }
-
-    /**
-     * Stores a new presentation package and, when the mirror is currently wanted, re-issues the
-     * switch so the change takes effect now rather than at the watch's next slow attempt.
-     *
-     * Returns whether the platform accepted the re-issue; `false` also covers "nothing to do",
-     * which is the honest answer when the driver has not asked for the mirror.
-     */
-    fun applyPresentationPackage(packageName: String): Boolean = synchronized(lock) {
-        val app = context ?: return false
-        EcarxOutputSettings.setPresentationPackage(app, packageName)
-        report("presentation package -> \"$packageName\"")
-        if (!presentationWanted) {
-            // Nothing reads the name while the mirror is off, so changing this row then produces the
-            // same picture as before and reads as "the platform ignored the argument". The 18:24
-            // report has exactly that shape: the switch was turned off half a second after the
-            // process started, and every later package change in that session was a no-op.
-            report("presentation package change ignored: the mirror is off")
-            return false
-        }
-        presentationAttempts = 0
-        presentationCountdown = 0
-        requestPresentationLocked().ok
     }
 
     /**
@@ -496,40 +440,6 @@ internal object EcarxHudBridge {
         ticksSincePush = 0
         pushLocked(force = true)
         report("DIM re-sent after the mirror was released")
-    }
-
-    /**
-     * The navigation-axis claim. Turning it off withdraws the claim already on the topic, so the
-     * experiment starts from a clean state instead of waiting for the next guidance to end.
-     */
-    fun applyNavigationProjection(enabled: Boolean) = synchronized(lock) {
-        val app = context ?: return@synchronized
-        EcarxOutputSettings.setNavigationProjection(app, enabled)
-        if (!enabled) EcarxProjectionChannel.setNavigationProjection(false)
-        report("projection channel -> navigation=$enabled")
-    }
-
-    /** The media-axis claim, kept separate so the navigation mirror can be off while it stays on. */
-    fun applyMediaProjection(enabled: Boolean) = synchronized(lock) {
-        val app = context ?: return@synchronized
-        EcarxOutputSettings.setMediaProjection(app, enabled)
-        if (!enabled) EcarxProjectionChannel.setMediaProjection(false)
-        report("projection channel -> media=$enabled")
-    }
-
-    /** `DIMProtocolManager.setNaviMode` — makes the cluster prefer an external navigation source. */    fun applyNaviMode(mode: Int): EcarxDimApi.EcarxResult = synchronized(lock) {
-        val app = context ?: return EcarxDimApi.EcarxResult.failed("DIM not initialized")
-        EcarxOutputSettings.setNaviMode(app, mode)
-        applyNaviModeLocked(mode)
-    }
-
-    private fun applyNaviModeLocked(mode: Int): EcarxDimApi.EcarxResult {
-        if (mode < 0) return EcarxDimApi.EcarxResult.failed("navi mode never requested")
-        val manager = protocol ?: return EcarxDimApi.EcarxResult.failed("DIMProtocolManager missing")
-        val result = EcarxDimApi.setNaviMode(manager, mode)
-        if (!result.ok) report("setNaviMode($mode) failed: ${result.reason}")
-        else report("cluster navi mode -> $mode")
-        return result
     }
 
     // ---------------------------------------------------------------- push path
@@ -671,7 +581,7 @@ internal object EcarxHudBridge {
     private fun guardMirrorOffLocked(reason: String) {
         if (presentationWanted || mirrorGuarded) return
         val interaction = dim ?: return
-        val packageName = presentedPackage ?: presentationPackage()
+        val packageName = EcarxOutputSettings.PRESENTATION_PACKAGE
         val result = EcarxDimApi.setPresentationToDimSwitch(interaction, false, packageName = packageName)
         if (!result.ok) {
             report("presentation guard failed ($reason): ${result.reason}")
@@ -1034,9 +944,6 @@ internal object EcarxHudBridge {
         append("ecarx ").append(EcarxCapabilities.describe(context))
         append(" enabled=").append(EcarxOutputSettings.enabled(context))
         append(" presentation=").append(EcarxOutputSettings.presentationSwitch(context))
-        append(" naviMode=").append(
-            EcarxOutputSettings.naviMode(context).takeIf { it >= 0 } ?: "unset",
-        )
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
         append(" media=").append(EcarxOutputSettings.mediaEnabled(context))
         synchronized(lock) {
