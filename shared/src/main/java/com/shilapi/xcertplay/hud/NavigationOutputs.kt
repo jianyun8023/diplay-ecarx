@@ -80,6 +80,19 @@ object NavigationOutputs {
         EcarxMediaBridge.attachReport(sink)
     }
 
+    /**
+     * Hands the cluster panel to the only component that can open a window on it — the host
+     * activity, whose `EcarxClusterPresentation` shows CarPlay's instrument-cluster stream there.
+     * `null` unregisters.
+     *
+     * The owner is called from the DIM worker thread with the bridge's lock held, so it must take
+     * the request and return: it is "a route wants the panel", not "the panel is up now". This seam
+     * exists because [EcarxHudBridge] is internal to this module while the activity is not.
+     */
+    fun setClusterPanelOwner(owner: ((Boolean) -> Unit)?) {
+        EcarxHudBridge.clusterPresentationRequested = owner
+    }
+
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_UPDATE &&
             frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE

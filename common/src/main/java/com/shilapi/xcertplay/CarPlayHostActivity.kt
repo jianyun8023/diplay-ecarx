@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.content.res.ColorStateList
+import android.hardware.display.DisplayManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.graphics.Bitmap
@@ -445,6 +446,12 @@ class CarPlayHostActivity : ComponentActivity() {
     private var externalActivityInProgress = false
     private var sink: AndroidMediaSink? = null
     private var controller: CarPlayController? = null
+    /** The window that shows CarPlay's instrument-cluster stream on display 1, while a route runs. */
+    private var clusterPresentation: EcarxClusterPresentation? = null
+    /** The surface that window gave the media sink as stream 111, so a new sink can be re-pointed at it. */
+    private var clusterSurface: Surface? = null
+    /** Written by the DIM worker thread, read on the main thread after a post; see [onClusterPanelRequested]. */
+    @Volatile private var clusterPanelWanted = false
     private var ecarxSwKeyHandle: com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.Handle? = null
     private var ecarxVoiceKeyReceiver: android.content.BroadcastReceiver? = null
     private var ecarxCallKeyReceiver: android.content.BroadcastReceiver? = null
@@ -819,6 +826,9 @@ class CarPlayHostActivity : ComponentActivity() {
         CenterMapOverlay.requestShow = ::showCenterMap
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
+        // The dash panel is display 1, and only an app holding a window there can show the cluster
+        // stream on it; the DIM bridge knows when a route wants the panel and says so here.
+        com.shilapi.xcertplay.hud.NavigationOutputs.setClusterPanelOwner(this::onClusterPanelRequested)
         languagePreferenceAtCreate = AppLocale.preference(this)
         if (isIphoneUsbAttachment(intent)) {
             AirPlayPersistence.saveWirelessEnabled(this, false)
@@ -1221,11 +1231,31 @@ class CarPlayHostActivity : ComponentActivity() {
     private var clusterStreamOnDisplay = false
 
     /**
-     * The cluster stream CarPlay is asked for. This head unit is driven through the ECARX DIM switch,
-     * which mirrors the centre screen, so the only stream asked for is the standard virtual one that
-     * the centre-screen map card and the embedded map service render.
+     * The cluster stream CarPlay is asked for. On this head unit that is the physical stream for
+     * display 1 at the panel's own 1920x720, because the panel is a real second display and the
+     * app draws the cluster picture on it (see [showClusterPanel]). Everywhere else the only stream
+     * is the standard virtual one that the centre-screen map card and the embedded map service use.
      */
     private fun clusterDisplayConfig(): AirPlayDisplayConfig? {
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)) {
+            // This head unit has a real instrument-cluster panel: display 1, 1920x720, 8:3. The
+            // stream is asked for at that geometry and at full scale, so the phone draws the
+            // cluster picture itself instead of the platform squeezing the 1920x944 centre screen
+            // into 8:3 — which is what the mirror did and why it looked like neither.
+            MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
+            return CarPlayClusterDisplay.config(
+                widthPixels = CLUSTER_PANEL_WIDTH,
+                heightPixels = CLUSTER_PANEL_HEIGHT,
+                scalePercent = 100,
+                content = AirPlayPersistence.loadClusterContent(this),
+                baseSafeArea = CarPlayClusterDisplay.SAFE_AREA_PERCENT,
+            ).also {
+                appendLog(
+                    "Cluster: requesting ${it.widthPixels}x${it.heightPixels} (8:3) " +
+                        "instrument-cluster stream for display $CLUSTER_PANEL_DISPLAY_ID, content=${it.initialUrl}",
+                )
+            }
+        }
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) return null
         MapMirrors.streamAspect = MapMirrors.VIRTUAL_STREAM_ASPECT
         return CarPlayClusterDisplay.config(
@@ -1604,9 +1634,83 @@ class CarPlayHostActivity : ComponentActivity() {
 
     // The dashboard map pause must not stop the stream while a copy of the map is on screen.
     private fun updateClusterMapShown() {
-        // Nothing here draws the stream onto a cluster display, so nothing has to be reported to a
-        // dashboard that pauses itself while its map is covered.
+        // The dashboard stream is drawn on display 1 and on copies of it, never as this activity's
+        // own map route, so it reports as not visible here — which also keeps the wheel's zoom on
+        // the centre screen, where the driver has been using it.
         controller?.setDashboardMapOutputVisible(false)
+    }
+
+    /**
+     * A route started (`true`) or ended (`false`) and the DIM bridge wants the panel.
+     *
+     * Called from the bridge's worker thread with its lock held. Both the window and the platform
+     * switch that has to move first are main-thread only, so the request is stored and the whole
+     * sequence is posted — half of it on the wrong thread is how a `Presentation` ends up created
+     * without a looper.
+     */
+    private fun onClusterPanelRequested(show: Boolean) {
+        clusterPanelWanted = show
+        mainHandler.post(this::applyClusterPanel)
+    }
+
+    /** Main thread: makes the panel match [clusterPanelWanted]. */
+    private fun applyClusterPanel() {
+        if (clusterPanelWanted) showClusterPanel() else hideClusterPanel()
+    }
+
+    /**
+     * Puts CarPlay's instrument-cluster stream on display 1 in place of the platform's mirror.
+     *
+     * Order matters. The head unit opens its own navigation page on that display as a native
+     * reaction to the guidance update — that page is the mirror of the centre screen, and
+     * `setPresentationToDimSwitch(false)` is the only call that closes it (fix34 deleted exactly
+     * that call, which is why the mirror stayed up). Only once it is closed does this app's window
+     * go up, so the panel shows the 8:3 cluster stream instead of a 24 %-squeezed centre screen.
+     */
+    private fun showClusterPanel() {
+        if (isDestroyed || shuttingDown.get() || clusterPresentation != null) return
+        com.shilapi.xcertplay.hud.EcarxOutputSettings.requestPresentation(this, false, "cluster stream")
+        val manager = getSystemService(DisplayManager::class.java)
+        val display = manager?.getDisplay(CLUSTER_PANEL_DISPLAY_ID)
+        if (display == null) {
+            appendLog("Cluster panel: display $CLUSTER_PANEL_DISPLAY_ID is not attached")
+            return
+        }
+        val presentation = EcarxClusterPresentation(this, display, this::onClusterSurface)
+        clusterPresentation = presentation
+        try {
+            presentation.show()
+            appendLog(
+                "Cluster panel: showing on \"${display.name}\" " +
+                    "${display.mode.physicalWidth}x${display.mode.physicalHeight}",
+            )
+        } catch (error: Exception) {
+            // A display that refuses the window is the one failure worth not retrying: the mirror
+            // stays closed and the panel goes back to whatever the head unit wants to draw.
+            clusterPresentation = null
+            appendLog("Cluster panel: show failed ${error.message}")
+        }
+    }
+
+    private fun hideClusterPanel() {
+        val presentation = clusterPresentation ?: return
+        clusterPresentation = null
+        runCatching { presentation.dismiss() }
+        appendLog("Cluster panel: dismissed")
+    }
+
+    /**
+     * The panel's window came up or went away. Stream 111's only surface is this one — the centre
+     * screen is never pointed at it (see [attachSurface]) — so a surface that is gone is cleared
+     * rather than left pointing at a dead window.
+     */
+    private fun onClusterSurface(surface: Surface?) {
+        val previous = clusterSurface
+        if (previous === surface) return
+        clusterSurface = surface
+        val media = sink ?: return
+        if (previous != null) media.clearSurface(SCREEN_TYPE_ALT, previous)
+        if (surface != null) media.setSurface(SCREEN_TYPE_ALT, surface)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -1664,6 +1768,8 @@ class CarPlayHostActivity : ComponentActivity() {
             MapMirrors.setStreamActive(false)
         }
         if (MapMirrors.onChanged === mirrorsChanged) MapMirrors.onChanged = null
+        com.shilapi.xcertplay.hud.NavigationOutputs.setClusterPanelOwner(null)
+        hideClusterPanel()
         mainHandler.removeCallbacks(applyDisplaySize)
         mainHandler.removeCallbacks(expireOldLogLines)
         mainHandler.removeCallbacks(pollConfiguration)
@@ -6110,7 +6216,10 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun attachSurface(surface: Surface) {
         sink?.setSurface(SCREEN_TYPE_MAIN, surface)
-        sink?.setSurface(SCREEN_TYPE_ALT, surface)
+        // Stream 111 is the instrument-cluster stream, and its only surface is the panel's own
+        // window ([onClusterSurface]). Pointing it at the centre screen as well — which this used
+        // to do — would draw the cluster picture on top of CarPlay as soon as the panel streams.
+        clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
     }
 
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {
@@ -6446,6 +6555,11 @@ class CarPlayHostActivity : ComponentActivity() {
         const val TAG = "xcertplay-usb"
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
+        /** Display 1 on this head unit: `"HDMI 屏幕"`, 1920x720, `flags=0xb` (fix35 report 6). */
+        const val CLUSTER_PANEL_DISPLAY_ID = 1
+        /** That panel's panel size; the cluster stream is asked for at exactly this, 8:3. */
+        const val CLUSTER_PANEL_WIDTH = 1920
+        const val CLUSTER_PANEL_HEIGHT = 720
         // On the teardown thread: bounded sequencing wait. Release notification retains ownership beyond
         // this budget when a codec is still busy.
         const val SINK_RELEASE_WAIT_MILLIS = 2_000L

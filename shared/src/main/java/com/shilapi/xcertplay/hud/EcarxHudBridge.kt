@@ -185,6 +185,17 @@ internal object EcarxHudBridge {
     private var guidanceActive = false
 
     /**
+     * Called with `true` when a route starts and `false` when it ends, for the owner that draws the
+     * cluster itself — the CarPlay instrument-cluster stream (display 1, `EcarxClusterPresentation`).
+     *
+     * A plain `var` and not a listener interface: the only consumer is the host activity, and one
+     * slot cannot accumulate a second registration. It is assigned with a **method reference**, never
+     * a lambda: a lambda here would shift every following `$$ExternalSyntheticLambda` index in this
+     * file and turn a one-line change into an unattributable class diff.
+     */
+    var clusterPresentationRequested: ((Boolean) -> Unit)? = null
+
+    /**
      * A screen appearing or disappearing is the closest thing to "the car was just started" that a
      * third-party app can observe, so it cancels the backoff instead of making the cluster wait
      * for the next keepalive. On this head unit the cluster screen is not in `getDisplays()` at all
@@ -441,9 +452,10 @@ internal object EcarxHudBridge {
      *    `naviAppOff` within 3 ms. Those two events are the **reply**, not the input — which is why
      *    this project no longer publishes anything on that topic.
      *
-     * Turning it on records the intent and arms the watch; turning it off releases once. Nothing else
-     * in this file writes the switch — in particular a guidance start no longer forces it off, which
-     * is what the cluster's flash turned out to be (fix34).
+     * Turning it on records the intent and arms the watch; turning it off releases once. Besides the
+     * settings screen, the one other writer is the panel's owner: at a guidance start it closes the
+     * platform's page and follows with its own window on the same display (fix36, see
+     * [clusterPresentationRequested]), which is the handover the driver used to see as a flash.
      *
      * It does **not** report whether the cluster changed, because nothing can: the platform call is
      * `void`, unchecked, and returns the same thing whether or not the cluster is even powered.
@@ -631,15 +643,19 @@ internal object EcarxHudBridge {
                     "eta=${outcome(eta)}:at=${maneuver.arrivalEpochSeconds ?: -1} " +
                     "raw=${maneuver.etaRawSeconds ?: -1}",
             )
-            // ★ Nothing is forced off here any more (fix34). The driver's report — "starting a
-            // route makes the cluster flash, as if a navigation projection were being opened and
-            // something stopped it" — is this exact spot: the platform opens its navigation page
-            // 7 ms after the first guidance frame, and the guard that used to live on the next line
-            // answered with `setPresentationToDimSwitch(false)` 9 ms later. The 10-24 14:30 report
-            // has the pair: `ongoingNavi` at .240, `presentation forced off` at .249, `naviAppOff`
-            // at .251. So the flash was ours, and the page is left alone now — the marker below is
-            // what tells the next report whether the page stayed up by itself.
-            report("DIM mirror left alone at guidance start (wanted=$presentationWanted)")
+            // ★ fix34 removed the guard that used to sit on the next line, and the mirror came back
+            // (fix35 reports): the platform opens its navigation page on display 1 as a *native*
+            // reaction to the guidance update, and `setPresentationToDimSwitch(false)` is the only
+            // call that closes that page. fix36 moves the call into the panel's owner
+            // (`CarPlayHostActivity.showClusterPanel`), which makes it and then opens a window of
+            // its own on the same display — so the 14:30 flash the driver reported is now the panel
+            // changing hands rather than a gap with nothing behind it.
+            report("DIM mirror handed to the cluster panel (wanted=$presentationWanted)")
+            // The cluster's own display (HDMI, id 1, 1920x720) gets CarPlay's instrument-cluster
+            // stream instead of a scaled-down copy of the centre screen. Fired here and not from
+            // the ticker so it lands with the first guidance frame, before the platform's mirror
+            // has had time to paint a wrong-ratio picture on the same panel.
+            clusterPresentationRequested?.invoke(true)
         }
     }
 
@@ -705,6 +721,9 @@ internal object EcarxHudBridge {
         if (guidanceActive) {
             guidanceActive = false
             report("DIM guidance ended")
+            // Hand the panel back: the presentation stops requesting the cluster stream, so the
+            // head unit's own instrument page returns instead of a frozen last map frame.
+            clusterPresentationRequested?.invoke(false)
         }
     }
 
