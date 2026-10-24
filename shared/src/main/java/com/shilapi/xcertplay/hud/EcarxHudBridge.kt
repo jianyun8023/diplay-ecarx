@@ -13,8 +13,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Publishes CarPlay guidance to an ECARX (亿咖通) instrument cluster through the XUI DIM API.
  *
- * The call sequence is the one the shipped ECARX toolkit uses, recovered from
- * `tools-apktool/smali/s1/n.smali` — a Runnable the toolkit posts every 1000 ms:
+ * The call sequence is the one the shipped ECARX projection tool uses, recovered from its
+ * bytecode (a Runnable the tool posts every 1000 ms):
  * ```
  * navi.updateNavigationInfo(info); navi.updateTurnByTurnArrow(v++);
  * ```
@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
  *
  * What is proven vs. what needs calibration on the car:
  *  * **Proven.** `updateNavigationInfo` with the 15-getter `INavigationInfo` payload; the getter
- *    set is exhaustive (`s1/r.smali` implements exactly these); `updateDistanceToDestination`,
+ *    set is exhaustive (the tool's implementation class implements exactly these); `updateDistanceToDestination`,
  *    `updateDistanceToNextGuidancePoint`, `updateETA`, `updateNextGuidancePointName`,
  *    `updateLaneInfo`, `notifyTurnByTurnStarted/Stopped` take the arguments used below.
  *  * **Proven — and the arrow is drawn, not coded.** The head unit's own navigation app
@@ -670,7 +670,7 @@ internal object EcarxHudBridge {
         nextGuidancePointName = maneuver.road,
     )
 
-    /** `getDayNightMode()` is 0/1 in `s1/r`; the head unit's own day/night split drives the choice. */
+    /** `getDayNightMode()` is 0/1 in the tool's implementation; the head unit's own day/night split drives the choice. */
     private fun dayNightMode(): Int {
         val app = context ?: return 0
         val night = app.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK

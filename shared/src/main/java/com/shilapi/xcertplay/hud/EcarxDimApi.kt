@@ -20,10 +20,10 @@ import java.lang.reflect.Proxy
  * session log so a refusal on an unexpected firmware is diagnosable instead of silent.
  *
  * The contract below is the **real device** contract, dumped with `Class.getMethods()` on the car
- * by probe v2 (see 适配文件/亿咖通DIM-真机契约转储.md and 日志分析/v2-run2-1.txt). It supersedes the
- * `s1/r.smali` reading we started from — that one was a *implementation class* of
- * `INavigationInfo`, and it carries two extra public methods the interface never declared
- * (`getDayNightMode`, `getExtensionInfo`). The device interface has 13 getters, not 15.
+ * in an on-car probe session. It supersedes the reading we started from — that one came from an
+ * *implementation class* of `INavigationInfo`, and it carries two extra public methods the
+ * interface never declared (`getDayNightMode`, `getExtensionInfo`). The device interface has 13
+ * getters, not 15.
  *
  * ```
  * DimInteraction.create(Context)                                        static -> DimInteraction (may be null)
@@ -55,9 +55,8 @@ import java.lang.reflect.Proxy
  *  * `ecarx.dimprotocol.DIMProtocolManager` — the class is not in the system image at all, so
  *    [setNaviMode] can only ever fail there, so it is never offered.
  *
- * The media half of the same API is called from the bytecode of the shipped ECARX toolkit
- * (`com/hyphp/hywebviewdcltools/l.smali`, `i.smali`, `m.smali`) rather than from a device dump, and
- * it is only four methods:
+ * The media half of the same API is called from the bytecode of the ECARX projection tool shipped
+ * on this system image rather than from a device dump, and it is only four methods:
  * ```
  * IMediaInteraction.updateCurrentSourceType(int)              -- the toolkit sends 6, once
  * IMediaInteraction.updatePlaybackInfo(IMediaInteraction$IPlaybackInfo)
@@ -252,7 +251,7 @@ internal object EcarxDimApi {
     /**
      * Pushes a drawn arrow bitmap through the `(Bitmap)` overload — the fallback when the head unit
      * has no `(String)` overload. It is the code-table-free channel: the stock app feeds the int
-     * overload from its own table (see 适配文件/ecarx-arrowId-码表.tsv), never from a counter, so a
+     * overload from its own table (see [EcarxArrowCode]), never from a counter, so a
      * locally drawn arrow is the honest way out when no mapping is recovered.
      */
     fun updateTurnByTurnArrow(navi: Any, arrow: android.graphics.Bitmap): EcarxResult =
@@ -496,7 +495,7 @@ internal object EcarxDimApi {
      * The unit belongs to the caller: `MediaHandler.updateCurrentProgress` publishes the number it
      * was handed straight into `ihu/info/media/progress` under the key `"value"`, with no
      * arithmetic at all, and skips the message when it equals the last one. Milliseconds, as the
-     * toolkit's `m.smali` sends.
+     * tool sends.
      */
     fun updateCurrentProgress(media: Any, millis: Long): EcarxResult =
         callAny(media, "updateCurrentProgress", arrayOf<Any?>(millis), "updateCurrentProgress(${millis}ms)")

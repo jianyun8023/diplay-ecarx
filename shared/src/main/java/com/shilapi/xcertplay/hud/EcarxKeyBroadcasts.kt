@@ -6,8 +6,8 @@ import android.content.Intent
 import android.content.IntentFilter
 
 /**
- * The ECARX private steering-wheel key broadcasts, recovered from the reference app's
- * `media$EcarXVoiceKey` / `media$EcarXCalleKey` receivers (see 适配文件/方控与语音助手按键-反编译结论.md).
+ * The ECARX private steering-wheel key broadcasts, recovered from the `media$EcarXVoiceKey` /
+ * `media$EcarXCalleKey` receivers in the head unit's own key service.
  *
  * On 领克 / 亿咖通 head units the steering wheel's voice key and call key are delivered as system
  * broadcasts rather than as `KeyEvent`s, so a normal activity never sees them. The reference app subscribes to

@@ -20,8 +20,6 @@ package com.shilapi.xcertplay.hud
  * point for point (102 left, 103 right, 108 U-turn, 109 straight, 111 enter roundabout, 112 exit
  * roundabout, 115 destination, 101 start), so the two recoveries cross-check each other rather
  * than resting on one person's reading.
- *
- * A machine-readable copy lives in `适配文件/ecarx-arrowId-码表.tsv`.
  */
 internal object EcarxArrowCode {
 

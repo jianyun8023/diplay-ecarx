@@ -60,8 +60,10 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 ### ✅ 已实车验证（2026-10-24，领克 05 实车，无线连接）
 
 - **无线 CarPlay 连接、中控投屏**（Wi-Fi Direct / 车机热点两条路都走通了）。
-- **仪表导航**：CarPlay 的转向箭头、剩余距离、路名、预计到达时间显示在亿咖通仪表上，画面贴合
-  1920×720 的异形区域；导航开始时仪表**不再闪一下**，也不需要手动去开「仪表投屏」。
+- **仪表导航**：仪表盘整幅显示 CarPlay 这一路的**高德车道级地图**（CarPlay 集群流，1920×720，贴合
+  异形区域），同时经亿咖通 **DIM** 把箭头、距离、路名、预计到达时间递给车机（HUD 与卡片用）。
+  导航开始时仪表**不再闪一下**，也不需要手动去开「仪表投屏」。实拍见
+  [导航投屏](#导航投屏仪表和中控只能二选一)。
 - **HUD**：导航开始时 HUD 与仪表卡片同时出现箭头与距离，导航结束后一起撤掉。
 - **仪表媒体卡片**：曲名、歌手、专辑、播放状态（前提：关掉 iPhone 蓝牙，见[蓝牙与媒体](#蓝牙与媒体为什么必须关掉它)）。
 - **导航结束收尾**：仪表交回车机自己的页面，不留残影、不盖住原厂仪表。
@@ -80,7 +82,6 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 ### 🚧 未适配，计划中
 
 - **USB 有线连接**的完整验证与修复（优先级最高）。
-- **仪表显示整幅地图**（车道级导航画面铺到仪表），目前仪表上是箭头 + 距离 + 路名，不是地图。
 - **百度地图的转向数据**（未测试；高德与苹果地图已可用）。
 - **其它亿咖通车型**的 display 探测与仪表尺寸自适应。
 
@@ -171,13 +172,22 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 CarPlay 给仪表的画面和给中控的画面是**同一个地图 App 渲染的两路视图**，导航 App 只能让其中一路进
 「车道级」。
 
+<p align="center">
+  <img src="docs/screenshots/cluster-amap-lane.jpg" width="720" alt="领克 05 仪表盘整幅显示高德车道级导航：进入 周山大道，右转 231 m，限速 50" />
+</p>
+
+*领克 05 实车：仪表盘整幅显示高德车道级导航（「进入 周山大道」右转 231 m、限速 50）。这一路占满了
+仪表，中控那一路就只能是线路总览。*
+
 ### 高德地图
 
-- **「3D 车道级」与「线路总览」在仪表和中控上只能二选一。**
-  仪表用车道级，中控就只能是线路总览；中控用车道级，仪表就退成线路总览。
+- **「3D 车道级」与「线路总览」在仪表和中控上只能二选一。** 仪表用车道级，中控就只能是线路总览；
+  中控用车道级，仪表就退成线路总览。
 - 切换方法：**在中控的导航界面上点「线路总览 / 3D 车道级」**那个按钮，两路画面会一起换。
-- 本版仪表上显示的是**箭头 + 距离 + 路名 + ETA**（亿咖通 DIM 通道），不是整幅地图；
-  车道级/总览的差别主要体现在中控那一路的画面上。
+- 仪表那一路是 CarPlay 的**集群地图流**（本项目在 display 1 自建窗口装它，1920×720），
+  画的就是导航 App 自己渲染的车道级画面，上面截图里没有额外叠任何东西。
+- 亿咖通 **DIM** 是**另一条线**：箭头 id、距离、路名、ETA 单独推给车机，HUD 与仪表卡片用的是它。
+  两条线互不影响 —— 「仪表有地图」不等于「HUD 有箭头」，两边都要正常才算好。
 
 ### 苹果地图
 
@@ -205,8 +215,8 @@ CarPlay 给仪表的画面和给中控的画面是**同一个地图 App 渲染�
 ### 1. 准备两个文件
 
 ```
-改造/auth-assets/offline-mfi/identity.pk8       ← Apple 签发的配件私钥
-改造/auth-assets/offline-mfi/certificate.p7b    ← 对应的配件证书链
+<任意目录>/auth-assets/offline-mfi/identity.pk8       ← Apple 签发的配件私钥
+<任意目录>/auth-assets/offline-mfi/certificate.p7b    ← 对应的配件证书链
 ```
 
 **本项目不提供这两个文件**，也不教怎么获取。你要么持有 Apple MFi 授权拿到的身份，要么从你合法持有的
@@ -215,19 +225,12 @@ CarPlay 给仪表的画面和给中控的画面是**同一个地图 App 渲染�
 ### 2. 用环境变量挂上去再构建
 
 ```bash
-cd /d/carplay-ecarx
-DIPLAY_WITH_AUTH=1 bash 改造/build-platform.sh :mobile:assembleRelease
+DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 ```
 
-- 不加 `DIPLAY_WITH_AUTH=1` 就是**不含身份**的发布包（默认）。
-- 脚本只有在 `DIPLAY_WITH_AUTH=1` 时才导出 `DIPLAY_AUTH_ASSETS_DIR`，`mobile/build.gradle.kts`
-  用 `assets.srcDir` 把那个目录挂进 APK。
-- 不想用脚本、直接调 Gradle 时，等价写法：
-
-  ```bash
-  DIPLAY_AUTH_ASSETS_DIR=/d/carplay-ecarx/改造/auth-assets \
-    ./gradlew :mobile:assembleRelease
-  ```
+- 不设 `DIPLAY_AUTH_ASSETS_DIR` 就是**不含身份**的发布包（默认）。
+- `mobile/build.gradle.kts` 用 `assets.srcDir` 把那个目录挂进 APK；目录里只允许这两个文件，
+  多塞一个 `.p12` / `.keystore` 会被 `rejectBundledCredentials` 挡下来。
 
 ### 3. 确认真的打进去了
 
@@ -264,22 +267,18 @@ unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep offline-mfi
 
 ## 从源码构建
 
-需要 JDK 21+、Android SDK 37、Gradle（仓库自带 wrapper）。详细依赖见 [BUILD.md](docs/BUILD.md)，
-本仓库用脚本一键出包：
+需要 JDK 21+、Android SDK 37，Gradle 用仓库自带的 wrapper。
 
 ```bash
-DIPLAY_WITH_AUTH=1 bash 改造/build-platform.sh :mobile:assembleRelease   # 含 MFi 身份（实车测试）
-DIPLAY_SRC=/d/carplay-ecarx/src bash 改造/build-platform.sh :mobile:assembleRelease   # 发布包
+# 发布包（不含 MFi 身份）
+./gradlew :mobile:assembleRelease
+
+# 含 MFi 身份的实车测试包：先把两个身份文件放到某个目录的 offline-mfi/ 下
+DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 ```
 
-产物：`mobile/build/outputs/apk/release/mobile-release.apk`。
-
-自检脚本（本仓库自带，不属于上游）：
-
-```bash
-python 改造/verify-ecarx.py <apk>                    # 45 项 DIM/资源/原生库契约
-python 改造/tmp/classdiff.py <旧apk> <新apk> old new  # 类集合回归（removed 必须可归因）
-```
+产物：`mobile/build/outputs/apk/release/mobile-release.apk`。签名与平台权限的关系、手工校验命令
+见 [BUILD.md](BUILD.md)。
 
 ## 已知限制
 
@@ -313,8 +312,8 @@ cluster hand-back on route end, Bluetooth yield/restore. **Not verified:** wired
 steering-wheel keys per key, other ECARX models.
 
 **The published APK contains no MFi identity**, so it installs and opens but cannot authenticate with an
-iPhone. Build your own with `DIPLAY_WITH_AUTH=1 bash 改造/build-platform.sh :mobile:assembleRelease`
-after placing `identity.pk8` and `certificate.p7b` in `改造/auth-assets/offline-mfi/`. Bundling an identity
+iPhone. Build your own with `DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease`
+after placing `identity.pk8` and `certificate.p7b` in `auth-assets/offline-mfi/`. Bundling an identity
 means redistributing Apple-issued material if you share the APK.
 
 iPhone Bluetooth must be switched off after CarPlay connects, or audio stays on the car's classic-Bluetooth

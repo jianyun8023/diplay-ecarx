@@ -1,16 +1,17 @@
 # Prebuilt native libraries — provenance
 
 These `.so` files are **not** built here. They are extracted verbatim from the published
-`DiPlay-0.2.15.apk` (see `适配文件/DiPlay-0.2.15.apk`).
+`DiPlay-0.2.15.apk`.
 
 ## Why
 
 `shared/src/main/jni/` holds the real sources (`local_hotspot_radio.c`, `speex_echo_jni.c`,
 `linux_i2c_jni.c`, `speexdsp/`) and `Android.mk` / `Application.mk`; upstream builds them with
-`ndkBuild`. This checkout lives under `C:\Users\啾啾\Desktop\共享\carplay`, and the NDK's GNU make
-cannot cope with that non-ASCII path — it renders the NDK prefix as `C:/Users/��/` and the compile
-step then fails with `fatal error: 'jni.h' file not found`. Switching to prebuilt libraries keeps
-the build reproducible here without touching a single line of the C sources.
+`ndkBuild`. The build was done on Windows from a checkout whose path contained non-ASCII
+characters, and the NDK's GNU make cannot cope with that: it renders the NDK prefix with
+replacement characters and the compile step then fails with
+`fatal error: 'jni.h' file not found`. Switching to prebuilt libraries keeps the build
+reproducible without touching a single line of the C sources.
 
 The C sources and the makefiles are left in place, so a build from an ASCII-only path reproduces
 the upstream behaviour unchanged; only `shared/build.gradle` needs its `externalNativeBuild` block

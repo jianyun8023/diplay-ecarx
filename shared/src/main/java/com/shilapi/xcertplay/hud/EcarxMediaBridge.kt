@@ -20,10 +20,9 @@ import java.util.concurrent.TimeUnit
  *  * `EcarxDimApi.mediaInteraction` — the only way into the DIM media channel — had **no caller at
  *    all** since the day it was written. This class is that caller.
  *
- * The call sequence is the shipped ECARX toolkit's, recovered from
- * `com/hyphp/hywebviewdcltools/l.smali`, `i.smali` and `m.smali`: `updateCurrentSourceType(6)` once
- * per session, then `updatePlaybackInfo` plus `updatePlaylist`, and `updateCurrentProgress`
- * separately. `IMediaInteraction` declares no callback registration, so this is a one-way feed —
+ * The call sequence is the shipped ECARX projection tool's, recovered from its bytecode:
+ * `updateCurrentSourceType(6)` once per session, then `updatePlaybackInfo` plus `updatePlaylist`,
+ * and `updateCurrentProgress` separately. `IMediaInteraction` declares no callback registration, so this is a one-way feed —
  * steering-wheel keys still reach CarPlay through Android's media session (`CarPlayMediaKeys`).
  *
  * What is recovered, what is ours, and what is deliberately missing:

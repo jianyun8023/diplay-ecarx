@@ -8,9 +8,8 @@ import android.os.Build
  *
  * The DIM classes live in the head unit's system image and are never packaged in this APK, so
  * every probe here is a `Class.forName` against the running platform, and every call site must
- * tolerate their absence. The contract was recovered from the bytecode of the two shipped
- * ECARX apps on this head unit (see 适配文件/亿咖通DIM-HUD接口规格-可吸收进DiPlay.md and
- * 盒子app分析/脱壳/HUD-反编译分析报告.md); nothing here is inferred from documentation.
+ * tolerate their absence. The contract was recovered from the bytecode of the ECARX apps shipped
+ * on this head unit; nothing here is inferred from documentation.
  */
 object EcarxCapabilities {
     const val DIM_INTERACTION = "com.ecarx.xui.adaptapi.diminteraction.DimInteraction"

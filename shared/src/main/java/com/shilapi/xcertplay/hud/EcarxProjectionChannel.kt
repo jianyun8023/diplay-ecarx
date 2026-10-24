@@ -59,10 +59,9 @@ import java.util.concurrent.Executors
  *
  * `updateNavigationPhoneProjection` / `updateMediaPhoneProjection` live on the *service*, and the
  * third-party-facing facade this project can reach — `DimInteraction` — was never observed to carry
- * a projection setter: the shipped ECARX toolkit
- * (`com/hyphp/hywebviewdcltools/{i,l,m}.smali`) calls exactly four `IMediaInteraction` methods and
- * none of them touches this topic, and its `DimSupportManager` binding is a no-op stub whose
- * `onServiceConnected` only calls `getClass()`. So the topic, its exact payload and the state map
+ * a projection setter: the ECARX projection tool shipped on this image calls exactly four
+ * `IMediaInteraction` methods and none of them touches this topic, and its `DimSupportManager`
+ * binding is a no-op stub whose `onServiceConnected` only calls `getClass()`. So the topic, its exact payload and the state map
  * are the only part of this path that is *proven*; the API call that would have produced them is
  * not. Publishing the frame ourselves is the honest way to use what is proven.
  *

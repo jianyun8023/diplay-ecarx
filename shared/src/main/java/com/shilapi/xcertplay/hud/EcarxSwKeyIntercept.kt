@@ -8,7 +8,7 @@ import java.lang.reflect.Proxy
 
 /**
  * The reflective face of the ECARX steering-wheel key interception, recovered from a third-party
- * app that runs on this head unit (see 适配文件/方控与语音助手按键-反编译结论.md).
+ * app that runs on this head unit.
  *
  * On 领克 / 亿咖通 (820A) head units the steering wheel does NOT deliver standard Android key codes
  * through a normal `Activity.dispatchKeyEvent`: the wheel reports keys in the ECARX 200000-offset
