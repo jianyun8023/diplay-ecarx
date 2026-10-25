@@ -834,8 +834,4 @@
     <string name="ecarx_sw_key_media_button">媒體按鍵控制 CarPlay</string>
     <string name="ecarx_sw_key_press">現在按方向盤上用於%1$s的按鍵…</string>
     <string name="ecarx_sw_key_title">億咖通方向盤按鍵</string>
-    <string name="fps_counter_millis">%1$d ms</string>
-    <string name="fps_counter_no_value">–</string>
-    <string name="fps_counter_text">%1$d FPS\nRX %2$d · %3$s</string>
-    <string name="fps_counter_waiting">-- FPS</string>
 </resources>
