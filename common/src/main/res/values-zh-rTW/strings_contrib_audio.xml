@@ -8,4 +8,9 @@
     <string name="contrib_audio_home_toggle_audio_focus_desc">CarPlay 媒體會向系統要求音訊焦點。若開啟後沒有聲音（部分車機的音訊焦點處理可能異常），請關閉此選項。變更會在重新連線後生效。</string>
     <string name="audio_focus_auto_yield">暫時失去音訊焦點時將媒體靜音</string>
     <string name="audio_focus_auto_yield_desc">啟用音訊焦點時，Android 音訊中斷（包括來電）會讓媒體靜音；焦點恢復後會繼續播放聲音。若車機無法恢復音訊焦點，請關閉此選項。變更會在重新連線後生效。</string>
+    <string name="car_bluetooth_yield_adapter">一併關閉車機藍牙</string>
+    <string name="car_bluetooth_yield_adapter_desc">在這台車機上實測 profile 層級設定沒有任何效果，因此關閉藍牙適配器是本機唯一有效的讓位方式：工作階段穩定後關閉適配器，結束時再重新開啟。關閉期間無法進行無線握手，重連需等待適配器恢復。</string>
+    <string name="car_bluetooth_yield_delay">藍牙關斷備援延遲</string>
+    <string name="car_bluetooth_yield_delay_desc">當無線交班一直沒有回報時，等待多久就把車機藍牙關掉。正常路徑是事件驅動的：交班一完成（實測約 1.5 秒）藍牙就關，並取消這個計時器。把它調到 1.5 秒以下，藍牙就會照設定更早關掉——這正是它便於實測的地方，而且交班期間中斷的引導通道已不再被判為失敗，所以是安全的。下次連線生效。</string>
+    <string name="car_bluetooth_yield_delay_value">%1$d 秒</string>
 </resources>

@@ -810,4 +810,32 @@
 
     <string name="settings_hotspot_interface">熱點網路介面（選填）</string>
     <string name="settings_hotspot_interface_description">僅用於把熱點放在 Android 不認為是 Wi-Fi 熱點的網路介面上的車機，例如部分吉利、領克及其它高通車機上的 eth0.3。留空則自動尋找。</string>
+    <string name="ecarx_cluster_call_rejected">車機拒絕了這次呼叫：需要系統簽章且已授予 DIM 權限。</string>
+    <string name="ecarx_cluster_mirror_confirm">開啟後會把整個中央螢幕鏡像到儀表，並蓋住儀表上的導航箭頭與媒體卡片。\n\n確定要開啟嗎？</string>
+    <string name="ecarx_instrument_cluster_projection">儀表投屏</string>
+    <string name="ecarx_instrument_cluster_projection_description">把中控畫面整屏鏡像到儀表。儀表導航改用投屏通道後已經不需要它，開啟反而會蓋住儀表上的箭頭與媒體卡片。只想要箭頭或媒體卡片時請保持關閉。</string>
+    <string name="ecarx_media_on_instrument_cluster">儀表媒體卡片</string>
+    <string name="ecarx_media_on_instrument_cluster_description">把 CarPlay 的曲名、歌手、專輯與播放狀態推送到儀表。這是媒體通道，與上面的導航開關互相獨立。不開的話，儀表只在車機自帶藍牙音樂源執行時才顯示媒體；一旦關掉車機藍牙，卡片就會變空。</string>
+    <string name="ecarx_navigation">億咖通導航</string>
+    <string name="ecarx_navigation_on_instrument_cluster">儀表導航</string>
+    <string name="ecarx_navigation_on_instrument_cluster_description">透過車機 DIM 介面，在億咖通儀表上顯示 CarPlay 的轉向箭頭、距離、預計到達時間與路名。</string>
+    <string name="ecarx_sw_key_action_answer">接聽電話</string>
+    <string name="ecarx_sw_key_action_hangup">掛斷電話</string>
+    <string name="ecarx_sw_key_action_next">下一曲</string>
+    <string name="ecarx_sw_key_action_pause">暫停</string>
+    <string name="ecarx_sw_key_action_play">播放</string>
+    <string name="ecarx_sw_key_action_playpause">播放／暫停</string>
+    <string name="ecarx_sw_key_action_prev">上一曲</string>
+    <string name="ecarx_sw_key_action_voice">語音 (Siri)</string>
+    <string name="ecarx_sw_key_assign">%1$s：%2$s · 點按以學習</string>
+    <string name="ecarx_sw_key_call_convert">接聽／掛斷按鍵控制通話</string>
+    <string name="ecarx_sw_key_description">將車輛方向盤上的媒體、語音與通話按鍵學習到 CarPlay。之前學習過的按鍵繼續生效。</string>
+    <string name="ecarx_sw_key_learnt">已學習 · 鍵值 %1$d</string>
+    <string name="ecarx_sw_key_media_button">媒體按鍵控制 CarPlay</string>
+    <string name="ecarx_sw_key_press">現在按方向盤上用於%1$s的按鍵…</string>
+    <string name="ecarx_sw_key_title">億咖通方向盤按鍵</string>
+    <string name="fps_counter_millis">%1$d ms</string>
+    <string name="fps_counter_no_value">–</string>
+    <string name="fps_counter_text">%1$d FPS\nRX %2$d · %3$s</string>
+    <string name="fps_counter_waiting">-- FPS</string>
 </resources>

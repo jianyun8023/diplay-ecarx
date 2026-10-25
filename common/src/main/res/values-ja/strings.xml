@@ -848,4 +848,32 @@
 
     <string name="settings_hotspot_interface">ホットスポットのインターフェース（任意）</string>
     <string name="settings_hotspot_interface_description">Android が Wi-Fi ホットスポットとして報告しないネットワークインターフェースでホットスポットを動かすヘッドユニット専用です。一部の Geely、Lynk &amp; Co、その他の Qualcomm ユニットでは eth0.3 です。空欄のままにすると自動で検出します。</string>
+    <string name="ecarx_cluster_call_rejected">車載機がこの呼び出しを拒否しました。システム署名と DIM 権限の付与が必要です。</string>
+    <string name="ecarx_cluster_mirror_confirm">センターディスプレイ全体をメーターにミラーリングするため、メーターに表示されているナビの矢印とメディアカードが隠れます。\n\nこのままオンにしますか？</string>
+    <string name="ecarx_instrument_cluster_projection">メーターへの投影</string>
+    <string name="ecarx_instrument_cluster_projection_description">センターディスプレイをメーターにそのまま映します。ナビ案内のフィードはこれを必要としなくなり、オンにするとメーター上の矢印とメディアカードが隠れます。この2つを表示しておきたい場合はオフのままにしてください。</string>
+    <string name="ecarx_media_on_instrument_cluster">メーターのメディアカード</string>
+    <string name="ecarx_media_on_instrument_cluster_description">CarPlay の曲名・アーティスト・アルバム・再生状態をメーターにも送ります。これはメディア用のチャンネルで、上記のナビ設定とは独立しています。オフにすると、車載機自身のBluetooth音楽ソースが動いている間だけメーターにメディアが表示されるため、車載機のBluetoothをオフにするとカードは空になります。</string>
+    <string name="ecarx_navigation">ECARX ナビ</string>
+    <string name="ecarx_navigation_on_instrument_cluster">メーターのナビ表示</string>
+    <string name="ecarx_navigation_on_instrument_cluster_description">車載機の DIM インターフェースを通じて、ECARX メーターに CarPlay の曲がる矢印・距離・到着予想時刻・道路名を表示します。</string>
+    <string name="ecarx_sw_key_action_answer">通話に出る</string>
+    <string name="ecarx_sw_key_action_hangup">通話を切る</string>
+    <string name="ecarx_sw_key_action_next">次の曲</string>
+    <string name="ecarx_sw_key_action_pause">一時停止</string>
+    <string name="ecarx_sw_key_action_play">再生</string>
+    <string name="ecarx_sw_key_action_playpause">再生／一時停止</string>
+    <string name="ecarx_sw_key_action_prev">前の曲</string>
+    <string name="ecarx_sw_key_action_voice">音声 (Siri)</string>
+    <string name="ecarx_sw_key_assign">%1$s: %2$s · タップして学習</string>
+    <string name="ecarx_sw_key_call_convert">応答／切断キーで通話を操作</string>
+    <string name="ecarx_sw_key_description">車のステアリングにあるメディア・音声・通話キーを CarPlay に学習させます。学習済みのキーはそのまま使えます。</string>
+    <string name="ecarx_sw_key_learnt">学習済み · キー %1$d</string>
+    <string name="ecarx_sw_key_media_button">メディアキーで CarPlay を操作</string>
+    <string name="ecarx_sw_key_press">%1$s 用のステアリングキーを押してください…</string>
+    <string name="ecarx_sw_key_title">ECARX ステアリングキー</string>
+    <string name="settings_gesture_fingers_hint">車載機が既に使っていない指の本数を選んでください。3本指の下スワイプをエアコンパネルに割り当てている車載機もあります。</string>
+    <string name="setup_guide_description">接続方法を選び、お使いの車に合った機能をオンにします。</string>
+    <string name="wheel_joystick_description">車載機のメディアキーで、車のロータリーノブのように CarPlay のセンター画面用ジョイスティックをオン／オフできます。オンの間は、音量ローラーまたは前／次キーで選択を移動、再生／一時停止で決定、カスタムキーで戻ります。これらのキーは音楽と音量を操作しなくなります。通話中はキーは通話に使われます。車種によってはセンターコンソールの音量でも選択が移動します。</string>
+    <string name="wheel_map_zoom_description">メーターに CarPlay の地図を表示している間、車載機のカスタムキーで音量キーを音量と地図ズームの間で切り替えます。通話中は常に音量を調整します。車種によってはセンターコンソールの音量が同じキーを送るため、ズーム中はそちらもズームします。DiPlay のステアリングキーサービスを使用します。メーター上の案内には ADB が必要です。</string>
 </resources>

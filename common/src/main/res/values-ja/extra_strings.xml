@@ -89,4 +89,10 @@
     <string name="custom_resolution_summary">%1$d%%</string>
     <string name="resolution_reset_defaults">初期値に戻す</string>
     <string name="resolution_canvas_unsupported">この車載端末は拡大した解像度をデコードできません。100%に戻します。</string>
+    <string name="ambient_light_threshold_value">切り替えしきい値 (lux)</string>
+    <string name="car_bluetooth_yield_adapter">車載機のBluetoothもオフにする</string>
+    <string name="car_bluetooth_yield_adapter_desc">この車載機ではプロファイル単位の設定が効果を発揮しないことを実測で確認したため、アダプター自体をオフにするのがここで唯一有効な譲り方です。セッションが安定するとアダプターがオフになり、終了時に再びオンになります。オフの間はワイヤレス接続のハンドシェイクができないため、再接続はアダプターの復帰を待つ必要があります。</string>
+    <string name="car_bluetooth_yield_delay">Bluetooth オフのフォールバック遅延</string>
+    <string name="car_bluetooth_yield_delay_desc">ワイヤレスの引き継ぎが完了を報告しない場合に、車載機のBluetoothをいつオフにするかを指定します。通常はイベント駆動で、引き継ぎが完了した時点（約1.5秒）でオフになり、このタイマーは解除されます。これより短い値にすると、その時間でオフになります。引き継ぎ中に閉じたブートストラップは失敗と判定されなくなったため、テスト用途としても安全です。次回の接続から有効になります。</string>
+    <string name="car_bluetooth_yield_delay_value">%1$d 秒</string>
 </resources>

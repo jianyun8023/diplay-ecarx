@@ -22,6 +22,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 33], qualifiers = "en", manifest = Config.NONE)
@@ -53,7 +54,9 @@ class DefaultConnectionModeTest {
             // Source-only test builds have no authentication assets; exercise the startup decision.
             ReflectionHelpers.setField(activity, "setupError", null)
             controller.start().resume()
-            shadowOf(Looper.getMainLooper()).idle()
+            // Launch-time auto-connect waits for the head unit's own hotspot to come up, so the
+            // posted connect() only runs once the clock has moved past that delay.
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
             assertEquals(expectedWireless, AirPlayPersistence.loadWirelessEnabled(app))
             assertEquals(CarPlayHostActivity::class.java.name,
                 shadowOf(activity).nextStartedActivity?.component?.className)
