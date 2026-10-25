@@ -1473,16 +1473,21 @@ class CarPlayController(
                 "wireless RFCOMM connecting address=${device.address} " +
                     "uuid=$IAP2_IPHONE_UUID",
             )
-            val socket = synchronized(wirelessResourceLock) {
+            // The picked phone can be paired and still refuse the link — switched off, left in the
+            // house, or its pairing is stale on the phone side. One retry on an iPhone the head unit
+            // is already talking to over Bluetooth is the difference between "it worked" and "go
+            // choose another iPhone in settings", so the target is a variable from here on.
+            var target = device
+            var socket = synchronized(wirelessResourceLock) {
                 if (isStaleWirelessRun(generation)) return
-                device.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
+                target.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
                     .also { bluetoothSocket = it }
             }
-            logBluetoothConnectionSnapshot(device, "before-connect")
-            val bluetoothStarted = System.nanoTime()
-            val bluetoothConnectMillis: Long
+            logBluetoothConnectionSnapshot(target, "before-connect")
+            var bluetoothStarted = System.nanoTime()
+            var bluetoothConnectMillis: Long
             try {
-                connectBluetoothSocket(socket, device.address)
+                connectBluetoothSocket(socket, target.address)
                 bluetoothConnectMillis = elapsedMillis(bluetoothStarted)
                 connectionDiagnostic("Bluetooth connect completed elapsedMs=$bluetoothConnectMillis " +
                     "socketReportedConnected=${runCatching { socket.isConnected }.getOrNull() ?: "unknown"}")
@@ -1491,11 +1496,36 @@ class CarPlayController(
                     "Bluetooth connect failed elapsedMs=${elapsedMillis(bluetoothStarted)} " +
                         "failureClass=${diagnosticFailureClass(error)}",
                 )
-                logBluetoothConnectionSnapshot(device, "after-failure")
-                throw error
+                logBluetoothConnectionSnapshot(target, "after-failure")
+                val fallback = wirelessBluetoothFallback(adapter, target) ?: throw error
+                debugLog(
+                    "wireless RFCOMM fallback: ${target.address} unreachable, " +
+                        "trying the iPhone already connected over Bluetooth ${fallback.address}",
+                )
+                try {
+                    socket.close()
+                } catch (closeError: Throwable) {
+                    connectionDiagnostic(
+                        "Bluetooth fallback socket close failed: ${diagnosticFailureClass(closeError)}",
+                    )
+                }
+                target = fallback
+                socket = synchronized(wirelessResourceLock) {
+                    if (isStaleWirelessRun(generation)) return
+                    // Assigned rather than chained with `.also`: a second inline lambda in this
+                    // suspend function shifts `runWireless$N` and shows up as a class rename.
+                    val created = target.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
+                    bluetoothSocket = created
+                    created
+                }
+                logBluetoothConnectionSnapshot(target, "before-connect-fallback")
+                bluetoothStarted = System.nanoTime()
+                connectBluetoothSocket(socket, target.address)
+                bluetoothConnectMillis = elapsedMillis(bluetoothStarted)
+                connectionDiagnostic("Bluetooth connect completed on fallback elapsedMs=$bluetoothConnectMillis")
             }
-            debugLog("wireless RFCOMM connected address=${device.address}")
-            logBluetoothConnectionSnapshot(device, "after-connect")
+            debugLog("wireless RFCOMM connected address=${target.address}")
+            logBluetoothConnectionSnapshot(target, "after-connect")
             if (isStaleWirelessRun(generation)) {
                 return
             }
@@ -1510,7 +1540,7 @@ class CarPlayController(
                 }
             }
             if (BluetoothLinkCheck.looksUnreal(bluetoothConnectMillis, 0L)) {
-                InstantBluetoothLink(generation, device, stream, bluetoothConnectMillis).also {
+                InstantBluetoothLink(generation, target, stream, bluetoothConnectMillis).also {
                     instantBluetoothLink = it
                     watchForUnrealBluetooth(it)
                 }
@@ -2531,8 +2561,14 @@ class CarPlayController(
     private fun selectWirelessBluetoothDevice(adapter: BluetoothAdapter): BluetoothDevice {
         val bonded = adapter.bondedDevices.orEmpty()
         config.wirelessBluetoothDeviceAddress?.let { selected ->
-            return bonded.firstOrNull { it.address.equals(selected, ignoreCase = true) }
-                ?: throw IOException("The selected iPhone is no longer paired. Choose it again in DiPlay.")
+            val picked = bonded.firstOrNull { it.address.equals(selected, ignoreCase = true) }
+            if (picked != null) return picked
+            // The picked phone is gone from this head unit's pairing list — a new phone, or the old
+            // pairing was forgotten on one side. That is not a reason to stop: the ladder below
+            // picks what is actually paired here, which is what "connect to the paired iPhone"
+            // means once the picked one no longer exists. Kept as a return inside `let` rather than
+            // an if-statement because a removed lambda shifts this class's lambda numbering.
+            debugLog("wireless picked address=$selected is no longer paired; choosing automatically")
         }
         val iPhones = bonded.filter { device ->
             device.name?.contains("iPhone", ignoreCase = true) == true
@@ -2569,6 +2605,48 @@ class CarPlayController(
         throw IOException(
             "No unambiguous bonded iPhone found; pair one iPhone and retry",
         )
+    }
+
+    /**
+     * The iPhone to try after the picked one refuses the RFCOMM link.
+     *
+     * Only a phone the head unit already has a live Bluetooth link to counts. "Another paired
+     * iPhone" would be a guess, and a wrong guess costs a second full timeout where the original
+     * error at least names the phone the driver picked. Null means there is no better candidate,
+     * and the caller rethrows the original failure unchanged.
+     *
+     * Written with loops rather than `filter`/`any` on purpose: each lambda added here would shift
+     * this class's lambda numbering and show up as a rename in the release class diff.
+     */
+    private fun wirelessBluetoothFallback(adapter: BluetoothAdapter, tried: BluetoothDevice): BluetoothDevice? {
+        val bonded = adapter.bondedDevices.orEmpty()
+        val candidates = ArrayList<BluetoothDevice>(2)
+        for (device in bonded) {
+            val name = device.name ?: continue
+            if (!name.contains("iPhone", ignoreCase = true)) continue
+            if (device.address.equals(tried.address, ignoreCase = true)) continue
+            candidates.add(device)
+        }
+        if (candidates.isEmpty()) return null
+        val live = ArrayList<BluetoothDevice>(2)
+        for (device in candidates) {
+            if (isBluetoothDeviceConnected(device)) live.add(device)
+        }
+        if (live.isEmpty()) {
+            // A head unit is the sink side of the phone's audio and calls, so the link that proves
+            // "this iPhone is in the car" can sit in a hidden profile that `isConnected` misses.
+            val byProfile = connectedBluetoothDevices(adapter)
+            for (device in candidates) {
+                for (connected in byProfile) {
+                    if (connected.address.equals(device.address, ignoreCase = true)) {
+                        live.add(device)
+                        break
+                    }
+                }
+            }
+        }
+        // Two live iPhones is exactly the ambiguity the caller must not resolve by guessing.
+        return if (live.size == 1) live.single() else null
     }
 
     /** An RFCOMM link that came up too fast to have reached a phone, kept for [unrealBluetoothFailure]. */

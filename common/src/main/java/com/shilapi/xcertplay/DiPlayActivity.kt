@@ -479,7 +479,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             startCarHotspotOnLaunch()
             if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null && page != "setup") {
-                handler.post { connect(DiPlayPreferences.autoConnectWireless(this)) }
+                // Launched at boot, the head unit's own hotspot is still coming up. Connecting at
+                // once lands in connect()'s "turn on the car hotspot" dialog, which the driver then
+                // has to dismiss seconds later, after the hotspot exists on its own. Wait for it.
+                handler.postDelayed({
+                    if (isFinishing || isDestroyed || CarPlayBackgroundSession.hasSession()) {
+                        return@postDelayed
+                    }
+                    connect(DiPlayPreferences.autoConnectWireless(this))
+                }, AUTO_CONNECT_AFTER_LAUNCH_MILLIS)
             }
         }
     }
@@ -5169,6 +5177,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 !intent.hasExtra("page")
 
         private const val ADB_KEY_SAVE_WAIT_MILLIS = 500L
+        /**
+         * How long the launch-time auto-connect waits before it starts a session.
+         *
+         * The car's hotspot is enabled at boot by the head unit itself, a few seconds after DiPlay
+         * is launched. Connecting before it exists raises the "turn on the car hotspot" dialog for
+         * a condition that is about to fix itself, so this is deliberately longer than that window.
+         */
+        private const val AUTO_CONNECT_AFTER_LAUNCH_MILLIS = 5_000L
         private const val APPEARANCE_POLL_MILLIS = 2_000L
         private const val APPEARANCE_BUTTON_TAG = "app_appearance_button"
         private const val SETTINGS_SEARCH_BUTTON_TAG = "settings_search_button"
