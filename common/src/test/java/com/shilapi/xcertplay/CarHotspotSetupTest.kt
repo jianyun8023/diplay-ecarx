@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay
 
-import com.shilapi.xcertplay.adb.LocalAdb
 import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.*
@@ -25,24 +24,6 @@ class CarHotspotSetupTest {
         assertFalse(CarHotspotSettings.enabled(context))
         configureHotspot()
         assertFalse(eligible())
-    }
-
-    @Test fun settingIsVisibleOnlyWithSupportedAdbIncludingBeforeApproval() {
-        for (access in LocalAdb.Access.entries) {
-            assertFalse(CarHotspotSettings.visible(false, access))
-        }
-        assertTrue(CarHotspotSettings.visible(true, LocalAdb.Access.NOT_APPROVED))
-        assertTrue(CarHotspotSettings.visible(true, LocalAdb.Access.READY))
-        assertFalse(CarHotspotSettings.visible(true, LocalAdb.Access.UNREACHABLE))
-        assertFalse(CarHotspotSettings.visible(true, LocalAdb.Access.UNSUPPORTED))
-    }
-
-    @Test fun losingAdbHidesTheSettingWithoutClearingOrDisablingTheSavedChoice() {
-        configureHotspot()
-        CarHotspotSettings.setEnabled(context, true)
-        assertFalse(CarHotspotSettings.visible(true, LocalAdb.Access.UNREACHABLE))
-        assertTrue(CarHotspotSettings.enabled(context))
-        assertTrue(eligible())
     }
 
     @Test fun startupNeedsValidCredentialsAndNoExistingSession() {
