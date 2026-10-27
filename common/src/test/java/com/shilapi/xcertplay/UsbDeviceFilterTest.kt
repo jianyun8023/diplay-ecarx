@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 import org.xmlpull.v1.XmlPullParser
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 class UsbDeviceFilterTest {
     @Test
     fun iphoneProductsMatchTheActivityAttachFilter() {

@@ -10,7 +10,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 30], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class AirPlayCryptoAndroidCompatibilityTest {
     @Test fun olderSupportedAndroidDoesNotStageIntoDirectBuffers() {
         roundTrip()

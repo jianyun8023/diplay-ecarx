@@ -15,7 +15,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 class CarPlayConnectionDiagnosticLogTest {
     private lateinit var activity: CarPlayHostActivity
     private lateinit var listener: AirPlaySessionListener

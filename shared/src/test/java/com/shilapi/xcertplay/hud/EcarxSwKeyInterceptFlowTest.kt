@@ -15,7 +15,7 @@ import org.robolectric.annotation.Config
 
 /** Exercises production reflection and callback dispatch; the fixture models only the ROM boundary. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class EcarxSwKeyInterceptFlowTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val presses = mutableListOf<EcarxSwKey.Press?>()

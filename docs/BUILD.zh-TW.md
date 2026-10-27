@@ -58,10 +58,10 @@ sdk.dir=C:/Users/YOUR_NAME/AppData/Local/Android/Sdk
 
 ## 完整檢查
 
-依 `AGENTS.md` 與 Android workflow 執行所有單元測試、lint 與 debug 建置。Windows：
+依 `AGENTS.md` 與 Android workflow 執行領克 Android 9 / API 28 重點回歸、主程式 lint 與 debug 建置。範圍見 [車機測試](ECARX_TESTING.md)，不含其他 Android 版本與示例程式檢查。Windows：
 
 ```powershell
-.\gradlew.bat :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
+.\gradlew.bat :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug --no-parallel --max-workers=1 --stacktrace
 ```
 
 Linux／macOS 將 `.\gradlew.bat` 換成 `./gradlew`。確認結果為 `BUILD SUCCESSFUL`。CI 另執行 `python3 scripts/check_public_tree.py`，避免認證容器或私密金鑰進入公開原始碼。

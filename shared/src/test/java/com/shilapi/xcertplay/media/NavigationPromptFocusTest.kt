@@ -19,7 +19,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowAudioManager
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class NavigationPromptFocusTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()

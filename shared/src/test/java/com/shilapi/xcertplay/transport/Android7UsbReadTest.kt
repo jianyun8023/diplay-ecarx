@@ -25,7 +25,7 @@ class Android7UsbReadTest {
     @Test fun usbmuxReadsThroughTheBlockingWait() {
         val pipe = Iap2UsbSession(connection(), endpoint(0x04), endpoint(0x85))
         try {
-            repeat(2) { assertArrayEquals(UsbReadQueueCompatibilityTest.payload, pipe.read(1_000)) }
+            repeat(2) { assertArrayEquals(UsbQueueReplay.payload, pipe.read(1_000)) }
         } finally { pipe.close() }
         assertEquals(listOf(65_536, 65_536), UsbQueueReplay.sizes)
         assertEquals(2, UsbQueueReplay.untimedWaits)
@@ -36,7 +36,7 @@ class Android7UsbReadTest {
         val diagnostics = mutableListOf<String>()
         val ncm = NcmUsbBridge(connection(), endpoint(0x06), endpoint(0x85), null, emptyList(), null, diagnostics::add)
         try {
-            repeat(2) { assertEquals(UsbReadQueueCompatibilityTest.payload.size, readChunk(ncm)) }
+            repeat(2) { assertEquals(UsbQueueReplay.payload.size, readChunk(ncm)) }
         } finally { ncm.close() }
         assertEquals(listOf(32_768, 16_384, 16_384), UsbQueueReplay.sizes)
         assertEquals(2, UsbQueueReplay.untimedWaits)

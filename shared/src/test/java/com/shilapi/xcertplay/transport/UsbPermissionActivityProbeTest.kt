@@ -22,7 +22,7 @@ import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(
-    sdk = [25, 26, 27, 28],
+    sdk = [28],
     manifest = Config.NONE,
     shadows = [PermissionRequestUsbManagerShadow::class],
 )
@@ -133,7 +133,7 @@ class PermissionRequestUsbManagerShadow : ShadowUsbManager() {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE, shadows = [PermissionRequestUsbManagerShadow::class])
+@Config(sdk = [28], manifest = Config.NONE, shadows = [PermissionRequestUsbManagerShadow::class])
 class UsbPermissionActivityProbeModernTest {
     @Before fun reset() { PermissionRequestUsbManagerShadow.requests = 0 }
 

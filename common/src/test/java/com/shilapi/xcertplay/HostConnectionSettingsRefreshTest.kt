@@ -21,7 +21,7 @@ import org.robolectric.annotation.Implementation
  * Settings saved while it was in the background must reach the next handshake.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE, shadows = [HostConnectionSettingsRefreshTest.Bootstrap::class])
+@Config(sdk = [28], manifest = Config.NONE, shadows = [HostConnectionSettingsRefreshTest.Bootstrap::class])
 class HostConnectionSettingsRefreshTest {
     private val app get() = RuntimeEnvironment.getApplication()
 

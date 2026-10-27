@@ -13,7 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 33], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28], qualifiers = "en", manifest = Config.NONE)
 class AudioFocusSettingsTest {
     @Test fun transientMuteIsOneDependentOptionAndRetainsPreferenceWhenFocusIsOff() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()

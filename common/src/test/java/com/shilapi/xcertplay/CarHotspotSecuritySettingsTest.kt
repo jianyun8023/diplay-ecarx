@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28], qualifiers = "en", manifest = Config.NONE)
 class CarHotspotSecuritySettingsTest {
     private val app get() = RuntimeEnvironment.getApplication()
     private lateinit var activity: DiPlayActivity

@@ -22,7 +22,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], shadows = [DiPlayAuthenticationTest.NavigationOutputs::class])
+@Config(sdk = [28], shadows = [DiPlayAuthenticationTest.NavigationOutputs::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class DiPlayAuthenticationTest {
     private val context get() = RuntimeEnvironment.getApplication()

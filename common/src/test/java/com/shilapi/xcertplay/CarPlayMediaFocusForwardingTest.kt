@@ -21,7 +21,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class CarPlayMediaFocusForwardingTest {
     private val app get() = RuntimeEnvironment.getApplication()

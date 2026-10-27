@@ -26,7 +26,7 @@ import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowSettings
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE, shadows = [CarHotspotAdbGrantTest.WritePermission::class])
+@Config(sdk = [28], manifest = Config.NONE, shadows = [CarHotspotAdbGrantTest.WritePermission::class])
 class CarHotspotAdbGrantTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val key = KeyPairGenerator.getInstance("RSA").apply { initialize(2048) }.generateKeyPair()

@@ -25,7 +25,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter.from
 import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28], qualifiers = "en", manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class WirelessStartupRecoveryTest {
     private lateinit var activity: CarPlayHostActivity

@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 
 /** Wire-level tests with both established-socket probes and real fixed-endpoint connections. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class EcarxProjectionChannelTest {
     private lateinit var broker: LocalBroker
     private val reports = CopyOnWriteArrayList<String>()

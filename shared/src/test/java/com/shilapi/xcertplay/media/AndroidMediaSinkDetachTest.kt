@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.concurrent.thread
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class AndroidMediaSinkDetachTest {
     private val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 1)
 

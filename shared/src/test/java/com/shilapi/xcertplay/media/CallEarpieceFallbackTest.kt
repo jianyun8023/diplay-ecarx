@@ -28,7 +28,7 @@ import org.robolectric.shadows.ShadowAudioRecord
  * there moves to the loudspeaker without the driver turning on **Calls on the loudspeaker**.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [30], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class CallEarpieceFallbackTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val telephony = AudioStreamId(100, "telephony")

@@ -11,7 +11,7 @@ import org.robolectric.annotation.Config
 
 /** Live dashboard selections must not claim delivery before their commands reach the event channel. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class ClusterContentTest {
     private fun session(initialUrl: String, onTeardown: (AirPlaySession) -> Unit = {}): AirPlaySession = AirPlaySession(
         socket = Socket(),

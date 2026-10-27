@@ -21,7 +21,7 @@ import org.robolectric.android.util.concurrent.PausedExecutorService
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 class CarPlayHostThemeDiagnosticsTest {
     @get:Rule val folder = TemporaryFolder()
     private lateinit var activity: CarPlayHostActivity

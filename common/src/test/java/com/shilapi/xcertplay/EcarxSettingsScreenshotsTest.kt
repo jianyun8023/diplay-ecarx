@@ -25,7 +25,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** Native screenshots of the production settings and editor at 1.5x text size and hdpi. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EcarxSettingsScreenshotsTest {
     @Test @Config(qualifiers = "zh-rCN-w320dp-h480dp-port-hdpi")

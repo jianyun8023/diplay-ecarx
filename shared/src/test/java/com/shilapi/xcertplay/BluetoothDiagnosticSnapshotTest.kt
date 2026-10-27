@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowBluetoothAdapter
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [27])
+@Config(sdk = [28])
 class BluetoothDiagnosticSnapshotTest {
     private lateinit var context: Context
 
@@ -34,7 +34,7 @@ class BluetoothDiagnosticSnapshotTest {
         shadowOf(adapter).setEnabled(true)
 
         val snap = BluetoothDiagnosticSnapshot.capture(context)
-        assertEquals(27, snap.apiLevel)
+        assertEquals(28, snap.apiLevel)
         assertTrue(snap.hasDefaultAdapterFallback)
         assertEquals("STATE_ON", snap.adapterStateName)
         assertTrue(snap.isEnabled)
@@ -80,6 +80,6 @@ class BluetoothDiagnosticSnapshotTest {
     fun reportFormattingContainsSnapshotHeader() {
         val report = BluetoothDiagnosticSnapshot.report(context)
         assertTrue(report.contains("--- Bluetooth Diagnostic Snapshot ---"))
-        assertTrue(report.contains("Android API level: 27"))
+        assertTrue(report.contains("Android API level: 28"))
     }
 }

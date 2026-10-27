@@ -24,7 +24,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 /** Replays USB completion boundaries through the real UsbSession read and USBMUX frame parser. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], manifest = Config.NONE,
+@Config(sdk = [28], manifest = Config.NONE,
     shadows = [EvidenceUsbConnectionShadow::class, EvidenceUsbRequestShadow::class])
 class UsbMuxIssue100RegressionTest {
     @Before fun resetReplay() { UsbEvidenceReplay.reset() }

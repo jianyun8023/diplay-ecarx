@@ -32,7 +32,7 @@ import org.robolectric.shadows.ShadowWindowManagerImpl
 
 /** Real host requests and Presentation lifecycle; Android windows are JVM shadows, not car renders. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], shadows = [EcarxClusterPresentationLifecycleTest.WindowShadow::class])
+@Config(sdk = [28], shadows = [EcarxClusterPresentationLifecycleTest.WindowShadow::class])
 @LooperMode(LooperMode.Mode.PAUSED)
 class EcarxClusterPresentationLifecycleTest {
     private lateinit var activity: CarPlayHostActivity

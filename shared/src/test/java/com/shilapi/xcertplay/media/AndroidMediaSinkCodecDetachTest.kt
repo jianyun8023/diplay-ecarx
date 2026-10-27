@@ -35,7 +35,7 @@ import kotlin.concurrent.thread
  * read from the worker's own record (outputSurface) and the configure-time surface the shadow reports.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class AndroidMediaSinkCodecDetachTest {
     private val sps = byteArrayOf(0x67, 0x42, 0xC0.toByte(), 0x1E)
     private val pps = byteArrayOf(0x68, 0xCE.toByte())

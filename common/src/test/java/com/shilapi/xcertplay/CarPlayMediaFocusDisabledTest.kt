@@ -25,7 +25,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** An opt-in compatibility mode keeps media keys active without owning audio focus. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class CarPlayMediaFocusDisabledTest {
     private val app get() = RuntimeEnvironment.getApplication()

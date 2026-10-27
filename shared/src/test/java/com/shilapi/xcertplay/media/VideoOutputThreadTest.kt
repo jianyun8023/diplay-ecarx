@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 
 /** Low-latency decoding releases decoded frames from a thread of its own, which stops with the decoder. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class VideoOutputThreadTest {
     private val sps = byteArrayOf(0x67, 0x42, 0xC0.toByte(), 0x1E)
     private val pps = byteArrayOf(0x68, 0xCE.toByte())

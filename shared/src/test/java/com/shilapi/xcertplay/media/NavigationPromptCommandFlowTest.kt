@@ -22,7 +22,7 @@ import org.robolectric.shadows.ShadowAudioManager
 
 /** Real plist command -> session listener -> controller -> media engine -> Android sink. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class NavigationPromptCommandFlowTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()

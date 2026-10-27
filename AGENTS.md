@@ -7,12 +7,18 @@ Instructions for coding agents that work on DiPlay.
 Run the CI command from `.github/workflows/android.yml` before you report a change as done:
 
 ```sh
-./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
-  :mobile:lintDebug :home:lintDebug :maphost:lintDebug \
-  :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug
+./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest \
+  :mobile:lintDebug :mobile:assembleDebug --no-parallel --max-workers=1
 ```
 
 Set `ANDROID_HOME` or `local.properties` if Gradle cannot find the SDK.
+
+The default regression scope is the Lynk ECARX Android 9 head unit (API 28).
+`shared/src/test/lynk-android9-tests.txt` and `common/src/test/lynk-android9-tests.txt`
+select the vehicle tests; add a relevant new test to its module's list if no pattern covers it.
+Do not add Android version matrices or sample-app checks for vehicle-only changes.
+Keep protocol validation, authentication, diagnostic redaction and data-integrity checks.
+See `docs/ECARX_TESTING.md` and `docs/ECARX_FIXTURES.md` for fixtures and vehicle acceptance.
 
 ## Adding or moving a setting
 

@@ -13,7 +13,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class AirPlayTcpAcceptTest {
     @Test fun bothAddressFamiliesReportOwnerAndOldCleanupPreservesNewListener() {
         val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()

@@ -34,7 +34,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 /** Exercise the real attachment transaction while controlling only the Android VPN boundary. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 33], manifest = Config.NONE, shadows = [VpnScopeBuilderShadow::class])
+@Config(sdk = [28], manifest = Config.NONE, shadows = [VpnScopeBuilderShadow::class])
 class CarPlayVpnScopeTest {
     @Before fun resetVpnBoundary() { VpnScopeBoundary.reset() }
 

@@ -13,7 +13,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], manifest = Config.NONE, shadows = [AudioRebufferCapacityTest.CapacityTrack::class])
+@Config(sdk = [28], manifest = Config.NONE, shadows = [AudioRebufferCapacityTest.CapacityTrack::class])
 class AudioRebufferCapacityTest {
     @Test fun residualAudioCountsTowardRestartBeforeAPausedTrackFills() {
         for (millis in MediaAudioBuffer.presets) {

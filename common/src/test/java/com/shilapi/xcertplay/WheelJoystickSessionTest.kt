@@ -32,7 +32,7 @@ import org.robolectric.annotation.LooperMode
 
 /** Exercise the production session supplier across primary-screen and phone lifecycles. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class WheelJoystickSessionTest {
     private lateinit var service: WheelKeyService

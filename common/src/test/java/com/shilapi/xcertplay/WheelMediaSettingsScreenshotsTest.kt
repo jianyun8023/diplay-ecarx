@@ -21,7 +21,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /** Compact/full and RTL screenshots of the optional media-key setting at 1.5x text size. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WheelMediaSettingsScreenshotsTest {
     @Test fun mediaKeyControlsRenderAtLargeFontsInThreeLayouts() {

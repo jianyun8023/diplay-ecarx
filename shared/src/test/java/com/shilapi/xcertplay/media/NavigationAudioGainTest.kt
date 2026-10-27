@@ -21,7 +21,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], manifest = Config.NONE, shadows = [NavigationAudioGainTest.TrackGain::class])
+@Config(sdk = [28], manifest = Config.NONE, shadows = [NavigationAudioGainTest.TrackGain::class])
 class NavigationAudioGainTest {
     @Test fun decibelsAreAmplitudeNotPercentAndOutOfRangeNeverBoosts() {
         assertEquals(1f, NavigationAudioGain.linear(0), 0.0001f)

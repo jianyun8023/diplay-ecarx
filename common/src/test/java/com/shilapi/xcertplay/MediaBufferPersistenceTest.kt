@@ -10,7 +10,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class MediaBufferPersistenceTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val prefs get() = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)

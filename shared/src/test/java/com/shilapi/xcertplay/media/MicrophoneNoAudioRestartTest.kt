@@ -21,7 +21,7 @@ import org.robolectric.shadows.ShadowAudioRecord
 
 /** A recorder that returns no audio is restarted instead of being read in a tight loop (#566). */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class MicrophoneNoAudioRestartTest {
     private val diagnostics = CopyOnWriteArrayList<String>()
     private val reads = AtomicInteger()

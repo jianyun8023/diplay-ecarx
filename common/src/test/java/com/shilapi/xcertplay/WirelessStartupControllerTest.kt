@@ -22,7 +22,7 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class WirelessStartupControllerTest {
     private val statuses = mutableListOf<CarPlayStatus>()

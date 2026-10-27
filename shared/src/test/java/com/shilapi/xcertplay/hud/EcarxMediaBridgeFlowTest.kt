@@ -16,7 +16,7 @@ import org.robolectric.shadows.ShadowSystemClock
 
 /** Software dispatch evidence only; neither a physical cluster nor its speakers run here. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 @LooperMode(LooperMode.Mode.PAUSED)
 class EcarxMediaBridgeFlowTest {
     private lateinit var flow: EcarxMediaFlowFixture

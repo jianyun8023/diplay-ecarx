@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 import com.shilapi.xcertplay.network.CarHotspotTethering.Result
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class CarHotspotTetheringTest {
     @Test fun startFailuresNameTheUnderlyingCause() {
         assertEquals("NoSuchFieldException: mService", CarHotspotTethering.describe(NoSuchFieldException("mService")))

@@ -28,7 +28,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** Real settings and host-created sink; the Android shadow observes the requested focus. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en")
+@Config(sdk = [28], qualifiers = "en")
 @LooperMode(LooperMode.Mode.PAUSED)
 class NavigationPromptHostSettingsTest {
     private lateinit var settings: DiPlayActivity

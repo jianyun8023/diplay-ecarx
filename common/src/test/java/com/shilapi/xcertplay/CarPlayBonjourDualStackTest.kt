@@ -28,7 +28,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class CarPlayBonjourDualStackTest {
     private val context = mock(Context::class.java)
     private val wifi = mock(WifiManager::class.java)

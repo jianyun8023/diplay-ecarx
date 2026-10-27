@@ -12,7 +12,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 class StartupDiagnosticSnapshotTest {
     private val app get() = RuntimeEnvironment.getApplication()
     @Before fun reset() {

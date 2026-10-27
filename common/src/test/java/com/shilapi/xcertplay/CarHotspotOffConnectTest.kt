@@ -30,7 +30,7 @@ import org.robolectric.util.ReflectionHelpers
  * dialog's Connect button must then connect, not open the same dialog again.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w1000dp-h700dp-land", shadows = [CarHotspotOffConnectTest.HotspotState::class])
+@Config(sdk = [28], qualifiers = "en-w1000dp-h700dp-land", shadows = [CarHotspotOffConnectTest.HotspotState::class])
 class CarHotspotOffConnectTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private val opened = mutableListOf<DiPlayActivity>()

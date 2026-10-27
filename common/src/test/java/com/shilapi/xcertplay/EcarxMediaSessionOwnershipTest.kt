@@ -18,7 +18,7 @@ import org.robolectric.annotation.LooperMode
 
 /** Captures the production listener installed by attach, then observes actual DIM dispatch. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class EcarxMediaSessionOwnershipTest {
     private val app get() = RuntimeEnvironment.getApplication()

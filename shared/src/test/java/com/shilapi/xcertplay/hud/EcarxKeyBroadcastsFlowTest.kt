@@ -17,7 +17,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class EcarxKeyBroadcastsFlowTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val registered = mutableListOf<BroadcastReceiver>()

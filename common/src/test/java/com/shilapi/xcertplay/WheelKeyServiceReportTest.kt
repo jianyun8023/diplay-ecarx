@@ -18,7 +18,7 @@ import org.robolectric.annotation.LooperMode
 
 /** What the diagnostic report says about the keys the wheel key service was given. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class WheelKeyServiceReportTest {
     private lateinit var service: WheelKeyService

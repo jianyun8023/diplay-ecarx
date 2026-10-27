@@ -19,7 +19,7 @@ import org.robolectric.shadows.MediaCodecInfoBuilder
 import java.util.concurrent.ExecutorService
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 @LooperMode(LooperMode.Mode.PAUSED)
 class CarPlayHostResolutionTest {
     private lateinit var activity: CarPlayHostActivity
@@ -136,7 +136,8 @@ class CarPlayHostResolutionTest {
             .setMediaFormat(format)
             .setColorFormats(intArrayOf(MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface))
             .setProfileLevels(arrayOf(level)).build()
-        val codec = MediaCodecInfoBuilder.newBuilder().setName("c2.test.hardware")
+        val codec = MediaCodecInfoBuilder.newBuilder()
+            .setName(if (hardware) "OMX.qcom.video.decoder.avc" else "OMX.google.h264.decoder")
             .setIsHardwareAccelerated(hardware).setIsSoftwareOnly(!hardware).setCapabilities(capabilities).build()
         ShadowMediaCodecList.addCodec(codec)
     }

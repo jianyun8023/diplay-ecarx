@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
 
 /** What DiPlay says about the car hotspot before and after its name is saved. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w1000dp-h700dp-land")
+@Config(sdk = [28], qualifiers = "en-w1000dp-h700dp-land")
 class CarHotspotNameTextTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private var activity: DiPlayActivity? = null

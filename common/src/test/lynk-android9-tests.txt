@@ -1,0 +1,68 @@
+# 仪表封面、歌曲状态、导航与车机显示
+Ecarx*Test
+Cluster*Test
+NowPlayingArtworkQueueTest
+InitialAlbumRecoveryTest
+AlbumTrackIdentityTest
+CarPlayMedia*Test
+MediaKeyReportTest
+MediaBufferPersistenceTest
+Navigation*Test
+AudioFocusSettingsTest
+SystemBarSettingsTest
+StatusBarHiddenByAnotherWindowTest
+CarPlayHostVideoSurfaceTest
+CarPlayVideoSurfaceTest
+SmoothVideoHostLifecycleTest
+DashboardContentDeliveryTest
+
+# USB 系统授权、内置热点、启动与重连
+Usb*Test
+WiredPermissionsTest
+CarPlayControllerUsbServiceTest
+CarHotspot*Test
+WirelessStartup*Test
+WirelessHandoffWatchdogTest
+HostConnectionSettingsRefreshTest
+ConnectionFailureGuidanceTest
+DefaultConnectionModeTest
+PhoneBluetoothReceiverTest
+CarPlayBonjourDualStackTest
+CarPlayHostResolutionTest
+CarPlayVpnConsentTest
+
+# 领克方控、Siri 与 HiCar 只读诊断
+GeelyWheelKeyCodesTest
+Wheel*Test
+VoiceKey*Test
+
+# 车机设置入口、持久化和必要界面检查
+SettingsLayout*Test
+SettingsStateTest
+SettingsTranslationsTest
+AppAppearancePersistenceTest
+CustomResolutionPersistenceTest
+
+# 本次实车日志收集、脱敏与导出
+AsyncDiagnosticLogTest
+DiagnosticRedactorTest
+DiagnosticExportFallbackTest
+DiagnosticExportUiTest
+DisplayDiagnosticSnapshotTest
+StartupDiagnosticSnapshotTest
+ProcessExitDiagnosticsTest
+CarPlayConnectionDiagnosticLogTest
+CarPlayHostThemeDiagnosticsTest
+ThemeModeDiagnosticsTest
+BoundedDiagnosticWriterTest
+CrashRecordTest
+
+# 认证、备份与安装包校验（保留安全和数据完整性边界）
+DiPlayAuthenticationTest
+MfiTargetSettingsTest
+SettingsBackup*Test
+UpdateCatalogTest
+UpdateChecksumsTest
+UpdateClientTest
+UpdateApkExportTest
+UpdateInstallCompatibilityTest

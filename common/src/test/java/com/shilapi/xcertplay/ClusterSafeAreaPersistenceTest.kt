@@ -9,7 +9,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class ClusterSafeAreaPersistenceTest {
     @Test fun clusterBoxDoesNotOverwriteTheMainMappingAtTheSameSize() {
         val context = RuntimeEnvironment.getApplication()

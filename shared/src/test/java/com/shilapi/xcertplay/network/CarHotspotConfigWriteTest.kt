@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 import com.shilapi.xcertplay.network.CarHotspotConfigWrite.Result
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class CarHotspotConfigWriteTest {
     private val logs = mutableListOf<String>()
     private fun log(message: String) { logs += message }

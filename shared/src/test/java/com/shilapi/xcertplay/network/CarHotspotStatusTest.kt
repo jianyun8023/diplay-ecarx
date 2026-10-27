@@ -8,7 +8,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class CarHotspotStatusTest {
     private fun sticky(state: Int?, mode: Int? = null) = Intent("android.net.wifi.WIFI_AP_STATE_CHANGED").apply {
         state?.let { putExtra("wifi_state", it) }

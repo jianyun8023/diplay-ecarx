@@ -48,7 +48,7 @@ class CallSpeakerphoneTest {
         ShadowAudioRecord.clearSource()
     }
 
-    @Test @Config(sdk = [29], manifest = Config.NONE)
+    @Test @Config(sdk = [28], manifest = Config.NONE)
     fun theOptionPutsTheCallOnTheLoudspeakerAndTheEndOfTheCallTakesItBack() {
         start(speakerphone = true)
         @Suppress("DEPRECATION")
@@ -73,7 +73,7 @@ class CallSpeakerphoneTest {
         assertTrue(manager.communicationDevice?.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
     }
 
-    @Test @Config(sdk = [29], manifest = Config.NONE)
+    @Test @Config(sdk = [28], manifest = Config.NONE)
     fun offByDefaultTheCallRouteIsLeftAlone() {
         start(speakerphone = false)
         @Suppress("DEPRECATION")

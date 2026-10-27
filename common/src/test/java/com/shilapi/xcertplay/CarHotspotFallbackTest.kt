@@ -35,7 +35,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE, shadows = [CarHotspotFallbackTest.ApState::class,
+@Config(sdk = [28], manifest = Config.NONE, shadows = [CarHotspotFallbackTest.ApState::class,
     CarHotspotFallbackTest.ManualAttachment::class, CarHotspotFallbackTest.ExistingAttachment::class,
     CarHotspotAdbGrantTest.WritePermission::class])
 class CarHotspotFallbackTest {

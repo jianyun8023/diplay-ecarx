@@ -14,7 +14,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 class PhoneBluetoothReceiverTest {
     private val app get() = RuntimeEnvironment.getApplication()
     private val selected = "12:34:56:78:9A:BC"

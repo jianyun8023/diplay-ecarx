@@ -31,10 +31,10 @@ class UsbmuxTimedOutReadTest {
         UsbQueueReplay.cancelResult = false
         val pipe = pipe()
         try {
-            assertArrayEquals(UsbReadQueueCompatibilityTest.payload, pipe.read(100))
+            assertArrayEquals(UsbQueueReplay.payload, pipe.read(100))
             // The pipe stays usable afterwards.
             UsbQueueReplay.cancelResult = true
-            assertArrayEquals(UsbReadQueueCompatibilityTest.payload, pipe.read(100))
+            assertArrayEquals(UsbQueueReplay.payload, pipe.read(100))
         } finally { pipe.close() }
     }
 

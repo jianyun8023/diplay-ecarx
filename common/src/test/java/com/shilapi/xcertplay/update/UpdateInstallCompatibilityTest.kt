@@ -21,7 +21,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], shadows = [FileProviderPathTestShadow::class])
+@Config(sdk = [28], shadows = [FileProviderPathTestShadow::class])
 class UpdateInstallCompatibilityTest {
     private val apkType = "application/vnd.android.package-archive"
     private val publicCopy = Uri.parse("content://media/external/downloads/42")

@@ -16,7 +16,7 @@ import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 class SystemBarSettingsTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private var controller: ActivityController<DiPlayActivity>? = null

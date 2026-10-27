@@ -42,7 +42,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowBuild
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE)
 class EcarxSwKeyTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val prefs get() = EcarxSwKey.prefs(context)
@@ -115,7 +115,7 @@ class EcarxSwKeyTest {
 
 /** The real CarPlay consumer, separate from the shared adapter's OEM reflection fixture. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [28])
 @LooperMode(LooperMode.Mode.PAUSED)
 class EcarxSwKeyHostFlowTest {
     private lateinit var activity: CarPlayHostActivity
@@ -313,7 +313,7 @@ class EcarxSwKeyHostFlowTest {
 /** Completes the actual Bluetooth double-fire boundary through the production AIDL consumer. */
 @RunWith(RobolectricTestRunner::class)
 @Config(
-    sdk = [29], manifest = Config.NONE,
+    sdk = [28], manifest = Config.NONE,
     instrumentedPackages = ["com.shilapi.xcertplay.network.GeelyHeadUnit"],
 )
 @LooperMode(LooperMode.Mode.PAUSED)

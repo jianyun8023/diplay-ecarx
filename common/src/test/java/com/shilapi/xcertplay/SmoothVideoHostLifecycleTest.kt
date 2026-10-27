@@ -43,7 +43,7 @@ import org.robolectric.shadows.ShadowMediaCodec
  * sessions are being torn down.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [30])
+@Config(sdk = [28])
 @LooperMode(LooperMode.Mode.PAUSED)
 class SmoothVideoHostLifecycleTest {
     private lateinit var activity: CarPlayHostActivity

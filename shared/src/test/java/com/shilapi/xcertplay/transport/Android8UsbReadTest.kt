@@ -25,14 +25,14 @@ class Android8UsbReadTest {
         UsbQueueReplay.outcomes.addAll(listOf(false, true, true))
         val pipe = Iap2UsbSession(connection(), endpoint(0x04), endpoint(0x85))
         try {
-            repeat(2) { assertArrayEquals(UsbReadQueueCompatibilityTest.payload, pipe.read(1_000)) }
+            repeat(2) { assertArrayEquals(UsbQueueReplay.payload, pipe.read(1_000)) }
         } finally { pipe.close() }
         assertEquals(listOf(16_384, 8_192, 8_192), UsbQueueReplay.sizes)
     }
 
     @Test fun ncmReassemblesLargeNtbAfterCappedRejectionAtEightK() {
         val frame = ByteArray(32_740) { (it * 31).toByte() }
-        val following = UsbReadQueueCompatibilityTest.payload
+        val following = UsbQueueReplay.payload
         val padded = Ntb16Codec.build(frame, 7)
         UsbQueueReplay.transfer = padded.copyOf(padded.size - 1) + Ntb16Codec.build(following, 8)
         UsbQueueReplay.outcomes.addAll(listOf(false, true))
@@ -49,7 +49,7 @@ class Android8UsbReadTest {
         val diagnostics = mutableListOf<String>()
         val pipe = Iap2UsbSession(connection(), endpoint(0x04), endpoint(0x85), diagnostics::add)
         try {
-            repeat(2) { assertArrayEquals(UsbReadQueueCompatibilityTest.payload, pipe.read(1_000)) }
+            repeat(2) { assertArrayEquals(UsbQueueReplay.payload, pipe.read(1_000)) }
         } finally { pipe.close() }
         assertEquals(listOf(16_384, 16_384), UsbQueueReplay.sizes)
         assertTrue(diagnostics.isEmpty())
@@ -57,7 +57,7 @@ class Android8UsbReadTest {
 
     @Test fun ncmReassemblesLargerNtbAndPreservesNextFrameAcrossCappedReads() {
         val frame = ByteArray(32_740) { (it * 31).toByte() }
-        val following = UsbReadQueueCompatibilityTest.payload
+        val following = UsbQueueReplay.payload
         val padded = Ntb16Codec.build(frame, 7)
         UsbQueueReplay.transfer = padded.copyOf(padded.size - 1) + Ntb16Codec.build(following, 8)
         val ncm = ncm()
