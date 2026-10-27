@@ -2,6 +2,9 @@
 
 [English summary](#english-summary) · [上游原版 README（存档）](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
 
+> **本仓库当前主要适配车型：领克 01 2021 款。**
+> 下文保留的领克 05 实测记录来自原移植版，不代表领克 01 2021 款已完成同等验证；具体功能仍需实车验证。
+
 把 CarPlay 车机端接进**领克 05（亿咖通 ECARX 车机）**的移植版本。基于上游
 [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay) 源码，删掉全部比亚迪专用路径，改为亿咖通
 **DIM（DimInteraction）**通道：仪表盘显示 CarPlay 的转向箭头、距离、路名与预计到达时间，中控正常显示
@@ -300,6 +303,10 @@ DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 ---
 
 ## English summary
+
+**This fork currently focuses on adapting to the 2021 Lynk & Co 01.**
+The Lynk & Co 05 test results below are retained from the original port and do not establish equivalent
+validation on the 2021 Lynk & Co 01; individual features still require on-vehicle verification.
 
 A CarPlay head-unit port for the **Lynk & Co 05** (Geely/ECARX head unit, Snapdragon 820A, Android 9),
 based on upstream [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay). All BYD-specific code paths are
