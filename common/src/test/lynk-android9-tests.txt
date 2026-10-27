@@ -27,6 +27,7 @@ HostConnectionSettingsRefreshTest
 ConnectionFailureGuidanceTest
 DefaultConnectionModeTest
 PhoneBluetoothReceiverTest
+ConnectionDiagnosticsTest
 CarPlayBonjourDualStackTest
 CarPlayHostResolutionTest
 CarPlayVpnConsentTest
