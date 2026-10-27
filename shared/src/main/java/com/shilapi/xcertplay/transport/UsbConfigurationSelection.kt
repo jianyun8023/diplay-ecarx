@@ -30,7 +30,7 @@ internal object UsbConfigurationSelection {
     }
 
     /**
-     * Returns null when the first [setConfiguration] succeeds. Otherwise, unless
+     * Keeps an already active target untouched. Returns null when [setConfiguration] succeeds. Otherwise, unless
      * [activeConfiguration] already reads [target], detaches drivers from [interfaceIds] with a
      * claim that stays held, lets [reopen] close and reopen the connection to drop those claims,
      * and tries once more on the new connection.
@@ -43,9 +43,10 @@ internal object UsbConfigurationSelection {
         detach: (Int) -> Boolean,
         reopen: () -> Unit,
     ): Outcome? {
-        if (setConfiguration()) return null
         val before = activeConfiguration()
-        if (before == target) return Outcome(target, selected = false, before, before, emptyList())
+        // SET_CONFIGURATION resets endpoints even when its value is unchanged.
+        if (before == target) return Outcome(target, selected = true, before, before, emptyList())
+        if (setConfiguration()) return null
         val detached = interfaceIds.distinct().sorted().filter(detach)
         if (detached.isNotEmpty()) reopen()
         val selected = setConfiguration()

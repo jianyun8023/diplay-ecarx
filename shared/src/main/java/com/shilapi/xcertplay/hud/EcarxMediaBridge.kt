@@ -33,10 +33,7 @@ import java.util.concurrent.TimeUnit
  *    `.../sources`).
  *  * **Ours.** The toolkit pins `getPlaybackStatus()` at `1` and never reports a pause. We send 2
  *    when the iPhone is paused: the cluster already understands it, so there is no reason to lie.
- *  * **Missing on purpose.** Artwork. The cluster service turns the payload's `Uri` into base64 TGA
- *    through `com.nostra13.universalimageloader`, which fetches `http`/`file`/`content` and nothing
- *    else; a track that exists only inside CarPlay's stream has no such URL. See
- *    [EcarxDimApi.PlaybackInfo].
+ *  * Artwork uses the local HTTP URI supplied by the media-session owner, like HY.
  *
  * Off by default ([EcarxOutputSettings.mediaEnabled]) until the car confirms the cluster took it.
  * Independent of the navigation switch: this is a separate DIM channel with its own handle, its own
@@ -85,6 +82,7 @@ internal object EcarxMediaBridge {
 
     /** The newest frame the phone reported; `null` until it reports once. */
     private var wanted: CarPlayNowPlaying? = null
+    private var artwork: android.net.Uri? = null
     /** What the cluster was last told, so an unchanged frame is not sent again. */
     private var pushed: EcarxDimApi.PlaybackInfo? = null
     private var sourceTypeSent = false
@@ -154,9 +152,10 @@ internal object EcarxMediaBridge {
      * Nothing is pushed from here: the frame is recorded and the worker sends it, so the burst of
      * updates a track change produces costs one set of binder calls rather than one per field.
      */
-    fun onNowPlaying(now: CarPlayNowPlaying) = synchronized(lock) {
+    fun onNowPlaying(now: CarPlayNowPlaying, cover: android.net.Uri? = null) = synchronized(lock) {
         if (wanted?.elapsedMillis != now.elapsedMillis) progressMeasuredAt = SystemClock.elapsedRealtime()
         wanted = now
+        artwork = cover
     }
 
     /** One-line state for the settings diagnostics block. */
@@ -244,6 +243,7 @@ internal object EcarxMediaBridge {
         album = now.album.orEmpty(),
         durationMillis = now.durationMillis ?: 0L,
         playing = now.playing,
+        artwork = artwork,
     )
 
     private fun pushLocked(handle: Any, info: EcarxDimApi.PlaybackInfo) {
@@ -263,7 +263,7 @@ internal object EcarxMediaBridge {
         }
         report(
             "DIM media \"${info.title}\" by \"${info.artist}\" album=\"${info.album}\" " +
-                "duration=${info.durationMillis}ms playing=${info.playing}",
+                "duration=${info.durationMillis}ms playing=${info.playing} artwork=${info.artwork != null}",
         )
     }
 

@@ -17,14 +17,33 @@ import java.util.concurrent.TimeoutException
  * The owner must be the only `requestWait` user on the connection, and must cancel its requests
  * before [close] so that the helper thread can finish.
  */
-internal class UsbRequestQueue(private val connection: UsbDeviceConnection, threadName: String) : Closeable {
+internal class UsbRequestQueue(
+    private val connection: UsbDeviceConnection,
+    threadName: String,
+    private val onDiagnostic: (String) -> Unit = {},
+) : Closeable {
+    private var legacyQueue = false
     private val reaper = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) null else {
         UsbCompletionReaper(threadName) { connection.requestWait() }
     }
 
     /** Queues [buffer] from its position to its limit; a completed read advances the position. */
-    fun queue(request: UsbRequest, buffer: ByteBuffer): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return request.queue(buffer)
+    fun queue(request: UsbRequest, buffer: ByteBuffer, checkOpen: () -> Unit = {}): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!legacyQueue && request.queue(buffer)) return true
+            // The Android 9 MSM8996 rejects even 2 KiB on its new native queue path.
+            // Retry only an explicit rejection, with the legacy call's position-zero contract.
+            if (Build.VERSION.SDK_INT != Build.VERSION_CODES.P || buffer.position() != 0 ||
+                buffer.remaining() > USBFS_BULK_URB_CEILING_BYTES) return false
+            checkOpen()
+            @Suppress("DEPRECATION")
+            val queued = request.queue(buffer, buffer.remaining())
+            if (queued && !legacyQueue) {
+                legacyQueue = true
+                runCatching { onDiagnostic("USB read queue switched to legacy API=28 bytes=${buffer.remaining()}") }
+            }
+            return queued
+        }
         // The Android 7.x call fills a direct buffer from its start, whatever its position.
         require(buffer.position() == 0) { "Android 7 USB reads must start at buffer position 0" }
         @Suppress("DEPRECATION")

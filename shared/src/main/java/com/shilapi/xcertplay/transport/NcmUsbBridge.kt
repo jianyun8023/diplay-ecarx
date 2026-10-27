@@ -60,7 +60,7 @@ class NcmUsbBridge internal constructor(
     private var readRequest: UsbRequest? = null
     private var readQueued = false
     private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
-    private val readRequests = UsbRequestQueue(connection, "ncm-read-reaper")
+    private val readRequests = UsbRequestQueue(connection, "ncm-read-reaper", onDiagnostic)
     private val traffic = NcmTrafficCounter()
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
     private val statusThread = statusEndpoint?.let { endpoint ->
@@ -328,7 +328,7 @@ class NcmUsbBridge internal constructor(
                 }
                 if (!readQueued) {
                     directReadBuffer.clear()
-                    val queued = readQueuePolicy.queue(directReadBuffer, ::checkOpenLocked) { readRequests.queue(current, it) }
+                    val queued = readQueuePolicy.queue(directReadBuffer, ::checkOpenLocked) { readRequests.queue(current, it, ::checkOpenLocked) }
                     if (!queued.queued) throw failSession(
                         "Android could not queue the NCM read request (api=${Build.VERSION.SDK_INT} " +
                             "endpoint=${describeUsbEndpoint(inEndpoint)} firstBytes=${queued.firstBytes} " +

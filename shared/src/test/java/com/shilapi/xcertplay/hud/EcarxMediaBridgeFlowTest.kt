@@ -27,7 +27,25 @@ class EcarxMediaBridgeFlowTest {
 
     @After fun tearDown() = flow.close()
 
-    @Test fun appOpenAcquiresMediaOnceWithoutNavigationOrPhoneHandles() {
+    @Test fun coverUriIsSentThroughPlaybackAndPlaylistAndClearedWithTheSession() {
+        flow.initialize()
+        val cover = android.net.Uri.parse("http://127.0.0.1:41742/cover.png")
+        val now = com.shilapi.xcertplay.media.CarPlayNowPlaying(title = "With cover", artworkTransferId = 7, playing = true)
+        NavigationOutputs.onNowPlaying(now, cover)
+        flow.tick()
+        assertEquals(cover, flow.lastTrack()["getArtwork"])
+        val items = flow.calls("updatePlaylist").last().payload["items"] as List<*>
+        assertEquals(cover, (items.single() as Map<*, *>)["getArtwork"])
+        NavigationOutputs.onNowPlaying(now.copy(title = "Next", artworkTransferId = 8))
+        flow.tick()
+        assertNull(flow.lastTrack()["getArtwork"])
+        flow.disconnect()
+        flow.tick()
+        assertNull(flow.lastTrack()["getArtwork"])
+    }
+
+    @Test fun appOpenAcquiresMediaOnceWithoutNavigationOrPhoneHandles()
+ {
         DimInteraction.nullNavi = true
         DimInteraction.nullPhone = true
         flow.initialize()

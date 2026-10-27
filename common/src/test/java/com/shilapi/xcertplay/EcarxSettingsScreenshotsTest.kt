@@ -47,7 +47,16 @@ class EcarxSettingsScreenshotsTest {
         try {
             val configuration = activity.resources.configuration
             val width = activity.resources.displayMetrics.widthPixels
+            val hotspot = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutDirection = configuration.layoutDirection
+                setBackgroundColor(DiPlayPalette.DARK.surface)
+            }
+            activity.javaClass.getDeclaredMethod("systemHotspotSettings", LinearLayout::class.java)
+                .apply { isAccessible = true }.invoke(activity, hotspot)
+            render(hotspot, width, File(output, "hotspot-$name.png"))
             val navigation = LinearLayout(activity).apply {
+
                 orientation = LinearLayout.VERTICAL
                 layoutDirection = configuration.layoutDirection
                 setBackgroundColor(DiPlayPalette.DARK.surface)

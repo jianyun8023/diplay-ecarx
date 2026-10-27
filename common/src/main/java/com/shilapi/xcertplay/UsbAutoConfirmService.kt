@@ -64,6 +64,9 @@ class UsbAutoConfirmService : AccessibilityService() {
             }
             if (confirmed) {
                 lastClickTime = now
+                val diagnostics = getSharedPreferences("diplay_usb_diagnostics", MODE_PRIVATE)
+                diagnostics.edit().putInt("confirmed_count", diagnostics.getInt("confirmed_count", 0) + 1)
+                    .putLong("last_confirmed_at", System.currentTimeMillis()).apply()
                 Log.i(TAG, "Successfully auto-confirmed DiPlay USB permission dialog")
             }
         } finally {

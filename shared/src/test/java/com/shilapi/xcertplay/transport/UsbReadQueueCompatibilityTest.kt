@@ -42,7 +42,27 @@ class UsbReadQueueCompatibilityTest {
         assertEquals(listOf(32_768, 16_384, 16_384, 8_192, 8_192), UsbQueueReplay.sizes)
     }
 
-    @Test fun normalUsbmuxAndNcmRequestsKeepTheirOriginalSizes() {
+    @Test fun androidNineLegacyQueueRecoversAnExplicitVendorRejectionInBothPipes() {
+        val diagnostics = mutableListOf<String>()
+        UsbQueueReplay.outcomes.addAll(listOf(false, false))
+        UsbQueueReplay.legacyOutcomes.addAll(listOf(true, true))
+        val pipe = pipe(diagnostics::add)
+        try { repeat(2) { assertArrayEquals(payload, pipe.read(100)) } } finally { pipe.close() }
+        assertEquals(listOf(65_536, 16_384), UsbQueueReplay.sizes)
+        assertEquals(listOf(16_384, 16_384), UsbQueueReplay.legacySizes)
+        assertTrue(diagnostics.any { it.contains("switched to legacy API=28") })
+
+        UsbQueueReplay.reset()
+        UsbQueueReplay.outcomes.addAll(listOf(false, false))
+        UsbQueueReplay.legacyOutcomes.addAll(listOf(true, true))
+        val ncm = ncm()
+        try { repeat(2) { assertEquals(payload.size, readChunk(ncm)) } } finally { ncm.close() }
+        assertEquals(listOf(32_768, 16_384), UsbQueueReplay.sizes)
+        assertEquals(listOf(16_384, 16_384), UsbQueueReplay.legacySizes)
+    }
+
+    @Test fun normalUsbmuxAndNcmRequestsKeepTheirOriginalSizes()
+ {
         val diagnostics = mutableListOf<String>()
         val pipe = pipe(diagnostics::add)
         try { assertArrayEquals(payload, pipe.read(100)) } finally { pipe.close() }
@@ -143,6 +163,7 @@ class UsbReadQueueCompatibilityTest {
     }
 
     @Test fun closingUsbmuxAfterRejectedQueuePreventsTheCompatibilityRetry() {
+        UsbQueueReplay.legacyOutcomes.add(true)
         val pipe = pipe()
         UsbQueueReplay.outcomes.add(false)
         UsbQueueReplay.onQueue = { request ->
@@ -153,6 +174,7 @@ class UsbReadQueueCompatibilityTest {
         }
         try { expectUnavailable { pipe.read(100) } } finally { pipe.close() }
         assertEquals(listOf(65_536), UsbQueueReplay.sizes)
+        assertTrue(UsbQueueReplay.legacySizes.isEmpty())
     }
 
     @Test fun closingNcmAfterRejectedQueuePreventsTheCompatibilityRetry() {
@@ -212,6 +234,8 @@ class UsbReadQueueCompatibilityTest {
 object UsbQueueReplay {
     val outcomes = ArrayDeque<Boolean>()
     val sizes = mutableListOf<Int>()
+    val legacySizes = mutableListOf<Int>()
+    val legacyOutcomes = ArrayDeque<Boolean>()
     val buffers = mutableListOf<ByteBuffer>()
     var request: UsbRequest? = null
     var buffer: ByteBuffer? = null
@@ -229,7 +253,7 @@ object UsbQueueReplay {
     var emptyCompletion = false
     var cancels = 0
     fun reset() {
-        outcomes.clear(); sizes.clear(); buffers.clear(); request = null; buffer = null
+        legacySizes.clear(); legacyOutcomes.clear(); outcomes.clear(); sizes.clear(); buffers.clear(); request = null; buffer = null
         queueException = null; timeout = false; onQueue = null
         transfer = null; transferOffset = 0; completedBytes.clear(); untimedWaits = 0
         timeouts = 0; cancelResult = true; emptyCompletion = false; cancels = 0
@@ -255,7 +279,11 @@ class CompatibilityUsbRequestShadow {
     /** Android 7.x queue; the buffer is filled from position 0 up to [length]. */
     @Implementation fun queue(buffer: ByteBuffer, length: Int): Boolean {
         check(buffer.position() == 0 && buffer.remaining() == length) { "Unexpected Android 7 queue range" }
-        return queue(buffer)
+        if (Build.VERSION.SDK_INT != 28) return queue(buffer)
+        UsbQueueReplay.legacySizes += length
+        val queued = UsbQueueReplay.legacyOutcomes.pollFirst() ?: false
+        if (queued) { UsbQueueReplay.request = request; UsbQueueReplay.buffer = buffer }
+        return queued
     }
     @Implementation fun cancel(): Boolean {
         UsbQueueReplay.cancels += 1

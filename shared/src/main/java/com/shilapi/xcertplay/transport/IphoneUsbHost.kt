@@ -283,8 +283,10 @@ class IphoneUsbHost(
                     "out=${describeUsbEndpoint(endpoints.first)} " +
                     "in=${describeUsbEndpoint(endpoints.second)}",
             )
-            if (!connection.claimInterface(usbMux, true)) {
-                throw IphoneUsbException.DeviceUnavailable("Android could not claim USBMUX interface 1")
+            val claimAttempt = NcmUsbBridge.retryUsbSetup { connection.claimInterface(usbMux, true) }
+            runCatching { onDiagnostic("USBMUX claim iface=${usbMux.id}/${usbMux.alternateSetting} attempts=${claimAttempt ?: NcmUsbBridge.USB_SETUP_ATTEMPTS} ok=${claimAttempt != null}") }
+            if (claimAttempt == null) {
+                throw IphoneUsbException.DeviceUnavailable("Android could not claim USBMUX interface ${usbMux.id}")
             }
             claimedInterface = usbMux
             return Iap2UsbSession(connection, endpoints.first, endpoints.second, onDiagnostic)
@@ -443,7 +445,7 @@ class Iap2UsbSession internal constructor(
     private var failure: IphoneUsbException? = null
     private var pendingRead: UsbRequest? = null
     private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
-    private val requests = UsbRequestQueue(connection, "usbmux-read-reaper")
+    private val requests = UsbRequestQueue(connection, "usbmux-read-reaper", onDiagnostic)
 
     fun write(data: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
         checkOpen()
@@ -474,7 +476,7 @@ class Iap2UsbSession internal constructor(
             val queueResult = synchronized(stateLock) {
                 checkOpenLocked()
                 pendingRead = request
-                readQueuePolicy.queue(buffer, ::checkOpenLocked) { requests.queue(request, it) }
+                readQueuePolicy.queue(buffer, ::checkOpenLocked) { requests.queue(request, it, ::checkOpenLocked) }
             }
             if (!queueResult.queued) {
                 throw IphoneUsbException.DeviceUnavailable(

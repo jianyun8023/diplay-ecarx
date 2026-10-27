@@ -75,7 +75,7 @@ object NavigationOutputs {
      * A separate entry point from [onFrame] on purpose: guidance and media are different DIM
      * channels behind different switches, and a fault in one must not take the other down.
      */
-    fun onNowPlaying(now: CarPlayNowPlaying) = EcarxMediaBridge.onNowPlaying(now)
+    fun onNowPlaying(now: CarPlayNowPlaying, artwork: android.net.Uri? = null) = EcarxMediaBridge.onNowPlaying(now, artwork)
 
     /** Validate the phone's plist once; the bridge receives a typed navigation state. */
     internal fun onModesChanged(params: Map<String, Any?>) {

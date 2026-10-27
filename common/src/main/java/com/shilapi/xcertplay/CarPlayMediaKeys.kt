@@ -68,6 +68,11 @@ internal object CarPlayMediaKeys {
     private var nowPlaying = CarPlayNowPlaying()
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
+    private var clusterArtworkServer: ClusterArtworkServer? = null
+    private var lastClusterArtworkReport = "Cluster artwork HTTP: not started"
+    private var lastArtworkReceived = "none"
+    private var lastArtworkDecoded = "none"
+    private val clusterArtworkUris = LinkedHashMap<Int, android.net.Uri>()
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
     private var placeholder: Bitmap? = null
 
@@ -89,7 +94,8 @@ internal object CarPlayMediaKeys {
                     onNowPlayingChanged(next)
                     // The same metadata the car's media session shows is what an ECARX cluster's media card
                     // wants, so it is forwarded from here rather than read a second time off the controller.
-                    NavigationOutputs.onNowPlaying(update)
+                    NavigationOutputs.onNowPlaying(update,
+                        if (albumTrackChanged(nowPlaying, update)) null else clusterArtworkUris[update.artworkTransferId])
                 }
             }
         }
@@ -138,6 +144,7 @@ internal object CarPlayMediaKeys {
                     if (previousId != null) {
                         ambientColorCache.remove(previousId)
                         artworkCache.remove(previousId)
+                        clusterArtworkUris.remove(previousId)
                     }
                     if (previousId == update.artworkTransferId) {
                         artworkOwner = artworkQueue.newSession()
@@ -148,6 +155,7 @@ internal object CarPlayMediaKeys {
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
                 nowPlaying = update
+                NavigationOutputs.onNowPlaying(update, clusterArtworkUris[update.artworkTransferId])
                 if (metadataChanged) ClusterMusicState.publish(update, update.artworkTransferId?.let { artworkCache[it] })
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
@@ -163,6 +171,7 @@ internal object CarPlayMediaKeys {
     @Synchronized
     private fun onArtworkChanged(expected: CarPlayController, id: Int, bytes: ByteArray) {
         if (controller !== expected) return
+        lastArtworkReceived = "id=$id bytes=${bytes.size} atEpochMs=${System.currentTimeMillis()}"
         artworkOwner?.let { artworkQueue.submit(it, id, bytes) }
     }
 
@@ -173,6 +182,16 @@ internal object CarPlayMediaKeys {
             decoded?.recycle()
             return
         }
+        lastArtworkDecoded = "id=$id decoded=${decoded != null} width=${decoded?.width ?: 0} height=${decoded?.height ?: 0} pngBytes=${result?.png?.size ?: 0}"
+        clusterArtworkUris.remove(id)
+        if (result != null) runCatching {
+            val server = clusterArtworkServer ?: ClusterArtworkServer().also { clusterArtworkServer = it }
+            clusterArtworkUris[id] = android.net.Uri.parse(server.publish(result.png))
+            while (clusterArtworkUris.size > MAX_CACHED_ARTWORK) clusterArtworkUris.remove(clusterArtworkUris.keys.first())
+        }.onFailure {
+            lastClusterArtworkReport = "Cluster artwork HTTP: startup/publish failed=${it.javaClass.simpleName}"
+            Log.w(TAG, "Cluster artwork HTTP handoff failed", it)
+        }
         artworkCache.remove(id)
         artworkCache[id] = decoded
         ambientColorCache.remove(id)
@@ -181,13 +200,20 @@ internal object CarPlayMediaKeys {
         while (artworkCache.size > MAX_CACHED_ARTWORK) artworkCache.remove(artworkCache.keys.first())
         if (nowPlaying.artworkTransferId == id) {
             artwork = decoded
+            NavigationOutputs.onNowPlaying(nowPlaying, clusterArtworkUris[id])
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
         }
     }
 
+    @Synchronized
+    fun artworkDiagnosticReport(): String =
+        "Cluster artwork: ownerActive=${controller != null} received=[$lastArtworkReceived] decoded=[$lastArtworkDecoded]\n" +
+            (clusterArtworkServer?.diagnosticReport() ?: lastClusterArtworkReport)
+
     private fun hasCurrentAlbumColor(): Boolean =
+
         nowPlaying.artworkTransferId?.let { ambientColorCache.containsKey(it) } == true
 
     /** Cover art is retried after a reconnect while a context is available to ask on. */
@@ -384,6 +410,12 @@ internal object CarPlayMediaKeys {
         NavigationOutputs.onNowPlaying(nowPlaying)
         artwork = null
         artworkCache.clear()
+        clusterArtworkUris.clear()
+        clusterArtworkServer?.let {
+            it.close()
+            lastClusterArtworkReport = it.diagnosticReport()
+        }
+        clusterArtworkServer = null
         ClusterMusicState.publish(CarPlayNowPlaying(), null)
         focusRequest?.let { request -> appContext?.getSystemService(AudioManager::class.java)?.let(request::abandon) }
         focusRequest = null
@@ -477,11 +509,18 @@ internal object CarPlayMediaKeys {
         else -> current
     }
 
-    private data class AmbientArtwork(val bitmap: Bitmap, val color: Int?)
+    private data class AmbientArtwork(val bitmap: Bitmap, val color: Int?, val png: ByteArray)
 
     private fun decodeAmbientArtwork(bytes: ByteArray): AmbientArtwork? {
         val bitmap = decodeArtwork(bytes) ?: return null
-        return AmbientArtwork(bitmap, null)
+        val png = java.io.ByteArrayOutputStream().use { output ->
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                bitmap.recycle()
+                return null
+            }
+            output.toByteArray()
+        }
+        return AmbientArtwork(bitmap, null, png)
     }
 
     private fun decodeArtwork(bytes: ByteArray): Bitmap? {

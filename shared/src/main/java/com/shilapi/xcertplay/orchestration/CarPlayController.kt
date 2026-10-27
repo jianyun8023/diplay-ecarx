@@ -1978,7 +1978,7 @@ class CarPlayController(
                 is IphoneUsbHost.PermissionRequest.Requested -> {
                     debugLog(
                         "wired iPhone USB permission requested " +
-                            "afterMissingUiAdbFailure=${request.afterMissingUiAdbFailure}",
+                            "afterMissingUiAdbFailure=${request.afterMissingUiAdbFailure} deviceId=${device.deviceId} node=${device.deviceName} phase=$phase reenumerationAttempts=$reenumerationAttempts",
                     )
                     permissionGrant.set(false)
                     onStatus(CarPlayStatus.RequestingIphonePermission)
@@ -2037,7 +2037,7 @@ class CarPlayController(
             is IphoneUsbHost.PermissionResult.Granted -> {
                 // The system broadcast and the polling fallback can both observe the grant.
                 if (!permissionGrant.compareAndSet(false, true)) return
-                debugLog("wired iPhone USB permission granted")
+                debugLog("wired iPhone USB permission granted deviceId=${result.device.deviceId} node=${result.device.deviceName} phase=$phase")
                 permissionPollGeneration++
                 when (phase) {
                     Phase.REENUMERATION, Phase.IPHONE -> {
@@ -2077,6 +2077,7 @@ class CarPlayController(
                 }
             }
             is IphoneUsbHost.PermissionResult.Denied -> {
+                debugLog("wired iPhone USB permission denied deviceId=${result.device.deviceId} node=${result.device.deviceName} phase=$phase")
                 permissionGrant.set(true)
                 onStatus(CarPlayStatus.Failed("iPhone USB permission was denied"))
             }

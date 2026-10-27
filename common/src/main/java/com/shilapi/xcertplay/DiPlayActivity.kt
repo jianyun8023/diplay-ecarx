@@ -107,6 +107,7 @@ internal enum class SettingsSection {
     DIAGNOSTICS,
     AUTOMATIC_CONNECTION,
     USB_CONNECTION,
+    CAR_HOTSPOT,
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
     ADVANCED_MEDIA,
@@ -128,6 +129,7 @@ internal object SettingsInformationArchitecture {
             SettingsSection.CONNECTION_SETUP,
             SettingsSection.AUTOMATIC_CONNECTION,
             SettingsSection.USB_CONNECTION,
+            SettingsSection.CAR_HOTSPOT,
             SettingsSection.PERMISSIONS_AND_HELP,
         ),
         SettingsCategory.DISPLAY to setOf(SettingsSection.DISPLAY_AND_PERFORMANCE),
@@ -1737,6 +1739,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
             card.addView(button(chooseIphoneTitle(), false) { choosePhone() }, matchButton(12, 60))
         }
+        if (AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL) {
+            filteredSection(content, SettingsSection.CAR_HOTSPOT,
+                getString(R.string.settings_car_hotspot_control), R.drawable.ic_dp_connection, ::systemHotspotSettings)
+        }
         filteredSection(content, SettingsSection.USB_CONNECTION,
             getString(R.string.settings_usb_connection), R.drawable.ic_dp_connection) { card ->
             val currents = UsbChargingCurrent.entries
@@ -2376,23 +2382,36 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
      * Other head units: starting the hotspot needs only Android's "Modify system settings" access
      * (WRITE_SETTINGS), which the driver allows on the system screen. No ADB is involved.
      */
-    private fun systemHotspotSettings(parent: LinearLayout) {
-        section(parent, getString(R.string.settings_car_hotspot_control), R.drawable.ic_dp_permissions) { card ->
-            toggle(card, getString(R.string.auto_car_hotspot_title),
-                getString(R.string.settings_auto_car_hotspot_system_description), CarHotspotSettings.enabled(this)) { enabled ->
-                CarHotspotSettings.setEnabled(this, enabled)
-                if (!enabled) startupHotspotCancelled = true
-                else if (!CarHotspotTethering.permitted(this)) openWriteSettingsAccess()
+    private fun systemHotspotSettings(card: LinearLayout) {
+        if (!CarHotspotTethering.appStartSupported()) {
+            adbToggle(card, R.string.auto_car_hotspot_title, R.string.auto_car_hotspot_description,
+                read = { CarHotspotSettings.enabled(this) },
+                permissions = { listOf(CarHotspotSetup.Permission.HOTSPOT) }) {
+                CarHotspotSettings.setEnabled(this, it)
+                startupHotspotCancelled = !it
+                if (it) startCarHotspotOnLaunch()
             }
-            val permitted = CarHotspotTethering.permitted(this)
-            card.addView(label(getString(if (permitted) R.string.settings_write_settings_granted
-                else R.string.settings_write_settings_missing), 14, if (permitted) READY else MUTED).apply {
-                setPadding(0, dp(6), 0, dp(4))
-            })
-            if (!permitted) {
-                card.addView(button(getString(R.string.settings_write_settings_allow), false) { openWriteSettingsAccess() },
-                    matchButton(8, 54))
+            return
+        }
+        toggle(card, getString(R.string.auto_car_hotspot_title),
+            getString(R.string.settings_auto_car_hotspot_system_description), CarHotspotSettings.enabled(this)) { enabled ->
+            CarHotspotSettings.setEnabled(this, enabled)
+            startupHotspotCancelled = !enabled
+            if (enabled) {
+                if (!CarHotspotTethering.permitted(this)) {
+                    hotspotStartupResult = CarHotspotTethering.Result.PERMISSION_REQUIRED
+                    openWriteSettingsAccess()
+                } else startCarHotspotOnLaunch()
             }
+        }
+        val permitted = CarHotspotTethering.permitted(this)
+        card.addView(label(getString(if (permitted) R.string.settings_write_settings_granted
+            else R.string.settings_write_settings_missing), 14, if (permitted) READY else MUTED).apply {
+            setPadding(0, dp(6), 0, dp(4))
+        })
+        if (!permitted) {
+            card.addView(button(getString(R.string.settings_write_settings_allow), false) { openWriteSettingsAccess() },
+                matchButton(8, 54))
         }
     }
 
@@ -4599,6 +4618,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine()
         appendLine("--- ECARX outputs (no ADB required) ---")
         appendLine(com.shilapi.xcertplay.hud.EcarxOutputSettings.diagnosticReport(appContext))
+        appendLine(CarPlayMediaKeys.artworkDiagnosticReport())
+        appendLine(VoiceKeyDiagnostics.report(appContext))
+        val usbDiagnostics = appContext.getSharedPreferences("diplay_usb_diagnostics", MODE_PRIVATE)
+        appendLine("USB auto-confirm: enabled=${UsbPermissionSetup.Permission.ACCESSIBILITY.granted(appContext)} " +
+            "confirmedCount=${usbDiagnostics.getInt("confirmed_count", 0)} " +
+            "lastConfirmedAtEpochMs=${usbDiagnostics.getLong("last_confirmed_at", 0L)}")
         appendLine("--- Last hotspot keyboard request (no field contents) ---")
         appendLine(appContext.getSharedPreferences("diplay_input_diagnostics", MODE_PRIVATE)
             .getString("last", "No input request recorded."))
@@ -4608,7 +4633,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Startup settings: openAfterBoot=${AirPlayPersistence.loadAutoStartOnBoot(appContext)} " +
             "connectWhenOpened=${DiPlayPreferences.autoConnect(appContext)}")
         appendLine("Car hotspot control: autoEnable=${CarHotspotSettings.enabled(appContext)} " +
-            "writeSettings=${CarHotspotTethering.permitted(appContext)} " +
+            "writeSettings=${CarHotspotTethering.permitted(appContext)} appStartSupported=${CarHotspotTethering.appStartSupported()} " +
             "hotspotOn=${runCatching { com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) }.getOrNull()}")
         appendLine(WheelKeyService.report(appContext))
         WheelKeyLog.report(WheelKeyService.connected()).forEach { appendLine(it) }
