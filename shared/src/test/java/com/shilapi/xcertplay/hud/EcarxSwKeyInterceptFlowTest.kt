@@ -111,13 +111,34 @@ class EcarxSwKeyInterceptFlowTest {
         assertTrue(presses.isEmpty())
     }
 
-    @Test fun refusedKeysAreNamedAndDoNotArriveFromTheService() {
+    @Test fun refusedKeysAreNamedWhenTheServiceSuppressesTheirCallbacks() {
         Input.refused = intArrayOf(200088, 200087, 200085, 200231, 200164, 200400, 200024, 200025, 119, 777)
         val handle = register()
         assertArrayEquals(Input.refused, handle.refused)
         assertEquals("keys=9 refused=prev|next|play|voice|k200164|k200400|vol+|vol-|k119|777", handle.describe())
         assertTrue(Input.press(200231).isEmpty())
         assertTrue(presses.isEmpty())
+    }
+
+    @Test fun refusedVoiceCallbackCanStillArriveWithoutClaimingExclusiveOwnership() {
+        Input.refused = intArrayOf(200231)
+        val handle = register()
+        // Some OEM services refuse exclusive interception but still deliver the callback.
+        // Bypass only the fixture's optional delivery filter, not the production proxy.
+        val callback = Input.registrations.single().callback
+        assertTrue(callback.onKeyPressed(200231))
+        assertTrue(presses.single()!!.isSiri)
+        assertFalse(callback.onKeyReleased(200231))
+        assertEquals(listOf(200231), releases)
+        assertArrayEquals(intArrayOf(200231), handle.refused)
+        assertEquals("keys=9 refused=voice", handle.describe())
+
+        handle.release()
+        assertFalse(callback.onKeyPressed(200231))
+        assertFalse(callback.onKeyReleased(200231))
+        assertEquals(1, presses.size)
+        assertEquals(listOf(200231), releases)
+        assertEquals("keys=9 refused=voice", handle.describe())
     }
 
     @Test fun partialRefusalStillAllowsAcceptedMediaKeys() {

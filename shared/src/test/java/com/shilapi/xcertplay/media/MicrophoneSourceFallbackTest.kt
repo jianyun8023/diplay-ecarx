@@ -107,6 +107,28 @@ class MicrophoneSourceFallbackTest {
         assertTrue(diagnostics.any { it.contains("actualSource=VOICE_COMMUNICATION") && it.endsWith("ended=true") })
     }
 
+    @Test
+    @Config(shadows = [DifferentReportedSource::class])
+    fun recorderReportedSourceIsNotReplacedByTheRequestedSource() {
+        sink.onMicrophoneStarted(id, config("speechrecognition"))
+
+        assertTrue(captureStarted.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf(MediaRecorder.AudioSource.VOICE_RECOGNITION), RecorderBuilder.attempts)
+        val recorder = requireNotNull(captured.get())
+        assertEquals(MediaRecorder.AudioSource.MIC, recorder.audioSource)
+        val start = diagnostics.single { it.startsWith("Microphone: start") }
+        assertTrue(start.contains("source=VOICE_RECOGNITION"))
+        assertTrue(start.contains("actualSource=MIC"))
+        assertEquals(AudioManager.MODE_RINGTONE, context.getSystemService(AudioManager::class.java).mode)
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+
+        sink.onMicrophoneStopped(id)
+        assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.state)
+        val ended = diagnostics.single { it.contains("stats type=speechrecognition") && it.endsWith("ended=true") }
+        assertTrue(ended.contains("source=VOICE_RECOGNITION"))
+        assertTrue(ended.contains("actualSource=MIC"))
+    }
+
     @Test fun siriInitializationFailureReleasesRejectedRecorderBeforeFallbackCapture() {
         RecorderBuilder.uninitializedSources = setOf(MediaRecorder.AudioSource.VOICE_RECOGNITION)
 
@@ -155,6 +177,24 @@ class MicrophoneSourceFallbackTest {
     @Implements(value = GeelyHeadUnit::class, isInAndroidSdk = false)
     class GeelyDetection {
         @Implementation fun getDetected(): Boolean = true
+    }
+
+    /** Only this test changes recorder metadata; capture and the production uplink remain real. */
+    @Implements(AudioRecord.Builder::class)
+    class DifferentReportedSource {
+        @RealObject private lateinit var builder: AudioRecord.Builder
+
+        @Implementation fun build(): AudioRecord {
+            val attributes = ReflectionHelpers.getField<AudioAttributes>(builder, "mAttributes")
+            val source = ReflectionHelpers.callInstanceMethod<Int>(attributes, "getCapturePreset")
+            RecorderBuilder.attempts += source
+            return DifferentSourceRecorder(source).also { RecorderBuilder.built += it }
+        }
+    }
+
+    class DifferentSourceRecorder(source: Int) : AudioRecord(source, 16_000,
+        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, 4096) {
+        override fun getAudioSource(): Int = MediaRecorder.AudioSource.MIC
     }
 
     @Implements(AudioRecord.Builder::class)
