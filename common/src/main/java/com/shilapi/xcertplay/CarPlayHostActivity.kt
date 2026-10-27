@@ -1243,16 +1243,21 @@ class CarPlayHostActivity : ComponentActivity() {
             // cluster picture itself instead of the platform squeezing the 1920x944 centre screen
             // into 8:3 — which is what the mirror did and why it looked like neither.
             MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
-            return CarPlayClusterDisplay.config(
+            val config = CarPlayClusterDisplay.config(
                 widthPixels = CLUSTER_PANEL_WIDTH,
                 heightPixels = CLUSTER_PANEL_HEIGHT,
                 scalePercent = 100,
                 content = AirPlayPersistence.loadClusterContent(this),
                 baseSafeArea = CarPlayClusterDisplay.SAFE_AREA_PERCENT,
-            ).also {
+            )
+            val rect = AirPlayPersistence.loadClusterSafeAreaRect(this)
+            return (if (rect == null) config else config.copy(safeArea = AirPlaySafeArea.toInsets(
+                rect, CLUSTER_PANEL_WIDTH, CLUSTER_PANEL_HEIGHT, config.widthPixels, config.heightPixels,
+            ))).also {
                 appendLog(
                     "Cluster: requesting ${it.widthPixels}x${it.heightPixels} (8:3) " +
-                        "instrument-cluster stream for display $CLUSTER_PANEL_DISPLAY_ID, content=${it.initialUrl}",
+                        "instrument-cluster stream for display $CLUSTER_PANEL_DISPLAY_ID, " +
+                        "content=${it.initialUrl} safeArea=${it.safeArea}",
                 )
             }
         }
@@ -1528,9 +1533,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun unregisterEcarxSteeringWheel() {
         ecarxSwKeyHandle?.release()
         ecarxSwKeyHandle = null
-        ecarxVoiceKeyReceiver?.let { runCatching { unregisterReceiver(it) } }
+        ecarxVoiceKeyReceiver?.let { runCatching { com.shilapi.xcertplay.hud.EcarxKeyBroadcasts.unregister(this, it) } }
         ecarxVoiceKeyReceiver = null
-        ecarxCallKeyReceiver?.let { runCatching { unregisterReceiver(it) } }
+        ecarxCallKeyReceiver?.let { runCatching { com.shilapi.xcertplay.hud.EcarxKeyBroadcasts.unregister(this, it) } }
         ecarxCallKeyReceiver = null
     }
 
@@ -5056,6 +5061,7 @@ class CarPlayHostActivity : ComponentActivity() {
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
             audioFocusAutoYield = AirPlayPersistence.loadAudioFocusAutoYield(this),
+            navigationPromptAudioFocus = AirPlayPersistence.loadNavigationPromptAudioFocus(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             navigationAttenuationDb = AirPlayPersistence.loadNavigationAudioAttenuationDb(this),
@@ -6334,6 +6340,12 @@ class CarPlayHostActivity : ComponentActivity() {
             if (type == SCREEN_TYPE_MAIN && !active) clearIphoneCornerMask()
             if (active) {
                 activeScreenStreamTypes.add(type)
+                val view = videoView
+                val rendering = "Video render stream=$type view=${view?.width}x${view?.height} " +
+                    "renderer=${view?.javaClass?.simpleName} " +
+                    "hardwareAccelerated=${view?.isHardwareAccelerated}"
+                appendLog(rendering)
+                if (type == SCREEN_TYPE_MAIN) DisplayDiagnosticSnapshot.record(this, displayDiagnosticAttempt, rendering)
             } else {
                 activeScreenStreamTypes.remove(type)
             }

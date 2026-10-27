@@ -39,6 +39,21 @@ class DisplayDiagnosticSnapshotTest {
         assertTrue(report.contains("crop=0,0,1919,1079"))
     }
 
+    @Test fun instrumentOutputCannotOverwriteMainScreenClarityEvidence() {
+        val attempt = DisplayDiagnosticSnapshot.begin(context, "request", "capability", "effective")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video: decoder=main size=1920x1080 stream=110")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video: output format coded=1920x1080 stream=110")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video: decoder=cluster size=1920x720 stream=111")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video: output format coded=1920x720 stream=111")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video render stream=110 view=1920x1080 canvas=1920x1080")
+        val report = DisplayDiagnosticSnapshot.report(context)
+        assertTrue(report.contains("decoder=main"))
+        assertTrue(report.contains("decoder=cluster"))
+        assertTrue(report.contains("coded=1920x1080"))
+        assertTrue(report.contains("coded=1920x720"))
+        assertTrue(report.contains("view=1920x1080"))
+    }
+
     @Test fun reconnectClearsOldOutputAndRejectsLateCallbacks() {
         val old = DisplayDiagnosticSnapshot.begin(context, "old request", "old capability", "old effective")
         DisplayDiagnosticSnapshot.record(context, old, "Video: output format coded=2560x1440")

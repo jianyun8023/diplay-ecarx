@@ -876,4 +876,12 @@
     <string name="ecarx_sw_key_assign">%1$s: %2$s · tap to learn</string>
     <string name="ecarx_sw_key_learnt">learnt · key %1$d</string>
     <string name="ecarx_sw_key_press">Press the wheel key for %1$s now…</string>
+    <string name="settings_ecarx_lane_guidance">Cluster lane guidance (experimental)</string>
+    <string name="settings_ecarx_lane_guidance_description">Show CarPlay lane guidance on the instrument cluster during navigation. Availability depends on the head unit. Applies immediately.</string>
+    <string name="settings_ecarx_cluster_safe_area">Instrument cluster safe area</string>
+    <string name="settings_ecarx_cluster_safe_area_description">Drag the edges to keep map content clear of instrument readouts. Reset restores the original area. Changes apply after saving and reconnecting.</string>
+    <string name="settings_ecarx_cluster_safe_area_default">Default</string>
+    <string name="settings_ecarx_cluster_safe_area_custom">Custom</string>
+    <string name="settings_navigation_prompt_audio_focus">Navigation prompt audio focus</string>
+    <string name="settings_navigation_prompt_audio_focus_description">Requests head-unit audio focus during iPhone navigation prompts so other audio sources can lower their volume temporarily. The head unit decides the effect. Applies after reconnecting.</string>
 </resources>

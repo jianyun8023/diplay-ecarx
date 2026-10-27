@@ -4,6 +4,7 @@ import com.shilapi.xcertplay.iap2.message.Iap2ControlMessages
 import com.shilapi.xcertplay.iap2.wire.Iap2ParameterList
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Iap2RouteGuidanceSubscriptionTest {
@@ -26,6 +27,13 @@ class Iap2RouteGuidanceSubscriptionTest {
         assertArrayEquals(byteArrayOf(0, 42), component.single { it.id == 0 }.payload)
         assertArrayEquals("RouteGuidance\u0000".encodeToByteArray(), component.single { it.id == 1 }.payload)
         assertArrayEquals(byteArrayOf(0, 8), component.single { it.id == 6 }.payload)
+        assertArrayEquals(byteArrayOf(0, 64), component.single { it.id == 7 }.payload)
+        assertArrayEquals(byteArrayOf(0, 8), component.single { it.id == 8 }.payload)
+        val received = parameters.single { it.id == 7 }.payload.toList().chunked(2)
+            .map { ((it[0].toInt() and 0xff) shl 8) or (it[1].toInt() and 0xff) }
+        assertTrue(0x5201 in received)
+        assertTrue(0x5202 in received)
+        assertTrue(0x5204 in received)
     }
 
     @Test

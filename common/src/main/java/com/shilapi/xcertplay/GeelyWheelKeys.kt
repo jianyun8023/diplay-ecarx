@@ -43,7 +43,8 @@ internal object GeelyWheelKeys {
     private var appContext: Context? = null
     private var bound = false
     private var manager: IInputManager? = null
-    private var listener: IInputListener? = null
+    @Volatile private var listener: IInputListener? = null
+    @Volatile private var connection: ServiceConnection? = null
 
     /** Binds while a CarPlay session is active; safe to call repeatedly. */
     @Synchronized
@@ -55,51 +56,80 @@ internal object GeelyWheelKeys {
     }
 
     /** Unbinds when the CarPlay session ends. */
-    @Synchronized
     fun stop() {
-        listener?.let { registered ->
-            val packageName = appContext?.packageName ?: return@let
-            runCatching { manager?.unregisterListener(registered, packageName) }
+        // Match attach/detach's lock order and finish any accepted dispatch before stopping.
+        synchronized(CarPlayMediaKeys) {
+            val context: Context?
+            val oldConnection: ServiceConnection?
+            val oldManager: IInputManager?
+            val oldListener: IInputListener?
+            val wasBound: Boolean
+            synchronized(this) {
+                context = appContext
+                oldConnection = connection
+                oldManager = manager
+                oldListener = listener
+                wasBound = bound
+                appContext = null
+                connection = null
+                listener = null
+                manager = null
+                handler.removeCallbacksAndMessages(null)
+                bound = false
+            }
+            if (context != null && oldListener != null) {
+                runCatching { oldManager?.unregisterListener(oldListener, context.packageName) }
+            }
+            if (wasBound && context != null && oldConnection != null) runCatching { context.unbindService(oldConnection) }
         }
-        listener = null
-        manager = null
-        handler.removeCallbacksAndMessages(null)
-        val context = appContext
-        if (bound && context != null) runCatching { context.unbindService(connection) }
-        bound = false
     }
 
     private fun bindLocked() {
         val context = appContext ?: return
         val intent = Intent().setComponent(ComponentName(INPUT_PACKAGE, INPUT_CLASS))
-        bound = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
+        val nextConnection = newConnection()
+        connection = nextConnection
+        bound = runCatching { context.bindService(intent, nextConnection, Context.BIND_AUTO_CREATE) }
             .getOrDefault(false)
+        if (!bound) connection = null
         Log.i(TAG, "bind geely input service requested=$bound")
     }
 
-    private val connection = object : ServiceConnection {
+    private fun newConnection() = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val context = appContext ?: return
-            val input = IInputManager.Stub.asInterface(service)
+            val input = IInputManager.Stub.asInterface(service) ?: return
+            val owner = this
             val registered = object : IInputListener.Stub() {
                 override fun onKeyCodeEvent(keyCode: Int, event: Int, softKeyFunction: Int) {}
                 override fun onShortClick(keyCode: Int, softKeyFunction: Int) {
-                    forward(keyCode)
+                    handler.post {
+                        synchronized(CarPlayMediaKeys) {
+                            if (connection === owner && listener === this) forward(keyCode)
+                        }
+                    }
                 }
                 override fun onHoldingPressStarted(keyCode: Int, softKeyFunction: Int) {}
                 override fun onHoldingPressStopped(keyCode: Int, softKeyFunction: Int) {}
                 override fun onLongPressTriggered(keyCode: Int, softKeyFunction: Int) {
-                    Log.i(TAG, "long press key=$keyCode func=$softKeyFunction")
-                    // The microphone key's long press: Siri, once the car's HiCar app is disabled.
-                    if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
-                        Log.i(TAG, "Siri requested=${CarPlayMediaKeys.onExternalSiriKey()}")
+                    handler.post {
+                        synchronized(CarPlayMediaKeys) {
+                            if (connection !== owner || listener !== this) return@post
+                            Log.i(TAG, "long press key=$keyCode func=$softKeyFunction")
+                            // The microphone key's long press: Siri, once the car's HiCar app is disabled.
+                            if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
+                                Log.i(TAG, "Siri requested=${CarPlayMediaKeys.onExternalSiriKey()}")
+                            }
+                        }
                     }
                 }
                 override fun onDoubleClick(keyCode: Int, softKeyFunction: Int) {}
             }
-            synchronized(this@GeelyWheelKeys) {
+            val context = synchronized(this@GeelyWheelKeys) {
+                if (connection !== owner) return
+                val context = appContext ?: return
                 manager = input
                 listener = registered
+                context
             }
             runCatching {
                 // With CarPlay audio on the car's Bluetooth, the head unit's own AVRCP already drives
@@ -113,22 +143,32 @@ internal object GeelyWheelKeys {
                 input.registerListener(registered, context.packageName, codes)
                 codes
             }
-                .onSuccess { Log.i(TAG, "registered for wheel key codes=${it.joinToString()}") }
+                .onSuccess {
+                    val active = synchronized(this@GeelyWheelKeys) {
+                        connection === owner && listener === registered
+                    }
+                    if (active) {
+                        Log.i(TAG, "registered for wheel key codes=${it.joinToString()}")
+                    } else {
+                        runCatching { input.unregisterListener(registered, context.packageName) }
+                    }
+                }
                 .onFailure { Log.w(TAG, "registerListener failed", it) }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            val retry: Boolean
             synchronized(this@GeelyWheelKeys) {
+                if (connection !== this || appContext == null) return
                 manager = null
                 listener = null
-                retry = appContext != null
-            }
-            if (retry) {
+                val owner = this
                 // The car service is persistent; rebind shortly after an unexpected drop.
                 handler.postDelayed({
                     synchronized(this@GeelyWheelKeys) {
-                        if (appContext != null && manager == null) {
+                        val context = appContext
+                        if (connection === owner && context != null && manager == null) {
+                            connection = null
+                            if (bound) runCatching { context.unbindService(owner) }
                             bound = false
                             bindLocked()
                         }

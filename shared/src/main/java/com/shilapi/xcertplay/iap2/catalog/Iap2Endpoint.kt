@@ -143,6 +143,8 @@ object Iap2Endpoints {
                     field(2, "MaxCurrentRoadNameLength", Iap2WireType.U16),
                     field(4, "MaxAfterManeuverRoadNameLength", Iap2WireType.U16),
                     field(6, "MaxGuidanceManeuverStorageCapacity", Iap2WireType.U16),
+                    field(7, "MaxLaneGuidanceInfoLength", Iap2WireType.U16),
+                    field(8, "MaxLaneGuidanceInfoStorageCapacity", Iap2WireType.U16),
                 ),
             ),
         ),

@@ -74,7 +74,15 @@ internal class RouteGuidanceState(
         )
     }
 
+    var arrived = false
+        private set
+
+    fun diagnostics(): String = "routeActive=$routeActive arrived=$arrived index=$activeIndex " +
+        "updateAgeMs=${lastRouteUpdateNs?.let { (nanoTime() - it) / 1_000_000 } ?: -1} " +
+        "emptyListAgeMs=${emptyListSinceNs?.let { (nanoTime() - it) / 1_000_000 } ?: -1}"
+
     fun clear(): Boolean {
+        arrived = false
         val wasActive = routeActive
         routeActive = false
         activeIndex = -1
@@ -148,7 +156,9 @@ internal class RouteGuidanceState(
         // Only NoRouteSet (0) and Arrived (2) end the route. A wireless handoff often sends
         // NoRouteSet while the session is still coming back — keep the overlay instruction then.
         if (state == 0 || state == 2) {
-            return if (clear()) RouteGuidanceChange.CLEAR else RouteGuidanceChange.NONE
+            val wasActive = clear()
+            arrived = state == 2
+            return if (wasActive || arrived) RouteGuidanceChange.CLEAR else RouteGuidanceChange.NONE
         }
         // The iPhone briefly sends an empty current list every few seconds and while rerouting. Keep the last
         // maneuver (and the cached 0x5202 details, which are never resent) and hide it only if the list stays
@@ -158,6 +168,7 @@ internal class RouteGuidanceState(
             return RouteGuidanceChange.NONE
         }
         if (firstManeuver != null) emptyListSinceNs = null
+        if (state != null || firstManeuver != null) arrived = false
         if (state != null) routeActive = true
         if (firstManeuver != null) {
             activeIndex = firstManeuver!!

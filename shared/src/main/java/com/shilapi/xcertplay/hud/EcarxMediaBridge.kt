@@ -196,6 +196,11 @@ internal object EcarxMediaBridge {
             return@synchronized
         }
         val now = wanted ?: return@synchronized
+        // clearAll() sends the complete default frame; paused or untitled tracks retain metadata.
+        if (now == CarPlayNowPlaying()) {
+            if (pushed != null) clearLocked(handle)
+            return@synchronized
+        }
         secondsSincePush += 1
         val info = frameFor(now)
         if (info != pushed || secondsSincePush >= KEEPALIVE_SECONDS) {

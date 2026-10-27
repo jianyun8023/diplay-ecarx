@@ -65,22 +65,28 @@ object EcarxSwKeyIntercept {
     fun register(context: Context, listener: Listener, label: String = "app"): Handle? {
         val input = createInput(context) ?: return null
         val callbackClass = callbackClass() ?: return null
+        val request = lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
+            ?: run {
+                Log.i(TAG, "requestKeysInterception unavailable")
+                return null
+            }
+        val callbackHandler = CallbackHandler(listener)
         val proxy = Proxy.newProxyInstance(
             callbackClass.classLoader,
             arrayOf(callbackClass),
-            CallbackHandler(listener),
+            callbackHandler,
         )
         val refused = runCatching {
-            lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
-                ?.invoke(input, oneOsKey, proxy) as? IntArray
+            request.invoke(input, oneOsKey, proxy) as? IntArray
         }.getOrElse {
+            callbackHandler.deactivate()
             Log.i(TAG, "requestKeysInterception failed: ${describe(it)}")
             return null
         }
         // The reference app treats a non-throwing call as accepted, but the returned int[] is the
         // ROM's actual answer: it lists the keys it refused, and a refused voice key is exactly what
         // leaves the factory HMI still answering the same press. Keep it, do not drop it on the floor.
-        val handle = Handle(input, proxy, callbackClass, label, refused) { inputObj, callbackObj ->
+        val handle = Handle(input, proxy, callbackHandler::deactivate, label, refused) { inputObj, callbackObj ->
             runCatching {
                 lookup(inputObj, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
                     ?.invoke(inputObj, oneOsKey, callbackObj)
@@ -94,13 +100,14 @@ object EcarxSwKeyIntercept {
     class Handle internal constructor(
         private val input: Any,
         private val callback: Any,
-        private val callbackClass: Class<*>,
+        private val deactivate: () -> Boolean,
         val label: String,
         /** The keys the ROM refused to intercept, or null when it accepted the whole set. */
         val refused: IntArray?,
         private val release: (Any, Any) -> Boolean,
     ) {
         fun release() {
+            if (!deactivate()) return
             runCatching { release(input, callback) }
         }
 
@@ -156,9 +163,19 @@ object EcarxSwKeyIntercept {
     }
 
     private class CallbackHandler(private val listener: Listener) : InvocationHandler {
+        private var active = true
+
+        @Synchronized
+        fun deactivate(): Boolean {
+            if (!active) return false
+            active = false
+            return true
+        }
+
+        @Synchronized
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
-            "onKeyPressed" -> listener.onKeyPressed((args?.firstOrNull() as? Int) ?: -1)
-            "onKeyReleased" -> listener.onKeyReleased((args?.firstOrNull() as? Int) ?: -1)
+            "onKeyPressed" -> active && listener.onKeyPressed((args?.firstOrNull() as? Int) ?: -1)
+            "onKeyReleased" -> active && listener.onKeyReleased((args?.firstOrNull() as? Int) ?: -1)
             "toString" -> "EcarxSwKeyCallback"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()

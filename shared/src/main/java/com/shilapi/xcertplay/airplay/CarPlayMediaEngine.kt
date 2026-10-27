@@ -31,6 +31,8 @@ interface MediaSink {
     fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {}
     fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {}
     fun onAudioStopped(id: AudioStreamId) {}
+    fun onAudioDuck(ducked: Boolean) {}
+    fun onAudioDuckSessionClosed() { onAudioDuck(false) }
     fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {}
     fun onMicrophoneStopped(id: AudioStreamId) {}
     fun onIapMessage(bytes: ByteArray) {}
@@ -90,6 +92,8 @@ class CarPlayMediaEngine(
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
     private val videoSettingsChannels = ConcurrentHashMap<AirPlaySession, VideoSettingsChannel>()
     private val bufferedStreams = ConcurrentHashMap<AirPlaySession, BufferedStream>()
+    private val duckOwnershipLock = Any()
+    private var duckingSession: AirPlaySession? = null
     private val microphoneScheduler by lazy {
         ScheduledThreadPoolExecutor(1) { task -> Thread(task, "carplay-mic-start").apply { isDaemon = true } }.apply {
             removeOnCancelPolicy = true
@@ -132,7 +136,7 @@ class CarPlayMediaEngine(
         val screen = ScreenStream(key, session::logDebug)
         sink.setVideoDiagnosticHandler(type) {
             if (it == "first frame rendered") session.videoFrameRendered()
-            session.logDebug("Video: $it")
+            session.logDebug("Video: $it stream=$type")
         }
         sink.setVideoRecoveryHandler(type) {
             if (streams[streamKey] === screen) {
@@ -531,7 +535,23 @@ class CarPlayMediaEngine(
         if (isScreenStreamType(type)) sink.onScreenStreamActive(type, false)
     }
 
+    override fun onDuckAudio(session: AirPlaySession, ducked: Boolean, durationMs: Int?, volume: Float?) {
+        synchronized(duckOwnershipLock) {
+            if (session.isClosed) return
+            if (ducked) duckingSession = session
+            // Old control sessions must not release a newer session's navigation prompt.
+            if (duckingSession !== session) return
+            sink.onAudioDuck(ducked)
+        }
+    }
+
     override fun onSessionClosed(session: AirPlaySession) {
+        synchronized(duckOwnershipLock) {
+            if (duckingSession === session) {
+                duckingSession = null
+                sink.onAudioDuckSessionClosed()
+            }
+        }
         clearPendingIapTunnel(session)
         retireBuffered(session)
         videoSettingsChannels.remove(session)?.close()

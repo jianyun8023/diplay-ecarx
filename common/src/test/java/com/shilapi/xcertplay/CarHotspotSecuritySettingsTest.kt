@@ -35,6 +35,22 @@ class CarHotspotSecuritySettingsTest {
         AirPlayPersistence.saveManualHotspotPassphrase(app, "12345678")
     }
 
+    @Test fun clickingAnAlreadyFocusedFieldRequestsInputWithoutRecordingItsContents() {
+        val dialog = editCredentials()
+        val editor = inputs(dialog)[0]
+        editor.setText("never-export-this-name")
+        editor.performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(editor.hasFocus())
+        assertEquals(0, dialog.window!!.attributes.flags and
+            (android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM or android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE))
+        val diagnostic = app.getSharedPreferences("diplay_input_diagnostics", 0).getString("last", "")!!
+        assertTrue(diagnostic.contains("field=0"))
+        assertTrue(diagnostic.contains("focused=true"))
+        assertFalse(diagnostic.contains("never-export-this-name"))
+        dialog.dismiss()
+    }
+
     @Test fun editingCredentialsPreservesSavedWpa3Modes() {
         for (mode in listOf(ManualHotspotSecurity.WPA3, ManualHotspotSecurity.WPA3_TRANSITION)) {
             AirPlayPersistence.saveManualHotspotSecurity(app, mode)

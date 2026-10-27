@@ -39,14 +39,20 @@ internal class EcarxClusterPresentation(
 ) : Presentation(context, display) {
 
     private var texture: ClusterVideoTexture? = null
+    private var closed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // `onPresented` is left at its default: nothing here needs a per-frame callback, and an
         // empty lambda at this call site would add a class to the dex for no behaviour at all.
-        val view = ClusterVideoTexture(context, onSurface = onSurface)
+        val view = ClusterVideoTexture(context, onSurface = this::onTextureSurface)
         texture = view
         setContentView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun onTextureSurface(surface: Surface?) {
+        // A captured TextureView listener can outlive this window; it must not reach a new owner.
+        if (closed) surface?.release() else onSurface(surface)
     }
 
     override fun onStop() {
@@ -54,6 +60,7 @@ internal class EcarxClusterPresentation(
         // stops being pointed at a window that is about to disappear, rather than at a dead surface.
         texture?.close()
         texture = null
+        closed = true
         super.onStop()
     }
 }

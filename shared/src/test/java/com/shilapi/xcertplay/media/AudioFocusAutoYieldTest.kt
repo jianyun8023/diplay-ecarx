@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -156,6 +157,43 @@ class AudioFocusAutoYieldTest {
         assertSame(abandoned, shadowOf(manager).lastAbandonedAudioFocusRequest)
         assertEquals(listOf(0f), volumes(first))
         assertTrue(volumes(late).isEmpty())
+    }
+
+    @Test fun navigationSessionReleaseDoesNotClearMediaPhoneOrAssistantFocus() {
+        for (channel in listOf(AudioChannel.MEDIA, AudioChannel.PHONE, AudioChannel.ASSISTANT)) {
+            val sink = AndroidMediaSink(context = context, audioFocusEnabled = true,
+                navigationPromptAudioFocus = true)
+            try {
+                val coordinator = AndroidMediaSink::class.java.getDeclaredField("audioFocusCoordinator")
+                    .apply { isAccessible = true }.get(sink) as AudioFocusCoordinator
+                val active = track()
+                coordinator.acquire(active, channel, attributes)
+                val primary = shadowOf(manager).lastAudioFocusRequest
+                sink.onAudioDuck(true)
+                val prompt = shadowOf(manager).lastAudioFocusRequest
+                assertNotSame(primary, prompt)
+                coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+                val beforeRelease = volumes(active).toList()
+                sink.onAudioDuckSessionClosed()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    assertSame(prompt.audioFocusRequest, shadowOf(manager).lastAbandonedAudioFocusRequest)
+                } else {
+                    assertSame(prompt.listener, shadowOf(manager).lastAbandonedAudioFocusListener)
+                }
+                assertEquals(beforeRelease, volumes(active))
+                // The real coordinator still owns its request and handles Android's later gain.
+                sink.onMediaAudioFocusChanged(AudioManager.AUDIOFOCUS_GAIN)
+                assertEquals(if (channel == AudioChannel.MEDIA) listOf(0f, 1f) else emptyList<Float>(), volumes(active))
+                coordinator.release(active)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    assertSame(primary.audioFocusRequest, shadowOf(manager).lastAbandonedAudioFocusRequest)
+                } else {
+                    assertSame(primary.listener, shadowOf(manager).lastAbandonedAudioFocusListener)
+                }
+            } finally {
+                sink.close()
+            }
+        }
     }
 
     private fun coordinator(enabled: Boolean = true, autoYield: Boolean = true) =

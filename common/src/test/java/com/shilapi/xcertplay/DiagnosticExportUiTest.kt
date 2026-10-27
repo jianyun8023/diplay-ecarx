@@ -53,6 +53,8 @@ class DiagnosticExportUiTest {
             assertTrue(descendants(saved.window!!.decorView).filterIsInstance<TextView>()
                 .any { it.text.contains(file.absolutePath) })
             assertTrue(file.readText().contains("Android 9 / API 28"))
+            assertTrue(file.readText().contains("ECARX outputs (no ADB required)"))
+            assertTrue(file.readText().contains("framesSinceProcessStart(route/maneuver/lane/invalidLane)="))
             saved.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
             shadowOf(Looper.getMainLooper()).idle()
             val viewer = ShadowAlertDialog.getLatestAlertDialog()

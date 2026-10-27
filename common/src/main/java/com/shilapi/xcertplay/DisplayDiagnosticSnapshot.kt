@@ -9,7 +9,8 @@ import java.util.UUID
 /** Small, redacted snapshot retained separately from the rotating session logs. */
 internal object DisplayDiagnosticSnapshot {
     private const val PREFS = "diplay_display_diagnostics"
-    private val fields = listOf("selection", "request", "capability", "effective", "phone", "decoder", "output")
+    private val fields = listOf("selection", "request", "capability", "effective", "phone", "decoder", "output",
+        "cluster_decoder", "cluster_output", "render")
     private fun stamp() = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
 
     @Synchronized
@@ -41,8 +42,10 @@ internal object DisplayDiagnosticSnapshot {
         if (attempt == null || prefs.getString("attempt", null) != attempt) return
         val field = when {
             message.startsWith("Phone display peer ") -> "phone"
-            message.startsWith("Video: decoder=") || message.startsWith("Video: decoder configuration failed") -> "decoder"
-            message.startsWith("Video: output format ") -> "output"
+            message.startsWith("Video: decoder=") || message.startsWith("Video: decoder configuration failed") ->
+                if (message.endsWith(" stream=111")) "cluster_decoder" else "decoder"
+            message.startsWith("Video: output format ") -> if (message.endsWith(" stream=111")) "cluster_output" else "output"
+            message.startsWith("Video render ") -> "render"
             else -> return
         }
         val safe = DiagnosticRedactor.redact(message) ?: return

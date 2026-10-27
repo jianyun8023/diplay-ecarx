@@ -63,7 +63,10 @@ object NavigationOutputs {
         // Gated on the card's own switch, same as [onAppOpened] and [start]. This is also the path
         // that turns the card back on, so it has to stay a plain check rather than a removal.
         if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
-        if (EcarxOutputSettings.enabled(app)) ecarx.start { EcarxHudBridge.initialize(app) } else ecarx.clear()
+        if (EcarxOutputSettings.enabled(app)) {
+            ecarx.start { EcarxHudBridge.initialize(app) }
+            ecarx.submit(EcarxHudBridge::settingsChanged)
+        } else ecarx.clear()
     }
 
     /**
@@ -73,6 +76,19 @@ object NavigationOutputs {
      * channels behind different switches, and a fault in one must not take the other down.
      */
     fun onNowPlaying(now: CarPlayNowPlaying) = EcarxMediaBridge.onNowPlaying(now)
+
+    /** Validate the phone's plist once; the bridge receives a typed navigation state. */
+    internal fun onModesChanged(params: Map<String, Any?>) {
+        val states = params["appStates"] as? List<*> ?: return
+        for (value in states) {
+            val state = value as? Map<*, *> ?: continue
+            if ((state["appStateID"] as? Number)?.toInt() != 3) continue
+            val entity = (state["entity"] as? Number)?.toInt() ?: continue
+            if (entity == 0 || entity == 1) {
+                if (useEcarx) ecarx.submit { EcarxHudBridge.navigationChanged(entity == 1) }
+            }
+        }
+    }
 
     /**
      * Routes the cluster bridges' own lines into the session report. Called once the session log
@@ -96,12 +112,13 @@ object NavigationOutputs {
      * exists because [EcarxHudBridge] is internal to this module while the activity is not.
      */
     fun setClusterPanelOwner(owner: ((Boolean) -> Unit)?) {
-        EcarxHudBridge.clusterPresentationRequested = owner
+        EcarxHudBridge.setPanelOwner(owner)
     }
 
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_UPDATE &&
-            frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE
+            frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE &&
+            frame.messageId != 0x5204
         ) {
             return
         }

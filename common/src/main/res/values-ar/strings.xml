@@ -796,4 +796,12 @@
     <string name="settings_hotspot_interface">واجهة نقطة الاتصال (اختياري)</string>
     <string name="settings_hotspot_interface_description">لوحدات الرأس التي تشغّل نقطة الاتصال على واجهة شبكة لا يبلّغ عنها أندرويد كنقطة اتصال Wi-Fi، مثل eth0.3 في بعض وحدات Geely وLynk &amp; Co وغيرها من وحدات Qualcomm. اتركه فارغاً للعثور عليها تلقائياً.</string>
     <string name="settings_gesture_fingers_hint">اختر عدد أصابع لا يستخدمه جهاز الوسائط لديك بالفعل. بعض الأجهزة تحتفظ بالسحب لأسفل بثلاثة أصابع للوحة التكييف.</string>
+    <string name="settings_ecarx_lane_guidance">إرشاد المسارات على شاشة العدادات (تجريبي)</string>
+    <string name="settings_ecarx_lane_guidance_description">اعرض إرشاد مسارات CarPlay على شاشة العدادات أثناء التنقل. يعتمد توفره على وحدة السيارة. يسري التغيير فورًا.</string>
+    <string name="settings_ecarx_cluster_safe_area">المنطقة الآمنة لشاشة العدادات</string>
+    <string name="settings_ecarx_cluster_safe_area_description">اسحب الحدود لإبعاد محتوى الخريطة عن قراءات العدادات. تعيد إعادة الضبط المنطقة الأصلية. تُطبّق التغييرات بعد الحفظ وإعادة الاتصال.</string>
+    <string name="settings_ecarx_cluster_safe_area_default">افتراضي</string>
+    <string name="settings_ecarx_cluster_safe_area_custom">مخصص</string>
+    <string name="settings_navigation_prompt_audio_focus">التركيز الصوتي لإرشادات الملاحة</string>
+    <string name="settings_navigation_prompt_audio_focus_description">يطلب التركيز الصوتي من وحدة السيارة أثناء إرشادات ملاحة iPhone حتى تتمكن مصادر الصوت الأخرى من خفض مستوى الصوت مؤقتًا. يعتمد التأثير الفعلي على وحدة السيارة. يُطبّق بعد إعادة الاتصال.</string>
 </resources>

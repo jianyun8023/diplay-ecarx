@@ -876,4 +876,12 @@
     <string name="setup_guide_description">接続方法を選び、お使いの車に合った機能をオンにします。</string>
     <string name="wheel_joystick_description">車載機のメディアキーで、車のロータリーノブのように CarPlay のセンター画面用ジョイスティックをオン／オフできます。オンの間は、音量ローラーまたは前／次キーで選択を移動、再生／一時停止で決定、カスタムキーで戻ります。これらのキーは音楽と音量を操作しなくなります。通話中はキーは通話に使われます。車種によってはセンターコンソールの音量でも選択が移動します。</string>
     <string name="wheel_map_zoom_description">メーターに CarPlay の地図を表示している間、車載機のカスタムキーで音量キーを音量と地図ズームの間で切り替えます。通話中は常に音量を調整します。車種によってはセンターコンソールの音量が同じキーを送るため、ズーム中はそちらもズームします。DiPlay のステアリングキーサービスを使用します。メーター上の案内には ADB が必要です。</string>
+    <string name="settings_ecarx_lane_guidance">メーターの車線案内（実験的機能）</string>
+    <string name="settings_ecarx_lane_guidance_description">ナビゲーション中に CarPlay の車線案内をメーターに表示します。利用可否は車載機によって異なります。変更はすぐに反映されます。</string>
+    <string name="settings_ecarx_cluster_safe_area">メーターパネルのセーフエリア</string>
+    <string name="settings_ecarx_cluster_safe_area_description">境界をドラッグして、地図がメーター表示に重ならないように調整します。リセットすると元の領域に戻ります。保存して再接続すると適用されます。</string>
+    <string name="settings_ecarx_cluster_safe_area_default">既定</string>
+    <string name="settings_ecarx_cluster_safe_area_custom">カスタム</string>
+    <string name="settings_navigation_prompt_audio_focus">ナビ案内のオーディオフォーカス</string>
+    <string name="settings_navigation_prompt_audio_focus_description">iPhone のナビ案内中に車載機へオーディオフォーカスを要求し、他の音源の音量を一時的に下げられるようにします。実際の動作は車載機によって異なります。再接続後に適用されます。</string>
 </resources>

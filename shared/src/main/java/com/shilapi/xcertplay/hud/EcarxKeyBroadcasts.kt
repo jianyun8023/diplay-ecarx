@@ -19,30 +19,41 @@ object EcarxKeyBroadcasts {
     private const val ACTION_CALL = "ecarx.intent.action.ECARX_KEY_RCALL_EVENT"
 
     /** Registers the voice-key broadcast; [onPress] runs on the broadcast's thread. */
-    fun registerVoice(context: Context, onPress: () -> Unit): BroadcastReceiver {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.action != ACTION_VOICE) return
-                abortBroadcast()
-                onPress()
-            }
-        }
-        val filter = IntentFilter(ACTION_VOICE).apply { priority = IntentFilter.SYSTEM_HIGH_PRIORITY }
+    fun registerVoice(context: Context, onPress: () -> Unit): BroadcastReceiver =
+        register(context, ACTION_VOICE, onPress)
+
+    /** Registers the call-key broadcast; [onPress] runs on the broadcast's thread. */
+    fun registerCall(context: Context, onPress: () -> Unit): BroadcastReceiver =
+        register(context, ACTION_CALL, onPress)
+
+    /** Invalidates local delivery before asking Android to unregister, including when that fails. */
+    fun unregister(context: Context, receiver: BroadcastReceiver) {
+        if (receiver is KeyReceiver && !receiver.stop()) return
+        context.unregisterReceiver(receiver)
+    }
+
+    private fun register(context: Context, action: String, onPress: () -> Unit): BroadcastReceiver {
+        val receiver = KeyReceiver(action, onPress)
+        val filter = IntentFilter(action).apply { priority = IntentFilter.SYSTEM_HIGH_PRIORITY }
         context.registerReceiver(receiver, filter)
         return receiver
     }
 
-    /** Registers the call-key broadcast; [onPress] runs on the broadcast's thread. */
-    fun registerCall(context: Context, onPress: () -> Unit): BroadcastReceiver {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.action != ACTION_CALL) return
-                abortBroadcast()
-                onPress()
-            }
+    private class KeyReceiver(private val action: String, private val onPress: () -> Unit) : BroadcastReceiver() {
+        private var active = true
+
+        @Synchronized
+        fun stop(): Boolean {
+            if (!active) return false
+            active = false
+            return true
         }
-        val filter = IntentFilter(ACTION_CALL).apply { priority = IntentFilter.SYSTEM_HIGH_PRIORITY }
-        context.registerReceiver(receiver, filter)
-        return receiver
+
+        @Synchronized
+        override fun onReceive(ctx: Context, intent: Intent) {
+            if (!active || intent.action != action) return
+            abortBroadcast()
+            onPress()
+        }
     }
 }

@@ -764,4 +764,12 @@
     <string name="settings_hotspot_interface">Interfaz del punto de acceso (opcional)</string>
     <string name="settings_hotspot_interface_description">Solo para unidades que ejecutan su punto de acceso en una interfaz de red que Android no informa como punto de acceso Wi-Fi, por ejemplo eth0.3 en algunas unidades Geely, Lynk &amp; Co y otros Qualcomm. Déjalo vacío para encontrarla automáticamente.</string>
     <string name="settings_gesture_fingers_hint">Elige un número de dedos que el equipo de tu coche no use ya. Algunos equipos reservan el deslizamiento hacia abajo con tres dedos para el panel de climatización.</string>
+    <string name="settings_ecarx_lane_guidance">Guía de carriles en el cuadro (experimental)</string>
+    <string name="settings_ecarx_lane_guidance_description">Muestra la guía de carriles de CarPlay en el cuadro de instrumentos durante la navegación. La disponibilidad depende del vehículo. Se aplica de inmediato.</string>
+    <string name="settings_ecarx_cluster_safe_area">Área segura del cuadro de instrumentos</string>
+    <string name="settings_ecarx_cluster_safe_area_description">Arrastra los bordes para evitar que el mapa se solape con los indicadores. Restablecer recupera el área original. Los cambios se aplican tras guardar y volver a conectar.</string>
+    <string name="settings_ecarx_cluster_safe_area_default">Predeterminada</string>
+    <string name="settings_ecarx_cluster_safe_area_custom">Personalizada</string>
+    <string name="settings_navigation_prompt_audio_focus">Foco de audio de indicaciones de navegación</string>
+    <string name="settings_navigation_prompt_audio_focus_description">Solicita el foco de audio del equipo del coche durante las indicaciones del iPhone para que otras fuentes puedan bajar el volumen temporalmente. El efecto depende del equipo. Se aplica al volver a conectar.</string>
 </resources>

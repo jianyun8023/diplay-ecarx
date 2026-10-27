@@ -84,10 +84,14 @@ internal object CarPlayMediaKeys {
             onIphonePlaying(next, playing)
         }
         next.nowPlayingListener = { update ->
-            onNowPlayingChanged(next)
-            // The same metadata the car's media session shows is what an ECARX cluster's media card
-            // wants, so it is forwarded from here rather than read a second time off the controller.
-            NavigationOutputs.onNowPlaying(update)
+            synchronized(this) {
+                if (controller === next) {
+                    onNowPlayingChanged(next)
+                    // The same metadata the car's media session shows is what an ECARX cluster's media card
+                    // wants, so it is forwarded from here rather than read a second time off the controller.
+                    NavigationOutputs.onNowPlaying(update)
+                }
+            }
         }
         next.artworkListener = { id, bytes -> onArtworkChanged(next, id, bytes) }
         val retained = next.nowPlayingSnapshot()

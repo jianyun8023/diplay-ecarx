@@ -9,6 +9,7 @@ Record the exact candidate APK and each untested setup before a release.
 ## Host unit tests
 
 Run the complete unit-test, lint and debug-build command in [AGENTS.md](../AGENTS.md).
+For ECARX software fixtures, targeted commands, offline/JDK 25 setup and the remaining structured-lane gap, see [ECARX testing](ECARX_TESTING.md).
 The USB permission command tests need a POSIX shell: `sh` on Linux/macOS, or Git for Windows.
 On Windows the tests find the standard `%ProgramFiles%/Git/bin/sh.exe` installation automatically;
 set `DIPLAY_TEST_SHELL` to the executable path for a custom installation.

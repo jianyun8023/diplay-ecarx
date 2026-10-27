@@ -438,9 +438,14 @@ class CarPlayController(
             // The iPhone sends duckAudio/unduckAudio right before/after a navigation prompt. Acting
             // on them directly avoids the 2-3 s lag of Android's focus callback on 820A (the prompt
             // finished before the media ducked); the focus callback remains as a backstop.
-            when (type) {
-                "duckAudio" -> media.onDuckAudio(session, true, duckDurationMs, duckVolume)
-                "unduckAudio" -> media.onDuckAudio(session, false, duckDurationMs, duckVolume)
+            val current = activeSession
+            if (current === session && type == "modesChanged") NavigationOutputs.onModesChanged(params)
+            // RECORD replaces the active session without closing its old control connection.
+            if (current == null || current === session) {
+                when (type) {
+                    "duckAudio" -> media.onDuckAudio(session, true, duckDurationMs, duckVolume)
+                    "unduckAudio" -> media.onDuckAudio(session, false, duckDurationMs, duckVolume)
+                }
             }
             if (
                 config.transport == CarPlayTransport.WIRELESS &&
