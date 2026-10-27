@@ -8,6 +8,7 @@ import android.os.Looper
 import com.shilapi.xcertplay.airplay.*
 import com.shilapi.xcertplay.network.*
 import com.shilapi.xcertplay.orchestration.*
+import com.shilapi.xcertplay.transport.LockdownPairingException
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import org.junit.Assert.*
 import org.junit.Test
@@ -26,11 +27,11 @@ import java.util.concurrent.atomic.AtomicInteger
 @LooperMode(LooperMode.Mode.PAUSED)
 class WirelessStartupControllerTest {
     private val statuses = mutableListOf<CarPlayStatus>()
-    private fun controller() = CarPlayController(object : ContextWrapper(RuntimeEnvironment.getApplication()) {
+    private fun controller(transport: CarPlayTransport = CarPlayTransport.WIRELESS) = CarPlayController(object : ContextWrapper(RuntimeEnvironment.getApplication()) {
         override fun getApplicationContext(): Context = this
         override fun bindService(service: Intent, conn: ServiceConnection, flags: Int): Boolean = false
     },
-        CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL, transport = CarPlayTransport.WIRELESS,
+        CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL, transport = transport,
             identification = Iap2IdentificationConfig(name = "test", modelIdentifier = "test", manufacturer = "test",
                 serialNumber = "test", firmwareVersion = "1", hardwareVersion = "1", carPlayUsbInterfaceNumber = 3)),
         AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480)),
@@ -40,6 +41,48 @@ class WirelessStartupControllerTest {
     private fun fail(controller: CarPlayController, generation: Int, error: Throwable) {
         controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
             .apply { isAccessible = true }.invoke(controller, error, generation)
+    }
+
+    @Test fun queuedTrustStatusAndCancellationCannotEscapeClosedController() {
+        val controller = controller(CarPlayTransport.WIRED)
+        controller.javaClass.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaObjectType)
+            .apply { isAccessible = true }.invoke(controller, CarPlayStatus.WaitingForIphoneTrust, null)
+        controller.close()
+        controller.awaitClosed(2_000)
+        fail(controller, 0, LockdownPairingException.Cancelled)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(statuses.isEmpty())
+    }
+
+    @Test fun wiredPairingFailuresRemainTypedThroughWrappedExceptions() {
+        val cases = listOf(
+            LockdownPairingException.UserDeniedPairing to UsbPairingFailure.TRUST_REFUSED,
+            LockdownPairingException.PasswordProtected to UsbPairingFailure.PHONE_LOCKED,
+            LockdownPairingException.TimedOut to UsbPairingFailure.TIMED_OUT,
+            LockdownPairingException.Cancelled to UsbPairingFailure.CANCELLED,
+        )
+        for ((error, reason) in cases) {
+            statuses.clear()
+            val controller = controller(CarPlayTransport.WIRED)
+            try {
+                fail(controller, 0, IOException("USB pairing failed", error))
+                fail(controller, 0, IOException("USB cleanup failed"))
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(reason, (statuses.single() as CarPlayStatus.Failed).usbPairingFailure)
+            } finally { controller.close(); controller.awaitClosed(2_000) }
+        }
+    }
+
+    @Test fun androidUsbDenialAndDeadTransportAreNotPhoneTrustFailures() {
+        for (error in listOf(SecurityException("USB permission denied"), IOException("USB device disconnected"))) {
+            statuses.clear()
+            val controller = controller(CarPlayTransport.WIRED)
+            try {
+                fail(controller, 0, error)
+                shadowOf(Looper.getMainLooper()).idle()
+                assertNull((statuses.single() as CarPlayStatus.Failed).usbPairingFailure)
+            } finally { controller.close(); controller.awaitClosed(2_000) }
+        }
     }
 
     @Test fun timeoutAndCleanupExceptionProduceOnlyOneTypedFailure() {

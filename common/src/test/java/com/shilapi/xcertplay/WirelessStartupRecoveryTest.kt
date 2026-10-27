@@ -8,6 +8,7 @@ import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.network.WirelessStartupException
 import com.shilapi.xcertplay.network.WirelessStartupFailure
+import com.shilapi.xcertplay.orchestration.UsbPairingFailure
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import com.shilapi.xcertplay.transport.BluetoothLinkCheck
 import com.shilapi.xcertplay.transport.BluetoothRadioCheck
@@ -17,11 +18,13 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter.from
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
@@ -50,6 +53,64 @@ class WirelessStartupRecoveryTest {
         ReflectionHelpers.callInstanceMethod<(CarPlayStatus) -> Unit>(activity, "createStatusReporter",
             from(Int::class.javaPrimitiveType, generation))(status)
     }
+    @Test fun phoneTrustOutcomesStopRetriesAndPreserveActionableCopyAfterCleanup() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        for ((generation, reason) in UsbPairingFailure.entries.withIndex()) {
+            ReflectionHelpers.setField(activity, "restartGeneration", generation)
+            ReflectionHelpers.setField(activity, "startupRetryStopped", false)
+            report(generation, CarPlayStatus.Failed("permission denied", usbPairingFailure = reason))
+            assertEquals(activity.getString(ConnectionFailureGuidance.pairingMessage(reason)), stage.text.toString())
+            assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+            assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+            assertEquals(View.VISIBLE, retry.visibility)
+            report(generation, CarPlayStatus.Failed("USB socket closed"))
+            assertEquals(activity.getString(ConnectionFailureGuidance.pairingMessage(reason)), stage.text.toString())
+            assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        }
+    }
+
+    @Test fun terminalTrustFailureCancelsAnAlreadyQueuedTransportRetry() {
+        report(status = CarPlayStatus.Failed("USB read failed"))
+        assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        report(status = CarPlayStatus.Failed("refused", usbPairingFailure = UsbPairingFailure.TRUST_REFUSED))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertEquals(0, ReflectionHelpers.getField<Int>(activity, "restartGeneration"))
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+    }
+
+    @Test fun pendingTrustIsShownOnlyForExplicitPendingStatus() {
+        val stage = TextView(activity)
+        ReflectionHelpers.setField(activity, "stageStatusView", stage)
+        report(status = CarPlayStatus.Pairing)
+        assertNotEquals(activity.getString(R.string.usb_trust_waiting), stage.text.toString())
+        report(status = CarPlayStatus.WaitingForIphoneTrust)
+        assertEquals(activity.getString(R.string.usb_trust_waiting), stage.text.toString())
+        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+    }
+
+    @Test fun menuKeepsTypedTrustFailureInsteadOfCleanupAndOldReportersAreIgnored() {
+        ReflectionHelpers.setField(activity, "menuOpen", true)
+        val refused = CarPlayStatus.Failed("refused", usbPairingFailure = UsbPairingFailure.TRUST_REFUSED)
+        report(status = refused)
+        report(status = CarPlayStatus.Failed("USB closed"))
+        assertEquals(refused, ReflectionHelpers.getField<CarPlayStatus.Failed>(activity, "failurePendingAfterMenu"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        ReflectionHelpers.setField(activity, "menuOpen", false)
+        report(status = refused)
+        assertEquals(View.VISIBLE, retry.visibility)
+        ReflectionHelpers.setField(activity, "restartGeneration", 1)
+        ReflectionHelpers.setField(activity, "startupRetryStopped", false)
+        retry.visibility = View.GONE
+        report(0, refused)
+        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        report(1, CarPlayStatus.Failed("USB device disconnected"))
+        assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+    }
+
     private fun budget() = ReflectionHelpers.getField<WirelessStartupRetryBudget>(activity, "startupRetryBudget")
 
     @Test fun duplicateFailureAndCleanupErrorScheduleOnlyOneRetry() {

@@ -884,4 +884,9 @@
     <string name="settings_ecarx_cluster_safe_area_custom">カスタム</string>
     <string name="settings_navigation_prompt_audio_focus">ナビ案内のオーディオフォーカス</string>
     <string name="settings_navigation_prompt_audio_focus_description">iPhone のナビ案内中に車載機へオーディオフォーカスを要求し、他の音源の音量を一時的に下げられるようにします。実際の動作は車載機によって異なります。再接続後に適用されます。</string>
+    <string name="usb_trust_waiting">iPhone の信頼確認を待っています。ロックを解除し、確認が表示されたら「信頼」をタップしてください。</string>
+    <string name="usb_trust_refused">iPhone で信頼が拒否されました。接続するにはロックを解除して「再試行」をタップし、確認が表示されたら「信頼」を選んでください。</string>
+    <string name="usb_trust_phone_locked">iPhone のロックを解除し、「再試行」をタップして USB でペアリングしてください。</string>
+    <string name="usb_trust_timed_out">USB ペアリングがタイムアウトしました。ロック解除済みの iPhone で信頼の確認を確認し、「再試行」をタップしてください。</string>
+    <string name="usb_trust_cancelled">USB ペアリングがキャンセルされました。接続の準備ができたら「再試行」をタップしてください。</string>
 </resources>

@@ -844,4 +844,9 @@
     <string name="settings_ecarx_cluster_safe_area_custom">Personalizzata</string>
     <string name="settings_navigation_prompt_audio_focus">Focus audio delle indicazioni di navigazione</string>
     <string name="settings_navigation_prompt_audio_focus_description">Richiede il focus audio dell’unità dell’auto durante le indicazioni dell’iPhone, per consentire alle altre sorgenti di abbassare temporaneamente il volume. L’effetto dipende dall’unità. Si applica dopo la riconnessione.</string>
+    <string name="usb_trust_waiting">In attesa della conferma di fiducia su iPhone. Sbloccalo e tocca Autorizza se richiesto.</string>
+    <string name="usb_trust_refused">Autorizzazione rifiutata su iPhone. Per connetterti, sbloccalo e tocca Riprova, poi scegli Autorizza se richiesto.</string>
+    <string name="usb_trust_phone_locked">Sblocca iPhone, poi tocca Riprova per abbinarlo tramite USB.</string>
+    <string name="usb_trust_timed_out">Tempo scaduto per abbinamento USB. Controlla la richiesta di autorizzazione su iPhone sbloccato, poi tocca Riprova.</string>
+    <string name="usb_trust_cancelled">Abbinamento USB annullato. Tocca Riprova quando vuoi connetterti.</string>
 </resources>

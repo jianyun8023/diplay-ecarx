@@ -772,4 +772,9 @@
     <string name="settings_ecarx_cluster_safe_area_custom">Personalizada</string>
     <string name="settings_navigation_prompt_audio_focus">Foco de audio de indicaciones de navegación</string>
     <string name="settings_navigation_prompt_audio_focus_description">Solicita el foco de audio del equipo del coche durante las indicaciones del iPhone para que otras fuentes puedan bajar el volumen temporalmente. El efecto depende del equipo. Se aplica al volver a conectar.</string>
+    <string name="usb_trust_waiting">Esperando la confirmación de confianza en el iPhone. Desbloquéalo y toca Confiar si se solicita.</string>
+    <string name="usb_trust_refused">Se rechazó la confianza en el iPhone. Para conectar, desbloquéalo y toca Reintentar; luego elige Confiar si se solicita.</string>
+    <string name="usb_trust_phone_locked">Desbloquea el iPhone y toca Reintentar para enlazar por USB.</string>
+    <string name="usb_trust_timed_out">Se agotó el tiempo de enlace USB. Comprueba la solicitud de confianza en el iPhone desbloqueado y toca Reintentar.</string>
+    <string name="usb_trust_cancelled">Se canceló el enlace USB. Toca Reintentar cuando quieras conectar.</string>
 </resources>

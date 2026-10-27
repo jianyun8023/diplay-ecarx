@@ -784,4 +784,9 @@
     <string name="settings_ecarx_cluster_safe_area_custom">Власна</string>
     <string name="settings_navigation_prompt_audio_focus">Аудіофокус підказок навігації</string>
     <string name="settings_navigation_prompt_audio_focus_description">Запитує аудіофокус у головного пристрою під час підказок навігації iPhone, щоб інші джерела могли тимчасово знизити гучність. Ефект залежить від головного пристрою. Застосовується після повторного підключення.</string>
+    <string name="usb_trust_waiting">Очікування підтвердження довіри на iPhone. Розблокуйте його й натисніть «Довіряти», якщо з’явиться запит.</string>
+    <string name="usb_trust_refused">На iPhone відхилено запит довіри. Для підключення розблокуйте його й натисніть «Повторити», потім виберіть «Довіряти», якщо з’явиться запит.</string>
+    <string name="usb_trust_phone_locked">Розблокуйте iPhone і натисніть «Повторити» для створення пари через USB.</string>
+    <string name="usb_trust_timed_out">Час створення пари через USB минув. Перевірте запит довіри на розблокованому iPhone і натисніть «Повторити».</string>
+    <string name="usb_trust_cancelled">Створення пари через USB скасовано. Натисніть «Повторити», коли будете готові підключитися.</string>
 </resources>

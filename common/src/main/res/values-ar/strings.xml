@@ -804,4 +804,9 @@
     <string name="settings_ecarx_cluster_safe_area_custom">مخصص</string>
     <string name="settings_navigation_prompt_audio_focus">التركيز الصوتي لإرشادات الملاحة</string>
     <string name="settings_navigation_prompt_audio_focus_description">يطلب التركيز الصوتي من وحدة السيارة أثناء إرشادات ملاحة iPhone حتى تتمكن مصادر الصوت الأخرى من خفض مستوى الصوت مؤقتًا. يعتمد التأثير الفعلي على وحدة السيارة. يُطبّق بعد إعادة الاتصال.</string>
+    <string name="usb_trust_waiting">بانتظار تأكيد الثقة على iPhone. افتح قفله واضغط على «الوثوق» إذا طُلب منك ذلك.</string>
+    <string name="usb_trust_refused">تم رفض الثقة على iPhone. للاتصال، افتح قفله واضغط على «إعادة المحاولة»، ثم اختر «الوثوق» إذا طُلب منك ذلك.</string>
+    <string name="usb_trust_phone_locked">افتح قفل iPhone ثم اضغط على «إعادة المحاولة» للاقتران عبر USB.</string>
+    <string name="usb_trust_timed_out">انتهت مهلة الاقتران عبر USB. تحقق من طلب الثقة على iPhone بعد فتح قفله، ثم اضغط على «إعادة المحاولة».</string>
+    <string name="usb_trust_cancelled">تم إلغاء الاقتران عبر USB. اضغط على «إعادة المحاولة» عندما تكون مستعدًا للاتصال.</string>
 </resources>

@@ -87,6 +87,27 @@ class SmoothVideoHostLifecycleTest {
         controllerConstruction.close()
     }
 
+    @Test fun wirelessReconnectDoesNotEnableUserDisabledBluetooth() {
+        val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+        shadowOf(adapter).setEnabled(false)
+        shadowOf(adapter).setState(android.bluetooth.BluetoothAdapter.STATE_OFF)
+        activity.getSharedPreferences("diplay_bt_profile_guard", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        setField("wirelessEnabled", true)
+        val controller = mock(CarPlayController::class.java)
+        `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
+        val currentSink = sink(pacingDelayMillis = 0)
+        setField("controller", controller)
+        setField("sink", currentSink)
+        CarPlayBackgroundSession.store(controller, currentSink, 1920, 990, activity, display) { it() }
+
+        restartCarPlay("Test user-disabled Bluetooth reconnect")
+
+        assertTrue("Reconnect entered the teardown phase", getField("handshakeResetInProgress") as Boolean)
+        assertEquals(android.bluetooth.BluetoothAdapter.STATE_OFF, adapter.state)
+        assertFalse(adapter.isEnabled)
+    }
+
     // (1) The maintainer's sequence: Smooth video turned on, the reconnect stopped at a prerequisite, so
     // the old host still runs a session whose sink does not pace. A new host built with smooth video must
     // stop that session, not adopt it, and then start its own.

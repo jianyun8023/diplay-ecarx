@@ -11,6 +11,7 @@ UsbPermissionActivityProbeTest
 UsbSetupDiagnosticsTest
 UsbReadQueue*Test
 UsbMux*Test
+Lockdown*Test
 UsbmuxTimedOutReadTest
 IphoneUsbAdbGrantTest
 Ncm*Test

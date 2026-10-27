@@ -168,6 +168,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private val legacySiriPresses = mutableSetOf<Triple<Int, Int, Int>>()
     private val startupRetryBudget = WirelessStartupRetryBudget()
     private var startupRetryStopped = false
+    private var usbPairingStoppedGeneration: Int? = null
     private var startupRetryButton: View? = null
     private var startupFailureGeneration = -1
     private lateinit var airPlayIdentity: AirPlayIdentity
@@ -5246,7 +5247,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun createStatusReporter(
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = report@{ status ->
-        if (controllerGeneration != restartGeneration) return@report
+        if (controllerGeneration != restartGeneration || usbPairingStoppedGeneration == controllerGeneration) return@report
         if (status is CarPlayStatus.RunningControl || status is CarPlayStatus.RunningWireless) {
             controlRunningCount++
             lossSinceControlRunning = false
@@ -5257,19 +5258,29 @@ class CarPlayHostActivity : ComponentActivity() {
             callPopupSessionReady = false
         }
         if (menuOpen) {
-            if (status is CarPlayStatus.Failed) failurePendingAfterMenu = status
+            if (status is CarPlayStatus.Failed && failurePendingAfterMenu?.usbPairingFailure == null) {
+                failurePendingAfterMenu = status
+                if (status.usbPairingFailure != null) startupRetryStopped = true
+            }
             return@report
         }
         updateHotspotStatus(status)
         val description = status.describe()
         val englishDescription = status.describe(englishResources)
         // Once the retries stopped, a later failure of the same attempt, such as its cleanup, keeps the line saying so.
-        if (!startupRetryStopped || status !is CarPlayStatus.Failed) setConnectionStage(description, englishDescription)
+        if (!startupRetryStopped || status !is CarPlayStatus.Failed || status.usbPairingFailure != null) setConnectionStage(description, englishDescription)
         // Keep the actionable tip readable while automatic retries are in progress.
         // Only a working AirPlay session, or a new failure, replaces it.
         if (status is CarPlayStatus.Failed) showConnectionHelp(status)
         when (status) {
-            is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
+            is CarPlayStatus.Failed -> if (status.usbPairingFailure != null) {
+                // Stop cleanup callbacks and queued transport retries from re-prompting the phone.
+                usbPairingStoppedGeneration = controllerGeneration
+                startupRetryStopped = true
+                reconnectScheduled = false
+                wifiRecoveryButton?.visibility = View.GONE
+                startupRetryButton?.visibility = View.VISIBLE
+            } else if (status.wifiResetRequired) {
                 wifiRecoveryButton?.visibility = View.VISIBLE
             } else {
                 wifiRecoveryButton?.visibility = View.GONE
@@ -5845,10 +5856,8 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
-        // Wireless CarPlay's handshake needs the head unit's own adapter. Adapter mode may have
-        // switched it off moments ago and the session-end restore runs on the guard's own thread,
-        // so ask for it here rather than letting this reconnect be the one that fails.
-        if (wirelessEnabled) CarBluetoothProfileGuard.ensureAdapterOn(this)?.let { appendLog(it) }
+        // The wireless worker restores only a radio paused by DiPlay and waits for STATE_ON.
+        // Do not eagerly enable a radio the driver turned off from this UI reconnect entry.
         startupRetryBudget.disconnected()
         startupRetryButton?.visibility = View.GONE
         appendLog(reason)
@@ -6036,7 +6045,7 @@ class CarPlayHostActivity : ComponentActivity() {
             startupRetryBudget.manualRetry()
             startupRetryStopped = false
         }
-        if (failure?.startupFailure != null && !reconnect) {
+        if (failure != null && (failure.startupFailure != null || failure.usbPairingFailure != null) && !reconnect) {
             createStatusReporter(restartGeneration)(failure)
         } else if (failure?.wifiResetRequired == true && (!reconnect || wirelessEnabled)) {
             createStatusReporter(restartGeneration)(failure)
@@ -6399,6 +6408,11 @@ class CarPlayHostActivity : ComponentActivity() {
     // The keywords are English; matching the English text keeps the result the same in every UI language.
     private fun friendlyStage(message: String, englishMessage: String = message): String = when {
         message == getString(R.string.vpn_authorization_unavailable) -> message
+        message == getString(R.string.usb_trust_waiting) ||
+            message == getString(R.string.usb_trust_refused) ||
+            message == getString(R.string.usb_trust_phone_locked) ||
+            message == getString(R.string.usb_trust_timed_out) ||
+            message == getString(R.string.usb_trust_cancelled) -> message
         // It says where to look itself; its word "permissions" would turn it into the generic permission line.
         message == getString(R.string.could_not_start_carplay_return_to_diplay_and_check_app_per) -> message
         message == getString(R.string.waiting_for_mfi_coprocessor) ||
@@ -6553,12 +6567,15 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.SelectingConfiguration -> res.getString(R.string.selecting_carplay_configuration)
         CarPlayStatus.OpeningDataPaths -> res.getString(R.string.opening_usb_data_paths)
         CarPlayStatus.Pairing -> res.getString(R.string.pairing_with_iphone)
+        CarPlayStatus.WaitingForIphoneTrust -> res.getString(R.string.usb_trust_waiting)
         CarPlayStatus.ConnectingControl -> res.getString(R.string.connecting_iap2_control)
         CarPlayStatus.AttachingNetwork ->
             if (wirelessEnabled) res.getString(R.string.starting_airplay_service) else res.getString(R.string.status_attaching_ncm)
         CarPlayStatus.RunningControl -> res.getString(R.string.carplay_control_running)
         CarPlayStatus.ControlEnded -> res.getString(R.string.carplay_control_window_ended)
-        is CarPlayStatus.Failed -> when (startupFailure) {
+        is CarPlayStatus.Failed -> usbPairingFailure?.let {
+            res.getString(ConnectionFailureGuidance.pairingMessage(it))
+        } ?: when (startupFailure) {
             WirelessStartupFailure.HOTSPOT_NOT_READY -> res.getString(R.string.hotspot_network_not_ready)
             WirelessStartupFailure.FIRST_TCP_TIMEOUT -> res.getString(R.string.first_tcp_timeout)
             WirelessStartupFailure.WIFI_DIRECT_BESIDE_HOTSPOT -> res.getString(R.string.wifi_direct_refused_beside_hotspot)

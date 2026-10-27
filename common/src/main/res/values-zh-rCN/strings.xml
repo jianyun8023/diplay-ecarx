@@ -842,4 +842,9 @@
     <string name="settings_ecarx_cluster_safe_area_custom">自定义</string>
     <string name="settings_navigation_prompt_audio_focus">导航播报音频焦点</string>
     <string name="settings_navigation_prompt_audio_focus_description">iPhone 导航播报时请求车机音频焦点，让其他音源暂时降低音量；实际效果取决于车机。重新连接后生效。</string>
+    <string name="usb_trust_waiting">正在等待 iPhone 信任确认。请解锁手机，并在出现提示时轻点“信任”。</string>
+    <string name="usb_trust_refused">iPhone 已拒绝信任。要连接，请解锁手机并轻点“重试”，然后在出现提示时选择“信任”。</string>
+    <string name="usb_trust_phone_locked">请解锁 iPhone，然后轻点“重试”以通过 USB 配对。</string>
+    <string name="usb_trust_timed_out">USB 配对已超时。请在已解锁的 iPhone 上检查信任提示，然后轻点“重试”。</string>
+    <string name="usb_trust_cancelled">USB 配对已取消。准备好连接后，请轻点“重试”。</string>
 </resources>

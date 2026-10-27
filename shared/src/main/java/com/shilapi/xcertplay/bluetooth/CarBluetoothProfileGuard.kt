@@ -131,7 +131,8 @@ public object CarBluetoothProfileGuard {
     private var reassert: ScheduledFuture<*>? = null
     private var watcher: BroadcastReceiver? = null
     private var lastDropAt = 0L
-    private var recovered = false
+    private var recoveryPending = false
+    private var ownershipRevision = 0L
 
     /** One profile service, whichever way it was reached. `profile == null` means "unreachable". */
     private class Handle(val label: String, val profileId: Int, val source: String, val profile: Any?)
@@ -190,6 +191,8 @@ public object CarBluetoothProfileGuard {
         val delay = if (adapterMode) adapterDelaySeconds(app) * 1_000L else LINK_DELAY_MILLIS
         synchronized(lock) {
             pending?.cancel(false)
+            ownershipRevision++
+            recoveryPending = false
             session = state
             pending = worker.schedule({ apply(state) }, delay, TimeUnit.MILLISECONDS)
         }
@@ -217,37 +220,45 @@ public object CarBluetoothProfileGuard {
     /** Puts the profiles back on the way out. Safe (and silent) when nothing was applied. */
     fun restore(context: Context, log: (String) -> Unit = logcat) {
         val app = context.applicationContext
-        val state = synchronized(lock) {
+        val (state, revision) = synchronized(lock) {
+            ownershipRevision++
             pending?.cancel(false)
             pending = null
             reassert?.cancel(false)
             reassert = null
-            session?.also { session = null }
+            session.also { session = null } to ownershipRevision
         }
         unregisterWatcher(app)
-        if (state == null && !applied(app)) return
+        if (state == null && !applied(app)) {
+            synchronized(lock) { if (ownershipRevision == revision) recoveryPending = false }
+            return
+        }
         // Queued on the guard's thread so the decision cannot race a drop that is still in flight.
-        worker.execute { restoreNow(app, state, state?.log ?: log) }
+        worker.execute {
+            try {
+                restoreNow(app, state, revision, state?.log ?: log)
+            } finally {
+                synchronized(lock) { if (ownershipRevision == revision) recoveryPending = false }
+            }
+        }
     }
 
     /**
      * A previous process can die while the profiles are forbidden, and the policy persists in the
-     * head unit's Bluetooth configuration. Startup calls this once so the next run puts them back.
+     * head unit's Bluetooth configuration. Startup calls this so the next run puts them back.
      *
-     * The applied flag is read before the once-per-process gate: a run that starts with nothing to
-     * undo must not consume it, or a state that this process itself applies later can never be
-     * recovered without a restart. A live session still owns the state and restores it on the way
-     * out, so it is left alone.
+     * Coalesce concurrent recovery requests, but allow another attempt after a timeout or refusal.
+     * A live session still owns the state and restores it on the way out, so it is left alone.
      */
     fun recoverIfStale(context: Context, log: (String) -> Unit = logcat) {
         val app = context.applicationContext
         if (!applied(app)) return
         synchronized(lock) {
             if (session != null) return
-            if (recovered) return
-            recovered = true
+            if (recoveryPending) return
+            recoveryPending = true
         }
-        log("BT guard: a previous run left the head unit's Bluetooth alone; restoring")
+        log("BT guard: a previous run left Bluetooth recovery pending; restoring")
         restore(app, log)
     }
 
@@ -266,6 +277,48 @@ public object CarBluetoothProfileGuard {
         if (adapter.isEnabled) return null
         val accepted = runCatching { adapter.enable() }.getOrDefault(false)
         return "BT guard connect: head unit Bluetooth was off; switching it back on accepted=$accepted"
+    }
+
+    /**
+     * Wireless worker gate. Only an adapter paused by this guard may be enabled by restore().
+     * Observe the asynchronous restore even while it is still queued and the radio remains OFF.
+     * No hotspot or RFCOMM work may continue merely because enable() was accepted.
+     */
+    fun requireAdapterReadyForConnection(
+        context: Context,
+        isCurrent: () -> Boolean,
+        log: (String) -> Unit = logcat,
+    ) {
+        if (!isCurrent()) throw java.io.InterruptedIOException("Bluetooth startup cancelled")
+        val app = context.applicationContext
+        val radio = adapter(app) ?: throw com.shilapi.xcertplay.transport.BluetoothRadioCheck.failure(
+            com.shilapi.xcertplay.transport.BluetoothRadioCheck.NO_ADAPTER)
+        val recoveryNeeded = applied(app)
+        val ownedPause = recoveryNeeded && appliedMode(app) == MODE_ADAPTER
+        if (recoveryNeeded) restore(app, log)
+        val outcome = try {
+            if (!ownedPause && radio.state != BluetoothAdapter.STATE_ON &&
+                radio.state != BluetoothAdapter.STATE_TURNING_ON) {
+                BluetoothAdapterRestore.Outcome.REJECTED
+            } else {
+                BluetoothAdapterRestore.awaitOn(
+                    state = { radio.state },
+                    requestEnable = null, // The guard worker alone issues any authorized enable.
+                    isCurrent = isCurrent,
+                )
+            }
+        } catch (error: RuntimeException) {
+            log("BT guard connect: state verification failed ${error.javaClass.simpleName}")
+            throw java.io.IOException("Bluetooth state could not be verified", error)
+        }
+        if (!isCurrent() || outcome == BluetoothAdapterRestore.Outcome.CANCELLED) {
+            throw java.io.InterruptedIOException("Bluetooth startup cancelled")
+        }
+        if (outcome != BluetoothAdapterRestore.Outcome.ON) {
+            log("BT guard connect: STATE_ON not confirmed outcome=$outcome ownedPause=$ownedPause")
+            throw com.shilapi.xcertplay.transport.BluetoothRadioCheck.failure(
+                com.shilapi.xcertplay.transport.BluetoothRadioCheck.RADIO_OFF)
+        }
     }
 
     /** A switch moved. Re-applies inside a live session, undoes it when the switch is off. */
@@ -301,7 +354,10 @@ public object CarBluetoothProfileGuard {
             return
         }
         if (state.adapterMode) {
-            applyAdapterMode(state, adapter)
+            synchronized(lock) {
+                if (session !== state) return
+                applyAdapterMode(state, adapter)
+            }
             return
         }
         val targets = targets(state, adapter)
@@ -425,7 +481,9 @@ public object CarBluetoothProfileGuard {
     }
 
     @Suppress("DEPRECATION")
-    private fun restoreNow(context: Context, state: Session?, log: (String) -> Unit) {
+    private fun restoreNow(context: Context, state: Session?, revision: Long, log: (String) -> Unit) {
+        fun current() = synchronized(lock) { ownershipRevision == revision && session == null }
+        if (!current()) return
         val adapter = adapter(context)
         if (adapter != null) state?.handles?.let { closeProxies(adapter, it) }
         if (!applied(context)) {
@@ -436,26 +494,36 @@ public object CarBluetoothProfileGuard {
         val mode = appliedMode(context)
         val addresses = storedTargets(context)
         if (adapter == null) {
-            clearApplied(context)
-            log("BT guard restore: no Bluetooth adapter; forgot the stored state")
+            log("BT guard restore: no Bluetooth adapter; keeping the state to retry")
             return
         }
         if (mode == MODE_ADAPTER) {
-            val accepted = try {
-                adapter.isEnabled || adapter.enable()
+            val outcome = try {
+                BluetoothAdapterRestore.awaitOn(
+                    state = { adapter.state },
+                    requestEnable = {
+                        synchronized(lock) { current() && adapter.enable() }
+                    },
+                    isCurrent = ::current,
+                )
             } catch (error: RuntimeException) {
-                // Keep the applied flag: wireless CarPlay cannot reconnect without this adapter, so
-                // forgetting the state here is what makes the head unit's Bluetooth stay off until
-                // the app is killed and restarted.
-                log("BT guard restore: switching Bluetooth back on failed ${error.javaClass.simpleName}; keeping the state to retry")
+                log("BT guard restore: state verification failed ${error.javaClass.simpleName}; keeping the state to retry")
                 return
             }
-            if (!accepted) {
-                log("BT guard restore: the ROM refused to switch Bluetooth back on; keeping the state to retry")
+            val confirmed = try {
+                synchronized(lock) {
+                    if (outcome == BluetoothAdapterRestore.Outcome.ON && current() &&
+                        adapter.state == BluetoothAdapter.STATE_ON) {
+                        clearApplied(context)
+                        true
+                    } else false
+                }
+            } catch (error: RuntimeException) {
+                log("BT guard restore: final state verification failed ${error.javaClass.simpleName}; keeping the state to retry")
                 return
             }
-            clearApplied(context)
-            log("BT guard restore: head unit Bluetooth back on accepted=$accepted")
+            if (confirmed) log("BT guard restore: head unit Bluetooth STATE_ON confirmed")
+            else log("BT guard restore: outcome=$outcome; keeping the state to retry")
             return
         }
         val devices = addresses.mapNotNull { remoteDevice(adapter, it) }
