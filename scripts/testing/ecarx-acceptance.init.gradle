@@ -1,0 +1,38 @@
+import org.gradle.api.GradleException
+import org.gradle.api.tasks.testing.Test
+import org.gradle.process.CommandLineArgumentProvider
+
+gradle.projectsEvaluated {
+    allprojects { p ->
+        def deps = p.findProperty('ecarxRobolectricDir')
+        def results = p.findProperty('ecarxTestReportDir')
+        p.tasks.withType(Test).configureEach { t ->
+            t.maxParallelForks = 1
+            if (deps) {
+                def directory = p.file(deps)
+                if (!directory.isDirectory()) {
+                    throw new GradleException("Robolectric directory missing: ${directory}")
+                }
+                t.systemProperty 'robolectric.offline', 'true'
+                t.systemProperty 'robolectric.dependency.dir', directory.absolutePath
+            }
+            if (results) {
+                def base = p.file("${results}/${p.name}/${t.name}")
+                t.reports.html.outputLocation = new File(base, 'html')
+                t.reports.junitXml.outputLocation = new File(base, 'xml')
+                t.binaryResultsDirectory = new File(base, 'binary')
+            }
+            if (p.path == ':common') {
+                t.jvmArgumentProviders.add({
+                    def jars = t.classpath.files.findAll {
+                        it.name ==~ /mockito-core-[0-9].*\.jar/
+                    }
+                    if (jars.size() != 1) {
+                        throw new GradleException("Expected one Mockito core jar, found ${jars.size()}")
+                    }
+                    ["-javaagent:${jars.first().absolutePath}".toString()]
+                } as CommandLineArgumentProvider)
+            }
+        }
+    }
+}

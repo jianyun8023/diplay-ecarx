@@ -2,6 +2,8 @@
 
 测试调用真实生产入口，以测试源集中的 OEM 同名接口替代车机系统服务。通过只表示生产代码按预期发起调用或处理回调；`EcarxResult.ok` 不证明仪表实际显示、权限生效或车机兼容。
 
+夹具位置、用途和隔离约定见 [测试夹具索引](ECARX_FIXTURES.md)。
+
 ## 运行入口
 
 在仓库根目录执行。使用 wrapper 固定的 Gradle 9.5.0；`gradle/gradle-daemon-jvm.properties` 指定 JDK 25。设置 `ANDROID_HOME` 或本地 `local.properties`，SDK 版本见 [CI 配置](../.github/workflows/android.yml)。现有依赖为 JUnit、Robolectric 4.17，common 另有 Mockito 5.20.0；不需要新增测试框架或 OEM SDK 依赖。
@@ -31,55 +33,14 @@
 
 ## 离线缓存与 JDK 25 Mockito
 
-普通网络环境可以使用默认 Robolectric 下载流程。已有下载锁占用或需复用缓存时，通过可选的外部 init 配置测试 JVM，不修改全局 Gradle 配置。Gradle 的 `--offline` 只控制 Gradle 依赖解析，不会替代 Robolectric 的离线设置；命令行 `-D` 也不会自动转发到 fork 出的测试 JVM。
+普通网络环境可以使用默认 Robolectric 下载流程。已有下载锁占用或需复用缓存时，通过可选的 init 脚本配置测试 JVM，不修改全局 Gradle 配置。Gradle 的 `--offline` 只控制 Gradle 依赖解析，不会替代 Robolectric 的离线设置；命令行 `-D` 也不会自动转发到 fork 出的测试 JVM。
 
-下列内容可保存到工作区外的 `ecarx-test.init.gradle`。它从 `-P` 接收本地缓存和可选报告目录；Mockito agent 从 common 已有测试 classpath 找到，不增加或下载另一份依赖。此本地 init 使用任务闭包，运行时配合 `--no-configuration-cache`。
+仓库提供可选的 [测试启动配置](../scripts/testing/ecarx-acceptance.init.gradle)，无需复制 Groovy 代码。它从 `-P` 接收本地缓存和可选报告目录，串行运行测试，并从 common 已有测试 classpath 定位 Mockito agent。运行时配合 `--no-configuration-cache`。
 
-```groovy
-import org.gradle.api.GradleException
-import org.gradle.api.tasks.testing.Test
-import org.gradle.process.CommandLineArgumentProvider
-
-gradle.projectsEvaluated {
-    allprojects { p ->
-        def deps = p.findProperty('ecarxRobolectricDir')
-        def results = p.findProperty('ecarxTestReportDir')
-        p.tasks.withType(Test).configureEach { t ->
-            t.maxParallelForks = 1
-            if (deps) {
-                def directory = p.file(deps)
-                if (!directory.isDirectory()) {
-                    throw new GradleException("Robolectric directory missing: ${directory}")
-                }
-                t.systemProperty 'robolectric.offline', 'true'
-                t.systemProperty 'robolectric.dependency.dir', directory.absolutePath
-            }
-            if (results) {
-                def base = p.file("${results}/${p.name}/${t.name}")
-                t.reports.html.outputLocation = new File(base, 'html')
-                t.reports.junitXml.outputLocation = new File(base, 'xml')
-                t.binaryResultsDirectory = new File(base, 'binary')
-            }
-            if (p.path == ':common') {
-                t.jvmArgumentProviders.add({
-                    def jars = t.classpath.files.findAll {
-                        it.name ==~ /mockito-core-[0-9].*\.jar/
-                    }
-                    if (jars.size() != 1) {
-                        throw new GradleException("Expected one Mockito core jar, found ${jars.size()}")
-                    }
-                    ["-javaagent:${jars.first().absolutePath}".toString()]
-                } as CommandLineArgumentProvider)
-            }
-        }
-    }
-}
-```
-
-设置以下变量为自己机器上的路径，给前述两条命令各追加这些参数（无需修改仓库文件）：
+在仓库根目录设置以下变量，给前述两条命令各追加这些参数（无需修改仓库文件）：
 
 ```sh
-# ECARX_TEST_INIT：上述外部 init 文件
+ECARX_TEST_INIT="$PWD/scripts/testing/ecarx-acceptance.init.gradle"
 # ECARX_ROBOLECTRIC_DIR：已备齐的 android-all-instrumented jar 目录
 # ECARX_TEST_REPORT_DIR：本次运行独立的绝对报告目录
 --init-script "$ECARX_TEST_INIT" --no-configuration-cache \
