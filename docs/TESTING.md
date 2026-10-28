@@ -7,6 +7,7 @@ For the USB trailer, software-window video and RFCOMM reliability changes, compl
 Record the exact candidate APK and each untested setup before a release.
 
 For the ECARX Siri capture experiment, use the [P0/P1 A/B validation checklist](SIRI_CAPTURE_VALIDATION.md).
+For the merged v0.2.22 ECARX signed A/B vehicle run, use the [current vehicle checklist](CAR_TEST_20261028.md).
 
 ## Host unit tests
 

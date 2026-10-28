@@ -46,6 +46,9 @@ android {
                 .map { "-hud-test-$it" }.getOrElse("-hud-test")
         }
         release {
+            if (providers.gradleProperty("carTestLabel").isPresent) {
+                versionNameSuffix = "-car-test-${providers.gradleProperty("carTestLabel").get()}"
+            }
             optimization {
                 enable = false
             }

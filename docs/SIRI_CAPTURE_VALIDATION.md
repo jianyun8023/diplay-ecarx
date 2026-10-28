@@ -6,10 +6,11 @@
 
 ## 构建 A/B 包
 
-普通 Debug 包默认关闭实验。只有显式传入 `-PsiriCommunicationCapture=true` 的 Debug
+普通构建默认关闭实验。只有显式传入 `-PsiriCommunicationCapture=true` 的
 构建会让 `speechrecognition` 调用现有 `enterCommunicationMode`：
 `MODE_IN_COMMUNICATION`、`hicar_enable=true`、`AudioControlMode=01121001`、`ASR_AEC=ON`，
-以及在 ECARX `isNeedrequestMic` 为 true 时的 `requestMic(CALL=2)`。Release 始终关闭。
+以及在 ECARX `isNeedrequestMic` 为 true 时的 `requestMic(CALL=2)`。
+Release 也支持这个显式实验输入；未传参数的 Release 仍然关闭。
 不新增 SYSTEM/RECORD 或逐项参数开关；等 B 的数据证明有效后再进入 P2。
 
 ```sh
@@ -38,6 +39,25 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew -PsiriCommunic
 此开关在编译时确定，设置界面不需要增加开关。测试报告中的
 `siriCommunicationCapture=false/true` 用于核对实际安装的组别。
 
+### 使用平台签名的 Release 实车包
+
+本轮采用 Release 变体；两包均需配置 `BUILD.md` 中的四个 `ANDROID_KEY*` 签名环境变量，
+以及 `DIPLAY_AUTH_ASSETS_DIR`。不能使用 Android Debug 证书代替既有平台证书。
+
+```sh
+./gradlew :mobile:verifyStandaloneAuthentication :mobile:assembleRelease \
+  -PcarTestLabel=20261028-A -PsiriCommunicationCapture=false
+# 立即另存 mobile/build/outputs/apk/release/mobile-release.apk 为 A。
+./gradlew :mobile:verifyStandaloneAuthentication :mobile:assembleRelease \
+  -PcarTestLabel=20261028-B -PsiriCommunicationCapture=true
+# 立即另存为 B。
+```
+
+`carTestLabel` 使 Release 使用既有测试包名 `com.shihab.diplay.hudtest`，
+版本显示 `0.2-car-test-20261028-A/B`，A/B 可覆盖安装并保留测试设置。
+不传标签的普通 Release 继续使用正式包名。
+详细步骤、日志范围及本轮新增热点/USB 检查见 [本轮实车清单](CAR_TEST_20261028.md)。
+
 ## P0 报告字段
 
 - 原有 `Microphone: start/stats`：请求 source、`AudioRecord.getAudioSource()` 的
@@ -65,8 +85,7 @@ Android 的公开接口提供 [active recording configurations](https://develope
 停车、车窗关闭、固定空调风量。每次新会话说同一段长句至少 15 秒，保留全部五秒窗口，
 避免把 mic gain ramp 的前五秒当成最终结果。P1 仍复用单一通信资源持有者，
 本轮禁止 Siri 与电话重叠；不把这一限制当成 P3 的重叠资源管理已完成。
-合入 dev 的 UNI/DIM 后端选择后，A/B 必须使用同一个媒体后端，并在记录中注明；
-不要在切换采集实验组的同时更换媒体后端。
+媒体输出固定使用实车验证通过的 ECARX MediaCenter；A/B 使用相同的仪表媒体开关状态并记录。
 
 | 检查 | 操作 | 记录/通过条件 |
 | --- | --- | --- |

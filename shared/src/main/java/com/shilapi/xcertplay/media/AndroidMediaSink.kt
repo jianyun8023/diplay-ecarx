@@ -219,7 +219,7 @@ class AndroidMediaSink(
     private val vendorLowLatencyDecoder: Boolean = false,
     /** Opt-in MTK ACodec low-latency/no-reorder modes, with per-session automatic fallback. */
     private val mtkDecoderTuningEnabled: Boolean = false,
-    /** P1 validation only: clone the call capture path for Siri; ordinary and release builds stay off. */
+    /** P1 validation only: clone the call capture path for Siri; ordinary builds stay off. */
     private val siriCommunicationCapture: Boolean = BuildConfig.SIRI_COMMUNICATION_CAPTURE,
     /** Opt-in (#946): navigation prompts request duckable focus while the iPhone ducks audio. Needs [audioFocusEnabled]. */
     navigationPromptAudioFocus: Boolean = false,
