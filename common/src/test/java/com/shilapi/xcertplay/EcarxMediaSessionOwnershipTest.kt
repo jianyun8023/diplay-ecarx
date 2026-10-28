@@ -64,7 +64,46 @@ class EcarxMediaSessionOwnershipTest {
         }
     }
 
-    @Test fun replacedControllersCapturedCallbackCannotOverwriteNewOwnersOemTrack() {
+    @Test fun actualArtworkListenerPublishesFetchableCoverAndDetachClosesItsServer() {
+        val owner = mock(CarPlayController::class.java).also(controllers::add)
+        val now = song("With cover").copy(artworkTransferId = 7)
+        `when`(owner.nowPlayingSnapshot()).thenReturn(now)
+        var installed: ((Int, ByteArray) -> Unit)? = null
+        doAnswer { call ->
+            call.getArgument<((Int, ByteArray) -> Unit)?>(0)?.let { installed = it }
+            null
+        }.`when`(owner).artworkListener = any()
+        CarPlayMediaKeys.attach(app, owner)
+        shadowOf(Looper.getMainLooper()).idle()
+        val bitmap = android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
+        val png = java.io.ByteArrayOutputStream().also {
+            assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+        }.toByteArray()
+        bitmap.recycle()
+        checkNotNull(installed).invoke(7, png)
+        val queue = field(CarPlayMediaKeys, "artworkQueue").get(CarPlayMediaKeys) as NowPlayingArtworkQueue<*>
+        val decoded = java.util.concurrent.CountDownLatch(1)
+        queue.execute(Runnable { decoded.countDown() })
+        assertTrue(decoded.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        shadowOf(Looper.getMainLooper()).idle()
+        tick()
+        val uri = checkNotNull(oem.cards.last().artwork)
+        val fetched = java.net.URL(uri.toString()).openStream().use { it.readBytes() }
+        assertTrue(fetched.size > 8)
+        assertEquals(0x89.toByte(), fetched[0])
+        assertEquals("PNG", fetched.copyOfRange(1, 4).toString(Charsets.US_ASCII))
+        CarPlayMediaKeys.detach(owner)
+        tick()
+        assertNull(oem.cards.last().artwork)
+        assertTrue(runCatching { java.net.URL(uri.toString()).openStream().use { it.readBytes() } }.isFailure)
+        installed!!.invoke(7, png)
+        shadowOf(Looper.getMainLooper()).idle()
+        tick()
+        assertNull(oem.cards.last().artwork)
+    }
+
+    @Test fun replacedControllersCapturedCallbackCannotOverwriteNewOwnersOemTrack()
+ {
         val (_, oldCallback) = attach("Old phone")
         oldCallback(song("Old phone"))
         tick()
@@ -134,9 +173,10 @@ class EcarxMediaSessionOwnershipTest {
     interface PlaybackInfo {
         fun getTitle(): String
         fun getPlaybackStatus(): Int
+        fun getArtwork(): android.net.Uri?
     }
 
-    data class Card(val title: String, val playbackStatus: Int)
+    data class Card(val title: String, val playbackStatus: Int, val artwork: android.net.Uri? = null)
 
     /** The common module does not inherit shared's test fixtures. This is only an OEM receiver. */
     @Suppress("UNUSED_PARAMETER")
@@ -146,7 +186,7 @@ class EcarxMediaSessionOwnershipTest {
         fun updateMediaSourceTypeList(sourceTypes: IntArray) {}
         fun updateMediaMuteState(muted: Int) {}
         fun updatePlaybackInfo(info: PlaybackInfo) {
-            cards += Card(info.getTitle(), info.getPlaybackStatus())
+            cards += Card(info.getTitle(), info.getPlaybackStatus(), info.getArtwork())
         }
         fun updateCurrentProgress(millis: Long) {}
     }

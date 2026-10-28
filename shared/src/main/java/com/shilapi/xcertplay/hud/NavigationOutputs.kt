@@ -72,7 +72,7 @@ object NavigationOutputs {
      * A separate entry point from [onFrame] on purpose: guidance and media are different DIM
      * channels behind different switches, and a fault in one must not take the other down.
      */
-    fun onNowPlaying(now: CarPlayNowPlaying) = EcarxMediaBridge.onNowPlaying(now)
+    fun onNowPlaying(now: CarPlayNowPlaying, artwork: android.net.Uri? = null) = EcarxMediaBridge.onNowPlaying(now, artwork)
 
     /**
      * Routes the cluster bridges' own lines into the session report. Called once the session log

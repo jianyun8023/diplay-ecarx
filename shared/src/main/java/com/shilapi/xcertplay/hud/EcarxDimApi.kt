@@ -418,12 +418,7 @@ internal object EcarxDimApi {
     /**
      * One track as the cluster's media card sees it.
      *
-     * There is deliberately no artwork field. The cluster service resolves cover art by handing the
-     * `Uri` to `com.nostra13.universalimageloader`, which fetches `http`/`file`/`content` URLs and
-     * nothing else — not a bitmap, and not the `bitmap://` scheme a naive implementation reaches
-     * for. A track that exists only inside CarPlay's audio stream has no such URL, so the honest
-     * answer is the `null` the artwork getters already return; a field that could never hold
-     * anything else is worse than no field.
+     * Artwork is a local HTTP image URI, as used by the HY bridge. The OEM service fetches it.
      */
     data class PlaybackInfo(
         val title: String = "",
@@ -431,6 +426,7 @@ internal object EcarxDimApi {
         val album: String = "",
         val durationMillis: Long = 0L,
         val playing: Boolean = false,
+        val artwork: android.net.Uri? = null,
     )
 
     /**
@@ -718,8 +714,8 @@ internal object EcarxDimApi {
                     (if (info.playing) EcarxDimApi.PLAYBACK_PLAYING else EcarxDimApi.PLAYBACK_PAUSED).toLong(),
                 )
                 "getSourceType" -> EcarxDimApi.coerceNumber(method.returnType, EcarxDimApi.MEDIA_SOURCE_TYPE.toLong())
-                // No cover, and no local file to point at: see [PlaybackInfo]. All five are `Uri`.
-                "getArtwork" -> null
+                // The OEM image loader fetches this URI from the local artwork server.
+                "getArtwork" -> info.artwork
                 "getNextArtwork" -> null
                 "getPreviousArtwork" -> null
                 "getLyric" -> null
