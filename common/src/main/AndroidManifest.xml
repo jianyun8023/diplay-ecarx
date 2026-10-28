@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
 
+    <queries>
+        <package android:name="ecarx.xsf.mediacenter" />
+        <package android:name="com.ecarx.systemui.plugin" />
+    </queries>
+
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Optional, user-authorized startup of the car's own hotspot. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!-- MediaCenter service authorization is checked at runtime; declaring is not a grant. -->
+    <uses-permission android:name="ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION" />
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Optional, user-authorized installation of a released update APK. -->
