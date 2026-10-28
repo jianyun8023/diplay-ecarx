@@ -882,4 +882,9 @@
     <string name="settings_ecarx_cluster_safe_area_description">Drag the edges to keep map content clear of instrument readouts. Reset restores the original area. Changes apply after saving and reconnecting.</string>
     <string name="settings_ecarx_cluster_safe_area_default">Default</string>
     <string name="settings_ecarx_cluster_safe_area_custom">Custom</string>
+    <string name="usb_trust_waiting">Waiting for Trust on your iPhone. Unlock it and tap Trust if prompted.</string>
+    <string name="usb_trust_refused">Trust was refused on the iPhone. To connect, unlock it and tap Retry, then choose Trust if prompted.</string>
+    <string name="usb_trust_phone_locked">Unlock your iPhone, then tap Retry to pair over USB.</string>
+    <string name="usb_trust_timed_out">USB pairing timed out. Check your unlocked iPhone for the Trust prompt, then tap Retry.</string>
+    <string name="usb_trust_cancelled">USB pairing was cancelled. Tap Retry when you are ready to connect.</string>
 </resources>

@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import androidx.annotation.StringRes
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.network.WirelessStartupFailure
+import com.shilapi.xcertplay.orchestration.UsbPairingFailure
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import java.util.Locale
@@ -15,6 +16,7 @@ internal object ConnectionFailureGuidance {
         wireless: Boolean,
         mode: WirelessHotspotMode = WirelessHotspotMode.MANUAL,
     ): Int {
+        failure.usbPairingFailure?.let { return pairingMessage(it) }
         if (failure.wifiResetRequired) return R.string.connection_help_reset_wifi
         when (failure.startupFailure) {
             WirelessStartupFailure.BLUETOOTH_UNUSABLE -> return R.string.connection_help_bluetooth_unusable
@@ -46,6 +48,14 @@ internal object ConnectionFailureGuidance {
             return iphoneWifi(mode)
         }
         return R.string.connection_help_general
+    }
+
+    @StringRes
+    fun pairingMessage(reason: UsbPairingFailure): Int = when (reason) {
+        UsbPairingFailure.TRUST_REFUSED -> R.string.usb_trust_refused
+        UsbPairingFailure.PHONE_LOCKED -> R.string.usb_trust_phone_locked
+        UsbPairingFailure.TIMED_OUT -> R.string.usb_trust_timed_out
+        UsbPairingFailure.CANCELLED -> R.string.usb_trust_cancelled
     }
 
     /** The network the iPhone joins: the car hotspot, a Wi-Fi Direct group, or a shared Wi-Fi. */

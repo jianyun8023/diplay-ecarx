@@ -12,16 +12,22 @@ import java.security.GeneralSecurityException
  * outcome, but leaves [Iap2UsbMuxHost] open for its caller. It neither persists material nor
  * starts a session, negotiates TLS, starts a service, or establishes any CarPlay/iAP2 session.
  */
-class LockdownPairingClient(
-    private val host: Iap2UsbMuxHost,
+class LockdownPairingClient internal constructor(
+    private val connect: (Long) -> BlockingDuplexByteStream,
+    private val createRecord: (ByteArray, String, String, String) -> LockdownPairRecord =
+        LockdownPairRecordGenerator::generate,
 ) {
+    constructor(host: Iap2UsbMuxHost) : this({ timeoutMillis ->
+        host.connect(destinationPort = Iap2UsbMuxHost.LOCKDOWN_PORT, timeoutMillis = timeoutMillis)
+    })
     /**
      * Fetches the two pairing inputs, generates the local record, and sends plaintext Pair.
      *
      * [totalTimeoutMillis] covers the entire operation, including a pending pairing dialog.
      * [isCancelled] is checked between blocking protocol operations and while waiting to retry a
-     * pending dialog; it cannot interrupt an already-blocking plist read, which is bounded to
-     * five seconds. It is intentionally a small synchronous callback rather than a coroutine.
+     * pending dialog. Pair response reads check cancellation every 100 ms without discarding
+     * partial plist bytes; ordinary setup reads remain bounded to five seconds.
+     * [onTrustPending] is called only after an explicit pending-dialog response from the phone.
      */
     @Throws(IphoneUsbException::class, LockdownPairingException::class, GeneralSecurityException::class)
     fun pair(
@@ -30,6 +36,7 @@ class LockdownPairingClient(
         systemBuid: String,
         totalTimeoutMillis: Long,
         isCancelled: () -> Boolean = { false },
+        onTrustPending: () -> Unit = {},
     ): PairedRecord {
         require(label.isNotBlank()) { "label must not be blank" }
         require(hostId.isNotBlank()) { "hostId must not be blank" }
@@ -39,48 +46,38 @@ class LockdownPairingClient(
         }
 
         val deadline = Deadline(totalTimeoutMillis)
-        var pairRecord: LockdownPairRecord? = null
-        var attempt = 0
-        while (true) {
-            checkCancelled(isCancelled)
-            attempt += 1
-            val connection = host.connect(
-                destinationPort = Iap2UsbMuxHost.LOCKDOWN_PORT,
-                timeoutMillis = stepTimeoutMillis(deadline),
-            )
-            var pending = false
-            LockdownPlistChannel(connection).use { channel ->
-                setUntrustedHostBuid(channel, label, systemBuid, deadline, isCancelled)
-                val record = pairRecord ?: generatePairRecord(
-                    channel = channel,
-                    label = label,
-                    hostId = hostId,
-                    systemBuid = systemBuid,
-                    deadline = deadline,
-                    isCancelled = isCancelled,
-                ).also {
-                    pairRecord = it
-                    Log.i(
-                        TAG,
-                        "lockdown pair prepared hostId=uuid systemBuid=uuid " +
-                            "deviceKey=${it.devicePublicKeyPem.size} deviceCert=${it.deviceCertificatePem.size} " +
-                            "hostCert=${it.hostCertificatePem.size} rootCert=${it.rootCertificatePem.size}",
-                    )
+        checkCancelled(isCancelled)
+        val connection = connect(stepTimeoutMillis(deadline))
+        LockdownPlistChannel(connection).use { channel ->
+            setUntrustedHostBuid(channel, label, systemBuid, deadline, isCancelled)
+            val record = generatePairRecord(channel, label, hostId, systemBuid, deadline, isCancelled)
+            Log.i(TAG, "lockdown pair prepared hostId=uuid systemBuid=uuid " +
+                "deviceKey=${record.devicePublicKeyPem.size} deviceCert=${record.deviceCertificatePem.size} " +
+                "hostCert=${record.hostCertificatePem.size} rootCert=${record.rootCertificatePem.size}")
+            var attempt = 0
+            while (true) {
+                checkCancelled(isCancelled)
+                Log.i(TAG, "lockdown pair attempt=${++attempt}")
+                // A human may need more than the ordinary five-second protocol step budget.
+                // Keep both the stream and partially received plist alive while waiting.
+                val response = try {
+                    channel.requestAwaitingResponse(pairRequest(label, record), deadline.remainingMillis()) {
+                        checkCancelled(isCancelled)
+                        deadline.remainingMillis()
+                    }
+                } catch (_: LockdownResponseTimedOut) {
+                    throw LockdownPairingException.TimedOut
                 }
-                Log.i(TAG, "lockdown pair attempt=$attempt")
-                val response = channel.request(pairRequest(label, record), stepTimeoutMillis(deadline))
                 checkCancelled(isCancelled)
                 when (val error = response.errorCodeOrNull()) {
                     null -> return PairedRecord(record, response.entries["EscrowBag"].asOptionalData())
-                    "PairingDialogResponsePending" -> pending = true
-                    "UserDeniedPairing" -> throw LockdownPairingException.UserDeniedPairing
-                    "PasswordProtected" -> throw LockdownPairingException.PasswordProtected
-                    else -> throw LockdownPairingException.RemoteError(error)
+                    "PairingDialogResponsePending" -> {
+                        Log.i(TAG, "lockdown trust pending; keeping connection open")
+                        onTrustPending()
+                        waitForRetry(deadline, isCancelled)
+                    }
+                    else -> throwPairingError(error)
                 }
-            }
-            if (pending) {
-                Log.i(TAG, "lockdown trust pending; reconnecting before retry")
-                waitForRetry(deadline, isCancelled)
             }
         }
     }
@@ -99,12 +96,7 @@ class LockdownPairingClient(
         val wifiAddress = getValue(channel, label, "WiFiAddress", deadline, isCancelled)
             as? LockdownPlistValue.Text
             ?: throw LockdownPairingException.InvalidResponse("WiFiAddress was not text")
-        return LockdownPairRecordGenerator.generate(
-            devicePublicKeyPkcs1Pem = devicePublicKey.bytes,
-            wifiAddress = wifiAddress.value,
-            hostId = hostId,
-            systemBuid = systemBuid,
-        )
+        return createRecord(devicePublicKey.bytes, wifiAddress.value, hostId, systemBuid)
     }
 
     private fun pairRequest(
@@ -142,7 +134,7 @@ class LockdownPairingClient(
             stepTimeoutMillis(deadline),
         )
         checkCancelled(isCancelled)
-        response.errorCodeOrNull()?.let { throw LockdownPairingException.RemoteError(it) }
+        response.errorCodeOrNull()?.let(::throwPairingError)
         Log.i(TAG, "lockdown UntrustedHostBUID set")
     }
 
@@ -165,7 +157,7 @@ class LockdownPairingClient(
             stepTimeoutMillis(deadline),
         )
         checkCancelled(isCancelled)
-        response.errorCodeOrNull()?.let { throw LockdownPairingException.RemoteError(it) }
+        response.errorCodeOrNull()?.let(::throwPairingError)
         return response.entries["Value"]
             ?: throw LockdownPairingException.InvalidResponse("GetValue response omitted Value")
     }
@@ -183,6 +175,13 @@ class LockdownPairingClient(
                 ?: error.value.toString()
             else -> throw LockdownPairingException.InvalidResponse("Error was not text or integer")
         }
+    }
+
+    /** Explicit refusal/locked responses are terminal regardless of which setup step sent them. */
+    private fun throwPairingError(code: String): Nothing = when (code) {
+        "UserDeniedPairing" -> throw LockdownPairingException.UserDeniedPairing
+        "PasswordProtected" -> throw LockdownPairingException.PasswordProtected
+        else -> throw LockdownPairingException.RemoteError(code)
     }
 
     private fun checkCancelled(isCancelled: () -> Boolean) {

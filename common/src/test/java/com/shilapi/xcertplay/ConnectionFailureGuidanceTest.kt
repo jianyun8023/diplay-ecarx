@@ -4,6 +4,7 @@ import android.view.View
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.network.WirelessStartupFailure
+import com.shilapi.xcertplay.orchestration.UsbPairingFailure
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.assertEquals
@@ -18,6 +19,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class ConnectionFailureGuidanceTest {
+    @Test fun phoneTrustOutcomesNeverSuggestAndroidPermissions() {
+        for (reason in UsbPairingFailure.entries) {
+            assertEquals(ConnectionFailureGuidance.pairingMessage(reason),
+                ConnectionFailureGuidance.message(CarPlayStatus.Failed("USB permission denied",
+                    usbPairingFailure = reason), false))
+        }
+        assertEquals(R.string.connection_help_permissions, guide("USB permission denied", wireless = false))
+    }
+
     @Test fun typedFailuresHavePriorityOverMessages() {
         assertEquals(R.string.connection_help_reset_wifi,
             guide("unknown", reset = true, startup = WirelessStartupFailure.FIRST_TCP_TIMEOUT))
