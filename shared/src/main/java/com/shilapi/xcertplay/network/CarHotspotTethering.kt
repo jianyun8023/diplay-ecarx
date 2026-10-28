@@ -15,7 +15,8 @@ import java.util.concurrent.locks.ReentrantLock
 /** Uses the car's saved hotspot configuration. This never stops a running hotspot and never writes
  *  the saved configuration; writes happen once from the settings screen, after the driver confirms. */
 object CarHotspotTethering {
-    private val startupLock = ReentrantLock()
+    // Shared with explicit manual control: never issue simultaneous start/stop requests.
+    internal val startupLock = ReentrantLock()
     enum class Result(val diagnostic: String) {
         READY("Car hotspot is on"),
         PERMISSION_REQUIRED("Hotspot control permission is missing"),
