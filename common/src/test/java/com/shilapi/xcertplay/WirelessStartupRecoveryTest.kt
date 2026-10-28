@@ -37,6 +37,7 @@ class WirelessStartupRecoveryTest {
 
     @Before fun setup() {
         CarPlayBackgroundSession.clear()
+        org.robolectric.RuntimeEnvironment.getApplication().getSharedPreferences("diplay_connection_decisions", 0).edit().clear().commit()
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         ReflectionHelpers.setField(CarPlayBackgroundSession, "owner", activity)
@@ -47,6 +48,42 @@ class WirelessStartupRecoveryTest {
     @After fun cleanup() {
         ReflectionHelpers.getField<Handler>(activity, "mainHandler").removeCallbacksAndMessages(null)
         CarPlayBackgroundSession.clear()
+    }
+
+    private fun reconnectDirectly() {
+        CarPlayHostActivity::class.java.getDeclaredMethod("reconnectAfterLoss", String::class.java,
+            WirelessStartupFailure::class.java, String::class.java).apply { isAccessible = true }
+            .invoke(activity, "private-device-error", null, "private-device-error")
+    }
+
+    @Test fun retryGateReasonsAreRecordedWithoutRearmingOrChangingPolicy() {
+        for ((field, event) in listOf("menuOpen" to "MENU_OPEN", "handshakeResetInProgress" to "HANDSHAKE_RESET",
+            "startupRetryStopped" to "RETRY_STOPPED", "reconnectScheduled" to "ALREADY_SCHEDULED")) {
+            ReflectionHelpers.setField(activity, field, true)
+            reconnectDirectly()
+            assertTrue(ConnectionDiagnostics.report(activity).contains("event=$event"))
+            ReflectionHelpers.setField(activity, field, false)
+        }
+        assertEquals(0, budget().retries)
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertFalse(ConnectionDiagnostics.report(activity).contains("private-device-error"))
+    }
+
+    @Test fun queuedRetryReportsStaleGenerationInsteadOfClaimingItExecuted() {
+        report()
+        ReflectionHelpers.setField(activity, "restartGeneration", 1)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        val trace = ConnectionDiagnostics.report(activity)
+        assertTrue(trace.contains("event=RETRY_SCHEDULED"))
+        assertTrue(trace.contains("event=STALE_GENERATION"))
+        assertFalse(trace.contains("event=RETRY_DISPATCHED"))
+    }
+
+    @Test fun noOwnerIsRecordedAndNeverSchedulesRetry() {
+        CarPlayBackgroundSession.clear()
+        reconnectDirectly()
+        assertTrue(ConnectionDiagnostics.report(activity).contains("event=NOT_OWNER"))
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
     }
 
     private fun report(generation: Int = 0, status: CarPlayStatus = failure) {

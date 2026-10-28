@@ -2,6 +2,9 @@
 // UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
+import com.shilapi.xcertplay.ConnectionDiagnostics.Source as ConnectionTraceSource
+
 import android.Manifest
 import android.app.AlertDialog
 import android.app.Dialog
@@ -358,7 +361,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 initialLaunch = false
                 startCarHotspotOnLaunch()
             }
-            handler.post { connect(true) }
+            handler.post { connectWithSource(true, ConnectionTraceSource.PHONE_ACL) }
         }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -383,15 +386,22 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 initialLaunch = false
                 startCarHotspotOnLaunch()
             }
-            handler.post { connect(true) }
+            handler.post { connectWithSource(true, ConnectionTraceSource.PHONE_ACL) }
         }
     }
     private fun consumeBluetoothAutoConnectIntent(intent: Intent): Boolean {
         val requested = intent.getBooleanExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT, false)
         intent.removeExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT)
-        return requested && DiPlayPreferences.connectOnPhoneBluetooth(this) &&
-            DiPlayPreferences.phoneAddress(this) != null && setupError == null &&
-            !CarPlayBackgroundSession.hasSession()
+        if (!requested) return false
+        val event = when {
+            !DiPlayPreferences.connectOnPhoneBluetooth(this) -> ConnectionTraceEvent.OPT_OUT
+            DiPlayPreferences.phoneAddress(this) == null -> ConnectionTraceEvent.NO_SELECTION
+            setupError != null -> ConnectionTraceEvent.SETUP_BLOCKED
+            CarPlayBackgroundSession.hasSession() -> ConnectionTraceEvent.OWNER_PRESENT
+            else -> ConnectionTraceEvent.INTENT_ACCEPTED
+        }
+        ConnectionDiagnostics.record(this, ConnectionTraceSource.PHONE_ACL, event)
+        return event == ConnectionTraceEvent.INTENT_ACCEPTED
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
@@ -487,7 +497,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     if (isFinishing || isDestroyed || CarPlayBackgroundSession.hasSession()) {
                         return@postDelayed
                     }
-                    connect(DiPlayPreferences.autoConnectWireless(this))
+                    connectWithSource(DiPlayPreferences.autoConnectWireless(this), ConnectionTraceSource.APP_LAUNCH)
                 }, AUTO_CONNECT_AFTER_LAUNCH_MILLIS)
             }
         }
@@ -4330,30 +4340,37 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         parent.addView(space(12))
     }
 
-    private fun connect(wireless: Boolean) {
+    private fun connect(wireless: Boolean) = connectWithSource(wireless, ConnectionTraceSource.UI_OR_CONTINUATION)
+
+    private fun connectWithSource(wireless: Boolean, source: ConnectionTraceSource) {
+        ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.CONNECT_ENTERED)
         startupHotspotCancelled = true
-        if (wireless && pendingCarHotspotSetup) { toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
-        if (setupError != null) { toast(setupError!!); return }
+        if (wireless && pendingCarHotspotSetup) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED); toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
+        if (setupError != null) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.SETUP_BLOCKED); toast(setupError!!); return }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             hotspotError(storedSsid(), storedPassword()) != null) {
+            ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED)
             pendingCarHotspotSetup = true
             page = "connection"
             render()
             toast(getString(R.string.save_the_name_and_password_from_the_car_s_hotspot_settings))
             return
         }
-        if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
+        if (wireless && carHotspotOff()) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_OFF); carHotspotOffDialog(); return }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
+            ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.PHONE_SELECTION_REQUIRED)
             pendingWireless = true; choosePhone(); return
         }
         val preferences = getSharedPreferences("diplay", MODE_PRIVATE)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !preferences.getBoolean("notification_asked", false)) {
             preferences.edit().putBoolean("notification_asked", true).apply()
             notificationTransport = wireless
+            ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.NOTIFICATION_PERMISSION)
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             return
         }
         val open = {
+            ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.PROJECTION_REQUESTED)
             AirPlayPersistence.saveWirelessEnabled(this, wireless)
             openProjection()
         }
@@ -4569,6 +4586,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
         appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
         appendLine(PhoneWakeDiagnostics.report(appContext))
+        appendLine(ConnectionDiagnostics.report(appContext))
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
         appendLine()
         appendLine(BluetoothDiagnosticSnapshot.report(appContext))

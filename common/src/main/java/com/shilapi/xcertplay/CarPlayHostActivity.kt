@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
+
 import android.app.AlertDialog
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -5783,20 +5785,28 @@ class CarPlayHostActivity : ComponentActivity() {
         startCarPlay(size)
     }
 
+    private fun traceRetry(event: ConnectionTraceEvent, generation: Int = restartGeneration, delayMillis: Long? = null) {
+        ConnectionDiagnostics.record(this, ConnectionDiagnostics.Source.RETRY, event, generation, delayMillis)
+    }
+
     private fun reconnectAfterLoss(
         reason: String,
         startupFailure: WirelessStartupFailure? = null,
         englishReason: String = reason,
     ) {
-        if (!CarPlayBackgroundSession.isOwner(this)) return
+        if (!CarPlayBackgroundSession.isOwner(this)) { traceRetry(ConnectionTraceEvent.NOT_OWNER); return }
         // Also when a retry is already pending and this loss is dropped: that retry must not skip.
         lossSinceControlRunning = true
         if (menuOpen) recoveryPendingAfterMenu = true
-        if (shuttingDown.get() || menuOpen || handshakeResetInProgress || startupRetryStopped) return
-        if (reconnectScheduled) return
+        if (shuttingDown.get()) { traceRetry(ConnectionTraceEvent.SHUTTING_DOWN); return }
+        if (menuOpen) { traceRetry(ConnectionTraceEvent.MENU_OPEN); return }
+        if (handshakeResetInProgress) { traceRetry(ConnectionTraceEvent.HANDSHAKE_RESET); return }
+        if (startupRetryStopped) { traceRetry(ConnectionTraceEvent.RETRY_STOPPED); return }
+        if (reconnectScheduled) { traceRetry(ConnectionTraceEvent.ALREADY_SCHEDULED); return }
         val startupDelay = if (startupFailure != null && startupFailure.retryable)
             startupRetryBudget.nextDelayMillis() else null
         if (startupFailure != null && startupDelay == null) {
+            traceRetry(if (startupFailure.retryable) ConnectionTraceEvent.RETRY_BUDGET_STOPPED else ConnectionTraceEvent.RETRY_NOT_RETRYABLE)
             startupRetryStopped = true
             startupRetryButton?.visibility = View.VISIBLE
             if (startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION) {
@@ -5823,6 +5833,7 @@ class CarPlayHostActivity : ComponentActivity() {
             (RECONNECT_DELAY_MILLIS * (1L shl reconnectAttempts.coerceAtMost(4))).coerceAtMost(30_000L)
         }
         reconnectAttempts += 1
+        traceRetry(ConnectionTraceEvent.RETRY_SCHEDULED, generation, delayMillis)
         appendLog("$reason; retrying in ${delayMillis}ms generation=$generation startupFailure=$startupFailure startupRetries=${startupRetryBudget.retries}")
         val controlRunsAtFailure = controlRunningCount
         mainHandler.postDelayed(
@@ -5835,15 +5846,24 @@ class CarPlayHostActivity : ComponentActivity() {
                     handshakeResetInProgress || startupRetryStopped ||
                     generation != restartGeneration
                 ) {
+                    traceRetry(when {
+                        shuttingDown.get() -> ConnectionTraceEvent.SHUTTING_DOWN
+                        menuOpen -> ConnectionTraceEvent.MENU_OPEN
+                        handshakeResetInProgress -> ConnectionTraceEvent.HANDSHAKE_RESET
+                        startupRetryStopped -> ConnectionTraceEvent.RETRY_STOPPED
+                        else -> ConnectionTraceEvent.STALE_GENERATION
+                    }, generation)
                     return@postDelayed
                 }
                 // A wired attempt can report a failure and still go on: a second CarPlay mode request
                 // failed while the iPhone was already switching, and the switch then completed (#873).
                 // Leave it alone only if it is still running; a loss after its recovery still restarts.
                 if (controlRunningCount != controlRunsAtFailure && !lossSinceControlRunning) {
+                    traceRetry(ConnectionTraceEvent.ALREADY_RECOVERED, generation)
                     appendLog("Not reconnecting after $reason: the same attempt is running again")
                     return@postDelayed
                 }
+                traceRetry(ConnectionTraceEvent.RETRY_DISPATCHED, generation)
                 restartCarPlay("Reconnecting after $reason")
             },
             delayMillis,
