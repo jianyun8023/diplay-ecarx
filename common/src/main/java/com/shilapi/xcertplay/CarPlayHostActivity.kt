@@ -1243,16 +1243,21 @@ class CarPlayHostActivity : ComponentActivity() {
             // cluster picture itself instead of the platform squeezing the 1920x944 centre screen
             // into 8:3 — which is what the mirror did and why it looked like neither.
             MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
-            return CarPlayClusterDisplay.config(
+            val config = CarPlayClusterDisplay.config(
                 widthPixels = CLUSTER_PANEL_WIDTH,
                 heightPixels = CLUSTER_PANEL_HEIGHT,
                 scalePercent = 100,
                 content = AirPlayPersistence.loadClusterContent(this),
                 baseSafeArea = CarPlayClusterDisplay.SAFE_AREA_PERCENT,
-            ).also {
+            )
+            val rect = AirPlayPersistence.loadClusterSafeAreaRect(this)
+            return (if (rect == null) config else config.copy(safeArea = AirPlaySafeArea.toInsets(
+                rect, CLUSTER_PANEL_WIDTH, CLUSTER_PANEL_HEIGHT, config.widthPixels, config.heightPixels,
+            ))).also {
                 appendLog(
                     "Cluster: requesting ${it.widthPixels}x${it.heightPixels} (8:3) " +
-                        "instrument-cluster stream for display $CLUSTER_PANEL_DISPLAY_ID, content=${it.initialUrl}",
+                        "instrument-cluster stream for display $CLUSTER_PANEL_DISPLAY_ID, " +
+                        "content=${it.initialUrl} safeArea=${it.safeArea}",
                 )
             }
         }

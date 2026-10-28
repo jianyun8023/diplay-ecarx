@@ -836,4 +836,8 @@
     <string name="ecarx_sw_key_press">现在按方向盘上用于%1$s的按键…</string>
     <string name="settings_ecarx_lane_guidance">仪表车道指引（实验性）</string>
     <string name="settings_ecarx_lane_guidance_description">导航时在仪表显示 CarPlay 车道指引。是否可用取决于车机。更改立即生效。</string>
+    <string name="settings_ecarx_cluster_safe_area">仪表安全区</string>
+    <string name="settings_ecarx_cluster_safe_area_description">拖动边界，避开仪表读数。重置可恢复原有区域。保存并重新连接后生效。</string>
+    <string name="settings_ecarx_cluster_safe_area_default">默认</string>
+    <string name="settings_ecarx_cluster_safe_area_custom">自定义</string>
 </resources>

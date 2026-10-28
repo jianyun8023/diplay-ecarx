@@ -50,6 +50,7 @@ import com.shilapi.xcertplay.adb.AdbDiagnostics
 import com.shilapi.xcertplay.adb.LocalAdb
 import com.shilapi.xcertplay.airplay.CarPlayClusterDisplay
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
+import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.airplay.ClusterSpeedometerOverlay
 import com.shilapi.xcertplay.airplay.ClusterTurnCardOverlay
 import com.shilapi.xcertplay.backup.SettingsBackupCodec
@@ -3699,7 +3700,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     /**
-     * The ECARX (亿咖通) instrument-cluster outputs — **three** switches, nothing else.
+     * The ECARX (亿咖通) instrument-cluster outputs and the physical stream's safe area.
      *
      * Six more used to live here: 投屏窗口包名、箭头实验开关、导航投影轴、媒体投影轴、导航进行中事件、
      * 集群导航模式. Each was a question the car had already answered, and each wrong answer made the
@@ -3739,6 +3740,84 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 EcarxOutputSettings.mediaEnabled(this),
                 save = this::onEcarxMediaToggled)
         }
+        lateinit var safeAreaButton: Button
+        safeAreaButton = button(getString(R.string.settings_ecarx_cluster_safe_area) + VALUE_SEPARATOR +
+            getString(if (AirPlayPersistence.loadClusterSafeAreaRect(this) == null)
+                R.string.settings_ecarx_cluster_safe_area_default else R.string.settings_ecarx_cluster_safe_area_custom),
+            false) { openClusterSafeAreaEditor(safeAreaButton) }
+        safeAreaButton.tag = R.string.settings_ecarx_cluster_safe_area
+        safeAreaButton.minHeight = dp(CONTROL_HEIGHT_DP)
+        card.addView(safeAreaButton, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(SETTINGS_BLOCK_GAP_DP)
+        })
+    }
+
+    private fun openClusterSafeAreaEditor(setting: Button) {
+        clusterSafeAreaDialog?.dismiss()
+        val saved = AirPlayPersistence.loadClusterSafeAreaRect(this)
+        // Match the physical stream's existing default, including its pixel rounding.
+        val insets = checkNotNull(CarPlayClusterDisplay.config(1920, 720, scalePercent = 100).safeArea)
+        val defaultRect = SafeAreaRect(insets.left, insets.top, 1920 - insets.right, 720 - insets.bottom)
+        var useDefault = saved == null
+        val editor = SafeAreaEditorView(this, palette).apply {
+            setBackgroundColor(SURFACE)
+            setRect(saved ?: defaultRect, 1920, 720)
+            onRectChanged = { useDefault = false }
+        }
+        val dialog = appDialog().apply { requestWindowFeature(Window.FEATURE_NO_TITLE) }
+        val panel = column().apply {
+            setPadding(dp(SETTINGS_BLOCK_GAP_DP), dp(SETTINGS_BLOCK_GAP_DP),
+                dp(SETTINGS_BLOCK_GAP_DP), dp(SETTINGS_BLOCK_GAP_DP))
+            setBackgroundColor(SURFACE)
+        }
+        panel.addView(label(getString(R.string.settings_ecarx_cluster_safe_area), 20, TEXT, true))
+        panel.addView(label(getString(R.string.settings_ecarx_cluster_safe_area_description), 14, MUTED),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(NOTE_ATTACH_GAP_DP) })
+        // Letterbox the editor inside the available space so resizing never stretches the 8:3 panel.
+        val preview = object : FrameLayout(this) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                val width = minOf(measuredWidth, measuredHeight * 1920 / 720)
+                editor.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(width * 720 / 1920, View.MeasureSpec.EXACTLY))
+            }
+        }.apply {
+            addView(editor, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
+        }
+        panel.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+            topMargin = dp(SETTINGS_BLOCK_GAP_DP)
+            bottomMargin = dp(SETTINGS_BLOCK_GAP_DP)
+        })
+        panel.addView(button(getString(R.string.reset), false) {
+            useDefault = true
+            editor.setRect(defaultRect, 1920, 720)
+        }, LinearLayout.LayoutParams(-1, -2))
+        val actions = row()
+        actions.addView(button(getString(R.string.cancel), false) { dialog.dismiss() },
+            LinearLayout.LayoutParams(0, -1, 1f))
+        actions.addView(button(getString(R.string.save), true) {
+            val rect = editor.currentRectForSource() ?: return@button
+            if (useDefault) AirPlayPersistence.clearClusterSafeAreaRect(this)
+            else AirPlayPersistence.saveClusterSafeAreaRect(this, rect)
+            setting.text = getString(R.string.settings_ecarx_cluster_safe_area) + VALUE_SEPARATOR +
+                getString(if (useDefault) R.string.settings_ecarx_cluster_safe_area_default
+                    else R.string.settings_ecarx_cluster_safe_area_custom)
+            dialog.dismiss()
+            markReconnectNeeded()
+        }, LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(CONTROL_GAP_DP) })
+        panel.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(CONTROL_GAP_DP) })
+        dialog.setContentView(panel, ViewGroup.LayoutParams(-1, -1))
+        clusterSafeAreaDialog = dialog
+        dialog.setOnDismissListener {
+            editor.onRectChanged = null
+            if (clusterSafeAreaDialog === dialog) clusterSafeAreaDialog = null
+        }
+        dialog.show()
+        // Compact windows need the full area for large translated text, the editor and its actions.
+        val metrics = resources.displayMetrics
+        dialog.window?.setLayout(
+            if (isCompactLayout) metrics.widthPixels else (metrics.widthPixels * 0.9f).toInt(),
+            if (isCompactLayout) metrics.heightPixels else (metrics.heightPixels * 0.85f).toInt())
     }
 
     /**
@@ -5022,7 +5101,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             val lp = child.layoutParams as? LinearLayout.LayoutParams ?: continue
             when {
                 child is Button -> {
-                    lp.height = dp(CONTROL_HEIGHT_DP); lp.topMargin = 0
+                    // The safe-area entry can wrap at large font sizes in the compact card.
+                    lp.height = if (child.tag == R.string.settings_ecarx_cluster_safe_area)
+                        ViewGroup.LayoutParams.WRAP_CONTENT else dp(CONTROL_HEIGHT_DP)
+                    lp.topMargin = 0
                     lp.bottomMargin = dp(if (isNote(next)) NOTE_ATTACH_GAP_DP else CONTROL_GAP_DP)
                 }
                 // Toggle rows carried their own vertical padding, which doubled the gap after a button.
