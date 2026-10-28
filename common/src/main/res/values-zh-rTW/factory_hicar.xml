@@ -1,0 +1,8 @@
+<resources>
+    <string name="settings_disable_factory_hicar">停用原廠 HiCar</string>
+    <string name="settings_disable_factory_hicar_description">減少長按語音鍵與 Siri 的衝突。退出 DiPlay 後原廠 HiCar 仍保持停用，關閉此項可恢復；恢復後可能需要重新啟動車機。</string>
+    <string name="settings_factory_hicar_permission_required">目前版本缺少修改 HiCar 的系統權限，僅顯示實際狀態。</string>
+    <string name="settings_factory_hicar_disabled">已停用原廠 HiCar</string>
+    <string name="settings_factory_hicar_restored">已恢復原廠 HiCar，必要時請重新啟動車機。</string>
+    <string name="settings_factory_hicar_failed">無法修改 HiCar，已顯示實際狀態。</string>
+</resources>

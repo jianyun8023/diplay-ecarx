@@ -1,0 +1,8 @@
+<resources>
+    <string name="settings_disable_factory_hicar">禁用原厂 HiCar</string>
+    <string name="settings_disable_factory_hicar_description">减少长按语音键与 Siri 的冲突。退出 DiPlay 后原厂 HiCar 仍保持禁用，关闭此项可恢复；恢复后可能需要重启车机。</string>
+    <string name="settings_factory_hicar_permission_required">当前版本缺少修改 HiCar 的系统权限，仅显示实际状态。</string>
+    <string name="settings_factory_hicar_disabled">已禁用原厂 HiCar</string>
+    <string name="settings_factory_hicar_restored">已恢复原厂 HiCar，必要时请重启车机。</string>
+    <string name="settings_factory_hicar_failed">无法修改 HiCar，已显示实际状态。</string>
+</resources>

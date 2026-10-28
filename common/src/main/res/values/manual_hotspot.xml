@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_manual_hotspot_title">Car hotspot switch (experimental)</string>
+    <string name="settings_manual_hotspot_description">The same hotspot startup is used here and before wireless CarPlay. On Android 9, a failed start resets Wi-Fi once before retrying. Disconnect CarPlay first; this can disconnect other Wi-Fi and hotspot devices. Saved hotspot details stay unchanged.</string>
+    <string name="settings_manual_hotspot_on">Turn hotspot on</string>
+    <string name="settings_manual_hotspot_off">Turn hotspot off</string>
+    <string name="settings_manual_hotspot_refresh">Refresh network state</string>
+    <string name="settings_manual_hotspot_working">A network switch operation is in progress. Wait before connecting or trying again.</string>
+    <string name="settings_manual_hotspot_disconnect">Finish or disconnect CarPlay and wait for any connection or hotspot startup to end before changing Wi-Fi or the hotspot.</string>
+    <string name="settings_manual_hotspot_confirm_off">Turning the hotspot off disconnects every device using it and can interrupt CarPlay. Turn it off now?</string>
+    <string name="settings_manual_hotspot_state_on">Hotspot state: on</string>
+    <string name="settings_manual_hotspot_state_off">Hotspot state: off</string>
+    <string name="settings_manual_hotspot_state_starting">Hotspot state: starting</string>
+    <string name="settings_manual_hotspot_state_stopping">Hotspot state: stopping</string>
+    <string name="settings_manual_hotspot_state_failed">Hotspot state: failed</string>
+    <string name="settings_manual_hotspot_state_unknown">Hotspot state: unavailable; use the car settings to check it.</string>
+    <string name="settings_manual_hotspot_permission">The system refused hotspot control. Check system settings; this app will not grant itself permission.</string>
+    <string name="settings_manual_hotspot_unsupported">Direct control is unavailable on this system. Use the car hotspot settings instead.</string>
+    <string name="settings_manual_hotspot_timeout">The requested state was not confirmed before the timeout. Check car settings; no automatic retry was made.</string>
+    <string name="settings_manual_hotspot_cancelled">Stopped waiting for the result. A request already sent may still complete; refresh the state before retrying.</string>
+    <string name="settings_manual_hotspot_failed">The hotspot request failed. Check car settings; no automatic retry was made.</string>
+    <string name="settings_manual_hotspot_recover">Recover hotspot</string>
+    <string name="settings_manual_hotspot_confirm_recover">Stop the hotspot, check Wi-Fi and cycle it on then off, then try the hotspot once. Wi-Fi will be turned off first only if it is on. This disconnects devices using Wi-Fi or the hotspot.</string>
+</resources>
