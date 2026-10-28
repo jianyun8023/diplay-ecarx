@@ -1,0 +1,4 @@
+<resources>
+    <string name="settings_bluetooth_media_yield">Pause Bluetooth media for CarPlay (experimental)</string>
+    <string name="settings_bluetooth_media_yield_description">Pause only the selected iPhone’s Bluetooth media, keep calls, and restore media after CarPlay. Requires A2DP Sink support and “CarPlay audio over the car’s Bluetooth” turned off. Applies on the next connection.</string>
+</resources>

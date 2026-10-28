@@ -1957,9 +1957,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveSpeechWithout8And16Khz(this, it)
                 reconnectIfRunning()
             }
+            val mediaYieldToggle = toggle(card, getString(R.string.settings_bluetooth_media_yield),
+                getString(R.string.settings_bluetooth_media_yield_description),
+                CarBluetoothProfileGuard.mediaOnlyEnabled(this),
+                enabled = !AirPlayPersistence.loadCarBluetoothAudio(this)) {
+                CarBluetoothProfileGuard.saveMediaOnlyEnabled(this, it)
+                markReconnectNeeded()
+            }
             toggle(card, getString(R.string.settings_car_bluetooth_audio), getString(R.string.settings_car_bluetooth_audio_description),
                 AirPlayPersistence.loadCarBluetoothAudio(this)) {
                 AirPlayPersistence.saveCarBluetoothAudio(this, it)
+                mediaYieldToggle.isEnabled = !it
                 reconnectIfRunning()
             }
         }

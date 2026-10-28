@@ -5097,11 +5097,10 @@ class CarPlayHostActivity : ComponentActivity() {
             audioCaptureDirectory = audioCaptureDirectory(),
         )
 
-    // The head unit's own Bluetooth keeps the iPhone as an audio output, which is what makes iOS
-    // pause CarPlay media the moment it starts. The guard takes the media/call profiles away once
-    // the session has settled and hands them back when it ends; see CarBluetoothProfileGuard.
+    // Media-only yield preserves the phone profile; the older adapter-off mode is a separate opt-in.
     private fun yieldCarBluetooth() {
-        CarBluetoothProfileGuard.yieldForSession(this, DiPlayPreferences.phoneAddress(this)) { message ->
+        CarBluetoothProfileGuard.yieldForSession(this, DiPlayPreferences.phoneAddress(this),
+            mediaAudioAllowed = !AirPlayPersistence.loadCarBluetoothAudio(this)) { message ->
             mainHandler.post { appendLog(message) }
         }
     }

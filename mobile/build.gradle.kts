@@ -22,6 +22,7 @@ android {
         // the ECARX adaptation rather than another build of upstream's line.
         versionCode = 100
         versionName = "0.1"
+        testInstrumentationRunner = "com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation"
 
     }
 
