@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaRecorder
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 
 internal enum class MicrophoneFailureStage {
@@ -13,7 +14,7 @@ internal class MicrophoneCaptureStats(
     private val report: (String) -> Unit,
     private val nowNs: () -> Long = System::nanoTime,
 ) {
-    private val type = typeAndSource(config.audioType).first
+    private val type = audioType(config.audioType)
     private val format = format(config)
     private var metadata = metadata(config)
     private var windowStart = nowNs()
@@ -29,6 +30,10 @@ internal class MicrophoneCaptureStats(
     private var sendErrors = 0L
     private var lastSentNs: Long? = null
     private var sendGapMaxNs = 0L
+    private var sampleCount = 0L
+    private var squareSum = 0.0
+    private var zeroSamples = 0L
+    private var clippedSamples = 0L
     private var peakSample = 0
     private var routedDeviceType: Int? = null
 
@@ -38,7 +43,14 @@ internal class MicrophoneCaptureStats(
     }
 
     /** Call before the capture thread starts; [metadata] is not volatile. */
-    fun useVoiceCommunicationSource() { metadata = "type=$type source=VOICE_COMMUNICATION $format" }
+    fun selectedSource(source: Int) {
+        metadata = "type=$type source=${sourceName(source)} $format"
+    }
+
+    /** The recorder may disagree with the requested source; never infer this from the stream type. */
+    fun recorderSource(source: Int?) {
+        metadata += " actualSource=${sourceName(source)}"
+    }
 
     fun reading() { readStart = nowNs() }
 
@@ -61,6 +73,10 @@ internal class MicrophoneCaptureStats(
         while (index + 1 < pcm.size) {
             val sample = (pcm[index].toInt() and 0xff) or (pcm[index + 1].toInt() shl 8)
             peakSample = maxOf(peakSample, kotlin.math.abs(sample))
+            sampleCount++
+            squareSum += sample.toDouble() * sample
+            if (sample == 0) zeroSamples++
+            if (sample == Short.MIN_VALUE.toInt() || sample == Short.MAX_VALUE.toInt()) clippedSamples++
             index += 2
         }
     }
@@ -96,7 +112,9 @@ internal class MicrophoneCaptureStats(
             "captureBytes=$capturedBytes reads=$reads zeroReads=$zeroReads readErrors=$readErrors " +
             "readMaxMs=${readMaxNs / 1_000_000} encodedFrames=$encodedFrames " +
             "emptyEncodedFrames=$emptyEncodedFrames udpSent=$udpSent sendErrors=$sendErrors " +
-            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)} ended=$ended")
+            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)} " +
+            "rmsDbfs=${rmsDbfs()} zeroSamplePct=${if (sampleCount == 0L) "unknown" else (100 * zeroSamples / sampleCount).toString()} " +
+            "clippedSamples=$clippedSamples ended=$ended")
         windowStart = now
         capturedBytes = 0
         reads = 0
@@ -109,6 +127,17 @@ internal class MicrophoneCaptureStats(
         sendErrors = 0
         sendGapMaxNs = 0
         peakSample = 0
+        sampleCount = 0
+        squareSum = 0.0
+        zeroSamples = 0
+        clippedSamples = 0
+    }
+
+    // No voice-activity claim: zero samples and low RMS can also describe quiet/background noise.
+    private fun rmsDbfs(): String = when {
+        sampleCount == 0L -> "unknown"
+        squareSum == 0.0 -> "silent"
+        else -> Math.round(10 * kotlin.math.log10(squareSum / sampleCount / (32768.0 * 32768.0))).toString()
     }
 
     private fun emit(message: String) { runCatching { report(message) } }
@@ -120,18 +149,23 @@ internal class MicrophoneCaptureStats(
         internal fun peakDbfs(peak: Int): String =
             if (peak <= 0) "silent" else Math.round(20 * kotlin.math.log10(peak / 32768.0)).toString()
 
-        private fun typeAndSource(audioType: String): Pair<String, String> = when (audioType) {
-            "telephony" -> "telephony" to "VOICE_COMMUNICATION"
-            "speechrecognition" -> "speechrecognition" to "VOICE_RECOGNITION"
-            else -> "other" to "MIC"
+        private fun audioType(audioType: String): String = when (audioType) {
+            "telephony", "speechrecognition" -> audioType
+            else -> "other"
+        }
+
+        private fun sourceName(source: Int?): String = when (source) {
+            MediaRecorder.AudioSource.MIC -> "MIC"
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
+            MediaRecorder.AudioSource.VOICE_RECOGNITION -> "VOICE_RECOGNITION"
+            else -> "unknown"
         }
 
         private fun format(config: MicrophoneConfig): String = "codec=${config.codec.name} " +
             "rate=${config.sampleRate} channels=${config.channels} frameMs=${config.frameMillis}"
 
         private fun metadata(config: MicrophoneConfig): String {
-            val (type, source) = typeAndSource(config.audioType)
-            return "type=$type source=$source ${format(config)}"
+            return "type=${audioType(config.audioType)} source=unknown ${format(config)}"
         }
 
         private fun failureMessage(

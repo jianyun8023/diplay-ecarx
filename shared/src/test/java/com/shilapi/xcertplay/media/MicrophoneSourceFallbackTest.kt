@@ -8,6 +8,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import com.shilapi.xcertplay.airplay.AudioStreamId
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.network.GeelyHeadUnit
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -75,6 +76,7 @@ class MicrophoneSourceFallbackTest {
         val recorder = requireNotNull(captured.get())
         assertEquals(listOf(MediaRecorder.AudioSource.VOICE_RECOGNITION, MediaRecorder.AudioSource.VOICE_COMMUNICATION), RecorderBuilder.attempts)
         assertEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION, recorder.audioSource)
+        assertTrue(diagnostics.any { it.contains("actualSource=VOICE_COMMUNICATION") })
         assertEquals(AudioManager.MODE_RINGTONE, context.getSystemService(AudioManager::class.java).mode)
         assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
         assertTrue(diagnostics.any { it.contains("failure type=speechrecognition source=VOICE_RECOGNITION") && it.contains("stage=RECORDER_CREATION") })
@@ -82,6 +84,49 @@ class MicrophoneSourceFallbackTest {
         sink.onMicrophoneStopped(id)
         assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.state)
         assertTrue(diagnostics.any { it.contains("stats type=speechrecognition source=VOICE_COMMUNICATION") && it.endsWith("ended=true") })
+    }
+
+    @Test
+    @Config(shadows = [RecorderBuilder::class, GeelyDetection::class],
+        instrumentedPackages = ["com.shilapi.xcertplay.network"])
+    fun geelySiriReportsDirectCommunicationSourceWithoutChangingRouteOrEffects() {
+        assertTrue(GeelyHeadUnit.detected)
+
+        sink.onMicrophoneStarted(id, config("speechrecognition"))
+
+        assertTrue(captureStarted.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf(MediaRecorder.AudioSource.VOICE_COMMUNICATION), RecorderBuilder.attempts)
+        assertEquals(MediaRecorder.AudioSource.VOICE_COMMUNICATION, requireNotNull(captured.get()).audioSource)
+        val start = diagnostics.single { it.startsWith("Microphone: start") }
+        assertTrue(start.contains("source=VOICE_COMMUNICATION"))
+        assertTrue(start.contains("actualSource=VOICE_COMMUNICATION"))
+        assertFalse(start.contains("VOICE_RECOGNITION"))
+        assertEquals(AudioManager.MODE_RINGTONE, context.getSystemService(AudioManager::class.java).mode)
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+        sink.onMicrophoneStopped(id)
+        assertTrue(diagnostics.any { it.contains("actualSource=VOICE_COMMUNICATION") && it.endsWith("ended=true") })
+    }
+
+    @Test
+    @Config(shadows = [DifferentReportedSource::class])
+    fun recorderReportedSourceIsNotReplacedByTheRequestedSource() {
+        sink.onMicrophoneStarted(id, config("speechrecognition"))
+
+        assertTrue(captureStarted.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf(MediaRecorder.AudioSource.VOICE_RECOGNITION), RecorderBuilder.attempts)
+        val recorder = requireNotNull(captured.get())
+        assertEquals(MediaRecorder.AudioSource.MIC, recorder.audioSource)
+        val start = diagnostics.single { it.startsWith("Microphone: start") }
+        assertTrue(start.contains("source=VOICE_RECOGNITION"))
+        assertTrue(start.contains("actualSource=MIC"))
+        assertEquals(AudioManager.MODE_RINGTONE, context.getSystemService(AudioManager::class.java).mode)
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+
+        sink.onMicrophoneStopped(id)
+        assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.state)
+        val ended = diagnostics.single { it.contains("stats type=speechrecognition") && it.endsWith("ended=true") }
+        assertTrue(ended.contains("source=VOICE_RECOGNITION"))
+        assertTrue(ended.contains("actualSource=MIC"))
     }
 
     @Test fun siriInitializationFailureReleasesRejectedRecorderBeforeFallbackCapture() {
@@ -122,6 +167,35 @@ class MicrophoneSourceFallbackTest {
     private fun config(type: String) = MicrophoneConfig(audioType = type, sampleRate = 16_000,
         channels = 1, payloadType = 100, frameMillis = 20, host = InetAddress.getLoopbackAddress(),
         port = 9, key = ByteArray(32))
+
+    /**
+     * This fixture tests source selection/reporting, not Build-name detection. The detector caches
+     * its result during object initialization, before a test method can change Build.PRODUCT.
+     * Shadow that device boundary in this test's sandbox instead of changing production detection
+     * or relying on class-initialization order. The real sink, recorder and uplink still run.
+     */
+    @Implements(value = GeelyHeadUnit::class, isInAndroidSdk = false)
+    class GeelyDetection {
+        @Implementation fun getDetected(): Boolean = true
+    }
+
+    /** Only this test changes recorder metadata; capture and the production uplink remain real. */
+    @Implements(AudioRecord.Builder::class)
+    class DifferentReportedSource {
+        @RealObject private lateinit var builder: AudioRecord.Builder
+
+        @Implementation fun build(): AudioRecord {
+            val attributes = ReflectionHelpers.getField<AudioAttributes>(builder, "mAttributes")
+            val source = ReflectionHelpers.callInstanceMethod<Int>(attributes, "getCapturePreset")
+            RecorderBuilder.attempts += source
+            return DifferentSourceRecorder(source).also { RecorderBuilder.built += it }
+        }
+    }
+
+    class DifferentSourceRecorder(source: Int) : AudioRecord(source, 16_000,
+        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, 4096) {
+        override fun getAudioSource(): Int = MediaRecorder.AudioSource.MIC
+    }
 
     @Implements(AudioRecord.Builder::class)
     class RecorderBuilder {

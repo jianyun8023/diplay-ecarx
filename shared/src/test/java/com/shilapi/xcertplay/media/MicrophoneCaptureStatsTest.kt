@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaRecorder
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
@@ -58,7 +59,7 @@ class MicrophoneCaptureStatsTest {
         // -16384 little-endian is half of full scale: -6 dBFS.
         stats.level(byteArrayOf(0, 0, 0x00, 0xc0.toByte(), 0x10, 0x00))
         stats.flush(ended = true)
-        assertTrue(reports.last().contains("peakDbfs=-6 ended=true"))
+        assertTrue(reports.last().contains("peakDbfs=-6 rmsDbfs=-11 zeroSamplePct=33 clippedSamples=0 ended=true"))
         assertEquals("0", MicrophoneCaptureStats.peakDbfs(32768))
     }
 
@@ -110,12 +111,47 @@ class MicrophoneCaptureStatsTest {
     @Test fun fallbackSourceIsReportedAfterTheRefusedSource() {
         val reports = mutableListOf<String>()
         val stats = MicrophoneCaptureStats(config.copy(audioType = "speechrecognition"), reports::add) { 0 }
+        stats.selectedSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
         stats.failure(MicrophoneFailureStage.RECORDER_CREATION, UnsupportedOperationException())
-        stats.useVoiceCommunicationSource()
+        stats.selectedSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
         stats.started(15)
         stats.flush(ended = true)
         assertTrue(reports[0].contains("type=speechrecognition source=VOICE_RECOGNITION"))
         assertTrue(reports.drop(1).all { it.contains("type=speechrecognition source=VOICE_COMMUNICATION") })
+    }
+
+    @Test fun levelsAreWindowedWithoutRetainingPcmAndDistinguishNoSamplesFromSilence() {
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add) { 0 }
+        stats.flush(ended = true)
+        assertTrue(reports.last().contains("rmsDbfs=unknown zeroSamplePct=unknown clippedSamples=0"))
+        stats.level(byteArrayOf(0, 0, 0, 0, 1)) // Ignore incomplete PCM16 sample.
+        stats.flush(ended = true)
+        assertTrue(reports.last().contains("rmsDbfs=silent zeroSamplePct=100 clippedSamples=0"))
+        val pcm = byteArrayOf(0, 0x80.toByte(), 0xff.toByte(), 0x7f)
+        val original = pcm.copyOf()
+        stats.level(pcm)
+        assertArrayEquals(original, pcm)
+        stats.flush(ended = true)
+        assertTrue(reports.last().contains("peakDbfs=0 rmsDbfs=0 zeroSamplePct=0 clippedSamples=2"))
+        stats.flush(ended = true)
+        assertTrue(reports.last().contains("rmsDbfs=unknown zeroSamplePct=unknown clippedSamples=0"))
+    }
+
+    @Test fun requestedAndActualSourcesAreIndependentAndUnknownValuesAreAllowlisted() {
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config.copy(audioType = "speechrecognition"), reports::add) { 0 }
+        stats.selectedSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+        stats.recorderSource(MediaRecorder.AudioSource.MIC)
+        stats.started(15)
+        assertTrue(reports.last().contains("source=VOICE_COMMUNICATION"))
+        assertTrue(reports.last().contains("actualSource=MIC"))
+        stats.selectedSource(123456789)
+        stats.recorderSource(null)
+        stats.started(null)
+        assertTrue(reports.last().contains("source=unknown"))
+        assertTrue(reports.last().contains("actualSource=unknown"))
+        assertFalse(reports.last().contains("123456789"))
     }
 
     @Test fun outputContainsOnlyAllowlistedMetadataAndNeverExceptionMessagesOrEndpoints() {
@@ -127,7 +163,7 @@ class MicrophoneCaptureStatsTest {
         stats.flush(ended = true)
         MicrophoneCaptureStats.reportStartFailure(privateConfig, SecurityException("PRIVATE_DEVICE_ADDRESS"), reports::add)
         val text = reports.joinToString("\n")
-        assertTrue(text.contains("type=other source=MIC codec=OPUS"))
+        assertTrue(text.contains("type=other source=unknown codec=OPUS"))
         assertTrue(text.contains("stage=CAPTURE error=IllegalStateException"))
         for (privateValue in listOf("PRIVATE", "secret", "SECRET", "198.51.100.20", "54321", "head=", "payload=", "key=")) {
             assertFalse(privateValue, text.contains(privateValue))

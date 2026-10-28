@@ -92,6 +92,7 @@ internal class MicrophoneUplink(
                 }
             else -> MediaRecorder.AudioSource.MIC
         }
+        stats.selectedSource(source)
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
             opusEncoderFactory(config.bitrate ?: 48_000)
         } else {
@@ -113,7 +114,6 @@ internal class MicrophoneUplink(
         // Some head units throw on VOICE_RECOGNITION at build(); VOICE_COMMUNICATION works there.
         val nextRecorder = createRecorder(source, channelMask, bufferSize)
             ?: if (source == MediaRecorder.AudioSource.VOICE_RECOGNITION) {
-                stats.useVoiceCommunicationSource()
                 createRecorder(MediaRecorder.AudioSource.VOICE_COMMUNICATION, channelMask, bufferSize)
             } else {
                 null
@@ -165,6 +165,7 @@ internal class MicrophoneUplink(
     }
 
     private fun createRecorder(source: Int, channelMask: Int, bufferSize: Int): AudioRecord? {
+        stats.selectedSource(source)
         val recorder = try {
             AudioRecord.Builder()
                 .setAudioSource(source)
@@ -188,6 +189,7 @@ internal class MicrophoneUplink(
             recorder.release()
             return null
         }
+        stats.recorderSource(runCatching { recorder.audioSource }.getOrNull())
         return recorder
     }
 
