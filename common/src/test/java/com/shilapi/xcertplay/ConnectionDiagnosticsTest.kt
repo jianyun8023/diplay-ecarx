@@ -49,7 +49,7 @@ class ConnectionDiagnosticsTest {
         DiPlayPreferences.savePhone(app, "12:34:56:78:9A:BC", "Private phone")
         DiPlayPreferences.saveConnectOnPhoneBluetooth(app, true)
         ReflectionHelpers.setField(CarPlayBackgroundSession, "stopAction", { done: () -> Unit -> done() })
-        val intent = Intent().putExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT, true)
+        val intent = Intent().putExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT, PhoneBluetoothReceiver.launchToken)
         val accepted = DiPlayActivity::class.java.getDeclaredMethod("consumeBluetoothAutoConnectIntent", Intent::class.java)
             .apply { isAccessible = true }.invoke(activity, intent) as Boolean
         assertFalse(accepted)

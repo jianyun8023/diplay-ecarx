@@ -23,7 +23,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAudioEffect
-import org.robolectric.shadows.ShadowAudioManager
 import org.robolectric.shadows.ShadowAudioRecord
 
 /** Real sink/uplink and policy reflection: P1 changes routing, not source, packets or call effects. */
@@ -53,7 +52,8 @@ class SiriCommunicationCaptureTest {
         MicrophoneSourceFallbackTest.RecorderBuilder.rejectSources = emptySet()
         MicrophoneSourceFallbackTest.RecorderBuilder.uninitializedSources = emptySet()
         shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO, Manifest.permission.MODIFY_AUDIO_SETTINGS)
-        manager.mode = AudioManager.MODE_RINGTONE // Restore the actual previous mode, not hard-coded 0.
+        ShadowAudioModeRequests.clearRequests()
+        ShadowAudioModeRequests.otherProcess(AudioManager.MODE_RINGTONE)
         policy.events.clear()
         ShadowAudioRecord.setSourceProvider {
             policy.events.add("recorder")
@@ -105,9 +105,11 @@ class SiriCommunicationCaptureTest {
         assertNull(policy.held)
         assertTrue(policy.events.containsAll(listOf("parameter:hicar_enable=false",
             "parameter:AudioControlMode=01121000", "parameter:ASR_AEC=OFF")))
-        assertTrue(reports.any { it.contains("mode restored requested=1 now=1") })
+        assertTrue(reports.any { it.contains("mode restored requested=0 now=1") })
         assertTrue(reports.any { it.contains("mic released held=true ok=true") })
         assertTrue(reports.any { it.contains("phase=stopped mode=1") })
+        ShadowAudioModeRequests.otherProcess(AudioManager.MODE_NORMAL)
+        assertEquals(AudioManager.MODE_NORMAL, manager.mode)
         sink!!.close()
         assertEquals(1, policy.releases)
     }
@@ -188,7 +190,7 @@ class SiriCommunicationCaptureTest {
 
     @Test fun failedModeRestoreStillClosesVendorParametersAndReleasesTheMic() {
         start()
-        CaptureAudioManager.rejectMode = AudioManager.MODE_RINGTONE
+        CaptureAudioManager.rejectMode = AudioManager.MODE_NORMAL
         sink!!.onMicrophoneStopped(siri)
         assertEquals(1, policy.releases)
         assertTrue(policy.events.contains("parameter:ASR_AEC=OFF"))
@@ -250,7 +252,7 @@ class SiriCommunicationCaptureTest {
         host = InetAddress.getLoopbackAddress(), port = 9, key = ByteArray(32))
 
     @Implements(AudioManager::class)
-    class CaptureAudioManager : ShadowAudioManager() {
+    class CaptureAudioManager : ShadowAudioModeRequests() {
         @Implementation override fun setMode(mode: Int) {
             if (mode == rejectMode) throw SecurityException("Test mode refusal")
             PolicyAPI.audio.events.add("mode:$mode")

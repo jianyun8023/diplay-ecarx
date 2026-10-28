@@ -46,7 +46,7 @@ class PhoneBluetoothReceiver : BroadcastReceiver() {
         PhoneWakeDiagnostics.record(context, "matched")
         trace(context, Event.LAUNCH_REQUESTED)
         val launch = Intent(context, DiPlayActivity::class.java).apply {
-            putExtra(EXTRA_AUTO_CONNECT, true)
+            putExtra(EXTRA_AUTO_CONNECT, launchToken)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         runCatching { context.startActivity(launch) }
@@ -66,6 +66,9 @@ class PhoneBluetoothReceiver : BroadcastReceiver() {
 
     companion object {
         const val EXTRA_AUTO_CONNECT = "com.shihab.diplay.AUTO_CONNECT_SELECTED_PHONE"
+
+        /** DiPlayActivity is exported. Only this process knows the token, so only its own launch can connect. */
+        internal val launchToken: String = java.util.UUID.randomUUID().toString()
     }
 }
 
