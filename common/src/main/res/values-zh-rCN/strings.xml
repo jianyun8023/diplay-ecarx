@@ -572,7 +572,7 @@
     <string name="settings_gesture_fingers_option">%1$d 指</string>
     <string name="settings_gesture_fingers_hint">选择车机没有占用的手指数。部分车机的三指下滑是空调面板，建议改用 2 指。</string>
     <string name="auto_car_hotspot_title">自动开启热点</string>
-    <string name="auto_car_hotspot_description">DiPlay 启动时开启车机热点。打开开关会自动通过 ADB 申请所需权限，请允许车机上的授权提示。配合“车辆启动后打开”可随开机启动。保留热点名称和密码，不会自动关闭热点。</string>
+    <string name="auto_car_hotspot_description">打开 DiPlay 或连接无线 CarPlay 前启动已保存的车机热点。Android 9 启动失败时，会检查当前 Wi-Fi 状态，重置后重试一次，可能断开其他 Wi-Fi 设备。热点名称和密码不变；配合车机启动时打开使用。</string>
     <string name="settings_car_hotspot_config_title">导入车机热点详情（实验性）</string>
     <string name="settings_car_hotspot_config_description">无需手动输入热点信息，尝试导入车机热点信息；车机没有热点信息时，在用户确认后由 DiPlay 写入自己的热点详情，使用此车载热点的设备可能需要重连。Android 11 及以上需要 ADB；Android 8 到 10 不支持。</string>
     <string name="settings_car_hotspot_config_unsupported">此 Android 版本不支持导入车机热点详情。</string>

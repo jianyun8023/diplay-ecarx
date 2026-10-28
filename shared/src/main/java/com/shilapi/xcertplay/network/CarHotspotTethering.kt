@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
-/** Uses the car's saved hotspot configuration. This never stops a running hotspot and never writes
- *  the saved configuration; writes happen once from the settings screen, after the driver confirms. */
+/** Uses the saved hotspot configuration. Normal startup keeps an active hotspot; a failed Android 9
+ *  start gets one Wi-Fi recovery cycle. This never writes the saved hotspot configuration. */
 object CarHotspotTethering {
     // Shared with explicit manual control: never issue simultaneous start/stop requests.
     internal val startupLock = ReentrantLock()
@@ -38,6 +38,23 @@ object CarHotspotTethering {
         timeoutMillis: Long = WirelessStartupPolicy.HOTSPOT_READY_MILLIS,
         log: (String) -> Unit,
     ): Result {
+        // Android 9 manual and connection startup share state checks and one bounded recovery.
+        if (android.os.Build.VERSION.SDK_INT == 28) {
+            val control = ManualHotspotControl(context, log)
+            if (control.observe() != ManualHotspotControl.State.UNKNOWN) {
+                val result = control.ensureHotspot(isCancelled, timeoutMillis)
+                val outcome = when (result) {
+                    ManualHotspotControl.Result.ON -> Result.READY
+                    ManualHotspotControl.Result.PERMISSION_REQUIRED -> Result.PERMISSION_REQUIRED
+                    ManualHotspotControl.Result.TIMED_OUT -> Result.TIMED_OUT
+                    ManualHotspotControl.Result.CANCELLED -> Result.CANCELLED
+                    ManualHotspotControl.Result.UNSUPPORTED -> Result.UNSUPPORTED
+                    else -> Result.FAILED
+                }
+                log("car hotspot auto-enable: ${outcome.diagnostic}")
+                return outcome
+            }
+        }
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
         val observedAdbState = AtomicReference<Boolean?>()
         val startReflection: (ResultReceiver) -> Unit = { receiver ->

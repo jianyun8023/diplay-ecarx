@@ -25,7 +25,6 @@ import com.shilapi.xcertplay.hud.EcarxCapabilities
 import com.shilapi.xcertplay.hud.EcarxKeyBroadcasts
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.host.R
-import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.util.concurrent.Executors

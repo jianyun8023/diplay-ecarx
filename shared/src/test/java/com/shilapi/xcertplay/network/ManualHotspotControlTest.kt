@@ -52,8 +52,8 @@ class ManualHotspotControlTest {
     @Test fun unknownTransitionalAndFailedStateNeverWrite() {
         for ((state, result) in listOf(
             ManualHotspotControl.State.UNKNOWN to ManualHotspotControl.Result.UNSUPPORTED,
-            ManualHotspotControl.State.STARTING to ManualHotspotControl.Result.BUSY,
-            ManualHotspotControl.State.STOPPING to ManualHotspotControl.Result.BUSY,
+            ManualHotspotControl.State.STARTING to ManualHotspotControl.Result.TIMED_OUT,
+            ManualHotspotControl.State.STOPPING to ManualHotspotControl.Result.TIMED_OUT,
             ManualHotspotControl.State.FAILED to ManualHotspotControl.Result.FAILED)) {
             val fake = Fake().apply { current = state }
             assertEquals(result, fake.request()); assertEquals(0, fake.writes)
@@ -180,9 +180,129 @@ class ManualHotspotControlTest {
             cancel = true
         }
         assertEquals(ManualHotspotControl.Result.CANCELLED,
-            ManualHotspotControl(fake).requestWifi(true) { cancel })
+            ManualHotspotControl(fake).request(true, { cancel }, 300, wifi = true))
         assertEquals(1, fake.wifiWrites)
         assertEquals(0, fake.writes)
         assertFalse(ManualHotspotControl.isBusy())
     }
+    @Test fun recoveryReadsWifiAndOnlyTurnsItOffFirstWhenItIsOn() {
+        for (wifiInitial in listOf(ManualHotspotControl.State.ON, ManualHotspotControl.State.OFF)) {
+            val actions = mutableListOf<String>()
+            val fake = Fake().apply {
+                current = ManualHotspotControl.State.FAILED
+                wifiCurrent = wifiInitial
+                effect = { enabled, response ->
+                    actions += "hotspot=$enabled"
+                    assertTrue(ManualHotspotControl.isBusy())
+                    assertFalse(ManualHotspotControl.runIfIdle { fail("connection must stay blocked throughout recovery") })
+                    response(0)
+                    // Both stop and start return before the latched FAILED state changes.
+                    if (enabled) tick = { current = ManualHotspotControl.State.ON }
+                }
+                wifiEffect = { enabled, response ->
+                    actions += "wifi=$enabled"
+                    response(0)
+                    wifiCurrent = if (enabled) ManualHotspotControl.State.ON else ManualHotspotControl.State.OFF
+                }
+            }
+            assertEquals(ManualHotspotControl.Result.ON,
+                ManualHotspotControl(fake).request(true, { false }, 300, recover = true))
+            val expected = mutableListOf("hotspot=false")
+            if (wifiInitial == ManualHotspotControl.State.ON) expected += "wifi=false"
+            expected += listOf("wifi=true", "wifi=false", "hotspot=true")
+            assertEquals(expected, actions)
+            assertFalse(ManualHotspotControl.isBusy())
+        }
+    }
+
+    @Test fun recoveryWaitsForWifiTransitionAndRefusesUnknownStateOrMissingPermissionBeforeWriting() {
+        val fake = Fake().apply {
+            current = ManualHotspotControl.State.FAILED
+            wifiCurrent = ManualHotspotControl.State.STARTING
+            tick = { wifiCurrent = ManualHotspotControl.State.OFF }
+            effect = { enabled, _ -> if (enabled) current = ManualHotspotControl.State.ON }
+            wifiEffect = { enabled, _ -> wifiCurrent = if (enabled) ManualHotspotControl.State.ON else ManualHotspotControl.State.OFF }
+        }
+        assertEquals(ManualHotspotControl.Result.ON,
+            ManualHotspotControl(fake).request(true, { false }, 300, recover = true))
+        assertTrue(fake.time >= 100)
+        for ((state, permitted, expected) in listOf(
+            Triple(ManualHotspotControl.State.UNKNOWN, true, ManualHotspotControl.Result.UNSUPPORTED),
+            Triple(ManualHotspotControl.State.OFF, false, ManualHotspotControl.Result.PERMISSION_REQUIRED))) {
+            val blocked = Fake().apply { wifiCurrent = state; wifiPermission = permitted }
+            assertEquals(expected, ManualHotspotControl(blocked).request(true, { false }, 300, recover = true))
+            assertEquals(0, blocked.writes + blocked.wifiWrites)
+        }
+    }
+
+    @Test fun recoveryStopsAtTimeoutAndDoesNotStartHotspotOrRetryWifi() {
+        val fake = Fake().apply {
+            current = ManualHotspotControl.State.FAILED
+            wifiCurrent = ManualHotspotControl.State.ON
+            effect = { enabled, _ -> assertFalse(enabled) }
+            wifiEffect = { enabled, response -> assertFalse(enabled); response(0) }
+        }
+        assertEquals(ManualHotspotControl.Result.TIMED_OUT,
+            ManualHotspotControl(fake).request(true, { false }, 300, recover = true))
+        assertEquals(1, fake.writes)
+        assertEquals(1, fake.wifiWrites)
+        assertFalse(ManualHotspotControl.isBusy())
+    }
+
+    @Test fun recoveryCancellationBetweenStepsNeverStartsHotspotOrUndoesTheWifiWrite() {
+        var cancelled = false
+        val fake = Fake().apply {
+            current = ManualHotspotControl.State.FAILED
+            effect = { enabled, _ -> assertFalse(enabled) }
+            wifiEffect = { enabled, _ -> assertTrue(enabled); wifiCurrent = ManualHotspotControl.State.ON; cancelled = true }
+        }
+        assertEquals(ManualHotspotControl.Result.CANCELLED,
+            ManualHotspotControl(fake).request(true, { cancelled }, 300, recover = true))
+        assertEquals(1, fake.writes)
+        assertEquals(1, fake.wifiWrites)
+        assertFalse(ManualHotspotControl.isBusy())
+    }
+
+    @Test fun sharedStartupTriesNormallyThenRecoversOnceAndKeepsHealthyHotspotsUntouched() {
+        val actions = mutableListOf<String>()
+        var starts = 0
+        val fake = Fake().apply {
+            effect = { enabled, callback ->
+                actions += "hotspot=$enabled"
+                if (enabled && starts++ == 0) {
+                    current = ManualHotspotControl.State.FAILED
+                    callback(5)
+                } else if (enabled) current = ManualHotspotControl.State.ON
+            }
+            wifiEffect = { enabled, _ ->
+                actions += "wifi=$enabled"
+                wifiCurrent = if (enabled) ManualHotspotControl.State.ON else ManualHotspotControl.State.OFF
+            }
+        }
+        val control = ManualHotspotControl(fake)
+        assertEquals(ManualHotspotControl.Result.ON, control.ensureHotspot({ false }, 300))
+        assertEquals(listOf("hotspot=true", "hotspot=false", "wifi=true", "wifi=false", "hotspot=true"), actions)
+        assertEquals(ManualHotspotControl.Result.ON, control.ensureHotspot({ false }, 300))
+        assertEquals(5, actions.size)
+    }
+
+    @Test fun sharedStartupNeverRecoversPermissionErrorsOrRepeatsARecoveryFailure() {
+        val denied = Fake().apply { effect = { _, _ -> throw SecurityException() } }
+        assertEquals(ManualHotspotControl.Result.PERMISSION_REQUIRED,
+            ManualHotspotControl(denied).ensureHotspot({ false }, 300))
+        assertEquals(0, denied.wifiWrites)
+        val failed = Fake().apply {
+            effect = { enabled, callback -> if (enabled) callback(1) }
+            wifiEffect = { enabled, _ -> wifiCurrent = if (enabled) ManualHotspotControl.State.ON else ManualHotspotControl.State.OFF }
+        }
+        assertEquals(ManualHotspotControl.Result.FAILED,
+            ManualHotspotControl(failed).ensureHotspot({ false }, 300))
+        assertEquals(2, failed.writes)
+        assertEquals(2, failed.wifiWrites)
+        val expired = Fake()
+        assertEquals(ManualHotspotControl.Result.TIMED_OUT,
+            ManualHotspotControl(expired).ensureHotspot({ false }, 0))
+        assertEquals(0, expired.writes + expired.wifiWrites)
+    }
+
 }

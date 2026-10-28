@@ -610,7 +610,7 @@
     <string name="settings_gesture_fingers_option">%1$d fingers</string>
     <string name="settings_gesture_fingers_hint">Pick a finger count your head unit does not already use. Some head units reserve three-finger swipe-down for their air-conditioning panel.</string>
     <string name="auto_car_hotspot_title">Automatically turn on the car hotspot</string>
-    <string name="auto_car_hotspot_description">Starts the saved car hotspot when DiPlay opens. Turning this on automatically requests the required permissions through ADB; allow the prompt on the car screen. Enable “Open after the car starts” for boot startup. Keeps the hotspot name and password and never turns it off.</string>
+    <string name="auto_car_hotspot_description">Starts the saved car hotspot when DiPlay opens and before wireless CarPlay connects. On Android 9, a failed start checks Wi-Fi and cycles it once before retrying. This can disconnect other Wi-Fi devices. Keeps the hotspot name and password. Enable the car-start option for boot startup.</string>
     <string name="settings_car_hotspot_config_title">Import the car hotspot details (experimental)</string>
     <string name="settings_car_hotspot_config_description">Nothing to type: the car hotspot settings are imported; when the car has none, DiPlay writes its own details there after your confirmation, and devices using this hotspot may have to reconnect. Needs ADB on Android 11 and newer; not available on Android 8 to 10.</string>
     <string name="settings_car_hotspot_config_unsupported">Importing the car hotspot details is not supported on this Android version.</string>

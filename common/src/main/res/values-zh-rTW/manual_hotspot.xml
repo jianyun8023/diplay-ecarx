@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_manual_hotspot_title">車機熱點開關（實驗性）</string>
-    <string name="settings_manual_hotspot_description">每次點擊僅透過 Android 9 平台介面發出一次請求，並非 ECARX 專用開關。熱點狀態不代表網際網路可用、iPhone 已連線或 CarPlay 就緒。不更改已儲存的熱點設定或自動開啟設定；若已開啟自動功能，下次連線可能重新開啟熱點。</string>
+    <string name="settings_manual_hotspot_description">與無線 CarPlay 共用熱點啟動流程。Android 9 啟動失敗時，會依目前狀態重設 Wi-Fi 後重試一次。請先中斷 CarPlay；此操作可能中斷其他 Wi-Fi 或熱點裝置，熱點名稱與密碼不變。</string>
     <string name="settings_manual_hotspot_on">開啟熱點</string>
     <string name="settings_manual_hotspot_off">關閉熱點</string>
     <string name="settings_manual_hotspot_refresh">重新整理網路狀態</string>
@@ -19,15 +19,6 @@
     <string name="settings_manual_hotspot_timeout">逾時前未確認達到目標狀態。請查看車機設定；未自動重試。</string>
     <string name="settings_manual_hotspot_cancelled">已停止等待結果。已傳送的請求仍可能完成，請先重新整理狀態再重試。</string>
     <string name="settings_manual_hotspot_failed">熱點請求失敗。請查看車機設定；未自動重試。</string>
-    <string name="settings_manual_wifi_description">請先中斷 CarPlay 再切換 Wi-Fi。熱點卡住時，可開啟再關閉 Wi-Fi，然後開啟熱點。此操作會影響 Wi-Fi 連線和熱點。</string>
-    <string name="settings_manual_wifi_on">開啟 Wi-Fi</string>
-    <string name="settings_manual_wifi_off">關閉 Wi-Fi</string>
-    <string name="settings_manual_wifi_state_on">Wi-Fi 狀態：已開啟</string>
-    <string name="settings_manual_wifi_state_off">Wi-Fi 狀態：已關閉</string>
-    <string name="settings_manual_wifi_state_starting">Wi-Fi 狀態：正在開啟</string>
-    <string name="settings_manual_wifi_state_stopping">Wi-Fi 狀態：正在關閉</string>
-    <string name="settings_manual_wifi_state_unknown">Wi-Fi 狀態：無法讀取，請在車機設定中查看。</string>
-    <string name="settings_manual_wifi_permission">系統拒絕了 Wi-Fi 控制請求，請檢查車機設定。</string>
-    <string name="settings_manual_wifi_unsupported">此系統無法直接控制 Wi-Fi，請使用車機設定。</string>
-    <string name="settings_manual_wifi_failed">Wi-Fi 請求失敗。請查看車機設定；未自動重試。</string>
+    <string name="settings_manual_hotspot_recover">恢復熱點</string>
+    <string name="settings_manual_hotspot_confirm_recover">停止熱點，先檢查 Wi-Fi 狀態；已開啟時先關閉，再開啟、關閉，最後重試熱點一次。此操作會中斷 Wi-Fi 與熱點上的裝置。</string>
 </resources>

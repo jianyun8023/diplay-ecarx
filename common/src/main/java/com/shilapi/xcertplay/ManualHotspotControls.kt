@@ -5,9 +5,10 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.CarHotspotTethering
 import com.shilapi.xcertplay.network.ManualHotspotControl
 
-/** A one-shot user action, separate from automatic hotspot startup. Rendering never writes. */
+/** Manual controls use the same startup and recovery as wireless CarPlay. Rendering never writes. */
 internal class ManualHotspotControls(
     private val activity: Activity,
     private val connectionBusy: () -> Boolean,
@@ -22,26 +23,27 @@ internal class ManualHotspotControls(
         fun observe(): ManualHotspotControl.State
         fun capability(): ManualHotspotControl.Capability
         fun request(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result
-        fun observeWifi(): ManualHotspotControl.State
-        fun wifiCapability(): ManualHotspotControl.Capability
-        fun requestWifi(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result
         fun execute(block: () -> Unit)
     }
-    private class AndroidBackend(activity: Activity) : Backend {
+    private class AndroidBackend(private val activity: Activity) : Backend {
         private val control = ManualHotspotControl(activity.applicationContext) {
-            SettingsActionDiagnostics.record(activity.applicationContext,
-                SettingsActionDiagnostics.Action.MANUAL_HOTSPOT, it)
+            SettingsActionDiagnostics.record(activity, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT, it)
         }
         override fun observe() = control.observe()
         override fun capability() = control.capability()
-        override fun request(enabled: Boolean, cancelled: () -> Boolean) = control.request(enabled, cancelled)
-        private val wifiControl = ManualHotspotControl(activity.applicationContext) {
-            SettingsActionDiagnostics.record(activity.applicationContext,
-                SettingsActionDiagnostics.Action.MANUAL_WIFI, it)
+        override fun request(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result {
+            if (!enabled) return control.request(false, cancelled)
+            return when (CarHotspotTethering.enable(activity.applicationContext,
+                cancelled, timeoutMillis = 8_000L,
+                log = { SettingsActionDiagnostics.record(activity, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT, it) })) {
+                CarHotspotTethering.Result.READY -> ManualHotspotControl.Result.ON
+                CarHotspotTethering.Result.PERMISSION_REQUIRED -> ManualHotspotControl.Result.PERMISSION_REQUIRED
+                CarHotspotTethering.Result.UNSUPPORTED -> ManualHotspotControl.Result.UNSUPPORTED
+                CarHotspotTethering.Result.TIMED_OUT -> ManualHotspotControl.Result.TIMED_OUT
+                CarHotspotTethering.Result.CANCELLED -> ManualHotspotControl.Result.CANCELLED
+                CarHotspotTethering.Result.FAILED -> ManualHotspotControl.Result.FAILED
+            }
         }
-        override fun observeWifi() = wifiControl.observeWifi()
-        override fun wifiCapability() = wifiControl.wifiCapability()
-        override fun requestWifi(enabled: Boolean, cancelled: () -> Boolean) = wifiControl.requestWifi(enabled, cancelled)
         override fun execute(block: () -> Unit) { Thread(block, "diplay-manual-hotspot").start() }
     }
 
@@ -51,7 +53,6 @@ internal class ManualHotspotControls(
         private set
     private var root: LinearLayout? = null
     private var outcome: ManualHotspotControl.Result? = null
-    private var outcomeWifi = false
 
     fun build(): LinearLayout = LinearLayout(activity).also {
         it.orientation = LinearLayout.VERTICAL
@@ -72,7 +73,7 @@ internal class ManualHotspotControls(
         val state = runCatching { backend.observe() }.getOrDefault(ManualHotspotControl.State.UNKNOWN)
         text(stateText(state))
         if (isBusy) text(R.string.settings_manual_hotspot_working)
-        else outcome?.let { text(resultText(it, outcomeWifi)) }
+        else outcome?.let { text(resultText(it)) }
         val capability = runCatching { backend.capability() }.getOrDefault(ManualHotspotControl.Capability.UNSUPPORTED)
         when (capability) {
             ManualHotspotControl.Capability.PERMISSION_REQUIRED -> button(R.string.settings_write_settings_allow) {
@@ -81,30 +82,27 @@ internal class ManualHotspotControls(
             ManualHotspotControl.Capability.UNSUPPORTED -> text(R.string.settings_manual_hotspot_unsupported)
             ManualHotspotControl.Capability.AVAILABLE -> {
                 val stable = state == ManualHotspotControl.State.ON || state == ManualHotspotControl.State.OFF
-                button(R.string.settings_manual_hotspot_on, !isBusy && stable && state == ManualHotspotControl.State.OFF) { begin(true) }
+                val failed = state == ManualHotspotControl.State.FAILED
+                button(if (failed) R.string.settings_manual_hotspot_recover else R.string.settings_manual_hotspot_on,
+                    !isBusy && (state == ManualHotspotControl.State.OFF || failed)) {
+                    if (!failed) begin(true) else if (!blocked()) {
+                        activity.appDialogBuilder().setTitle(R.string.settings_manual_hotspot_recover)
+                            .setMessage(R.string.settings_manual_hotspot_confirm_recover)
+                            .setPositiveButton(R.string.settings_manual_hotspot_recover) { _, _ -> begin(true) }
+                            .setNegativeButton(R.string.cancel, null).show()
+                    }
+                }
                 button(R.string.settings_manual_hotspot_off, !isBusy && stable && state == ManualHotspotControl.State.ON) { confirmOff() }
             }
-        }
-        val wifiState = runCatching { backend.observeWifi() }.getOrDefault(ManualHotspotControl.State.UNKNOWN)
-        text(stateText(wifiState, wifi = true))
-        text(R.string.settings_manual_wifi_description)
-        when (runCatching { backend.wifiCapability() }.getOrDefault(ManualHotspotControl.Capability.UNSUPPORTED)) {
-            ManualHotspotControl.Capability.AVAILABLE -> {
-                button(R.string.settings_manual_wifi_on, !isBusy && wifiState == ManualHotspotControl.State.OFF) { begin(true, wifi = true) }
-                button(R.string.settings_manual_wifi_off, !isBusy && wifiState == ManualHotspotControl.State.ON) { begin(false, wifi = true) }
-            }
-            ManualHotspotControl.Capability.PERMISSION_REQUIRED -> text(R.string.settings_manual_wifi_permission)
-            ManualHotspotControl.Capability.UNSUPPORTED -> text(R.string.settings_manual_wifi_unsupported)
         }
         button(R.string.settings_manual_hotspot_refresh) { if (!closed && !isBusy) { outcome = null; display() } }
         button(R.string.open_car_hotspot_settings) { if (!closed && !isBusy) openSettings() }
     }
 
-    private fun blocked(action: SettingsActionDiagnostics.Action = SettingsActionDiagnostics.Action.MANUAL_HOTSPOT): Boolean {
+    private fun blocked(): Boolean {
         if (closed || isBusy) return true
         if (!connectionBusy()) return false
-        SettingsActionDiagnostics.record(activity.applicationContext,
-            action, "phase=blocked connectionBusy=true")
+        SettingsActionDiagnostics.record(activity, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT, "phase=blocked connectionBusy=true")
         activity.appDialogBuilder().setMessage(R.string.settings_manual_hotspot_disconnect)
             .setPositiveButton(android.R.string.ok, null).show()
         return true
@@ -118,24 +116,22 @@ internal class ManualHotspotControls(
             .setNegativeButton(R.string.cancel, null).show()
     }
 
-    private fun begin(enabled: Boolean, wifi: Boolean = false) {
-        val action = if (wifi) SettingsActionDiagnostics.Action.MANUAL_WIFI else SettingsActionDiagnostics.Action.MANUAL_HOTSPOT
-        if (blocked(action)) return
-        fun observe() = runCatching { if (wifi) backend.observeWifi() else backend.observe() }.getOrNull()
-        SettingsActionDiagnostics.record(activity.applicationContext,
-            action, "phase=begin enabled=$enabled before=${observe()}")
+    private fun begin(enabled: Boolean) {
+        if (blocked()) return
+        val action = if (enabled && backend.observe() == ManualHotspotControl.State.FAILED)
+            SettingsActionDiagnostics.Action.HOTSPOT_RECOVERY else SettingsActionDiagnostics.Action.MANUAL_HOTSPOT
+        SettingsActionDiagnostics.record(activity, action, "phase=begin enabled=$enabled before=${backend.observe()}")
         val token = generation
         isBusy = true
         outcome = null
-        outcomeWifi = wifi
         display()
         try { backend.execute {
             fun cancelled() = closed || token != generation || connectionBusy()
             val result = if (cancelled()) ManualHotspotControl.Result.CANCELLED else try {
-                if (wifi) backend.requestWifi(enabled, ::cancelled) else backend.request(enabled, ::cancelled)
+                backend.request(enabled, ::cancelled)
             } catch (_: Exception) { ManualHotspotControl.Result.FAILED }
-            SettingsActionDiagnostics.record(activity.applicationContext,
-                action, "phase=finished enabled=$enabled result=$result after=${observe()}")
+            SettingsActionDiagnostics.record(activity, action,
+                "phase=finished enabled=$enabled result=$result after=${backend.observe()}")
             activity.runOnUiThread {
                 isBusy = false
                 if (!closed) {
@@ -144,8 +140,7 @@ internal class ManualHotspotControls(
                 }
             }
         } } catch (_: Exception) {
-            SettingsActionDiagnostics.record(activity.applicationContext,
-                action, "phase=worker-rejected enabled=$enabled")
+            SettingsActionDiagnostics.record(activity, action, "phase=worker-rejected enabled=$enabled")
             isBusy = false
             if (!closed) { outcome = ManualHotspotControl.Result.FAILED; display() }
         }
@@ -156,23 +151,23 @@ internal class ManualHotspotControls(
     fun close() { closed = true; cancelPending(); root = null }
     private fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
 
-    private fun stateText(state: ManualHotspotControl.State, wifi: Boolean = false): Int = when (state) {
-        ManualHotspotControl.State.ON -> if (wifi) R.string.settings_manual_wifi_state_on else R.string.settings_manual_hotspot_state_on
-        ManualHotspotControl.State.OFF -> if (wifi) R.string.settings_manual_wifi_state_off else R.string.settings_manual_hotspot_state_off
-        ManualHotspotControl.State.STARTING -> if (wifi) R.string.settings_manual_wifi_state_starting else R.string.settings_manual_hotspot_state_starting
-        ManualHotspotControl.State.STOPPING -> if (wifi) R.string.settings_manual_wifi_state_stopping else R.string.settings_manual_hotspot_state_stopping
-        ManualHotspotControl.State.FAILED -> if (wifi) R.string.settings_manual_wifi_failed else R.string.settings_manual_hotspot_state_failed
-        ManualHotspotControl.State.UNKNOWN -> if (wifi) R.string.settings_manual_wifi_state_unknown else R.string.settings_manual_hotspot_state_unknown
+    private fun stateText(state: ManualHotspotControl.State): Int = when (state) {
+        ManualHotspotControl.State.ON -> R.string.settings_manual_hotspot_state_on
+        ManualHotspotControl.State.OFF -> R.string.settings_manual_hotspot_state_off
+        ManualHotspotControl.State.STARTING -> R.string.settings_manual_hotspot_state_starting
+        ManualHotspotControl.State.STOPPING -> R.string.settings_manual_hotspot_state_stopping
+        ManualHotspotControl.State.FAILED -> R.string.settings_manual_hotspot_state_failed
+        ManualHotspotControl.State.UNKNOWN -> R.string.settings_manual_hotspot_state_unknown
     }
-    private fun resultText(result: ManualHotspotControl.Result, wifi: Boolean): Int = when (result) {
-        ManualHotspotControl.Result.ON -> stateText(ManualHotspotControl.State.ON, wifi)
-        ManualHotspotControl.Result.OFF -> stateText(ManualHotspotControl.State.OFF, wifi)
-        ManualHotspotControl.Result.PERMISSION_REQUIRED -> if (wifi) R.string.settings_manual_wifi_permission else R.string.settings_manual_hotspot_permission
-        ManualHotspotControl.Result.UNSUPPORTED -> if (wifi) R.string.settings_manual_wifi_unsupported else R.string.settings_manual_hotspot_unsupported
+    private fun resultText(result: ManualHotspotControl.Result): Int = when (result) {
+        ManualHotspotControl.Result.ON -> R.string.settings_manual_hotspot_state_on
+        ManualHotspotControl.Result.OFF -> R.string.settings_manual_hotspot_state_off
+        ManualHotspotControl.Result.PERMISSION_REQUIRED -> R.string.settings_manual_hotspot_permission
+        ManualHotspotControl.Result.UNSUPPORTED -> R.string.settings_manual_hotspot_unsupported
         ManualHotspotControl.Result.TIMED_OUT -> R.string.settings_manual_hotspot_timeout
         ManualHotspotControl.Result.CANCELLED -> R.string.settings_manual_hotspot_cancelled
         ManualHotspotControl.Result.BUSY -> R.string.settings_manual_hotspot_working
-        ManualHotspotControl.Result.FAILED -> if (wifi) R.string.settings_manual_wifi_failed else R.string.settings_manual_hotspot_failed
+        ManualHotspotControl.Result.FAILED -> R.string.settings_manual_hotspot_failed
     }
     private companion object {
         const val BLOCK_GAP_DP = 12

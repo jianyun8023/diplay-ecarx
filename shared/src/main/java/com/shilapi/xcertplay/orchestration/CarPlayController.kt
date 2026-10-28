@@ -331,7 +331,7 @@ class CarPlayController(
     private data class SessionCornerMask(val session: AirPlaySession, val png: ByteArray, val width: Int)
     @Volatile private var currentCornerMask: SessionCornerMask? = null
 
-    /** The live AirPlay session, for a new host that adopts the running stream without a session-active callback. */
+    /** The live session for a host adopting the running cluster stream. */
     fun activeAirPlaySession(): AirPlaySession? = activeSession?.takeIf { !closed && !it.isClosed }
 
     /** The video session can outlive its Activity; the new host must be able to replay the mask. */
@@ -2523,7 +2523,7 @@ class CarPlayController(
             type.equals("disable-bluetooth", ignoreCase = true)
 
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
-        val readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
+        var readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
         val hotspotMode = config.wirelessHotspotMode
         if (com.shilapi.xcertplay.network.CarHotspotSettings.shouldEnable(
                 appContext, config.transport == CarPlayTransport.WIRELESS, hotspotMode,
@@ -2536,6 +2536,10 @@ class CarPlayController(
                 timeoutMillis = ((readyDeadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1),
                 log = { debugLog("generation=$generation atNs=${System.nanoTime()} $it; awaiting hotspot interface") },
             )
+            // Wi-Fi recovery can consume the start budget; the new interface still needs time to appear.
+            if (result == com.shilapi.xcertplay.network.CarHotspotTethering.Result.READY) {
+                readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
+            }
             val manualFallback = result == com.shilapi.xcertplay.network.CarHotspotTethering.Result.UNSUPPORTED &&
                 com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) == null
             if (result != com.shilapi.xcertplay.network.CarHotspotTethering.Result.READY && !manualFallback) {
