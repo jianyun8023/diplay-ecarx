@@ -465,7 +465,6 @@ open class CarPlayHostActivity : ComponentActivity() {
     /** Written by the DIM worker thread, read on the main thread after a post; see [onClusterPanelRequested]. */
     @Volatile private var clusterPanelWanted = false
     private var ecarxSwKeyHandle: com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.Handle? = null
-    private var ecarxVoiceKeyReceiver: android.content.BroadcastReceiver? = null
     private var ecarxCallKeyReceiver: android.content.BroadcastReceiver? = null
     private val videoSurfaceOwner = CarPlayVideoSurfaceOwner<Surface>(
         detach = { surface ->
@@ -1348,6 +1347,10 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (CarPlayMediaButton.opensSiri(event.keyCode) &&
+            (activeAirPlaySession == null || CarPlayMediaKeys.ecarxVoiceKeyActive())) {
+            return super.dispatchKeyEvent(event)
+        }
         val physicalKey = Triple(event.deviceId, event.keyCode, event.scanCode)
         val downOrUp = event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP
         if (downOrUp && physicalKey in legacySiriPresses) {
@@ -1484,7 +1487,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     val ctrl = controller
                     val sent = when {
-                        press.isSiri -> ctrl?.requestSiri() == true
+                        press.isSiri -> CarPlayMediaKeys.onExternalSiriKey(event.keyCode)
                         press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true
                         press.isMedia -> ctrl?.sendMediaButton(press.mediaIndex!!) == true
                         else -> false
@@ -1546,20 +1549,19 @@ open class CarPlayHostActivity : ComponentActivity() {
                 override fun onKeyPressed(keyCode: Int): Boolean {
                     appendLog("SWKey-CH[intercept] t=${System.currentTimeMillis()} key=$keyCode session=${activeAirPlaySession != null}")
                     if (activeAirPlaySession == null || inCall(this@CarPlayHostActivity)) return false
+                    if (CarPlayMediaButton.opensSiri(keyCode) && CarPlayMediaKeys.ecarxVoiceKeyActive()) return false
                     runOnUiThread { handleEcarxWheelKey(keyCode) }
                     return true
                 }
-                override fun onKeyReleased(keyCode: Int): Boolean = false
+                override fun onKeyReleased(keyCode: Int): Boolean =
+                    activeAirPlaySession != null && !inCall(this@CarPlayHostActivity) &&
+                        !(CarPlayMediaButton.opensSiri(keyCode) && CarPlayMediaKeys.ecarxVoiceKeyActive()) &&
+                        com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
+                            com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(context), keyCode) != null
             }, "carplay")
             appendLog("SWKey: interception ${ecarxSwKeyHandle?.describe() ?: "unavailable"}")
         }
-        // 2. Private voice-key broadcast (ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT).
-        ecarxVoiceKeyReceiver = com.shilapi.xcertplay.hud.EcarxKeyBroadcasts.registerVoice(this) {
-            appendLog("SWKey-CH[broadcast-voice] t=${System.currentTimeMillis()} session=${activeAirPlaySession != null}")
-            runOnUiThread {
-                handleEcarxWheelKey(android.view.KeyEvent.KEYCODE_VOICE_ASSIST + com.shilapi.xcertplay.airplay.CarPlayMediaButton.ECARX_OFFSET)
-            }
-        }
+        // Voice broadcasts are held by CarPlayMediaKeys for the whole connected session.
         // 3. Who the head unit hands the voice key to, so a CarPlay-time suppression can name it.
         logAssistantCandidates()
         // 4. Private call-key broadcast (ecarx.intent.action.ECARX_KEY_RCALL_EVENT).
@@ -1574,11 +1576,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     /**
      * Records who the head unit would hand the assistant key to, without changing anything.
      *
-     * The ROM answers the registration with `refused=…|200231|…`: it will not give DiPlay the voice
-     * key to itself, so the factory assistant answers the same press and the owner hears "the car
-     * assistant first, then Siri". Whatever this prints is the thing a CarPlay-time suppression
-     * would have to name, and the secure setting says whether the ROM routes the key through the
-     * standard assistant slot at all — which decides whether there is anything to switch off.
+     * DCY11 registers callbacks without consuming the factory assistant's event. These candidates
+     * help identify the assistant, although this ROM may bypass the standard assistant slot.
      */
     private fun logAssistantCandidates() {
         val assistant = try {
@@ -1605,8 +1604,6 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun unregisterEcarxSteeringWheel() {
         ecarxSwKeyHandle?.release()
         ecarxSwKeyHandle = null
-        ecarxVoiceKeyReceiver?.let { runCatching { unregisterReceiver(it) } }
-        ecarxVoiceKeyReceiver = null
         ecarxCallKeyReceiver?.let { runCatching { unregisterReceiver(it) } }
         ecarxCallKeyReceiver = null
     }
@@ -1620,7 +1617,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val ctrl = controller
         if (press.isMedia && CarPlayMediaOutput.isMediaCenterActive(ctrl)) return false
         val sent = when {
-            press.isSiri -> ctrl?.requestSiri() == true
+            press.isSiri -> CarPlayMediaKeys.onExternalSiriKey(keyCode)
             press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true
             press.isMedia -> ctrl?.sendMediaButton(press.mediaIndex!!) == true
             else -> false
@@ -5246,6 +5243,8 @@ open class CarPlayHostActivity : ComponentActivity() {
                         installIphoneCornerMask(session, pending.second.first, pending.second.second)
                     } else clearIphoneCornerMask()
                     CarPlayBackgroundSession.active = true
+                    GeelyWheelKeys.start(applicationContext)
+                    controller?.let { CarPlayMediaKeys.onSessionActive(it, session) }
                     LastConnectionProblem.clear(this@CarPlayHostActivity)
                     showConnectionHelp(null)
                     callPopupSessionReady = true
@@ -5289,6 +5288,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     // Handed back before the generation checks below, because a restart makes them
                     // fail on purpose — and a restart is exactly when adapter mode must return the
                     // head unit's Bluetooth, or nothing turns it back on until the app is killed.
+                    CarPlayMediaKeys.onSessionEnded(session)
                     restoreCarBluetooth()
                     mainHandler.removeCallbacks(autoPlayAfterYield)
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
@@ -5297,6 +5297,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     clusterSurface?.let { sink?.clearSurface(SCREEN_TYPE_ALT, it) }
                     clearIphoneCornerMask()
                     CarPlayBackgroundSession.active = false
+                    GeelyWheelKeys.stop()
                     callPopupSessionReady = false
                     if (menuOpen) {
                         recoveryPendingAfterMenu = true
@@ -5469,6 +5470,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // wheel keys reach the iPhone through it. Restore iOS's captured mask when the controller still
         // owns that live session.
         activeAirPlaySession = snapshot.controller.activeAirPlaySession()
+        activeAirPlaySession?.let { CarPlayMediaKeys.onSessionActive(snapshot.controller, it) }
         applyClusterPanel()
         if (blackCornerRadiusDp == CarPlayBlackCornerOverlay.IPHONE_MASK) {
             snapshot.controller.activeIphoneCornerMask()?.let { (session, png, width) ->

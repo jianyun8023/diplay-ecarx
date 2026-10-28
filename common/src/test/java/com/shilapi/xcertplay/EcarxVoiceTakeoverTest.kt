@@ -1,0 +1,179 @@
+package com.shilapi.xcertplay
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInfo
+import android.media.AudioManager
+import android.os.Looper
+import android.os.SystemClock
+import android.os.Handler
+import android.view.KeyEvent
+import com.shilapi.xcertplay.airplay.AirPlaySession
+import com.shilapi.xcertplay.media.CarPlayNowPlaying
+import com.shilapi.xcertplay.orchestration.CarPlayController
+import org.junit.After
+import org.junit.Before
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.mockito.Mockito.*
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
+import org.robolectric.util.ReflectionHelpers
+import java.util.concurrent.ExecutorService
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE)
+@LooperMode(LooperMode.Mode.PAUSED)
+class EcarxVoiceTakeoverTest {
+    private val app get() = RuntimeEnvironment.getApplication()
+    private val controller = mock(CarPlayController::class.java)
+    private val phone = mock(AirPlaySession::class.java)
+    private var factoryPresses = 0
+    private val factory = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) { factoryPresses++ }
+    }
+
+    @Before fun setup() {
+        shadowOf(app.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xiaoka" })
+        `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
+        `when`(controller.requestSiri()).thenReturn(true)
+        CarPlayMediaKeys.attach(app, controller)
+        // Higher than DiPlay's old priority of 1000, lower than HY's requested maximum.
+        app.registerReceiver(factory, IntentFilter(ACTION).apply {
+            priority = 1001
+            addCategory(Intent.CATEGORY_DEFAULT)
+        })
+    }
+
+    @After fun cleanup() {
+        CarPlayMediaKeys.detach(controller)
+        app.unregisterReceiver(factory)
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
+        CarPlayBackgroundSession.clear()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    @Test fun connectingDoesNotTakeTheFactoryKey() {
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        assertFalse(CarPlayMediaKeys.ecarxVoiceKeyActive())
+        send(0)
+        assertEquals(1, factoryPresses)
+        verify(controller, never()).requestSiri()
+    }
+
+    @Test fun shortPressIsAbortedAndRequestsSiriOnceAcrossRawCallbacks() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        assertTrue(CarPlayMediaKeys.ecarxVoiceKeyActive())
+        assertFalse(CarPlayMediaKeys.onExternalSiriKey(200231))
+        send(0)
+        send(0)
+        assertFalse(CarPlayMediaKeys.onExternalSiriKey(200231))
+        verify(controller, times(1)).requestSiri()
+        assertEquals(0, factoryPresses)
+        SystemClock.sleep(WheelSiriKey.REPEAT_GAP_MILLIS)
+        send(0)
+        verify(controller, times(2)).requestSiri()
+    }
+
+    @Test fun longUnknownMarkedAndCallEventsStayWithTheFactory() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        send(1)
+        send(2)
+        send(null)
+        send(0, marked = true)
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
+        send(0)
+        assertEquals(5, factoryPresses)
+        verify(controller, never()).requestSiri()
+    }
+
+    @Test fun unorderedShortPressDoesNotOpenTwoAssistants() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        send(0, ordered = false)
+        assertEquals(1, factoryPresses)
+        verify(controller, never()).requestSiri()
+        assertTrue(WheelKeyLog.report(false).any { it.contains("ordered=false sent=false") })
+    }
+
+    @Test fun activityKeyCleanupDoesNotRemoveTheSessionReceiver() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        val registration = shadowOf(app).registeredReceivers.single {
+            it.intentFilter.hasAction(ACTION) && it.broadcastReceiver !== factory
+        }
+        assertSame(app, registration.context.applicationContext)
+        assertEquals(Int.MAX_VALUE, registration.intentFilter.priority)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        try {
+            host.javaClass.getDeclaredMethod("unregisterEcarxSteeringWheel").apply { isAccessible = true }.invoke(host)
+            val service = WheelKeyService()
+            val kept = service.javaClass.getDeclaredMethod("onKeyEvent", KeyEvent::class.java)
+                .apply { isAccessible = true }.invoke(service, KeyEvent(KeyEvent.ACTION_DOWN, 200231)) as Boolean
+            assertFalse(kept)
+            send(0)
+            verify(controller, times(1)).requestSiri()
+            assertEquals(0, factoryPresses)
+        } finally {
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()
+            }
+        }
+    }
+
+    @Test fun aDisconnectedCarPlayWindowDoesNotConsumeTheFactoryVoiceKey() {
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        try {
+            host.window.decorView
+            ReflectionHelpers.setField(host, "controller", controller)
+            assertFalse(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, 200231)))
+            assertFalse(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, 200231)))
+            verify(controller, never()).requestSiri()
+        } finally {
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()
+            }
+        }
+    }
+
+    @Test fun disconnectReleasesAndAnOldSessionCannotReleaseTheReplacement() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaKeys.onSessionActive(controller, phone)
+        CarPlayMediaKeys.onSessionEnded(phone)
+        assertFalse(CarPlayMediaKeys.ecarxVoiceKeyActive())
+        send(0)
+        assertEquals(1, factoryPresses)
+        val replacement = mock(AirPlaySession::class.java)
+        `when`(controller.activeAirPlaySession()).thenReturn(replacement)
+        CarPlayMediaKeys.onSessionActive(controller, replacement)
+        CarPlayMediaKeys.onSessionEnded(phone)
+        send(0)
+        verify(controller, times(1)).requestSiri()
+        CarPlayMediaKeys.detach(controller)
+        send(0)
+        assertEquals(2, factoryPresses)
+        assertFalse(CarPlayMediaKeys.ecarxVoiceKeyActive())
+    }
+
+    private fun send(type: Int?, marked: Boolean = false, ordered: Boolean = true) {
+        val intent = Intent(ACTION).addCategory(Intent.CATEGORY_DEFAULT)
+        if (type != null) intent.putExtra("ecarx.extra.ECARX_KEY_ACTION_TYPE", type)
+        if (marked) intent.putExtra("ecarx.extra.HY", 1)
+        if (ordered) app.sendOrderedBroadcast(intent, null) else app.sendBroadcast(intent)
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    companion object { private const val ACTION = "ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT" }
+}

@@ -77,11 +77,13 @@ object EcarxSwKey {
 
     /**
      * Resolves a hardware [keyCode] to the CarPlay action it should trigger, honouring the learnt
-     * `swKey_*` table first and the standard ECARX code spaces second. Returns a [Press] that names
+     * factory microphone key first, then the `swKey_*` table and standard ECARX code spaces. Returns a [Press] that names
      * both the action and the CarPlay report index, or null when the key is not a steering-wheel key.
      */
     fun resolve(prefs: SharedPreferences, keyCode: Int): Press? {
-        // Learnt keys win: a user can bind any key to any of the eight actions.
+        // The factory microphone key always belongs to Siri during a CarPlay session.
+        if (keyCode == CarPlayMediaButton.ECARX_VOICE_200231) return Press(Action.VOICE, siri = true)
+        // Learnt mappings take precedence for the other keys.
         val learnt = actionFor(prefs, keyCode)
         if (learnt != null) return pressFor(learnt, prefs) ?: return null
         // Otherwise the standard mapping applies (voice, media keys, call keys).

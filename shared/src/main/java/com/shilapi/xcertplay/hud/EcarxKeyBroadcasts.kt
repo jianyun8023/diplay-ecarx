@@ -18,16 +18,21 @@ object EcarxKeyBroadcasts {
     private const val ACTION_VOICE = "ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT"
     private const val ACTION_CALL = "ecarx.intent.action.ECARX_KEY_RCALL_EVENT"
 
-    /** Registers the voice-key broadcast; [onPress] runs on the broadcast's thread. */
-    fun registerVoice(context: Context, onPress: () -> Unit): BroadcastReceiver {
+    /** Owns only an unmarked short press while [shouldHandle] permits it; long presses pass through. */
+    fun registerVoice(context: Context, shouldHandle: () -> Boolean, onPress: (ordered: Boolean) -> Unit): BroadcastReceiver {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
                 if (intent.action != ACTION_VOICE) return
-                abortBroadcast()
-                onPress()
+                if (intent.getIntExtra("ecarx.extra.HY", 0) == 1 ||
+                    intent.getIntExtra("ecarx.extra.ECARX_KEY_ACTION_TYPE", -1) != 0 || !shouldHandle()) return
+                if (isOrderedBroadcast) abortBroadcast()
+                onPress(isOrderedBroadcast)
             }
         }
-        val filter = IntentFilter(ACTION_VOICE).apply { priority = IntentFilter.SYSTEM_HIGH_PRIORITY }
+        val filter = IntentFilter(ACTION_VOICE).apply {
+            priority = Int.MAX_VALUE
+            addCategory(Intent.CATEGORY_DEFAULT)
+        }
         context.registerReceiver(receiver, filter)
         return receiver
     }

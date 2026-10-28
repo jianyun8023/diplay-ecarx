@@ -22,7 +22,7 @@ On the Geely/Lynk & Co head unit (`geely_fx11`, model `CS11_A4`, DesaySV, Androi
 
 Two limits come from the car, not from DiPlay:
 
-- The microphone key's long press is answered by the car's HiCar app, which registers for the same code. Disable it over ADB (`adb shell pm disable-user --user 0 com.geely.hicar`; `pm enable` undoes it) if Siri should answer instead. DiPlay never changes that itself, and a system update may need the command again. A short press stays the car's own voice assistant, which cannot be intercepted from an app.
+- While CarPlay is connected on ECARX, DiPlay registers the voice-key broadcast at maximum priority. Only an unmarked short press (`ACTION_TYPE=0`) in an ordered broadcast is consumed and sent to Siri; long presses, unknown actions and calls keep the factory behavior. Registration follows the session through background use and is released on disconnect. Raw ECARX/Geely voice callbacks cannot request Siri again while this route owns the key. The diagnostic report records registration, whether the short broadcast was ordered and whether Siri was requested. Disable HY's voice-key takeover during testing to avoid competing owners; factory wakeup before broadcast delivery remains a vehicle-test limitation.
 - This firmware opens the microphone only for the voice-communication audio source, so DiPlay uses it for Siri on this head unit. Voice-recognition input elsewhere is unchanged.
 
 When the car's own music app is playing as well, the wheel reaches both it and CarPlay: the head unit routes the key to its current audio source before any app sees it.

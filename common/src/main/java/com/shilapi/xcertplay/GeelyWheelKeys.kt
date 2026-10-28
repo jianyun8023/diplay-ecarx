@@ -24,11 +24,10 @@ import com.shilapi.xcertplay.network.GeelyHeadUnit
  *
  * With [AirPlayPersistence.loadCarBluetoothAudio] on, the car's own Bluetooth (AVRCP) control drives
  * the iPhone's music, so forwarding the media keys too would double-fire; only the microphone key is
- * registered then, for the long-press Siri shortcut.
+ * registered then, for Siri.
  *
- * The microphone key's long press is answered by the car's HiCar app, which registers for the same
- * code and cannot be intercepted from here; disable HiCar over ADB if Siri should answer instead
- * (see docs/COMPATIBILITY.md).
+ * On DCY11, CarPlayMediaKeys owns only short voice broadcasts; raw voice callbacks cannot
+ * distinguish the broadcast gesture and must not trigger Siri a second time.
  *
  * Silently does nothing off this head unit ([GeelyHeadUnit.detected]).
  */
@@ -67,6 +66,7 @@ internal object GeelyWheelKeys {
         val context = appContext
         if (bound && context != null) runCatching { context.unbindService(connection) }
         bound = false
+        appContext = null
     }
 
     private fun bindLocked() {
@@ -75,6 +75,7 @@ internal object GeelyWheelKeys {
         bound = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }
             .getOrDefault(false)
         Log.i(TAG, "bind geely input service requested=$bound")
+        WheelKeyLog.note("Geely input bind requested=$bound")
     }
 
     private val connection = object : ServiceConnection {
@@ -90,7 +91,7 @@ internal object GeelyWheelKeys {
                 override fun onHoldingPressStopped(keyCode: Int, softKeyFunction: Int) {}
                 override fun onLongPressTriggered(keyCode: Int, softKeyFunction: Int) {
                     Log.i(TAG, "long press key=$keyCode func=$softKeyFunction")
-                    // The microphone key's long press: Siri, once the car's HiCar app is disabled.
+                    // Keep the long-press shortcut alongside the connected-session short press.
                     if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
                         Log.i(TAG, "Siri requested=${CarPlayMediaKeys.onExternalSiriKey()}")
                     }
@@ -104,7 +105,7 @@ internal object GeelyWheelKeys {
             runCatching {
                 // With CarPlay audio on the car's Bluetooth, the head unit's own AVRCP already drives
                 // the iPhone's music, so forwarding play/pause and skip over iAP2 as well would
-                // double-fire. Keep only the microphone key (long press -> Siri) then.
+                // double-fire. Keep only the microphone key then.
                 val bluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(context)
                 val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio)
                 if (bluetoothAudio) {
@@ -139,6 +140,10 @@ internal object GeelyWheelKeys {
     }
 
     private fun forward(keyCode: Int) {
+        if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
+            Log.i(TAG, "short press Siri requested=${CarPlayMediaKeys.onExternalSiriKey()}")
+            return
+        }
         val index = when (keyCode) {
             GeelyWheelKeyCodes.KEY_PLAY_PAUSE -> CarPlayMediaButton.PLAY_PAUSE
             GeelyWheelKeyCodes.KEY_NEXT -> CarPlayMediaButton.NEXT

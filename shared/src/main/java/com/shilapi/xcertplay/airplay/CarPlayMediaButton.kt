@@ -31,11 +31,13 @@ object CarPlayMediaButton {
      *    0x30D95(200085)=play/pause, 0x30D97(200087)=next, 0x30D98(200088)=prev.
      */
     const val ECARX_VOICE_8001 = 0x1F41
+    const val ECARX_VOICE_200231 = 200231
     const val ECARX_ANSWER_8003 = 0x1F43
     const val ECARX_OFFSET = 200_000
 
     /** Whether [keyCode] is a voice key that opens Siri, in any of the three code spaces above. */
     fun opensSiri(keyCode: Int): Boolean = keyCode == KeyEvent.KEYCODE_VOICE_ASSIST ||
+        keyCode == ECARX_VOICE_200231 ||
         keyCode == KeyEvent.KEYCODE_ASSIST ||
         keyCode == ECARX_VOICE_8001 ||
         keyCode == ECARX_OFFSET + KeyEvent.KEYCODE_VOICE_ASSIST

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -19,6 +20,9 @@ import android.util.Log
 import android.view.KeyEvent
 import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
+import com.shilapi.xcertplay.airplay.AirPlaySession
+import com.shilapi.xcertplay.hud.EcarxCapabilities
+import com.shilapi.xcertplay.hud.EcarxKeyBroadcasts
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.hud.NavigationOutputs
@@ -87,12 +91,14 @@ internal object CarPlayMediaKeys {
             "transientFocusInterrupted=$transientFocusInterrupted titlePresent=${!nowPlaying.title.isNullOrBlank()} " +
             "artistPresent=${!nowPlaying.artist.isNullOrBlank()} artworkDecoded=${artwork != null} " +
             "iphonePlaying=${nowPlaying.playing} elapsedMs=${nowPlaying.elapsedMillis} durationMs=${nowPlaying.durationMillis}\n" +
-            "CarPlay media dispatch since process start: attempts=$commandAttempts sent=$commandsSent last=[$lastCommand]"
+            "CarPlay media dispatch since process start: attempts=$commandAttempts sent=$commandsSent last=[$lastCommand]\n" +
+            "ECARX voice key: shortPressBroadcastRegistered=${voiceKeyReceiver != null}"
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
         if (controller !== next) {
             releaseLocked()
+            externalSiriKey.reset()
             artworkOwner = artworkQueue.newSession()
         }
         appContext = context.applicationContext
@@ -414,6 +420,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
+        releaseVoiceKeyLocked()
         CarPlayMediaOutput.end()
         focusOwner = null
         artworkOwner = null
@@ -502,8 +509,63 @@ internal object CarPlayMediaKeys {
     }
 
     /** The steering-wheel microphone key captured outside the Android key stream (Geely/Lynk). */
-    internal fun onExternalSiriKey(): Boolean {
-        val active = synchronized(this) { controller } ?: return false
+    private val externalSiriKey = WheelSiriKey()
+    private var voiceKeyReceiver: BroadcastReceiver? = null
+    private var voiceKeySession: AirPlaySession? = null
+
+    @Synchronized
+    internal fun onSessionActive(expected: CarPlayController, session: AirPlaySession) {
+        if (controller !== expected || expected.activeAirPlaySession() !== session || voiceKeySession === session) return
+        releaseVoiceKeyLocked()
+        val context = appContext ?: return
+        if (!EcarxCapabilities.available(context)) return
+        voiceKeySession = session
+        externalSiriKey.reset()
+        voiceKeyReceiver = runCatching {
+            EcarxKeyBroadcasts.registerVoice(context, shouldHandle = {
+                synchronized(this) {
+                    controller === expected && voiceKeySession === session &&
+                        expected.activeAirPlaySession() === session && !inCall(context)
+                }
+            }) { ordered ->
+                synchronized(this) {
+                    // An unordered broadcast cannot suppress the factory assistant.
+                    val sent = ordered && externalSiriKey.opens(SystemClock.uptimeMillis()) && expected.requestSiri()
+                    WheelKeyLog.note("ECARX voice short press ordered=$ordered sent=$sent")
+                }
+            }
+        }.onFailure {
+            WheelKeyLog.note("ECARX voice registration failed=${it.javaClass.simpleName}")
+        }.getOrNull()
+        if (voiceKeyReceiver == null) voiceKeySession = null
+        WheelKeyLog.note("ECARX voice short press registered=${voiceKeyReceiver != null} priority=${Int.MAX_VALUE}")
+    }
+
+    @Synchronized
+    internal fun onSessionEnded(session: AirPlaySession) {
+        if (voiceKeySession === session) releaseVoiceKeyLocked()
+    }
+
+    @Synchronized
+    internal fun ecarxVoiceKeyActive(): Boolean = voiceKeyReceiver != null
+
+    private fun releaseVoiceKeyLocked() {
+        voiceKeyReceiver?.let { receiver ->
+            runCatching { appContext?.unregisterReceiver(receiver) }
+                .onSuccess { WheelKeyLog.note("ECARX voice short press unregistered") }
+                .onFailure { WheelKeyLog.note("ECARX voice unregister failed=${it.javaClass.simpleName}") }
+        }
+        voiceKeyReceiver = null
+        voiceKeySession = null
+    }
+
+    @Synchronized
+    internal fun onExternalSiriKey(keyCode: Int = CarPlayMediaButton.ECARX_VOICE_200231): Boolean {
+        val active = controller ?: return false
+        if (voiceKeyReceiver != null && CarPlayMediaButton.opensSiri(keyCode)) return false
+        if (appContext?.let(::inCall) == true) return false
+        // One wheel press can reach both the ECARX callback and the Geely listener.
+        if (!externalSiriKey.opens(android.os.SystemClock.uptimeMillis())) return false
         return runCatching { active.requestSiri() }.getOrDefault(false)
     }
 

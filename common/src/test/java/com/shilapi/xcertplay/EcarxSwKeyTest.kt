@@ -53,6 +53,14 @@ class EcarxSwKeyTest {
     }
 
     @Test
+    fun factoryVoiceKeyOpensSiriWithoutLearningOrMediaKeys() {
+        EcarxSwKey.setMediaButtonEnabled(prefs, false)
+        assertTrue(EcarxSwKey.resolve(prefs, 200231)!!.isSiri)
+        EcarxSwKey.assign(prefs, EcarxSwKey.Action.NEXT, 200231)
+        assertTrue(EcarxSwKey.resolve(prefs, 200231)!!.isSiri)
+    }
+
+    @Test
     fun learntAnswerAndHangupMapToTelephonyPresses() {
         EcarxSwKey.assign(prefs, EcarxSwKey.Action.ANSWER, 200400)
         EcarxSwKey.assign(prefs, EcarxSwKey.Action.HANGUP, 200401)
