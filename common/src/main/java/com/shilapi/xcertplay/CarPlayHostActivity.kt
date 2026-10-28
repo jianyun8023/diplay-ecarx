@@ -5382,6 +5382,12 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun startCarPlay(size: DisplaySize) {
+        if (!com.shilapi.xcertplay.network.ManualHotspotControl.runIfIdle { startCarPlayWhenHotspotIdle(size) }) {
+            android.widget.Toast.makeText(this, R.string.settings_manual_hotspot_working, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun startCarPlayWhenHotspotIdle(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
         val controllerGeneration = restartGeneration

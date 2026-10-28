@@ -180,6 +180,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var clusterContentRequestVersion = 0L
     private var pendingCarHotspotSetup = false
     private var hotspotJoinControls: HotspotJoinControls? = null
+    private var manualHotspotControls: ManualHotspotControls? = null
+    @Volatile private var hotspotStartupRunning = false
+    @Volatile private var projectionRequested = false
     private var setupError: String? = null
     private var status: TextView? = null
     private var homeCardTitle: TextView? = null
@@ -457,6 +460,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         cancelUsbPermissionSetup()
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
+        manualHotspotControls?.cancelPending()
+        projectionRequested = false
         super.onStop()
         if (!isFinishing && !isChangingConfigurations) {
             CenterMapOverlay.scheduleShow()
@@ -518,6 +523,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appearanceObserverRemoval = null
         handler.removeCallbacks(appearancePoll)
         hotspotJoinControls?.close()
+        manualHotspotControls?.close()
         cancelUsbPermissionSetup()
         cancelKeyLearning()
         cancelEcarxSwLearning()
@@ -2465,13 +2471,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun startCarHotspotOnLaunch() {
-        if (!startupHotspotEligible()) return
+        if (!startupHotspotEligible() || manualHotspotBusy()) return
+        hotspotStartupRunning = true
         val app = applicationContext
         Thread({
-            val result = CarHotspotTethering.enable(app,
+            val result = try { CarHotspotTethering.enable(app,
                 isCancelled = { startupHotspotCancelled || !startupHotspotEligible() },
                 log = { Log.i("DiPlay-Hotspot", it) },
-            )
+            ) } finally { hotspotStartupRunning = false }
             runOnUiThread {
                 if (isFinishing || isDestroyed || result == CarHotspotTethering.Result.CANCELLED) return@runOnUiThread
                 hotspotStartupResult = result
@@ -2881,6 +2888,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     setPadding(0, dp(12), 0, 0)
                 })
             }
+            val manual = manualHotspotControls ?: ManualHotspotControls(this,
+                connectionBusy = { CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning },
+                openSettings = ::openCarWifiSettings, requestPermission = ::openWriteSettingsAccess,
+                labelFactory = { label(it, 15, MUTED) },
+                buttonFactory = { title, click -> button(title, false, click) })
+                .also { manualHotspotControls = it }
+            parent.addView(manual.build())
             val join = hotspotJoinControls ?: HotspotJoinControls(this,
                 { CarPlayBackgroundSession.hasSession() }, beforeAction = { startupHotspotCancelled = true },
                 labelFactory = { label(it, 15, MUTED) }, buttonFactory = { title, click -> button(title, false, click) })
@@ -4340,9 +4354,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         parent.addView(space(12))
     }
 
+    private fun manualHotspotBusy(): Boolean = manualHotspotControls?.isBusy == true ||
+        com.shilapi.xcertplay.network.ManualHotspotControl.isBusy()
+
     private fun connect(wireless: Boolean) = connectWithSource(wireless, ConnectionTraceSource.UI_OR_CONTINUATION)
 
     private fun connectWithSource(wireless: Boolean, source: ConnectionTraceSource) {
+        if (manualHotspotBusy()) { toast(getString(R.string.settings_manual_hotspot_working)); return }
         ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.CONNECT_ENTERED)
         startupHotspotCancelled = true
         if (wireless && pendingCarHotspotSetup) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED); toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
@@ -4378,7 +4396,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         else open()
     }
     private fun openProjection() {
-        OwnScreenStart.start(this, Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        if (manualHotspotBusy()) { toast(getString(R.string.settings_manual_hotspot_working)); return }
+        projectionRequested = true
+        if (!OwnScreenStart.start(this, Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))) {
+            projectionRequested = false
+        }
     }
     private fun choosePhone() {
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
