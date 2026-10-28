@@ -113,6 +113,7 @@ internal enum class SettingsSection {
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
     ADVANCED_MEDIA,
+    MEDIA_OUTPUT_BACKEND,
     CAR_BUTTON,
     AUDIO_ROUTING,
     NAVIGATION_WHEEL,
@@ -146,6 +147,7 @@ internal object SettingsInformationArchitecture {
             SettingsSection.LAUNCHER_BUBBLE,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
+            SettingsSection.MEDIA_OUTPUT_BACKEND,
             SettingsSection.NAVIGATION_WHEEL,
         ),
     )
@@ -181,6 +183,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var pendingCarHotspotSetup = false
     private var hotspotJoinControls: HotspotJoinControls? = null
     private var manualHotspotControls: ManualHotspotControls? = null
+    private var mediaOutputBackendControls: MediaOutputBackendControls? = null
     @Volatile private var hotspotStartupRunning = false
     @Volatile private var projectionRequested = false
     private var setupError: String? = null
@@ -524,6 +527,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         handler.removeCallbacks(appearancePoll)
         hotspotJoinControls?.close()
         manualHotspotControls?.close()
+        mediaOutputBackendControls?.close()
         cancelUsbPermissionSetup()
         cancelKeyLearning()
         cancelEcarxSwLearning()
@@ -1891,6 +1895,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     markReconnectNeeded()
                 }
             }
+        }
+        filteredSection(content, SettingsSection.MEDIA_OUTPUT_BACKEND,
+            getString(R.string.settings_media_backend_title), R.drawable.ic_dp_advanced) { card ->
+            val controls = mediaOutputBackendControls ?: MediaOutputBackendControls(this,
+                reconnectNeeded = ::markReconnectNeeded,
+                labelFactory = { label(it, 15, MUTED) },
+                buttonFactory = { title, click -> button(title, false, click) })
+                .also { mediaOutputBackendControls = it }
+            card.addView(controls.build())
         }
         // Opt-in controls that can cost sound or video on some head units.
         filteredSection(content, SettingsSection.ADVANCED_MEDIA,
@@ -4609,6 +4622,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine(ConnectionDiagnostics.report(appContext))
+        appendLine(CarPlayMediaOutput.diagnostics())
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
         appendLine()
         appendLine(BluetoothDiagnosticSnapshot.report(appContext))

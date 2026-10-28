@@ -818,7 +818,7 @@
     <string name="ecarx_cluster_call_rejected">车机拒绝了这次调用：需要系统签名且 DIM 权限被授予。</string>
     <string name="ecarx_cluster_mirror_confirm">打开后会把整个中控画面镜像到仪表，并盖住仪表上的导航箭头与媒体卡片。\n\n确定要打开吗？</string>
     <string name="ecarx_media_on_instrument_cluster">仪表媒体卡片</string>
-    <string name="ecarx_media_on_instrument_cluster_description">把 CarPlay 的曲名、歌手、专辑和播放状态推送到仪表盘。这是媒体通道，与上面的导航开关相互独立。不开的话，仪表只在车机自带蓝牙音乐源运行时才显示媒体；一旦关掉车机蓝牙，卡片就会变空。</string>
+    <string name="ecarx_media_on_instrument_cluster_description">启用媒体信息输出，后端在高级设置中选择，与导航独立。UNI MediaCenter 需要固件授权，失败不会自动改用 DIM。后端切换在下次 CarPlay 连接时生效。</string>
     <string name="ecarx_sw_key_title">亿咖通方向盘按键</string>
     <string name="ecarx_sw_key_description">将车辆方向盘上的媒体、语音和通话按键学习到 CarPlay。之前学习过的按键继续生效。</string>
     <string name="ecarx_sw_key_media_button">媒体按键控制 CarPlay</string>

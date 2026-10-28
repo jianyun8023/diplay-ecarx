@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_media_backend_title">媒体输出后端（实验性）</string>
+    <string name="settings_media_backend_description">选择 CarPlay 媒体信息的输出路径。原有“仪表媒体卡片”主开关仍控制是否输出。更改仅在下次 CarPlay 连接生效，选择后端不会改变当前会话。</string>
+    <string name="settings_media_backend_choice">媒体输出后端</string>
+    <string name="settings_media_backend_uni">UNI MediaCenter（默认）</string>
+    <string name="settings_media_backend_dim">DIM 直推</string>
+    <string name="settings_media_backend_permission">UNI MediaCenter 需要 ECARX MediaCenter 权限及兼容固件。权限获授不保证注册成功；失败时查看诊断，不会自动回退 DIM。本功能尚待实车验证。</string>
+    <string name="settings_media_backend_diagnostics">当前后端诊断</string>
+    <string name="settings_media_backend_refresh">刷新后端状态</string>
+    <string name="settings_media_backend_probe">检查 MediaCenter 访问条件（只读）</string>
+    <string name="settings_media_backend_probe_running">正在读取权限与接口信息，不会初始化或注册 MediaCenter。</string>
+    <string name="settings_media_backend_probe_busy">已有检查正在进行，请等待后再试。</string>
+</resources>

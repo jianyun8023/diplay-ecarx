@@ -860,7 +860,7 @@
     <string name="ecarx_cluster_call_rejected">The head unit refused that call. It needs the system signature and the DIM permissions to be granted.</string>
     <string name="ecarx_cluster_mirror_confirm">This mirrors the whole centre screen onto the instrument cluster and covers the navigation arrow and media card drawn there.\n\nTurn it on anyway?</string>
     <string name="ecarx_media_on_instrument_cluster">Cluster media card</string>
-    <string name="ecarx_media_on_instrument_cluster_description">Also send CarPlay\'s track, artist, album and play state to the instrument cluster. This is the media channel — separate from the navigation switches above. Without it the cluster shows media only while the head unit\'s own Bluetooth music source is running, so turning the head unit\'s Bluetooth off leaves the card empty.</string>
+    <string name="ecarx_media_on_instrument_cluster_description">Enable media information output using the backend selected in Advanced. This is separate from navigation. UNI MediaCenter requires firmware authorization; a failure does not switch silently to DIM. Changing the backend applies at the next CarPlay connection.</string>
     <string name="ecarx_sw_key_title">ECARX steering-wheel keys</string>
     <string name="ecarx_sw_key_description">Learn the car\'s steering-wheel media, voice and call keys onto CarPlay. Keys you already learnt keep working.</string>
     <string name="ecarx_sw_key_media_button">Media keys control CarPlay</string>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_media_backend_title">Media output backend (experimental)</string>
+    <string name="settings_media_backend_description">Choose the path for CarPlay media information. The existing Cluster media card switch still controls whether output is enabled. Changes apply at the next CarPlay connection; selecting a backend does not change the running session.</string>
+    <string name="settings_media_backend_choice">Media output backend</string>
+    <string name="settings_media_backend_uni">UNI MediaCenter (default)</string>
+    <string name="settings_media_backend_dim">DIM direct</string>
+    <string name="settings_media_backend_permission">UNI MediaCenter requires the ECARX MediaCenter permission and compatible firmware. Permission alone does not guarantee registration. If it fails, diagnostics explain the result; there is no automatic fallback to DIM. This is awaiting validation on the car.</string>
+    <string name="settings_media_backend_diagnostics">Current backend diagnostics</string>
+    <string name="settings_media_backend_refresh">Refresh backend status</string>
+    <string name="settings_media_backend_probe">Inspect MediaCenter access (read-only)</string>
+    <string name="settings_media_backend_probe_running">Reading permission and interface details. This does not initialize or register MediaCenter.</string>
+    <string name="settings_media_backend_probe_busy">An inspection is already in progress. Wait before trying again.</string>
+</resources>
