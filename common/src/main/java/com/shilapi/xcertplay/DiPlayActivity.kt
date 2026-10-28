@@ -4750,7 +4750,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("DiPlay ${version()} · private beta diagnostic report")
         appendLine(LastConnectionProblem.report(appContext))
         appendLine("Report createdAtEpochMs=${System.currentTimeMillis()}")
-        appendLine("Capture build: siriCommunicationCapture=${com.shilapi.xcertplay.shared.BuildConfig.SIRI_COMMUNICATION_CAPTURE}")
         appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
         appendLine("App: package=${appContext.packageName} " +
             "debuggable=${appContext.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0}")

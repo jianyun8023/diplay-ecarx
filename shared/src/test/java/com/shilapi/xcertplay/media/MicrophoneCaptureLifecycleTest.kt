@@ -25,18 +25,19 @@ import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAudioEffect
 import org.robolectric.shadows.ShadowAudioRecord
 
-/** Real sink/uplink and policy reflection: P1 changes routing, not source, packets or call effects. */
+/** Siri keeps direct capture; calls acquire and release the communication path. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 33], manifest = Config.NONE,
-    shadows = [SiriCommunicationCaptureTest.CaptureAudioManager::class,
+    shadows = [MicrophoneCaptureLifecycleTest.CaptureAudioManager::class,
         MicrophoneSourceFallbackTest.RecorderBuilder::class,
         MicrophoneSourceFallbackTest.GeelyDetection::class],
     instrumentedPackages = ["com.shilapi.xcertplay.network"])
-class SiriCommunicationCaptureTest {
+class MicrophoneCaptureLifecycleTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val manager get() = context.getSystemService(AudioManager::class.java)
     private val policy get() = PolicyAPI.audio
     private val siri = AudioStreamId(100, "speechrecognition")
+    private val call = AudioStreamId(101, "telephony")
     private val reports = CopyOnWriteArrayList<String>()
     private val captureStarted = CountDownLatch(1)
     private var sink: AndroidMediaSink? = null
@@ -75,16 +76,15 @@ class SiriCommunicationCaptureTest {
     }
 
     @Test fun baselineKeepsSiriOutOfCommunicationModeButReportsItsEnvironment() {
-        start(experiment = false)
+        start(id = siri)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertEquals(0, policy.requests)
         assertTrue(policy.events.none { it.startsWith("parameter:") })
-        assertTrue(reports.any { it.contains("phase=capture mode=1 microphoneMute=false") &&
-            it.contains("siriCommunicationCapture=false") })
+        assertTrue(reports.any { it.contains("phase=capture mode=1 microphoneMute=false") })
         assertTrue(reports.any { it.contains("actualSource=VOICE_COMMUNICATION") })
     }
 
-    @Test fun experimentOpensAllThreeCallParametersBeforeCaptureAndReleasesOnStop() {
+    @Test fun callOpensVendorParametersBeforeCaptureAndReleasesOnStop() {
         start()
         assertTrue(captureStarted.await(5, TimeUnit.SECONDS))
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
@@ -99,7 +99,7 @@ class SiriCommunicationCaptureTest {
         assertTrue(reports.any { it.contains("isNeedRequestMic=true requestType=CALL(2)") })
         assertTrue(reports.any { it.contains("onResume") && it.contains("granted=true") })
 
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertEquals(1, policy.releases)
         assertNull(policy.held)
@@ -111,17 +111,6 @@ class SiriCommunicationCaptureTest {
         ShadowAudioModeRequests.otherProcess(AudioManager.MODE_NORMAL)
         assertEquals(AudioManager.MODE_NORMAL, manager.mode)
         sink!!.close()
-        assertEquals(1, policy.releases)
-    }
-
-    @Test fun callCaptureStillUsesTheSameCommunicationPathWithTheExperimentOff() {
-        val call = AudioStreamId(101, "telephony")
-        start(experiment = false, id = call)
-        assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
-        assertEquals(2, policy.requestType)
-        assertEquals(1, policy.requests)
-        sink!!.onMicrophoneStopped(call)
-        assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertEquals(1, policy.releases)
     }
 
@@ -139,7 +128,7 @@ class SiriCommunicationCaptureTest {
         start()
         assertTrue(reports.any { it.startsWith("Microphone: start") })
         assertTrue(reports.any { it.contains("accepted=false granted=false") })
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertEquals(0, policy.releases)
         sink!!.close()
 
@@ -148,7 +137,7 @@ class SiriCommunicationCaptureTest {
         start()
         assertTrue(reports.any { it.contains("onAbort") && it.contains("granted=false reason=7") })
         assertEquals(AudioRecord.RECORDSTATE_RECORDING, MicrophoneSourceFallbackTest.RecorderBuilder.built.last().recordingState)
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertEquals(1, policy.releases)
     }
 
@@ -157,18 +146,9 @@ class SiriCommunicationCaptureTest {
         start()
         assertEquals(0, policy.requests)
         assertTrue(reports.any { it.startsWith("Microphone: start") })
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertTrue(reports.any { it.contains("mic released held=false ok=true") })
-    }
-
-    @Test fun modeEntryFailureFallsBackToDirectRecording() {
-        CaptureAudioManager.rejectMode = AudioManager.MODE_IN_COMMUNICATION
-        start()
-        assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
-        assertEquals(0, policy.requests)
-        assertTrue(reports.any { it.contains("Siri communication capture failed") })
-        assertTrue(reports.any { it.startsWith("Microphone: start") })
     }
 
     @Test fun vendorParameterFailureDoesNotPreventDirectCaptureOrResourceRelease() {
@@ -176,7 +156,7 @@ class SiriCommunicationCaptureTest {
         start()
         assertTrue(reports.any { it.contains("ASR_AEC=ON writeOk=false") })
         assertTrue(reports.any { it.startsWith("Microphone: start") })
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertEquals(1, policy.releases)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
     }
@@ -191,7 +171,7 @@ class SiriCommunicationCaptureTest {
     @Test fun failedModeRestoreStillClosesVendorParametersAndReleasesTheMic() {
         start()
         CaptureAudioManager.rejectMode = AudioManager.MODE_NORMAL
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertEquals(1, policy.releases)
         assertTrue(policy.events.contains("parameter:ASR_AEC=OFF"))
         assertTrue(reports.any { it.contains("mode restore failed") })
@@ -201,18 +181,18 @@ class SiriCommunicationCaptureTest {
     @Test fun declinedReleaseIsNotReportedAsSuccessful() {
         policy.declineRelease = true
         start()
-        sink!!.onMicrophoneStopped(siri)
+        sink!!.onMicrophoneStopped(call)
         assertTrue(reports.any { it.contains("mic released held=true ok=false") })
     }
 
     @Test fun tenSessionsDoNotLeakModeOrMicAndStoppingAnotherStreamDoesNotReleaseIt() {
-        sink = AndroidMediaSink(context = context, onAudioDiagnostic = reports::add, siriCommunicationCapture = true)
+        sink = AndroidMediaSink(context = context, onAudioDiagnostic = reports::add)
         repeat(10) {
-            sink!!.onMicrophoneStarted(siri, config(siri))
+            sink!!.onMicrophoneStarted(call, config(call))
             sink!!.onMicrophoneStopped(AudioStreamId(999, "other"))
             assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
             assertEquals(it, policy.releases)
-            sink!!.onMicrophoneStopped(siri)
+            sink!!.onMicrophoneStopped(call)
             assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
             assertEquals(it + 1, policy.releases)
             assertNull(policy.held)
@@ -221,9 +201,9 @@ class SiriCommunicationCaptureTest {
     }
 
     @Test fun sinkCloseReleasesAnActiveCaptureEvenWhenDiagnosticsThrow() {
-        sink = AndroidMediaSink(context = context, siriCommunicationCapture = true,
+        sink = AndroidMediaSink(context = context,
             onAudioDiagnostic = { throw IllegalStateException("diagnostic consumer failed") })
-        sink!!.onMicrophoneStarted(siri, config(siri))
+        sink!!.onMicrophoneStarted(call, config(call))
         assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
         sink!!.close()
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
@@ -242,8 +222,8 @@ class SiriCommunicationCaptureTest {
         assertTrue(reports.any { it.contains("package=com.ecarx.assistant source=1") })
     }
 
-    private fun start(experiment: Boolean = true, id: AudioStreamId = siri) {
-        sink = AndroidMediaSink(context = context, onAudioDiagnostic = reports::add, siriCommunicationCapture = experiment)
+    private fun start(id: AudioStreamId = call) {
+        sink = AndroidMediaSink(context = context, onAudioDiagnostic = reports::add)
         sink!!.onMicrophoneStarted(id, config(id))
     }
 

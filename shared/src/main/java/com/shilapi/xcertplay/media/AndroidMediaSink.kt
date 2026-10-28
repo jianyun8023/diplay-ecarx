@@ -24,7 +24,6 @@ import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
-import com.shilapi.xcertplay.shared.BuildConfig
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -219,8 +218,6 @@ class AndroidMediaSink(
     private val vendorLowLatencyDecoder: Boolean = false,
     /** Opt-in MTK ACodec low-latency/no-reorder modes, with per-session automatic fallback. */
     private val mtkDecoderTuningEnabled: Boolean = false,
-    /** P1 validation only: clone the call capture path for Siri; ordinary builds stay off. */
-    private val siriCommunicationCapture: Boolean = BuildConfig.SIRI_COMMUNICATION_CAPTURE,
     /** Opt-in (#946): navigation prompts request duckable focus while the iPhone ducks audio. Needs [audioFocusEnabled]. */
     navigationPromptAudioFocus: Boolean = false,
 ) : MediaSink {
@@ -565,13 +562,6 @@ class AndroidMediaSink(
             reportMicrophoneState(id, "before-start")
             if (config.audioType == "telephony") {
                 enterCommunicationMode(id)
-            } else if (config.audioType == "speechrecognition" && siriCommunicationCapture) {
-                runCatching { enterCommunicationMode(id) }.onFailure { error ->
-                    runCatching {
-                        onAudioDiagnostic("Audio: Siri communication capture failed" +
-                            " stream=$id error=${error.javaClass.simpleName}; recording directly")
-                    }
-                }
             }
             val uplink = microphoneUplinks.computeIfAbsent(id) {
                 MicrophoneUplink(config, onAudioDiagnostic,
@@ -612,7 +602,7 @@ class AndroidMediaSink(
             android.content.pm.PackageManager.PERMISSION_GRANTED
         runCatching {
             onAudioDiagnostic("Microphone: environment stream=$id phase=$phase mode=$mode" +
-                " microphoneMute=$mute siriCommunicationCapture=$siriCommunicationCapture" +
+                " microphoneMute=$mute" +
                 " activeRecordings=${recordings?.size ?: "unknown"}" +
                 " visibility=${if (privileged) "privileged" else "anonymized-or-filtered"}")
         }

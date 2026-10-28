@@ -124,8 +124,7 @@ class HomeLastConnectionProblemTest {
         assertTrue(lines[1], lines[1].matches(Regex(
             "Last problem: Car hotspot is off \\(cause:CAR_HOTSPOT_OFF\\) at \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2} [+-]\\d{4}")))
         assertTrue(lines[2], lines[2].startsWith("Report createdAtEpochMs="))
-        assertTrue(lines[3], lines[3].startsWith("Capture build:"))
-        assertTrue(lines[4], lines[4].startsWith("Android "))
+        assertTrue(lines[3], lines[3].startsWith("Android "))
         LastConnectionProblem.clear(context)
         assertEquals("Last problem: none recorded", reportLines()[1])
     }

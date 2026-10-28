@@ -50,7 +50,7 @@ class MicrophoneSourceFallbackTest {
         shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO, Manifest.permission.MODIFY_AUDIO_SETTINGS)
         ShadowAudioModeRequests.clearRequests()
         ShadowAudioModeRequests.otherProcess(AudioManager.MODE_RINGTONE)
-        sink = AndroidMediaSink(context = context, onAudioDiagnostic = diagnostics::add, siriCommunicationCapture = false)
+        sink = AndroidMediaSink(context = context, onAudioDiagnostic = diagnostics::add)
         ShadowAudioRecord.setSourceProvider { recorder ->
             captured.set(recorder)
             captureStarted.countDown()

@@ -29,7 +29,6 @@ class SettingsActionDiagnosticsTest {
         assertTrue(report.contains("step=6 "))
         assertTrue(report.contains("step=69 "))
         assertTrue(report.contains("elapsed="))
-        assertTrue(report.contains("siriCommunicationCapture=${com.shilapi.xcertplay.shared.BuildConfig.SIRI_COMMUNICATION_CAPTURE}"))
     }
 
     @Test fun redactsMetadataAndRejectsCredentialsOrInjectedLinesBeforePersistence() {

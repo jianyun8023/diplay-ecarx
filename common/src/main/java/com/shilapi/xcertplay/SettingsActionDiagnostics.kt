@@ -15,7 +15,6 @@ internal object SettingsActionDiagnostics {
         runCatching {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val line = "at=${System.currentTimeMillis()} elapsed=${SystemClock.elapsedRealtime()} " +
-                "siriCommunicationCapture=${com.shilapi.xcertplay.shared.BuildConfig.SIRI_COMMUNICATION_CAPTURE} " +
                 "action=$action $safe"
             val previous = prefs.getString("events", "").orEmpty().lineSequence().filter { it.isNotBlank() }.toList()
             prefs.edit().putString("events", (previous.takeLast(LIMIT - 1) + line).joinToString("\n")).apply()

@@ -57,7 +57,6 @@ class DiagnosticExportUiTest {
             assertTrue(file.readText().contains("Android 9 / API 28"))
             val report = file.readText()
             assertTrue(report.contains("Report createdAtEpochMs="))
-            assertTrue(report.contains("Capture build: siriCommunicationCapture=${com.shilapi.xcertplay.shared.BuildConfig.SIRI_COMMUNICATION_CAPTURE}"))
             assertTrue(report.contains("ECARX MediaCenter clusterMediaEnabled="))
             assertTrue(report.contains("Android media session:"))
             assertTrue(report.contains("CarPlay media dispatch since process start:"))
