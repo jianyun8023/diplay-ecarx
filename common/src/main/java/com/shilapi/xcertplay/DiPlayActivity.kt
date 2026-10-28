@@ -4629,6 +4629,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     /** The text of a diagnostic report. It reads the session logs, so call it off the main thread. */
     private fun diagnosticReportText(appContext: Context): String = buildString {
         appendLine("DiPlay ${version()} · private beta diagnostic report")
+        appendLine("Report createdAtEpochMs=${System.currentTimeMillis()}")
+        appendLine("Capture build: siriCommunicationCapture=${com.shilapi.xcertplay.shared.BuildConfig.SIRI_COMMUNICATION_CAPTURE}")
         appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
         appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
         appendLine("Connection: ${if (AirPlayPersistence.loadWirelessEnabled(appContext)) "wireless" else "USB"}")
@@ -4646,6 +4648,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine(ConnectionDiagnostics.report(appContext))
         appendLine(CarPlayMediaOutput.diagnostics())
+        appendLine("Saved media backend=${com.shilapi.xcertplay.hud.MediaOutputBackendSettings.load(appContext)} " +
+            "clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
+        appendLine(CarPlayMediaKeys.diagnosticReport())
+        appendLine(CarPlayMediaKeys.artworkDiagnosticReport())
+        appendLine(runCatching {
+            EcarxHicarControl.state(appContext)?.let {
+                "Factory HiCar: visible=true disabled=${it.disabled} canChange=${it.canChange}"
+            } ?: "Factory HiCar: visible=false (not installed or not visible to this app)"
+        }.getOrElse { "Factory HiCar: unavailable=${it.javaClass.simpleName}" })
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
         appendLine()
         appendLine(BluetoothDiagnosticSnapshot.report(appContext))

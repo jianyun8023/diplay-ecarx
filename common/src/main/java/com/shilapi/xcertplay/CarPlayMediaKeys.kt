@@ -76,6 +76,19 @@ internal object CarPlayMediaKeys {
     private val clusterArtworkUris = LinkedHashMap<Int, android.net.Uri>()
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
     private var placeholder: Bitmap? = null
+    private var commandAttempts = 0L
+    private var commandsSent = 0L
+    private var lastCommand = "none"
+
+    /** Fixed state only; do not export song titles, session tokens or device identifiers. */
+    @Synchronized
+    fun diagnosticReport(): String =
+        "Android media session: controllerAttached=${controller != null} created=${session != null} " +
+            "active=${session?.isActive == true} mediaAudioActive=$mediaAudioActive focusHeld=$focusHeld " +
+            "transientFocusInterrupted=$transientFocusInterrupted titlePresent=${!nowPlaying.title.isNullOrBlank()} " +
+            "artistPresent=${!nowPlaying.artist.isNullOrBlank()} artworkDecoded=${artwork != null} " +
+            "iphonePlaying=${nowPlaying.playing} elapsedMs=${nowPlaying.elapsedMillis} durationMs=${nowPlaying.durationMillis}\n" +
+            "CarPlay media dispatch since process start: attempts=$commandAttempts sent=$commandsSent last=[$lastCommand]"
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
@@ -456,6 +469,11 @@ internal object CarPlayMediaKeys {
             return
         }
         val sent = synchronized(this) { controller }?.sendMediaButton(index) ?: false
+        synchronized(this) {
+            commandAttempts++
+            if (sent) commandsSent++
+            lastCommand = "source=$source index=$index sent=$sent atEpochMs=${System.currentTimeMillis()}"
+        }
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
         WheelKeyLog.note("media key $source -> CarPlay $index sent=$sent")
     }

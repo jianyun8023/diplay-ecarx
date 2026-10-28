@@ -166,6 +166,10 @@ class MediaOutputRoutingTest {
         field(CarPlayMediaKeys, "session").set(CarPlayMediaKeys, session)
         attached.cover(7, png()); awaitArtwork(); tickDim()
         assertTrue(session.isActive)
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("active=true"))
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("titlePresent=true"))
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("artworkDecoded=true"))
+        assertFalse(CarPlayMediaKeys.diagnosticReport().contains("HY track"))
         val published = ArgumentCaptor.forClass(MediaMetadata::class.java)
         verify(session, atLeastOnce()).setMetadata(published.capture())
         val metadata = published.value
@@ -177,6 +181,8 @@ class MediaOutputRoutingTest {
         assertTrue(MediaOutputBackendSettings.dimBlocked())
 
         val callback = field(CarPlayMediaKeys, "callback").get(CarPlayMediaKeys) as MediaSession.Callback
+        val dispatchCounts = Regex("attempts=(\\d+) sent=(\\d+)").find(CarPlayMediaKeys.diagnosticReport())!!.groupValues
+        `when`(attached.controller.sendMediaButton(anyInt())).thenReturn(true)
         clearInvocations(attached.controller)
         CarPlayMediaKeys.onExternalMediaKey(CarPlayMediaButton.NEXT)
         verify(attached.controller, never()).sendMediaButton(anyInt())
@@ -185,6 +191,15 @@ class MediaOutputRoutingTest {
         verify(attached.controller).sendMediaButton(CarPlayMediaButton.PAUSE)
         verify(attached.controller).sendMediaButton(CarPlayMediaButton.NEXT)
         verify(attached.controller).sendMediaButton(CarPlayMediaButton.PREVIOUS)
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains(
+            "attempts=${dispatchCounts[1].toLong() + 4} sent=${dispatchCounts[2].toLong() + 4}"))
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("source=previous"))
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("sent=true atEpochMs="))
+        `when`(attached.controller.sendMediaButton(CarPlayMediaButton.NEXT)).thenReturn(false)
+        callback.onSkipToNext()
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains(
+            "attempts=${dispatchCounts[1].toLong() + 5} sent=${dispatchCounts[2].toLong() + 4}"))
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("sent=false atEpochMs="))
         `when`(attached.controller.requestSiri()).thenReturn(true)
         assertTrue(CarPlayMediaKeys.onExternalSiriKey())
 
@@ -197,8 +212,10 @@ class MediaOutputRoutingTest {
         assertEquals(PlaybackState.STATE_PAUSED, playback.state)
         assertEquals(12_000L, playback.position)
         assertTrue("paused media remains controllable", session.isActive)
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("iphonePlaying=false elapsedMs=12000"))
         CarPlayMediaKeys.detach(attached.controller)
         assertFalse(session.isActive)
+        assertTrue(CarPlayMediaKeys.diagnosticReport().contains("controllerAttached=false created=false active=false"))
     }
 
     @Test fun standardSelectionWaitsForNextOwnerAndCleansPreviousUniRegistration() {

@@ -44,7 +44,8 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".hudtest"
-            versionNameSuffix = "-hud-test"
+            versionNameSuffix = providers.gradleProperty("carTestLabel")
+                .map { "-hud-test-$it" }.getOrElse("-hud-test")
         }
         release {
             optimization {
