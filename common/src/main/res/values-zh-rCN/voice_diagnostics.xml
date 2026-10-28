@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_voice_title">语音自检</string>
+    <string name="settings_voice_description">请先断开 CarPlay。三种音源是采集用途，并非三个物理麦克风。录音 5 秒后，可将同一段音频分别通过媒体和 Siri 助手路径回放。未录音时播放低音量的 1 秒提示音。音频仅留内存，关闭即清除；设备与电平信息写入报告。本地自检不等同于真实 Siri 会话。</string>
+    <string name="settings_voice_source">采集音源</string>
+    <string name="settings_voice_record">录音 5 秒</string>
+    <string name="settings_voice_media">通过媒体路径回放</string>
+    <string name="settings_voice_assistant">通过 Siri 助手路径回放</string>
+    <string name="settings_voice_clear">停止并清除</string>
+    <string name="settings_voice_permission">请允许麦克风权限，再点录音。若已永久拒绝，请在 Android 应用设置中开启麦克风权限。</string>
+    <string name="settings_voice_disconnect">请断开 CarPlay 后再运行本地自检。</string>
+    <string name="settings_voice_busy">上次自检仍在停止，请稍后重试。</string>
+    <string name="settings_voice_recording">正在录音，持续 5 秒…</string>
+    <string name="settings_voice_playing">正在回放…</string>
+    <string name="settings_voice_cleared">已停止，录音已清除。</string>
+</resources>

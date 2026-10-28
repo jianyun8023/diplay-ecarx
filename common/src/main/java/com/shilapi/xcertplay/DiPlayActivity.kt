@@ -186,6 +186,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var pendingCarHotspotSetup = false
     private var hotspotJoinControls: HotspotJoinControls? = null
     private var manualHotspotControls: ManualHotspotControls? = null
+    private var voiceDiagnosticsDialog: Dialog? = null
     private var mediaOutputBackendControls: MediaOutputBackendControls? = null
     @Volatile private var hotspotStartupRunning = false
     @Volatile private var projectionRequested = false
@@ -465,6 +466,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     override fun onStop() {
         cancelUsbPermissionSetup()
+        voiceDiagnosticsDialog?.dismiss()
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
         manualHotspotControls?.cancelPending()
@@ -1703,6 +1705,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(exportButton, matchButton(10, 60))
             card.addView(button(getString(R.string.choose_save_location), false) { chooseReportDestination() }, matchButton(10, 60))
             card.addView(button(getString(R.string.settings_report_on_phone), false) { openBackup(SettingsCategory.DIAGNOSTICS) }, matchButton(10, 60))
+            card.addView(button(getString(R.string.settings_voice_title), false) {
+                voiceDiagnosticsDialog?.dismiss()
+                val controls = VoiceDiagnosticsControls(this,
+                    labelFactory = { label(it, 15, MUTED) },
+                    buttonFactory = { title, click -> button(title, false, click) })
+                val body = ScrollView(this).apply { addView(controls.build()) }
+                val dialog = appDialogBuilder().setTitle(R.string.settings_voice_title).setView(body)
+                    .setPositiveButton(android.R.string.ok, null).create()
+                dialog.setOnDismissListener { controls.close(); if (voiceDiagnosticsDialog === dialog) voiceDiagnosticsDialog = null }
+                voiceDiagnosticsDialog = dialog
+                dialog.show()
+            }, matchButton(10, 60))
             val destination = getString(R.string.reports_save_to_downloads_diplay)
             card.addView(label(destination + getString(R.string.nothing_is_sent_automatically_protocol_payloads_and_creden), 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
             toggle(card, getString(R.string.settings_fps_counter), getString(R.string.settings_fps_counter_description),
