@@ -124,6 +124,7 @@ class ManualHotspotControl @JvmOverloads internal constructor(
                     report("${radio}phase=callback enabled=$enabled code=$it")
                 }
                 if (stepWifi) platform.requestWifi(enabled, callback) else platform.request(enabled, callback)
+                var failedStateWasCleared = initial != State.FAILED
                 while (true) {
                     if (cancelled()) return Result.CANCELLED
                     val state = if (stepWifi) observeWifi() else observe()
@@ -135,7 +136,8 @@ class ManualHotspotControl @JvmOverloads internal constructor(
                         report("recovery phase=stop-requested state=FAILED; cycling Wi-Fi")
                         break
                     }
-                    if (state == State.FAILED) return Result.FAILED
+                    if (state != State.FAILED) failedStateWasCleared = true
+                    if (state == State.FAILED && failedStateWasCleared) return Result.FAILED
                     if (platform.now() >= deadline) return Result.TIMED_OUT
                     platform.pause()
                 }

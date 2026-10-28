@@ -196,7 +196,8 @@ class ManualHotspotControlTest {
                     assertTrue(ManualHotspotControl.isBusy())
                     assertFalse(ManualHotspotControl.runIfIdle { fail("connection must stay blocked throughout recovery") })
                     response(0)
-                    if (enabled) current = ManualHotspotControl.State.ON // Failed state stays latched after stop.
+                    // Both stop and start return before the latched FAILED state changes.
+                    if (enabled) tick = { current = ManualHotspotControl.State.ON }
                 }
                 wifiEffect = { enabled, response ->
                     actions += "wifi=$enabled"
