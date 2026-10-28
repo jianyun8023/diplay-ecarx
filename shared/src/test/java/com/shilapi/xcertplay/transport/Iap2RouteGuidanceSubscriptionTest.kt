@@ -8,20 +8,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Iap2RouteGuidanceSubscriptionTest {
+    private fun config() = Iap2IdentificationConfig(
+        name = "xcertplay",
+        modelIdentifier = "xcertplay",
+        manufacturer = "xcertplay",
+        serialNumber = "xcertplay",
+        firmwareVersion = "1.0.0",
+        hardwareVersion = "1.0",
+        carPlayUsbInterfaceNumber = 3,
+    )
+
     @Test
     fun identificationDeclaresRouteGuidanceDisplayComponent() {
-        val config = Iap2IdentificationConfig(
-            name = "xcertplay",
-            modelIdentifier = "xcertplay",
-            manufacturer = "xcertplay",
-            serialNumber = "xcertplay",
-            firmwareVersion = "1.0.0",
-            hardwareVersion = "1.0",
-            carPlayUsbInterfaceNumber = 3,
-        )
-
         val parameters = Iap2ParameterList.parse(
-            Iap2IdentificationClient.identificationInformation(config).payload,
+            Iap2IdentificationClient.identificationInformation(config()).payload,
         ).asList()
         val component = Iap2ParameterList.parse(parameters.single { it.id == 30 }.payload).asList()
         assertArrayEquals(byteArrayOf(0, 42), component.single { it.id == 0 }.payload)

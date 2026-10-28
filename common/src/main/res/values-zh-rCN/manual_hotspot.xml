@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_manual_hotspot_title">车机热点开关（实验性）</string>
+    <string name="settings_manual_hotspot_description">与无线 CarPlay 共用热点启动流程。Android 9 启动失败时，会根据当前状态重置 Wi-Fi 后重试一次。请先断开 CarPlay；此操作可能断开其他 Wi-Fi 或热点设备，热点名称和密码不变。</string>
+    <string name="settings_manual_hotspot_on">开启热点</string>
+    <string name="settings_manual_hotspot_off">关闭热点</string>
+    <string name="settings_manual_hotspot_refresh">刷新网络状态</string>
+    <string name="settings_manual_hotspot_working">正在处理网络开关操作，请等待完成后再连接或重试。</string>
+    <string name="settings_manual_hotspot_disconnect">请先结束连接过程或断开 CarPlay，并等待热点启动操作结束，再更改 Wi-Fi 或热点状态。</string>
+    <string name="settings_manual_hotspot_confirm_off">关闭热点会断开所有使用它的设备，并可能中断 CarPlay。现在关闭？</string>
+    <string name="settings_manual_hotspot_state_on">热点状态：已开启</string>
+    <string name="settings_manual_hotspot_state_off">热点状态：已关闭</string>
+    <string name="settings_manual_hotspot_state_starting">热点状态：正在开启</string>
+    <string name="settings_manual_hotspot_state_stopping">热点状态：正在关闭</string>
+    <string name="settings_manual_hotspot_state_failed">热点状态：失败</string>
+    <string name="settings_manual_hotspot_state_unknown">热点状态：无法读取，请在车机设置中查看。</string>
+    <string name="settings_manual_hotspot_permission">系统拒绝了热点控制请求。请检查系统设置；应用不会自行授予权限。</string>
+    <string name="settings_manual_hotspot_unsupported">此系统无法直接控制热点，请使用车机热点设置。</string>
+    <string name="settings_manual_hotspot_timeout">超时前未确认达到目标状态。请查看车机设置；未自动重试。</string>
+    <string name="settings_manual_hotspot_cancelled">已停止等待结果。已发送的请求仍可能完成，请先刷新状态再重试。</string>
+    <string name="settings_manual_hotspot_failed">热点请求失败。请查看车机设置；未自动重试。</string>
+    <string name="settings_manual_hotspot_recover">恢复热点</string>
+    <string name="settings_manual_hotspot_confirm_recover">停止热点，先检查 Wi-Fi 状态；已开启时先关闭，再开启、关闭，最后重试热点一次。此操作会断开 Wi-Fi 和热点上的设备。</string>
+</resources>

@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.hud
 
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.os.Looper
 import com.ecarx.xui.adaptapi.diminteraction.DimInteraction
 import com.ecarx.xui.adaptapi.diminteraction.FixtureLog
 import com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder
@@ -17,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -137,6 +139,24 @@ class EcarxLaneGuidanceFlowTest {
         assertNull(calls("updateLaneInfo").last().payload["lanes"])
     }
 
+    @Test fun dimCreationFromWorkerAndTickerRunsOnMainLooper() {
+        DimInteraction.requireMainLooper = true
+        val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            worker.submit { initialize() }.get(3, TimeUnit.SECONDS)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNotNull(field("dim").get(EcarxHudBridge))
+            set("dim", null)
+            set("navi", null)
+            worker.submit { tick() }.get(3, TimeUnit.SECONDS)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNotNull(field("navi").get(EcarxHudBridge))
+            assertEquals(2, calls("create").size)
+        } finally {
+            worker.shutdownNow()
+        }
+    }
+
     @Test fun laneStateClearsOnEndExpiryAndDisconnectWithoutReviving() {
         EcarxOutputSettings.setLaneGuidanceEnabled(context, true)
         initialize(); maneuver(); guidance()
@@ -202,5 +222,6 @@ class EcarxLaneGuidanceFlowTest {
         val worker = NavigationOutputs.javaClass.getDeclaredField("ecarx").apply { isAccessible = true }.get(NavigationOutputs)
         val executor = worker.javaClass.getDeclaredField("executor").apply { isAccessible = true }.get(worker) as ThreadPoolExecutor
         executor.submit {}.get(3, TimeUnit.SECONDS)
+        shadowOf(Looper.getMainLooper()).idle()
     }
 }

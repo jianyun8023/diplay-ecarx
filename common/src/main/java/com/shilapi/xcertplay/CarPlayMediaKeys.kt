@@ -21,7 +21,6 @@ import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.host.R
-import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.util.concurrent.Executors
@@ -84,6 +83,7 @@ internal object CarPlayMediaKeys {
         }
         appContext = context.applicationContext
         controller = next
+        CarPlayMediaOutput.begin(context, next)
         GeelyWheelKeys.start(context)
         next.playbackListener = { playing ->
             onIphonePlaying(next, playing)
@@ -94,7 +94,7 @@ internal object CarPlayMediaKeys {
                     onNowPlayingChanged(next)
                     // The same metadata the car's media session shows is what an ECARX cluster's media card
                     // wants, so it is forwarded from here rather than read a second time off the controller.
-                    NavigationOutputs.onNowPlaying(update,
+                    CarPlayMediaOutput.publish(update,
                         if (albumTrackChanged(nowPlaying, update)) null else clusterArtworkUris[update.artworkTransferId])
                 }
             }
@@ -143,11 +143,14 @@ internal object CarPlayMediaKeys {
                     val previousId = nowPlaying.artworkTransferId
                     if (previousId != null) {
                         ambientColorCache.remove(previousId)
-                        artworkCache.remove(previousId)
-                        clusterArtworkUris.remove(previousId)
+                        if (previousId != update.artworkTransferId) {
+                            artworkCache.remove(previousId)
+                            clusterArtworkUris.remove(previousId)
+                        }
                     }
                     if (previousId == update.artworkTransferId) {
-                        artworkOwner = artworkQueue.newSession()
+                        // Metadata can arrive after its artwork. Keep the connection's decode token;
+                        // cancelling it here loses a valid in-flight cover for a reused reference.
                         initialAlbumRecovery = InitialAlbumRecovery()
                     }
                     artwork = nextArtwork(update.artworkTransferId, artworkCache, artwork)
@@ -155,8 +158,8 @@ internal object CarPlayMediaKeys {
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
                 nowPlaying = update
-                NavigationOutputs.onNowPlaying(update, clusterArtworkUris[update.artworkTransferId])
-                if (metadataChanged) ClusterMusicState.publish(update, update.artworkTransferId?.let { artworkCache[it] })
+                CarPlayMediaOutput.publish(update, clusterArtworkUris[update.artworkTransferId])
+                if (metadataChanged) ClusterMusicState.publish(update, artwork)
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
                 // Republishing the metadata each time sent a copy of the artwork through system_server
@@ -183,6 +186,13 @@ internal object CarPlayMediaKeys {
             return
         }
         lastArtworkDecoded = "id=$id decoded=${decoded != null} width=${decoded?.width ?: 0} height=${decoded?.height ?: 0} pngBytes=${result?.png?.size ?: 0}"
+        // Empty/corrupt transfers are not a request to clear a valid cover. Session teardown
+        // clears the image explicitly. Keep recovery eligible when decoding has failed.
+        if (decoded == null) {
+            Log.i(TAG, "artwork decode failed reference=$id; retaining cover")
+            controller?.let(::updateInitialAlbumRecovery)
+            return
+        }
         clusterArtworkUris.remove(id)
         if (result != null) runCatching {
             val server = clusterArtworkServer ?: ClusterArtworkServer().also { clusterArtworkServer = it }
@@ -200,7 +210,7 @@ internal object CarPlayMediaKeys {
         while (artworkCache.size > MAX_CACHED_ARTWORK) artworkCache.remove(artworkCache.keys.first())
         if (nowPlaying.artworkTransferId == id) {
             artwork = decoded
-            NavigationOutputs.onNowPlaying(nowPlaying, clusterArtworkUris[id])
+            CarPlayMediaOutput.publish(nowPlaying, clusterArtworkUris[id])
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
@@ -390,6 +400,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
+        CarPlayMediaOutput.end()
         focusOwner = null
         artworkOwner = null
         initialAlbumRetry?.let(mainHandler::removeCallbacks)
@@ -407,7 +418,7 @@ internal object CarPlayMediaKeys {
         // Whatever the cluster's media card was showing belongs to a session that just ended. The
         // controller pushes its own cleared frame on teardown, but that goes through the listener
         // this method may itself be clearing, so the blank state is pushed from here as well.
-        NavigationOutputs.onNowPlaying(nowPlaying)
+        CarPlayMediaOutput.publish(nowPlaying)
         artwork = null
         artworkCache.clear()
         clusterArtworkUris.clear()
@@ -457,8 +468,19 @@ internal object CarPlayMediaKeys {
         WheelKeyLog.note("media key $source -> CarPlay $index sent=$sent")
     }
 
+    private fun notUsed(source: String) {
+        Log.i(TAG, "media key $source not used by CarPlay")
+        WheelKeyLog.note("media key $source not used by CarPlay")
+    }
+
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
-    internal fun onExternalMediaKey(index: Int) = send(index, "geely-wheel")
+    internal fun onExternalMediaKey(index: Int) {
+        if (!CarPlayMediaOutput.isMediaCenterActive()) send(index, "geely-wheel")
+    }
+
+    internal fun onMediaCenterKey(expected: CarPlayController, index: Int) {
+        if (synchronized(this) { controller === expected }) send(index, "mediacenter")
+    }
 
     /** The steering-wheel microphone key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalSiriKey(): Boolean {
@@ -466,7 +488,7 @@ internal object CarPlayMediaKeys {
         return runCatching { active.requestSiri() }.getOrDefault(false)
     }
 
-    private val callback = CarPlayMediaCallback(send = ::send)
+    private val callback = CarPlayMediaCallback(notUsed = ::notUsed, send = ::send)
 
     /** Whether [next] changes what the media session's metadata shows; position and play state do not. */
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
@@ -572,18 +594,23 @@ internal object CarPlayMediaKeys {
 /**
  * Media-session input → CarPlay presses. Hardware keys arrive as button events and keep the toggle;
  * media controllers (not hardware keys) call [onPlay] and [onPause] with an explicit intent.
+ * A button that is not a CarPlay key goes to [notUsed]: a car that sends its own code for a wheel key
+ * then shows that code in the report, instead of looking like a car that sent nothing (#610).
  */
 internal class CarPlayMediaCallback(
+    private val notUsed: (source: String) -> Unit = {},
     private val send: (index: Int, source: String) -> Unit,
 ) : MediaSession.Callback() {
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
+        val press = event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0
         val index = CarPlayMediaButton.forKeyCode(event.keyCode)
-            ?: return super.onMediaButtonEvent(mediaButtonIntent)
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            send(index, KeyEvent.keyCodeToString(event.keyCode))
+        if (index == null) {
+            if (press) notUsed(KeyEvent.keyCodeToString(event.keyCode))
+            return super.onMediaButtonEvent(mediaButtonIntent)
         }
+        if (press) send(index, KeyEvent.keyCodeToString(event.keyCode))
         return true
     }
 

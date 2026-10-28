@@ -9,6 +9,7 @@ import com.shilapi.xcertplay.update.UpdateAvailability
 import com.shilapi.xcertplay.update.UpdateRelease
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,7 +20,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w900dp-h600dp-land")
+@Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 class UpdateHomeAvailabilityTest {
     private val application: Application = RuntimeEnvironment.getApplication()
 
@@ -36,6 +37,7 @@ class UpdateHomeAvailabilityTest {
 
         assertTrue(update.isClickable)
         assertTrue(update.isFocusable)
+        assertTrue(update.minHeight >= (48 * activity.resources.displayMetrics.density).toInt())
         assertEquals(DiPlayPalette.DARK.warning, update.currentTextColor)
         update.performClick()
 
@@ -46,18 +48,19 @@ class UpdateHomeAvailabilityTest {
         controller.pause().stop().destroy()
     }
 
-    @Config(sdk = [29], qualifiers = "en-w400dp-h900dp-port")
-    @Test fun cachedUpdateKeepsAnArmLengthTargetInCompactHome() {
-        val release = release()
-        UpdateAvailability.save(application, release)
+    @Test fun anUpdateFoundWhileDiPlayWasInTheBackgroundShowsWhenHomeReturns() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
-        val update = descendants(activity.window.decorView).filterIsInstance<TextView>().single {
-            it.text == activity.getString(R.string.update_available_home)
-        }
+        val text = activity.getString(R.string.update_available_home)
+        fun shown() = descendants(activity.window.decorView).filterIsInstance<TextView>().any { it.text == text }
+        assertFalse(shown())
 
-        assertTrue(update.minHeight >= (48 * activity.resources.displayMetrics.density).toInt())
-        assertTrue(update.isClickable)
+        // The check after opening finds a release while CarPlay is in front.
+        controller.pause().stop()
+        UpdateAvailability.save(application, release())
+        controller.start().resume()
+
+        assertTrue(shown())
         controller.pause().stop().destroy()
     }
 

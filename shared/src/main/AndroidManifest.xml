@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Guards the run-time USB permission result receivers on Android 12 and older. -->
+    <permission
+        android:name="${applicationId}.USB_PERMISSION_RESULT"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="${applicationId}.USB_PERMISSION_RESULT" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -40,6 +45,8 @@
       guard reports instead of changing anything.
     -->
     <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
+    <!-- The 820A factory HiCar switch is available only when this platform permission is granted. -->
+    <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
 
     <uses-feature
         android:name="android.hardware.usb.host"
@@ -62,6 +69,7 @@
         <package android:name="com.ecarx.eas.service" />
         <package android:name="com.ecarx.assistant" />
         <package android:name="com.ecarx.xiaoka" />
+        <package android:name="com.ecarx.hmi" />
         <package android:name="ecarx.naviservice" />
     </queries>
 

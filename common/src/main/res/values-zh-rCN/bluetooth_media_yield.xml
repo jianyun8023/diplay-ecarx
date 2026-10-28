@@ -1,0 +1,4 @@
+<resources>
+    <string name="settings_bluetooth_media_yield">CarPlay 期间停用蓝牙媒体（实验性）</string>
+    <string name="settings_bluetooth_media_yield_description">仅停用所选 iPhone 的蓝牙媒体，保留电话，CarPlay 结束后恢复。需车机支持 A2DP Sink，并关闭“通过车辆蓝牙播放 CarPlay 音频”。下次连接生效。</string>
+</resources>

@@ -5,6 +5,7 @@ import android.content.Context;
 public final class DimInteraction {
     private static final DimInteraction INSTANCE = new DimInteraction();
     public static boolean nullCreate, nullMedia, nullNavi, nullPhone;
+    public static boolean requireMainLooper;
     public static final MediaFixture media = new MediaFixture();
     public static final NaviFixture navi = new NaviFixture();
     public static final PhoneFixture phone = new PhoneFixture();
@@ -16,11 +17,15 @@ public final class DimInteraction {
 
     public static DimInteraction instance() { return INSTANCE; }
     public static DimInteraction create(Context context) {
+        if (requireMainLooper && (android.os.Looper.myLooper() != android.os.Looper.getMainLooper())) {
+            throw new IllegalStateException("DIM requires the main Looper");
+        }
         FixtureLog.capture("create");
         return nullCreate ? null : INSTANCE;
     }
     public static void reset() {
         nullCreate = nullMedia = nullNavi = nullPhone = false;
+        requireMainLooper = false;
         presentationOption = -1;
         INSTANCE.callback = null;
         navi.callback = null;

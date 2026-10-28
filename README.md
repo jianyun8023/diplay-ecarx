@@ -4,8 +4,10 @@
 
 本仓库当前主要适配 **领克 01（2021 款）亿咖通 ECARX 车机**。源于
 [jiopia/DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 的领克 05 移植版，
-其通用上游为 [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay)。原 fork 的适配记录在下方保留，
+其通用上游为 [DiPlay 0.2.22](https://github.com/shihabal3amri/DiPlay)。原 fork 的适配记录在下方保留，
 **不等于本仓库当前版本已在所有车型、固件或场景通过验证**。
+
+当前 Release 候选基于上游 **v0.2.22**，应用版本 **0.2 / 101**；纳入 ECARX 媒体、HUD、HiCar 与热点恢复，见[本轮合并范围](docs/RELEASE-VERIFIED-20261028.md)。新组合尚需实车回归。
 
 ## 当前适配与验证
 
