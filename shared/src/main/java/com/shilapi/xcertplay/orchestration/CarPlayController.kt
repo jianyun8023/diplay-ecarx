@@ -92,6 +92,7 @@ import com.shilapi.xcertplay.transport.IphoneUsbHost
 import com.shilapi.xcertplay.transport.IphoneUsbMatcher
 import com.shilapi.xcertplay.transport.LinuxI2cTransport
 import com.shilapi.xcertplay.transport.LockdownCarKitClient
+import com.shilapi.xcertplay.transport.LockdownPairingException
 import com.shilapi.xcertplay.transport.LockdownPairingClient
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
@@ -110,6 +111,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+
+/** Phone-side pairing outcomes only; Android USB access and transport failures are not trust refusals. */
+enum class UsbPairingFailure { TRUST_REFUSED, PHONE_LOCKED, TIMED_OUT, CANCELLED }
 
 sealed class CarPlayStatus {
     data object DiscoveringMfi : CarPlayStatus()
@@ -137,12 +141,14 @@ sealed class CarPlayStatus {
     data object SelectingConfiguration : CarPlayStatus()
     data object OpeningDataPaths : CarPlayStatus()
     data object Pairing : CarPlayStatus()
+    data object WaitingForIphoneTrust : CarPlayStatus()
     data object ConnectingControl : CarPlayStatus()
     data object AttachingNetwork : CarPlayStatus()
     data object RunningControl : CarPlayStatus()
     data object ControlEnded : CarPlayStatus()
     data class Failed(val message: String, val wifiResetRequired: Boolean = false,
-        val startupFailure: WirelessStartupFailure? = null) : CarPlayStatus()
+        val startupFailure: WirelessStartupFailure? = null,
+        val usbPairingFailure: UsbPairingFailure? = null) : CarPlayStatus()
 }
 
 internal fun isWirelessHandoffInProgress(
@@ -2431,6 +2437,7 @@ class CarPlayController(
             systemBuid = systemBuid,
             totalTimeoutMillis = PAIR_TIMEOUT_MILLIS,
             isCancelled = { closed },
+            onTrustPending = { onStatus(CarPlayStatus.WaitingForIphoneTrust) },
         ).pairRecord.also(savePairRecord)
 
     private fun rejectedPairRecordError(error: Throwable): String? {
@@ -3091,7 +3098,14 @@ class CarPlayController(
             val causes = generateSequence(error) { it.cause }.toList()
             onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName,
                 causes.any { it is com.shilapi.xcertplay.network.P2pResetRequiredException },
-                causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.reason),
+                causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.reason,
+                when (causes.filterIsInstance<LockdownPairingException>().firstOrNull()) {
+                    LockdownPairingException.UserDeniedPairing -> UsbPairingFailure.TRUST_REFUSED
+                    LockdownPairingException.PasswordProtected -> UsbPairingFailure.PHONE_LOCKED
+                    LockdownPairingException.TimedOut -> UsbPairingFailure.TIMED_OUT
+                    LockdownPairingException.Cancelled -> UsbPairingFailure.CANCELLED
+                    else -> null
+                }),
                 if (wireless) wirelessGeneration.get() else null)
         }
     }
@@ -3157,6 +3171,9 @@ class CarPlayController(
     private fun onStatus(status: CarPlayStatus, generation: Int? = null) {
         if (closed) return
         mainHandler.post {
+            // Keep a terminal phone-side outcome when cleanup reports a second error, including
+            // for a later Activity adopting this controller. Manual Retry creates a new controller.
+            if ((lastReportedStatus as? CarPlayStatus.Failed)?.usbPairingFailure != null) return@post
             if (!closed && (generation == null || generation == wirelessGeneration.get()) && status != lastReportedStatus) {
                 lastReportedStatus = status
                 connectionDiagnostic("stage=${status.javaClass.simpleName}")
@@ -3204,6 +3221,8 @@ class CarPlayController(
             "STEP usb/data: opening iAP2 and NCM USB data paths"
         CarPlayStatus.Pairing ->
             "STEP lockdown/pair: loading or creating the pairing record"
+        CarPlayStatus.WaitingForIphoneTrust ->
+            "STEP lockdown/trust: waiting for the iPhone trust response"
         CarPlayStatus.ConnectingControl ->
             "STEP lockdown/carkit: opening com.apple.carkit.service"
         CarPlayStatus.AttachingNetwork ->

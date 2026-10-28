@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.transport
 import android.util.Xml
 import com.shilapi.xcertplay.compat.Base64Compat
 import java.io.Closeable
+import java.io.IOException
 import java.io.StringReader
 import java.nio.charset.StandardCharsets
 import org.xmlpull.v1.XmlPullParser
@@ -72,6 +73,23 @@ class LockdownPlistChannel(
     }
 
     /**
+     * Sends once and waits for a human-mediated reply, retaining partial framing across idle reads.
+     * The callback may throw to cancel; transport errors and EOF are never treated as idle time.
+     * After cancellation or a terminal timeout the caller must close this channel, not reuse it.
+     */
+    internal fun requestAwaitingResponse(
+        message: LockdownPlistValue.Dictionary,
+        timeoutMillis: Long,
+        checkCancelled: () -> Unit,
+    ): LockdownPlistValue.Dictionary = synchronized(ioLock) {
+        validateTimeout(timeoutMillis)
+        checkOpen()
+        checkCancelled()
+        sendLocked(message)
+        receiveLocked(timeoutMillis, checkCancelled)
+    }
+
+    /**
      * Permanently closes this channel without closing its stream and transfers stream ownership.
      *
      * Detach is serialized after any active request and may succeed exactly once. Later channel
@@ -110,29 +128,42 @@ class LockdownPlistChannel(
         connection.send(frame)
     }
 
-    private fun receiveLocked(timeoutMillis: Long): LockdownPlistValue.Dictionary {
+    private fun receiveLocked(
+        timeoutMillis: Long,
+        checkCancelled: (() -> Unit)? = null,
+    ): LockdownPlistValue.Dictionary {
         validateTimeout(timeoutMillis)
         val deadlineNanos = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
-        val header = readFully(LENGTH_BYTES, deadlineNanos)
+        val header = readFully(LENGTH_BYTES, deadlineNanos, checkCancelled)
         val length = readU32(header, 0)
         if (length !in 1..maximumMessageBytes.toLong()) {
             throw IphoneUsbException.Protocol("Invalid Lockdown plist message length $length (maximum $maximumMessageBytes)")
         }
-        val xml = readFully(length.toInt(), deadlineNanos)
+        val xml = readFully(length.toInt(), deadlineNanos, checkCancelled)
         return parse(xml)
     }
 
-    private fun readFully(byteCount: Int, deadlineNanos: Long): ByteArray {
+    private fun readFully(
+        byteCount: Int,
+        deadlineNanos: Long,
+        checkCancelled: (() -> Unit)?,
+    ): ByteArray {
         val result = ByteArray(byteCount)
         var offset = 0
         while (offset < result.size) {
+            checkCancelled?.invoke()
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0) {
+                if (checkCancelled != null) throw LockdownResponseTimedOut()
                 throw IphoneUsbException.TimedOut("Timed out while reading Lockdown plist frame")
             }
             val timeoutMillis = maxOf(1L, (remainingNanos + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND)
-            val chunk = connection.recv(result.size - offset, timeoutMillis)
-                ?: throw IphoneUsbException.TimedOut("Timed out while reading Lockdown plist frame")
+            val readTimeout = if (checkCancelled == null) timeoutMillis else minOf(timeoutMillis, 100L)
+            val chunk = connection.recv(result.size - offset, readTimeout)
+            if (chunk == null) {
+                if (checkCancelled != null) continue
+                throw IphoneUsbException.TimedOut("Timed out while reading Lockdown plist frame")
+            }
             if (chunk.isEmpty()) {
                 throw IphoneUsbException.Protocol("USBMUX TCP stream ended inside a Lockdown plist frame")
             }
@@ -329,3 +360,6 @@ class LockdownPlistChannel(
                 (source[offset + 3].toLong() and 0xff)
     }
 }
+
+/** Only the local human-response framing deadline, never an underlying USB transport timeout. */
+internal class LockdownResponseTimedOut : IOException("Timed out waiting for Lockdown response")
