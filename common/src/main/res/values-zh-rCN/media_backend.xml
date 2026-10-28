@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_media_backend_title">媒体输出后端（实验性）</string>
-    <string name="settings_media_backend_description">选择 CarPlay 媒体信息的输出路径。原有“仪表媒体卡片”主开关仍控制是否输出。更改仅在下次 CarPlay 连接生效，选择后端不会改变当前会话。</string>
-    <string name="settings_media_backend_choice">媒体输出后端</string>
+    <string name="settings_media_backend_title">媒体信息与控制（实验性）</string>
+    <string name="settings_media_backend_description">标准模式向 HY 或第三方提供 Android 媒体信息和控制。UNI、DIM 还会直接推送原车媒体卡片，受“仪表媒体卡片”主开关控制。切换在下次 CarPlay 连接生效。</string>
+    <string name="settings_media_backend_choice">媒体控制方式</string>
     <string name="settings_media_backend_uni">UNI MediaCenter（默认）</string>
     <string name="settings_media_backend_dim">DIM 直推</string>
+    <string name="settings_media_backend_standard">标准兼容（HY / 第三方）</string>
+    <string name="settings_media_backend_standard_help">HY 端选择 mediaSisson 媒体方案，并确认有权读取系统媒体会话。DiPlay 将原车媒体卡片交给 HY 处理。</string>
     <string name="settings_media_backend_permission">UNI MediaCenter 需要 ECARX MediaCenter 权限及兼容固件。权限获授不保证注册成功；失败时查看诊断，不会自动回退 DIM。本功能尚待实车验证。</string>
     <string name="settings_media_backend_diagnostics">当前后端诊断</string>
     <string name="settings_media_backend_refresh">刷新后端状态</string>

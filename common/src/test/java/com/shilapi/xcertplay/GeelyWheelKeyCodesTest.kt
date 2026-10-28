@@ -30,6 +30,12 @@ class GeelyWheelKeyCodesTest {
             GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = false).toList(),
         )
     }
+    @Test fun standardControlsLeaveMediaKeysToHyAndKeepSiri() {
+        for (bluetooth in listOf(true, false)) {
+            assertEquals(listOf(GeelyWheelKeyCodes.KEY_VOICE_ASSIST),
+                GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = bluetooth, standardOnly = true).toList())
+        }
+    }
 
     @Test fun theSiriKeyIsAlwaysWired() {
         listOf(true, false).forEach { bluetooth ->

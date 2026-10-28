@@ -57,7 +57,8 @@ internal class MediaOutputBackendControls(
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(CONTROL_GAP_DP) })
         text(activity.getString(R.string.settings_media_backend_description))
         button(activity.getString(R.string.settings_media_backend_choice) + " · " + title(backend.load())) { choose() }
-        text(activity.getString(R.string.settings_media_backend_permission))
+        text(activity.getString(if (backend.load() == MediaOutputBackendSettings.Backend.STANDARD)
+            R.string.settings_media_backend_standard_help else R.string.settings_media_backend_permission))
         text(activity.getString(R.string.settings_media_backend_diagnostics) + "\n" +
             runCatching { backend.diagnostics() }.getOrDefault("UNAVAILABLE"))
         button(activity.getString(R.string.settings_media_backend_refresh)) { if (!closed) display() }
@@ -69,7 +70,7 @@ internal class MediaOutputBackendControls(
 
     private fun choose() {
         if (closed) return
-        val options = listOf(MediaOutputBackendSettings.Backend.UNI_MEDIACENTER, MediaOutputBackendSettings.Backend.DIM)
+        val options = MediaOutputBackendSettings.Backend.entries
         activity.appDialogBuilder().setTitle(R.string.settings_media_backend_choice)
             .setItems(options.map(::title).toTypedArray()) { _, index ->
                 if (closed) return@setItems
@@ -85,6 +86,7 @@ internal class MediaOutputBackendControls(
     private fun title(value: MediaOutputBackendSettings.Backend) = activity.getString(when (value) {
         MediaOutputBackendSettings.Backend.UNI_MEDIACENTER -> R.string.settings_media_backend_uni
         MediaOutputBackendSettings.Backend.DIM -> R.string.settings_media_backend_dim
+        MediaOutputBackendSettings.Backend.STANDARD -> R.string.settings_media_backend_standard
     })
 
     private fun probe() {

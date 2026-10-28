@@ -11,6 +11,7 @@ import android.util.Log
 import com.geely.lib.oneosapi.input.IInputListener
 import com.geely.lib.oneosapi.input.IInputManager
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
+import com.shilapi.xcertplay.hud.MediaOutputBackendSettings
 import com.shilapi.xcertplay.network.GeelyHeadUnit
 
 /**
@@ -106,7 +107,8 @@ internal object GeelyWheelKeys {
                 // the iPhone's music, so forwarding play/pause and skip over iAP2 as well would
                 // double-fire. Keep only the microphone key (long press -> Siri) then.
                 val bluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(context)
-                val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio)
+                val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio,
+                    standardOnly = MediaOutputBackendSettings.standardOnly(context))
                 if (bluetoothAudio) {
                     Log.i(TAG, "car Bluetooth audio on: media keys pass to the head unit, only the Siri key is wired")
                 }

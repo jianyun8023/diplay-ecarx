@@ -30,4 +30,24 @@ class MediaOutputBackendSettingsTest {
         assertFalse(MediaOutputBackendSettings.dimAllowed(context))
         MediaOutputBackendSettings.end(next)
     }
+    @Test fun standardChoiceIsPersistedAndDoesNotHotSwitchAnExistingOwner() {
+        val context = RuntimeEnvironment.getApplication()
+        val old = Any(); val next = Any()
+        MediaOutputBackendSettings.begin(old, MediaOutputBackendSettings.Backend.DIM)
+        try {
+            MediaOutputBackendSettings.save(context, MediaOutputBackendSettings.Backend.STANDARD)
+            assertEquals(MediaOutputBackendSettings.Backend.STANDARD, MediaOutputBackendSettings.load(context))
+            assertFalse(MediaOutputBackendSettings.standardOnly(context))
+            MediaOutputBackendSettings.begin(next, MediaOutputBackendSettings.Backend.STANDARD)
+            MediaOutputBackendSettings.end(old)
+            assertTrue(MediaOutputBackendSettings.standardOnly(context))
+            assertFalse(MediaOutputBackendSettings.dimAllowed(context))
+            MediaOutputBackendSettings.save(context, MediaOutputBackendSettings.Backend.UNI_MEDIACENTER)
+            assertTrue(MediaOutputBackendSettings.standardOnly(context))
+        } finally {
+            MediaOutputBackendSettings.end(next)
+            MediaOutputBackendSettings.end(old)
+        }
+        assertFalse(MediaOutputBackendSettings.standardOnly(context))
+    }
 }

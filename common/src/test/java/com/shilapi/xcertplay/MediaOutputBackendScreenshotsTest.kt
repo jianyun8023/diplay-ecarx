@@ -27,7 +27,7 @@ class MediaOutputBackendScreenshotsTest {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         val backend = object : MediaOutputBackendControls.Backend {
-            override fun load() = MediaOutputBackendSettings.Backend.UNI_MEDIACENTER
+            override fun load() = MediaOutputBackendSettings.Backend.STANDARD
             override fun save(value: MediaOutputBackendSettings.Backend) = error("Screenshot must never save")
             override fun diagnostics() = "IDLE / WAITING_FOR_CARPLAY_MEDIA"
             override fun probe() = error("Screenshot must never inspect")

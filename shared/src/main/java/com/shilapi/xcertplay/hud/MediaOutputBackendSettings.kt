@@ -4,7 +4,7 @@ import android.content.Context
 
 /** Only media output is selected here; navigation is independent. A change applies next session. */
 object MediaOutputBackendSettings {
-    enum class Backend { UNI_MEDIACENTER, DIM }
+    enum class Backend { UNI_MEDIACENTER, DIM, STANDARD }
     @Volatile private var mediaCenterBarrier = false
     fun blockDim() { mediaCenterBarrier = true }
     fun releaseDimBarrier() { mediaCenterBarrier = false }
@@ -26,4 +26,7 @@ object MediaOutputBackendSettings {
     }
     @Synchronized fun dimAllowed(context: Context): Boolean =
         !mediaCenterBarrier && (sessionBackend ?: load(context)) == Backend.DIM
+
+    @Synchronized fun standardOnly(context: Context): Boolean =
+        (sessionBackend ?: load(context)) == Backend.STANDARD
 }

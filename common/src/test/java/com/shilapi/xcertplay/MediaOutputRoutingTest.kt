@@ -3,6 +3,9 @@ package com.shilapi.xcertplay
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Looper
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
@@ -23,6 +26,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.*
+import org.mockito.ArgumentCaptor
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -148,6 +152,69 @@ class MediaOutputRoutingTest {
         assertTrue(uni.isEmpty())
         assertTrue(dim.cards.isEmpty())
         assertFalse(CarPlayMediaOutput.isMediaCenterActive(attached.controller))
+    }
+
+    @Test fun standardModePublishesAndroidSessionAndControlsWithoutEitherOemBackend() {
+        MediaOutputBackendSettings.save(app, MediaOutputBackendSettings.Backend.STANDARD)
+        EcarxOutputSettings.setMediaEnabled(app, false)
+        val attached = attach("HY track", 7)
+        CarPlayMediaKeys.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        // Robolectric's system session Binder does not retain controller metadata; observe the
+        // actual publications at the Android MediaSession boundary instead.
+        val session = spy(field(CarPlayMediaKeys, "session").get(CarPlayMediaKeys) as MediaSession)
+        field(CarPlayMediaKeys, "session").set(CarPlayMediaKeys, session)
+        attached.cover(7, png()); awaitArtwork(); tickDim()
+        assertTrue(session.isActive)
+        val published = ArgumentCaptor.forClass(MediaMetadata::class.java)
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        val metadata = published.value
+        assertEquals("HY track", metadata.getString(MediaMetadata.METADATA_KEY_TITLE))
+        assertNotNull(metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART))
+        assertTrue(uni.isEmpty())
+        assertTrue(dim.cards.isEmpty())
+        assertFalse(CarPlayMediaOutput.isMediaCenterActive())
+        assertTrue(MediaOutputBackendSettings.dimBlocked())
+
+        val callback = field(CarPlayMediaKeys, "callback").get(CarPlayMediaKeys) as MediaSession.Callback
+        clearInvocations(attached.controller)
+        CarPlayMediaKeys.onExternalMediaKey(CarPlayMediaButton.NEXT)
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        callback.onPlay(); callback.onPause(); callback.onSkipToNext(); callback.onSkipToPrevious()
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.PLAY)
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.PAUSE)
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.NEXT)
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.PREVIOUS)
+        `when`(attached.controller.requestSiri()).thenReturn(true)
+        assertTrue(CarPlayMediaKeys.onExternalSiriKey())
+
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(song("HY track", 7).copy(playing = false, elapsedMillis = 12_000))
+        attached.now(song("HY track", 7).copy(playing = false, elapsedMillis = 12_000))
+        shadowOf(Looper.getMainLooper()).idle()
+        val states = ArgumentCaptor.forClass(PlaybackState::class.java)
+        verify(session, atLeastOnce()).setPlaybackState(states.capture())
+        val playback = states.value
+        assertEquals(PlaybackState.STATE_PAUSED, playback.state)
+        assertEquals(12_000L, playback.position)
+        assertTrue("paused media remains controllable", session.isActive)
+        CarPlayMediaKeys.detach(attached.controller)
+        assertFalse(session.isActive)
+    }
+
+    @Test fun standardSelectionWaitsForNextOwnerAndCleansPreviousUniRegistration() {
+        val old = attach("UNI")
+        assertTrue(uni.single().registered)
+        MediaOutputBackendSettings.save(app, MediaOutputBackendSettings.Backend.STANDARD)
+        assertFalse(MediaOutputBackendSettings.standardOnly(app))
+        old.now(song("Still UNI"))
+        assertTrue(uni.single().frames.any { it.first.title == "Still UNI" })
+        CarPlayMediaKeys.detach(old.controller)
+        assertFalse(uni.single().registered)
+        val next = attach("HY")
+        next.now(song("HY")); tickDim()
+        assertTrue(MediaOutputBackendSettings.standardOnly(app))
+        assertEquals(1, uni.size)
+        assertTrue(dim.cards.isEmpty())
     }
 
     @Test fun externalMediaKeysWaitForAcceptedClaimButSiriRemainsAvailableAndDimRestoresKeys() {

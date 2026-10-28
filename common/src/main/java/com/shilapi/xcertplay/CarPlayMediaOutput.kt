@@ -56,7 +56,7 @@ internal object CarPlayMediaOutput {
         if (entry.backend == MediaOutputBackendSettings.Backend.DIM) {
             entry.latest = now to artwork
             if (!MediaOutputBackendSettings.dimBlocked()) NavigationOutputs.onNowPlaying(now, artwork)
-        } else {
+        } else if (entry.backend == MediaOutputBackendSettings.Backend.UNI_MEDIACENTER) {
             engine.update(MediaCenterSessionEngine.Desired(entry, now, artwork) {
                 owner === entry && EcarxOutputSettings.mediaEnabled(entry.context) &&
                     CarPlayBackgroundSession.active &&
@@ -71,7 +71,7 @@ internal object CarPlayMediaOutput {
     private fun refreshDimBarrier(initialize: (Context) -> Unit) {
         val current = synchronized(this) {
             val observed = owner
-            if (observed?.backend == MediaOutputBackendSettings.Backend.UNI_MEDIACENTER ||
+            if (observed?.backend != MediaOutputBackendSettings.Backend.DIM ||
                 !MediaOutputBackendSettings.dimBlocked() || !engine.cleanForDim()) return
             MediaOutputBackendSettings.releaseDimBarrier()
             observed

@@ -22,6 +22,7 @@ import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.hud.NavigationOutputs
+import com.shilapi.xcertplay.hud.MediaOutputBackendSettings
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.util.concurrent.Executors
@@ -461,6 +462,7 @@ internal object CarPlayMediaKeys {
 
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalMediaKey(index: Int) {
+        if (appContext?.let(MediaOutputBackendSettings::standardOnly) == true) return
         if (!CarPlayMediaOutput.isMediaCenterActive()) send(index, "geely-wheel")
     }
 

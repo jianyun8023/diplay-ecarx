@@ -1,11 +1,14 @@
 # CarPlay media output backends (dev; awaiting car validation)
 
-**Settings → Advanced → Media output backend (experimental)** selects one of two paths:
+**Settings → Advanced → Media information and controls (experimental) → Media control mode** selects one of three paths:
 
 - **UNI MediaCenter (default):** registers a real CarPlay media owner with the car's MediaCenter service and publishes its media state through that service.
 - **DIM direct:** retains the instrument-cluster media channel used before this backend selector.
+- **Standard (HY / third-party):** keeps Android MediaSession metadata, artwork, playback state and play/pause/previous/next callbacks. DiPlay does not publish through MediaCenter or DIM; HY or another listener owns the car integration. In HY, select its `mediaSisson` scheme and authorize access to media sessions (normally notification access).
 
-This is an actual media output selection, not a temporary registration test and not an Auto/SDK-route selector. The existing **Cluster media card** master preference still controls output. Changing the backend only saves the choice and marks a reconnect as needed; the current session is not switched underneath the driver. Use the existing explicit reconnect action or connect next time to apply it.
+This is an actual media/control integration selection. Android MediaSession remains available in all three modes; the **Cluster media card** master preference controls only the extra UNI/DIM output. Changing the mode saves the choice and marks a reconnect as needed; the current session is not switched underneath the driver. Use the existing explicit reconnect action or connect next time to apply it. UNI remains the default.
+
+Standard mode yields vendor media-key subscriptions and direct wheel-media forwarding to avoid sending a HY-forwarded key twice. Siri and telephone handling remain independent. The standard session starts when media audio first becomes active, remains active while paused, and is released on detach. No fabricated song, legacy metadata broadcast or second media session is added.
 
 ## Boundaries
 
@@ -25,6 +28,7 @@ This is an actual media output selection, not a temporary registration test and 
 4. Stop playback, leave the session, and reconnect. Verify the old owner is cleaned up and cannot issue commands or overwrite the new song. Check that an empty session does not occupy a music source.
 5. Select DIM direct and explicitly reconnect. Compare the existing DIM media behavior; confirm that MediaCenter was not left publishing alongside it.
 6. If a call times out or cleanup cannot be confirmed, retain that distinction in the report. Do not repeatedly retry or switch routes to hide an uncertain registration.
+7. Select Standard and reconnect. Play a track once, then check HY reads title/artist/artwork/progress and can play, pause and skip while DiPlay is paused or in the background. Each wheel press must produce one action. Confirm no DiPlay MediaCenter registration or DIM media updates remain, and that Siri/telephone keys still work. Standard → UNI/DIM and UNI/DIM → Standard must apply only after reconnecting.
 
 Cloud fixtures validate permission gates, call sequencing, ownership and UI behavior; they do not prove ECARX firmware authorization or real-car output. Source-only Debug builds still require legitimate identity prerequisites for an end-to-end CarPlay session.
 

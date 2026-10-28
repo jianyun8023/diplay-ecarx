@@ -18,7 +18,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowAlertDialog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class MediaOutputBackendControlsTest {
     private class Backend : MediaOutputBackendControls.Backend {
@@ -57,13 +57,14 @@ class MediaOutputBackendControlsTest {
         }
         fun finishProbe() { checkNotNull(backend.work).invoke(); shadowOf(Looper.getMainLooper()).idle() }
     }
-    @Test fun selectionOffersExactlyTwoRealBackendsAndNoAutoOrSdk() {
+    @Test fun selectionOffersUniDimAndStandardControls() {
         val f = Fixture()
         f.click(R.string.settings_media_backend_choice)
         val list = ShadowAlertDialog.getLatestAlertDialog().listView
-        assertEquals(2, list.adapter.count)
+        assertEquals(3, list.adapter.count)
         assertEquals(f.activity.getString(R.string.settings_media_backend_uni), list.adapter.getItem(0))
         assertEquals(f.activity.getString(R.string.settings_media_backend_dim), list.adapter.getItem(1))
+        assertEquals(f.activity.getString(R.string.settings_media_backend_standard), list.adapter.getItem(2))
         f.controls.close()
     }
     @Test fun choosingDimOnlySavesAndMarksNextConnection() {
@@ -76,6 +77,15 @@ class MediaOutputBackendControlsTest {
     @Test fun choosingCurrentBackendDoesNotRequireReconnect() {
         val f = Fixture(); f.choose(0)
         assertEquals(0, f.backend.saves); assertEquals(0, f.reconnect)
+        f.controls.close()
+    }
+    @Test fun choosingStandardOnlySavesAndMarksNextConnection() {
+        val f = Fixture(); f.choose(2)
+        assertEquals(MediaOutputBackendSettings.Backend.STANDARD, f.backend.value)
+        assertEquals(1, f.backend.saves); assertEquals(1, f.reconnect)
+        assertEquals(0, f.backend.probes); assertEquals(0, f.backend.queued)
+        f.choose(2)
+        assertEquals(1, f.backend.saves); assertEquals(1, f.reconnect)
         f.controls.close()
     }
     @Test fun renderAndRefreshDoNotProbeOrChangePreferences() {

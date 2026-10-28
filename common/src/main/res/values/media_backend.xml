@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_media_backend_title">Media output backend (experimental)</string>
-    <string name="settings_media_backend_description">Choose the path for CarPlay media information. The existing Cluster media card switch still controls whether output is enabled. Changes apply at the next CarPlay connection; selecting a backend does not change the running session.</string>
-    <string name="settings_media_backend_choice">Media output backend</string>
+    <string name="settings_media_backend_title">Media information and controls (experimental)</string>
+    <string name="settings_media_backend_description">Standard mode shares Android media information and controls with HY or other apps. UNI and DIM also publish to the car, controlled by the Cluster media card switch. Changes apply on the next CarPlay connection.</string>
+    <string name="settings_media_backend_choice">Media control mode</string>
     <string name="settings_media_backend_uni">UNI MediaCenter (default)</string>
     <string name="settings_media_backend_dim">DIM direct</string>
+    <string name="settings_media_backend_standard">Standard (HY / third-party)</string>
+    <string name="settings_media_backend_standard_help">In HY, select the mediaSisson scheme and allow access to system media sessions. DiPlay leaves the car’s media card to HY.</string>
     <string name="settings_media_backend_permission">UNI MediaCenter requires the ECARX MediaCenter permission and compatible firmware. Permission alone does not guarantee registration. If it fails, diagnostics explain the result; there is no automatic fallback to DIM. This is awaiting validation on the car.</string>
     <string name="settings_media_backend_diagnostics">Current backend diagnostics</string>
     <string name="settings_media_backend_refresh">Refresh backend status</string>
