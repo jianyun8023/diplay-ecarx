@@ -63,7 +63,10 @@ object NavigationOutputs {
         // Gated on the card's own switch, same as [onAppOpened] and [start]. This is also the path
         // that turns the card back on, so it has to stay a plain check rather than a removal.
         if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
-        if (EcarxOutputSettings.enabled(app)) ecarx.start { EcarxHudBridge.initialize(app) } else ecarx.clear()
+        if (EcarxOutputSettings.enabled(app)) {
+            ecarx.start { EcarxHudBridge.initialize(app) }
+            ecarx.submit(EcarxHudBridge::settingsChanged)
+        } else ecarx.clear()
     }
 
     /**
@@ -101,7 +104,8 @@ object NavigationOutputs {
 
     internal fun onFrame(frame: Iap2Frame) {
         if (frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_UPDATE &&
-            frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE
+            frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE &&
+            frame.messageId != 0x5204
         ) {
             return
         }

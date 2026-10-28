@@ -834,4 +834,6 @@
     <string name="ecarx_sw_key_assign">%1$s：%2$s · 点按以学习</string>
     <string name="ecarx_sw_key_learnt">已学习 · 键值 %1$d</string>
     <string name="ecarx_sw_key_press">现在按方向盘上用于%1$s的按键…</string>
+    <string name="settings_ecarx_lane_guidance">仪表车道指引（实验性）</string>
+    <string name="settings_ecarx_lane_guidance_description">导航时在仪表显示 CarPlay 车道指引。是否可用取决于车机。更改立即生效。</string>
 </resources>

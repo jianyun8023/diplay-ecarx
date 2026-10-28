@@ -876,4 +876,6 @@
     <string name="ecarx_sw_key_assign">%1$s: %2$s · tap to learn</string>
     <string name="ecarx_sw_key_learnt">learnt · key %1$d</string>
     <string name="ecarx_sw_key_press">Press the wheel key for %1$s now…</string>
+    <string name="settings_ecarx_lane_guidance">Cluster lane guidance (experimental)</string>
+    <string name="settings_ecarx_lane_guidance_description">Show CarPlay lane guidance on the instrument cluster during navigation. Availability depends on the head unit. Applies immediately.</string>
 </resources>

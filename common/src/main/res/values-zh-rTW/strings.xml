@@ -834,4 +834,6 @@
     <string name="ecarx_sw_key_media_button">媒體按鍵控制 CarPlay</string>
     <string name="ecarx_sw_key_press">現在按方向盤上用於%1$s的按鍵…</string>
     <string name="ecarx_sw_key_title">億咖通方向盤按鍵</string>
+    <string name="settings_ecarx_lane_guidance">儀表車道指引（實驗性）</string>
+    <string name="settings_ecarx_lane_guidance_description">導航時在儀表顯示 CarPlay 車道指引。是否可用取決於車機。變更立即生效。</string>
 </resources>

@@ -3714,6 +3714,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.setEnabled(this, it)
             NavigationOutputs.ecarxChanged(this)
         }
+        toggle(card, getString(R.string.settings_ecarx_lane_guidance),
+            getString(R.string.settings_ecarx_lane_guidance_description),
+            EcarxOutputSettings.laneGuidanceEnabled(this)) {
+            EcarxOutputSettings.setLaneGuidanceEnabled(this, it)
+            NavigationOutputs.ecarxChanged(this)
+        }
         // The 仪表投屏 switch mirrors the whole centre screen onto the cluster. It is not needed for
         // the arrow or the media card — both go over the DIM channels — and turning it on covers
         // exactly the cards this page configures, which is how it was mistaken for "the arrow

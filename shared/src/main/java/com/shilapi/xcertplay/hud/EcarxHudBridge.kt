@@ -6,6 +6,7 @@ import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.shilapi.xcertplay.iap2.message.Iap2LaneGuidance
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -178,6 +179,8 @@ internal object EcarxHudBridge {
     private var presentedPackage: String? = null
 
     private var lastPushed: EcarxDimApi.Guidance? = null
+    private var lanes: List<EcarxDimApi.Lane>? = null
+    private var lastLanePushed: List<EcarxDimApi.Lane>? = null
     /** Which arrow channel the last frame left on, so the report prints the changes and not the ticks. */
     private var lastArrowChannel: String? = null
     private var ticksSincePush = 0
@@ -348,16 +351,45 @@ internal object EcarxHudBridge {
 
     fun onFrame(frame: Iap2Frame) = synchronized(lock) {
         if (!available) return@synchronized
+        if (frame.messageId == 0x5204) {
+            val parsed = Iap2LaneGuidance.parse(frame.payload) ?: run {
+                return@synchronized
+            }
+            val app = context
+            if (parsed.isEmpty() || app == null || !EcarxOutputSettings.enabled(app) ||
+                !EcarxOutputSettings.laneGuidanceEnabled(app) || route.current() == null || navi == null) {
+                lanes = null
+            } else {
+                val mapped = parsed.map { lane ->
+                    EcarxLaneIcon.forLane(lane)?.let { EcarxDimApi.Lane(lane.index + 1, it) }
+                }
+                lanes = if (mapped.all { it != null }) mapped.filterNotNull() else null
+                if (lanes == null) report("DIM lane unsupported; old strip withdrawn")
+            }
+            pushLaneLocked(false)
+            return@synchronized
+        }
         when (route.accept(frame.messageId, frame.payload)) {
-            RouteGuidanceChange.GUIDANCE -> pushLocked(force = false)
-            RouteGuidanceChange.CLEAR -> if (lastPushed != null) endLocked()
+            RouteGuidanceChange.GUIDANCE -> {
+                pushLocked(force = false)
+                pushLaneLocked(false)
+            }
+            RouteGuidanceChange.CLEAR -> {
+                if (lastPushed != null) endLocked() else clearLanesLocked()
+            }
             RouteGuidanceChange.NONE -> Unit
         }
     }
 
     fun clear() = synchronized(lock) {
         route.clear() // Stop the keepalive from restoring guidance after cleanup.
-        if (lastPushed != null) endLocked()
+        if (lastPushed != null) endLocked() else clearLanesLocked()
+    }
+
+    fun settingsChanged() = synchronized(lock) {
+        val app = context ?: return@synchronized
+        if (!EcarxOutputSettings.laneGuidanceEnabled(app)) lanes = null
+        pushLaneLocked(false)
     }
 
     /** Whether guidance is currently on the cluster. */
@@ -467,8 +499,13 @@ internal object EcarxHudBridge {
         if (dim == null || navi == null) reclaimLocked()
         watchProjectionLocked()
         // Guidance can expire without a frame (a list that stays empty), so check every second.
-        if (lastPushed != null && route.current() == null) endLocked()
-        else if (++ticksSincePush >= KEEPALIVE_TICKS) pushLocked(force = true)
+        if (route.current() == null && (lastPushed != null || lanes != null || lastLanePushed != null)) {
+            if (lastPushed != null) endLocked() else clearLanesLocked()
+        }
+        else if (++ticksSincePush >= KEEPALIVE_TICKS) {
+            pushLocked(force = true)
+            pushLaneLocked(true)
+        }
     }
 
     /**
@@ -585,6 +622,33 @@ internal object EcarxHudBridge {
         }
     }
 
+    private fun pushLaneLocked(force: Boolean) {
+        val naviRef = navi ?: return
+        val wanted = lanes
+        if (wanted == null) {
+            if (lastLanePushed != null) {
+                val result = EcarxDimApi.clearLaneInfo(naviRef)
+                report("DIM lane clear ${result.reason}")
+                if (result.ok) lastLanePushed = null
+            }
+            return
+        }
+        if (lastPushed == null || route.current() == null || !EcarxOutputSettings.laneGuidanceEnabled(context ?: return)) return
+        if (!force && wanted == lastLanePushed) return
+        val result = EcarxDimApi.updateLaneInfo(naviRef, wanted)
+        report("DIM lane ${result.reason}")
+        if (result.ok) lastLanePushed = wanted
+    }
+
+    private fun clearLanesLocked(force: Boolean = false) {
+        if (!force && lanes == null && lastLanePushed == null) return
+        lanes = null
+        val naviRef = navi ?: return
+        val result = EcarxDimApi.clearLaneInfo(naviRef)
+        if (lastLanePushed != null || !result.ok) report("DIM lane clear ${result.reason}")
+        if (result.ok) lastLanePushed = null
+    }
+
     private fun outcome(result: EcarxDimApi.EcarxResult?): String = when {
         result == null -> "absent"
         result.ok -> "ok"
@@ -618,6 +682,7 @@ internal object EcarxHudBridge {
     }
 
     private fun endLocked() {
+        lanes = null
         val naviRef = navi
         if (naviRef != null) {
             EcarxDimApi.notifyTurnByTurnStopped(naviRef)
@@ -633,7 +698,7 @@ internal object EcarxHudBridge {
             }
             EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, 0)
             EcarxDimApi.updateNextGuidancePointName(naviRef, "")
-            EcarxDimApi.updateLaneInfoEmpty(naviRef)
+            clearLanesLocked(force = true)
         }
         lastPushed = null
         lastArrowChannel = null

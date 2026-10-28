@@ -119,6 +119,8 @@ internal object EcarxDimApi {
         val nextGuidancePointName: String = "",
     )
 
+    data class Lane(val number: Int, val iconId: Int)
+
     // ---------------------------------------------------------------- DimInteraction
 
     fun createDimInteraction(context: Context): Any? = runCatching {
@@ -341,15 +343,27 @@ internal object EcarxDimApi {
         call(navi, "updateNextGuidancePointName", arrayOf(String::class.java), arrayOf<Any?>(name),
             "updateNextGuidancePointName(\"$name\")")
 
-    /** Clears the lane strip. An empty typed array is what the stock apps send when none remain. */
-    fun updateLaneInfoEmpty(navi: Any): EcarxResult {
+    fun updateLaneInfo(navi: Any, lanes: List<Lane>): EcarxResult {
         val lane = runCatching { Class.forName(EcarxCapabilities.LANE_INFO) }.getOrNull()
             ?: return EcarxResult.failed("ILaneInfo class missing")
-        val empty = runCatching { java.lang.reflect.Array.newInstance(lane, 0) }
-            .getOrElse { return EcarxResult.failed("ILaneInfo[] allocation failed: ${describe(it)}") }
-        // The declared parameter is ILaneInfo[]; take the type off the array we just built so the
-        // lookup matches the interface method exactly.
-        return call(navi, "updateLaneInfo", arrayOf(empty.javaClass), arrayOf<Any?>(empty), "updateLaneInfo(empty)")
+        val array = runCatching {
+            java.lang.reflect.Array.newInstance(lane, lanes.size).also { result ->
+                lanes.forEachIndexed { index, value ->
+                    java.lang.reflect.Array.set(result, index,
+                        Proxy.newProxyInstance(lane.classLoader, arrayOf(lane), LaneInfoHandler(value)))
+                }
+            }
+        }.getOrElse { return EcarxResult.failed("ILaneInfo[] construction failed: ${describe(it)}") }
+        return call(navi, "updateLaneInfo", arrayOf(array.javaClass), arrayOf<Any?>(array),
+            "updateLaneInfo(${lanes.size})")
+    }
+
+    /** The 753 navigation plugin sends one null argument to clear the lane strip. */
+    fun clearLaneInfo(navi: Any): EcarxResult {
+        val lane = runCatching { Class.forName(EcarxCapabilities.LANE_INFO) }.getOrNull()
+            ?: return EcarxResult.failed("ILaneInfo class missing")
+        val arrayClass = java.lang.reflect.Array.newInstance(lane, 0).javaClass
+        return call(navi, "updateLaneInfo", arrayOf(arrayClass), arrayOf<Any?>(null), "updateLaneInfo(null)")
     }
 
     fun notifyTurnByTurnStarted(navi: Any): EcarxResult = call0(navi, "notifyTurnByTurnStarted")
@@ -663,6 +677,18 @@ internal object EcarxDimApi {
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()
             else -> EcarxDimApi.defaultValue(method.returnType)
+        }
+    }
+
+    private class LaneInfoHandler(private val lane: Lane) : InvocationHandler {
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
+            "getLaneNumber" -> lane.number
+            "getLaneBackIconId" -> lane.iconId
+            "getLaneBackIcon" -> null
+            "toString" -> "EcarxLaneInfo(number=${lane.number} icon=${lane.iconId})"
+            "hashCode" -> System.identityHashCode(proxy)
+            "equals" -> proxy === args?.firstOrNull()
+            else -> defaultValue(method.returnType)
         }
     }
 
