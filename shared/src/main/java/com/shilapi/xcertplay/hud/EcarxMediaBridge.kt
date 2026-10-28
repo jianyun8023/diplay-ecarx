@@ -188,7 +188,7 @@ internal object EcarxMediaBridge {
         val app = context ?: return@synchronized
         if (dim == null || media == null) reclaimLocked()
         val handle = media ?: return@synchronized
-        if (!EcarxOutputSettings.mediaEnabled(app)) {
+        if (!EcarxOutputSettings.mediaEnabled(app) || !MediaOutputBackendSettings.dimAllowed(app)) {
             // The switch went off: leave the card saying "nothing is playing" rather than frozen on
             // the last track. `pushed = null` inside means this runs once, not once a second.
             if (pushed != null) clearLocked(handle)

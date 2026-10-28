@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.os.Looper
 import com.shilapi.xcertplay.hud.EcarxOutputSettings
+import com.shilapi.xcertplay.hud.MediaOutputBackendSettings
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import org.junit.After
@@ -30,10 +31,14 @@ class EcarxMediaSessionOwnershipTest {
     private lateinit var savedProjection: Map<String, Any?>
     private var previousFocusDisabled = false
     private var previousMediaEnabled = true
+    private var previousBackend = MediaOutputBackendSettings.Backend.UNI_MEDIACENTER
 
     @Before fun setup() {
         previousFocusDisabled = AirPlayPersistence.loadDisableMediaKeyAudioFocus(app)
         previousMediaEnabled = EcarxOutputSettings.mediaEnabled(app)
+        previousBackend = MediaOutputBackendSettings.load(app)
+        // This suite exercises the explicitly selected legacy DIM backend, not the new UNI default.
+        MediaOutputBackendSettings.save(app, MediaOutputBackendSettings.Backend.DIM)
         AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, true)
         EcarxOutputSettings.setMediaEnabled(app, true)
         // Shared's internal bridge is reached reflectively across the module boundary. Only its
@@ -61,6 +66,7 @@ class EcarxMediaSessionOwnershipTest {
             savedProjection.forEach { (name, value) -> field(projection, name).set(projection, value) }
             AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, previousFocusDisabled)
             EcarxOutputSettings.setMediaEnabled(app, previousMediaEnabled)
+            MediaOutputBackendSettings.save(app, previousBackend)
         }
     }
 
@@ -163,6 +169,7 @@ class EcarxMediaSessionOwnershipTest {
     }
 
     private fun tick() {
+        CarPlayMediaOutput.javaClass.getDeclaredMethod("refreshDimBarrier").apply { isAccessible = true }.invoke(CarPlayMediaOutput)
         bridge.javaClass.getDeclaredMethod("tick").apply { isAccessible = true }.invoke(bridge)
     }
 

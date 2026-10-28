@@ -84,6 +84,7 @@ internal object CarPlayMediaKeys {
         }
         appContext = context.applicationContext
         controller = next
+        CarPlayMediaOutput.begin(context, next)
         GeelyWheelKeys.start(context)
         next.playbackListener = { playing ->
             onIphonePlaying(next, playing)
@@ -94,7 +95,7 @@ internal object CarPlayMediaKeys {
                     onNowPlayingChanged(next)
                     // The same metadata the car's media session shows is what an ECARX cluster's media card
                     // wants, so it is forwarded from here rather than read a second time off the controller.
-                    NavigationOutputs.onNowPlaying(update,
+                    CarPlayMediaOutput.publish(update,
                         if (albumTrackChanged(nowPlaying, update)) null else clusterArtworkUris[update.artworkTransferId])
                 }
             }
@@ -155,7 +156,7 @@ internal object CarPlayMediaKeys {
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
                 nowPlaying = update
-                NavigationOutputs.onNowPlaying(update, clusterArtworkUris[update.artworkTransferId])
+                CarPlayMediaOutput.publish(update, clusterArtworkUris[update.artworkTransferId])
                 if (metadataChanged) ClusterMusicState.publish(update, update.artworkTransferId?.let { artworkCache[it] })
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
@@ -200,7 +201,7 @@ internal object CarPlayMediaKeys {
         while (artworkCache.size > MAX_CACHED_ARTWORK) artworkCache.remove(artworkCache.keys.first())
         if (nowPlaying.artworkTransferId == id) {
             artwork = decoded
-            NavigationOutputs.onNowPlaying(nowPlaying, clusterArtworkUris[id])
+            CarPlayMediaOutput.publish(nowPlaying, clusterArtworkUris[id])
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
@@ -390,6 +391,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
+        CarPlayMediaOutput.end()
         focusOwner = null
         artworkOwner = null
         initialAlbumRetry?.let(mainHandler::removeCallbacks)
@@ -407,7 +409,7 @@ internal object CarPlayMediaKeys {
         // Whatever the cluster's media card was showing belongs to a session that just ended. The
         // controller pushes its own cleared frame on teardown, but that goes through the listener
         // this method may itself be clearing, so the blank state is pushed from here as well.
-        NavigationOutputs.onNowPlaying(nowPlaying)
+        CarPlayMediaOutput.publish(nowPlaying)
         artwork = null
         artworkCache.clear()
         clusterArtworkUris.clear()
@@ -458,7 +460,13 @@ internal object CarPlayMediaKeys {
     }
 
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
-    internal fun onExternalMediaKey(index: Int) = send(index, "geely-wheel")
+    internal fun onExternalMediaKey(index: Int) {
+        if (!CarPlayMediaOutput.isMediaCenterActive()) send(index, "geely-wheel")
+    }
+
+    internal fun onMediaCenterKey(expected: CarPlayController, index: Int) {
+        if (synchronized(this) { controller === expected }) send(index, "mediacenter")
+    }
 
     /** The steering-wheel microphone key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalSiriKey(): Boolean {

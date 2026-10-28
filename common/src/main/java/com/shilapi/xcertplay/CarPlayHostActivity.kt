@@ -1549,6 +1549,7 @@ class CarPlayHostActivity : ComponentActivity() {
             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), keyCode)
         if (press == null) return false
         val ctrl = controller
+        if (press.isMedia && CarPlayMediaOutput.isMediaCenterActive(ctrl)) return false
         val sent = when {
             press.isSiri -> ctrl?.requestSiri() == true
             press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true

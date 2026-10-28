@@ -29,7 +29,7 @@ object NavigationOutputs {
         if (!EcarxOutputSettings.available(app)) return
         // The media card has its own switch and its own session-independent life, so it is armed on
         // its own condition rather than being folded into the guidance one below.
-        if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
+        if (EcarxOutputSettings.mediaEnabled(app) && MediaOutputBackendSettings.dimAllowed(app)) EcarxMediaBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app) || EcarxOutputSettings.presentationSwitch(app)) {
             EcarxHudBridge.initialize(app)
         }
@@ -44,7 +44,7 @@ object NavigationOutputs {
             // yet initialize() would still create the DIM handle and start its 1 Hz ticker — the
             // ticker's own check stops the push, not the wasted binder traffic. Turning the switch
             // on calls [ecarxChanged], which initializes on demand, so nothing is lost by skipping.
-            if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
+            if (EcarxOutputSettings.mediaEnabled(app) && MediaOutputBackendSettings.dimAllowed(app)) EcarxMediaBridge.initialize(app)
         }
     }
 
@@ -62,7 +62,7 @@ object NavigationOutputs {
         EcarxHudBridge.initialize(app)
         // Gated on the card's own switch, same as [onAppOpened] and [start]. This is also the path
         // that turns the card back on, so it has to stay a plain check rather than a removal.
-        if (EcarxOutputSettings.mediaEnabled(app)) EcarxMediaBridge.initialize(app)
+        if (EcarxOutputSettings.mediaEnabled(app) && MediaOutputBackendSettings.dimAllowed(app)) EcarxMediaBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app)) {
             ecarx.start { EcarxHudBridge.initialize(app) }
             ecarx.submit(EcarxHudBridge::settingsChanged)
@@ -75,6 +75,12 @@ object NavigationOutputs {
      * A separate entry point from [onFrame] on purpose: guidance and media are different DIM
      * channels behind different switches, and a fault in one must not take the other down.
      */
+    /** Called off the UI thread after a previous MediaCenter registration is confirmed cleaned. */
+    fun mediaBackendReady(context: Context) {
+        val app = context.applicationContext
+        if (EcarxOutputSettings.mediaEnabled(app) && MediaOutputBackendSettings.dimAllowed(app)) EcarxMediaBridge.initialize(app)
+    }
+
     fun onNowPlaying(now: CarPlayNowPlaying, artwork: android.net.Uri? = null) = EcarxMediaBridge.onNowPlaying(now, artwork)
 
     /**
