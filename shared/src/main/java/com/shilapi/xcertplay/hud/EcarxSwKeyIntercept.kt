@@ -66,26 +66,33 @@ object EcarxSwKeyIntercept {
         val keys = if (includeMediaKeys) oneOsKey else oneOsKey.filter { it !in 200085..200088 }.toIntArray()
         val input = createInput(context) ?: return null
         val callbackClass = callbackClass() ?: return null
+        val callbackHandler = CallbackHandler(listener)
         val proxy = Proxy.newProxyInstance(
             callbackClass.classLoader,
             arrayOf(callbackClass),
-            CallbackHandler(listener),
+            callbackHandler,
         )
-        val refused = runCatching {
-            lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
-                ?.invoke(input, keys, proxy) as? IntArray
+        val registered = runCatching {
+            val method = lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
+                ?: return null
+            method.invoke(input, keys, proxy) as? IntArray
         }.getOrElse {
             Log.i(TAG, "requestKeysInterception failed: ${describe(it)}")
             return null
         }
-        // The reference app treats a non-throwing call as accepted, but the returned int[] is the
-        // ROM's actual answer: it lists the keys it refused, and a refused voice key is exactly what
-        // leaves the factory HMI still answering the same press. Keep it, do not drop it on the floor.
-        val handle = Handle(input, proxy, callbackClass, label, refused, keys.size) { inputObj, callbackObj ->
+        // The DCY11 SDK returns registered keys; its dispatcher ignores callback Boolean results.
+        val handle = Handle(input, proxy, callbackClass, label, registered, keys.size) { inputObj, callbackObj ->
+            callbackHandler.active = false
             runCatching {
-                lookup(inputObj, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
-                    ?.invoke(inputObj, keys, callbackObj)
-            }.isSuccess
+                val abandon = lookup(inputObj, "abandonKeysInterception", arrayOf(callbackClass))
+                if (abandon != null) abandon.invoke(inputObj, callbackObj)
+                else {
+                    val release = lookup(inputObj, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
+                        ?: return@runCatching false
+                    release.invoke(inputObj, keys, callbackObj)
+                }
+                true
+            }.getOrDefault(false)
         }
         Log.i(TAG, "interception $label ${handle.describe()}")
         return handle
@@ -97,8 +104,8 @@ object EcarxSwKeyIntercept {
         private val callback: Any,
         private val callbackClass: Class<*>,
         val label: String,
-        /** The keys the ROM refused to intercept, or null when it accepted the whole set. */
-        val refused: IntArray?,
+        /** Keys registered by the DCY11 SDK, or null when the SDK returns no key list. */
+        val registered: IntArray?,
         private val keyCount: Int,
         private val release: (Any, Any) -> Boolean,
     ) {
@@ -108,11 +115,11 @@ object EcarxSwKeyIntercept {
 
         /** One log line: which key set went out and what the ROM answered, each key named. */
         fun describe(): String {
-            val refusedKeys = refused
-            if (refusedKeys == null || refusedKeys.isEmpty()) return "keys=$keyCount accepted=all"
-            val answer = StringBuilder("refused=")
+            val registeredKeys = registered ?: return "keys=$keyCount registered=unknown"
+            if (registeredKeys.isEmpty()) return "keys=$keyCount registered=none"
+            val answer = StringBuilder("registered=")
             var named = 0
-            for (key in refusedKeys) {
+            for (key in registeredKeys) {
                 if (named > 0) answer.append('|')
                 answer.append(nameFor(key))
                 named += 1
@@ -158,9 +165,10 @@ object EcarxSwKeyIntercept {
     }
 
     private class CallbackHandler(private val listener: Listener) : InvocationHandler {
+        @Volatile var active = true
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
-            "onKeyPressed" -> listener.onKeyPressed((args?.firstOrNull() as? Int) ?: -1)
-            "onKeyReleased" -> listener.onKeyReleased((args?.firstOrNull() as? Int) ?: -1)
+            "onKeyPressed" -> active && listener.onKeyPressed((args?.firstOrNull() as? Int) ?: -1)
+            "onKeyReleased" -> active && listener.onKeyReleased((args?.firstOrNull() as? Int) ?: -1)
             "toString" -> "EcarxSwKeyCallback"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()

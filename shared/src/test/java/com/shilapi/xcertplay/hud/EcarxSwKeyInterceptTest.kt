@@ -23,8 +23,28 @@ class EcarxSwKeyInterceptTest {
             for (key in listOf(200085, 200087, 200088)) assertEquals(includeMedia, key in requested)
             assertTrue("voice key is preserved", 200231 in requested)
             assertTrue(handle.describe().contains("keys=${requested.size}"))
+            assertTrue(handle.describe().contains("registered="))
+            assertFalse(handle.describe().contains("refused"))
             handle.release()
             assertArrayEquals(requested, Input.instance.released)
+            assertNull(Input.instance.callback)
         }
+    }
+
+    @Test fun aReleasedCallbackCannotTriggerSiriAgain() {
+        Input.instance = Input()
+        var presses = 0
+        val handle = checkNotNull(EcarxSwKeyIntercept.register(RuntimeEnvironment.getApplication(),
+            object : EcarxSwKeyIntercept.Listener {
+                override fun onKeyPressed(keyCode: Int): Boolean { presses++; return true }
+                override fun onKeyReleased(keyCode: Int) = true
+            }))
+        val callback = checkNotNull(Input.instance.callback)
+        assertTrue(callback.onKeyPressed(200231))
+        handle.release()
+        assertFalse(callback.onKeyPressed(200231))
+        assertEquals(1, presses)
+        assertTrue(handle.describe().contains("voice"))
+        assertFalse(handle.describe().contains("k200400"))
     }
 }
