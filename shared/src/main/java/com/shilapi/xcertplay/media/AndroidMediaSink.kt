@@ -24,6 +24,7 @@ import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
+import com.shilapi.xcertplay.shared.BuildConfig
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -218,6 +219,8 @@ class AndroidMediaSink(
     private val vendorLowLatencyDecoder: Boolean = false,
     /** Opt-in MTK ACodec low-latency/no-reorder modes, with per-session automatic fallback. */
     private val mtkDecoderTuningEnabled: Boolean = false,
+    /** P1 validation only: clone the call capture path for Siri; ordinary and release builds stay off. */
+    private val siriCommunicationCapture: Boolean = BuildConfig.SIRI_COMMUNICATION_CAPTURE,
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
     private val callEchoReferences = ConcurrentHashMap<AudioStreamId, EchoReference>()
@@ -537,11 +540,22 @@ class AndroidMediaSink(
     override fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {
         // This callback runs on the downlink thread; microphone failures must not stop playback.
         try {
-            if (config.audioType == "telephony") enterCommunicationMode(id)
+            reportMicrophoneState(id, "before-start")
+            if (config.audioType == "telephony") {
+                enterCommunicationMode(id)
+            } else if (config.audioType == "speechrecognition" && siriCommunicationCapture) {
+                runCatching { enterCommunicationMode(id) }.onFailure { error ->
+                    runCatching {
+                        onAudioDiagnostic("Audio: Siri communication capture failed" +
+                            " stream=$id error=${error.javaClass.simpleName}; recording directly")
+                    }
+                }
+            }
             val uplink = microphoneUplinks.computeIfAbsent(id) {
                 MicrophoneUplink(config, onAudioDiagnostic,
                     speakerphoneCall = false,
-                    echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null)
+                    echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null,
+                    onCaptureState = { reportMicrophoneState(id, "capture") })
             }
             if (!uplink.start()) {
                 microphoneUplinks.remove(id, uplink)
@@ -559,6 +573,38 @@ class AndroidMediaSink(
             microphoneUplinks.remove(id)?.close()
         } finally {
             restoreAudioMode(id)
+            reportMicrophoneState(id, "stopped")
+        }
+    }
+
+    /** One snapshot at start/end and per five-second stats window, never per PCM read. */
+    private fun reportMicrophoneState(id: AudioStreamId, phase: String) {
+        val manager = audioManager ?: return
+        val mode = runCatching { manager.mode.toString() }.getOrDefault("unknown")
+        val mute = runCatching { manager.isMicrophoneMute.toString() }.getOrDefault("unknown")
+        val recordings = runCatching { manager.activeRecordingConfigurations }.getOrNull()
+        // Android can anonymize clients or deny package visibility. A partial list never proves
+        // that another assistant is absent; do not infer packages from a source or route.
+        val privileged = appContext?.checkSelfPermission("android.permission.MODIFY_AUDIO_ROUTING") ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        runCatching {
+            onAudioDiagnostic("Microphone: environment stream=$id phase=$phase mode=$mode" +
+                " microphoneMute=$mute siriCommunicationCapture=$siriCommunicationCapture" +
+                " activeRecordings=${recordings?.size ?: "unknown"}" +
+                " visibility=${if (privileged) "privileged" else "anonymized-or-filtered"}")
+        }
+        recordings?.take(8)?.forEachIndexed { index, recording ->
+            val source = runCatching { recording.clientAudioSource.toString() }.getOrDefault("unknown")
+            val client = runCatching {
+                recording.javaClass.getMethod("getClientPackageName").invoke(recording) as? String
+            }.getOrNull()?.takeIf { it.isNotEmpty() }
+            // Package names are the only identity requested here; no device IDs, session IDs or audio.
+            val name = client?.takeIf { it.length <= 160 && it.matches(Regex("[A-Za-z0-9_.]+")) }
+                ?: "unavailable"
+            runCatching {
+                onAudioDiagnostic("Microphone: recording stream=$id phase=$phase index=$index" +
+                    " package=$name source=$source")
+            }
         }
     }
 
@@ -577,7 +623,7 @@ class AndroidMediaSink(
             earpieceFallbackTried = false
             val speakerRequested = runCatching(callSpeakerphone).getOrDefault(false)
             if (speakerRequested) callSpeaker = CallSpeaker.on(manager)
-            Log.i("xcertplay-usb", "audio mode $savedAudioMode -> ${manager.mode} for telephony stream=$id")
+            Log.i("xcertplay-usb", "audio mode $savedAudioMode -> ${manager.mode} for communication stream=$id")
             // The report, not just logcat: a head unit left in the voice path plays no media,
             // and that cannot be diagnosed from a car without adb. A failing report must not
             // disturb the mode, so it is the last thing done and it cannot throw out of here.
@@ -610,22 +656,45 @@ class AndroidMediaSink(
     private fun requestMicArbitration(id: AudioStreamId) {
         val context = appContext ?: return
         val policy = com.shilapi.xcertplay.hud.EcarxMicPolicy
-        if (!policy.isNeedRequestMic(context)) return
+        val needed = policy.isNeedRequestMic(context)
+        runCatching {
+            onAudioDiagnostic("Audio: ECARX mic policy stream=$id isNeedRequestMic=$needed" +
+                " requestType=CALL(2) ${policy.describe(context)}")
+        }
+        if (!needed) return
         micHeld = policy.requestMic(context, policy.REQUEST_TYPE_CALL, object :
             com.shilapi.xcertplay.hud.EcarxMicPolicy.Listener {
-            override fun onResume() = Unit
+            override fun onResume() {
+                runCatching {
+                    onAudioDiagnostic("Audio: ECARX mic onResume stream=$id requestType=CALL(2) granted=true")
+                }
+            }
             override fun onAbort(reason: Int) {
                 Log.i("xcertplay-usb", "ECARX mic request aborted reason=$reason; recording directly")
+                runCatching {
+                    onAudioDiagnostic("Audio: ECARX mic onAbort stream=$id requestType=CALL(2)" +
+                        " granted=false reason=$reason; recording directly")
+                }
             }
         })
         Log.i("xcertplay-usb", "ECARX mic arbitration stream=$id held=${micHeld?.granted == true}")
+        runCatching {
+            onAudioDiagnostic("Audio: ECARX mic request stream=$id requestType=CALL(2)" +
+                " accepted=${micHeld != null} granted=${if (micHeld == null) "false" else "unknown"}" +
+                " basis=request-return; grant reported by callbacks")
+        }
     }
 
-    /** Hands the ECARX mic resource back when the telephony stream ends. */
-    private fun releaseMicArbitration() {
-        val held = micHeld ?: return
+    /** Hands the ECARX mic resource back when its communication capture ends. */
+    private fun releaseMicArbitration(id: AudioStreamId) {
+        val held = micHeld
         micHeld = null
-        Log.i("xcertplay-usb", "ECARX mic released: ${held.release().reason}")
+        val result = held?.release()
+        Log.i("xcertplay-usb", "ECARX mic released: ${result?.reason ?: "not held"}")
+        runCatching {
+            onAudioDiagnostic("Audio: ECARX mic released held=${held != null}" +
+                " ok=${result?.ok ?: true} stream=$id")
+        }
     }
 
     /**
@@ -641,10 +710,10 @@ class AndroidMediaSink(
         } else {
             listOf("hicar_enable=false", "AudioControlMode=01121000", "ASR_AEC=OFF")
         }) {
-            try {
-                manager.setParameters(parameter)
-            } catch (error: RuntimeException) {
-                Log.w("xcertplay-usb", "could not set $parameter", error)
+            val result = runCatching { manager.setParameters(parameter) }
+            result.onFailure { Log.w("xcertplay-usb", "could not set $parameter", it) }
+            runCatching {
+                onAudioDiagnostic("Audio: 820 mic parameter $parameter writeOk=${result.isSuccess}")
             }
         }
     }
@@ -661,8 +730,6 @@ class AndroidMediaSink(
             // would let a failing callback be caught as a failed restore.
             val line = try {
                 manager.mode = savedAudioMode
-                apply820MicParameters(manager, enabled = false)
-                releaseMicArbitration()
                 Log.i("xcertplay-usb", "audio mode restored to ${manager.mode}")
                 "Audio: mode restored requested=$savedAudioMode now=${manager.mode} stream=$active"
             } catch (error: RuntimeException) {
@@ -671,6 +738,9 @@ class AndroidMediaSink(
                 "Audio: mode restore failed requested=$savedAudioMode now=$currentMode" +
                     " error=${error.javaClass.simpleName}"
             }
+            // Even a rejected mode restore must return the vendor mic resource.
+            apply820MicParameters(manager, enabled = false)
+            releaseMicArbitration(active)
             runCatching { onAudioDiagnostic(line) }
         }
     }

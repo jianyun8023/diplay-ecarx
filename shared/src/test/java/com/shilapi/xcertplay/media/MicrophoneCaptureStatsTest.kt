@@ -11,6 +11,27 @@ class MicrophoneCaptureStatsTest {
     private val config = MicrophoneConfig("telephony", 48_000, 1, 100, 20,
         InetAddress.getByName("198.51.100.20"), 54321, ByteArray(32) { 0x7f }, AudioCodecKind.OPUS)
 
+    @Test fun environmentSnapshotsRunAtStartEveryFiveSecondsAndEndEvenWhenTheCallbackFails() {
+        var now = 0L
+        var snapshots = 0
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add, onSnapshot = {
+            snapshots++
+            if (snapshots == 2) throw SecurityException("Environment access denied")
+        }) { now }
+        stats.started(15)
+        repeat(3) {
+            repeat(100) { stats.flush() }
+            assertEquals(it + 1, snapshots)
+            now += 5_000_000_000L
+            stats.flush()
+        }
+        stats.flush(ended = true)
+        assertEquals(5, snapshots)
+        assertEquals(5, reports.size)
+        assertTrue(reports.last().endsWith("ended=true"))
+    }
+
     @Test fun aggregatesFiveSecondWindowsAndKeepsFinalPartialWindow() {
         var now = 0L
         val reports = mutableListOf<String>()

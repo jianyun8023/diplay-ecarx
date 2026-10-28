@@ -6,6 +6,8 @@ For the USB trailer, software-window video and RFCOMM reliability changes, compl
 [connection reliability matrix](CONNECTION_RELIABILITY.md#vehicle-acceptance-before-release).
 Record the exact candidate APK and each untested setup before a release.
 
+For the ECARX Siri capture experiment, use the [P0/P1 A/B validation checklist](SIRI_CAPTURE_VALIDATION.md).
+
 ## Host unit tests
 
 Run the complete unit-test, lint and debug-build command in [AGENTS.md](../AGENTS.md).

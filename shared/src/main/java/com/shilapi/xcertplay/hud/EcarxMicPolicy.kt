@@ -71,7 +71,7 @@ internal object EcarxMicPolicy {
             if (listenerProxy == null) return Result.ok("no callback registered")
             return runCatching { release(policy, callback) }
                 .fold(
-                    { Result.ok("releaseMic") },
+                    { released -> if (released) Result.ok("releaseMic") else Result.failed("releaseMic declined") },
                     { Result.failed("releaseMic threw ${describe(it)}") },
                 )
         }

@@ -12,6 +12,7 @@ internal enum class MicrophoneFailureStage {
 internal class MicrophoneCaptureStats(
     config: MicrophoneConfig,
     private val report: (String) -> Unit,
+    private val onSnapshot: () -> Unit = {},
     private val nowNs: () -> Long = System::nanoTime,
 ) {
     private val type = audioType(config.audioType)
@@ -40,6 +41,7 @@ internal class MicrophoneCaptureStats(
     fun started(routeType: Int?) {
         routedDeviceType = routeType
         emit("Microphone: start $metadata routedDeviceType=${routeType ?: "unknown"}")
+        runCatching(onSnapshot)
     }
 
     /** Call before the capture thread starts; [metadata] is not volatile. */
@@ -115,6 +117,7 @@ internal class MicrophoneCaptureStats(
             "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)} " +
             "rmsDbfs=${rmsDbfs()} zeroSamplePct=${if (sampleCount == 0L) "unknown" else (100 * zeroSamples / sampleCount).toString()} " +
             "clippedSamples=$clippedSamples ended=$ended")
+        runCatching(onSnapshot)
         windowStart = now
         capturedBytes = 0
         reads = 0
