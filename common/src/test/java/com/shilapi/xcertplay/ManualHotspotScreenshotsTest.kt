@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay
 
-import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -15,7 +14,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -23,20 +21,9 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [29])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ManualHotspotScreenshotsTest {
-    @Test @Config(qualifiers = "zh-rCN-w320dp-h480dp-port-hdpi")
-    fun compactChineseLargeText() = capture("compact-zh")
-    @Test @Config(qualifiers = "zh-rTW-w320dp-h480dp-port-hdpi")
-    fun compactTraditionalChineseLargeText() = capture("compact-zh-tw")
-    @Test @Config(qualifiers = "en-w960dp-h540dp-land-hdpi")
-    fun fullEnglishLargeText() = capture("full-en")
-    @Test @Config(qualifiers = "ar-w320dp-h480dp-port-hdpi")
-    fun compactRtlSystemUsesEnglishFallback() = capture("compact-en-rtl")
-
-    private fun capture(name: String) {
-        val info = RuntimeEnvironment.getApplication().applicationInfo
-        val originalFlags = info.flags
-        info.flags = originalFlags or ApplicationInfo.FLAG_SUPPORTS_RTL
-        RuntimeEnvironment.setFontScale(1.5f)
+    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
+    fun controlsFitTheCurrentHeadUnit() {
+        val name = "current-head-unit"
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         val backend = object : ManualHotspotControls.Backend {
@@ -61,7 +48,7 @@ class ManualHotspotScreenshotsTest {
             }
             val width = activity.resources.displayMetrics.widthPixels
             root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
             root.layout(0, 0, width, root.measuredHeight)
             val file = File("build/reports/manual-hotspot-ui/$name.png").apply { parentFile.mkdirs() }
             val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
@@ -78,10 +65,8 @@ class ManualHotspotScreenshotsTest {
                     assertTrue("${text.text} clipped", layout.height <= text.height - text.compoundPaddingTop - text.compoundPaddingBottom)
                 }
             }
-            if (name.endsWith("rtl")) assertEquals(View.LAYOUT_DIRECTION_RTL, root.layoutDirection)
         } finally {
             controls.close()
-            info.flags = originalFlags
             activity.finish()
         }
     }

@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w900dp-h600dp-land")
+@Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 class UpdateHomeAvailabilityTest {
     private val application: Application = RuntimeEnvironment.getApplication()
 
@@ -36,6 +36,7 @@ class UpdateHomeAvailabilityTest {
 
         assertTrue(update.isClickable)
         assertTrue(update.isFocusable)
+        assertTrue(update.minHeight >= (48 * activity.resources.displayMetrics.density).toInt())
         assertEquals(DiPlayPalette.DARK.warning, update.currentTextColor)
         update.performClick()
 
@@ -43,21 +44,6 @@ class UpdateHomeAvailabilityTest {
         assertTrue(descendants(activity.window.decorView).filterIsInstance<TextView>().any {
             it.text == activity.getString(R.string.update_download)
         })
-        controller.pause().stop().destroy()
-    }
-
-    @Config(sdk = [29], qualifiers = "en-w400dp-h900dp-port")
-    @Test fun cachedUpdateKeepsAnArmLengthTargetInCompactHome() {
-        val release = release()
-        UpdateAvailability.save(application, release)
-        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
-        val activity = controller.get()
-        val update = descendants(activity.window.decorView).filterIsInstance<TextView>().single {
-            it.text == activity.getString(R.string.update_available_home)
-        }
-
-        assertTrue(update.minHeight >= (48 * activity.resources.displayMetrics.density).toInt())
-        assertTrue(update.isClickable)
         controller.pause().stop().destroy()
     }
 

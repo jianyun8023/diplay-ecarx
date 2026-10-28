@@ -21,7 +21,7 @@ import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.shadows.ShadowSettings
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE, qualifiers = "en")
+@Config(sdk = [29], manifest = Config.NONE, qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 class UsbPermissionSetupTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val permissions get() = UsbPermissionSetup.Permission.entries

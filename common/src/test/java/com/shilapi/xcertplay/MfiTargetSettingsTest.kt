@@ -26,7 +26,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** With the CH341 removed CarPlay cannot connect, so its own menu cannot switch back to Local (#696). */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 33], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28, 33], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 class MfiTargetSettingsTest {
     private lateinit var controller: ActivityController<DiPlayActivity>
     private lateinit var activity: DiPlayActivity

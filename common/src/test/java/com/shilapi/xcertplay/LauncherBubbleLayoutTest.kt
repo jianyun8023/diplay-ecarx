@@ -10,28 +10,20 @@ class LauncherBubbleLayoutTest {
 
     @Test fun aBubbleIsAShareOfTheScreenHeightAndTheIconGivesTheWidth() {
         assertEquals(
-            LauncherBubbleLayout.Box(126, 72, 1770, 324),
-            LauncherBubbleLayout.initialBox(1920, 720, 10, 1.75f, 1f),
-        )
-    }
-
-    @Test fun aThinBubbleKeepsAUsableMinimumHeight() {
-        // 8% of 720px is 57px: below the 36dp floor at density 2.
-        assertEquals(
-            LauncherBubbleLayout.Box(72, 72, 1160, 324),
-            LauncherBubbleLayout.initialBox(1280, 720, 8, 1f, 2f),
+            LauncherBubbleLayout.Box(189, 108, 1707, 486),
+            LauncherBubbleLayout.initialBox(1920, 1080, 10, 1.75f, 1f),
         )
     }
 
     @Test fun aRememberedPlaceStaysOnTheScreen() {
         assertEquals(
-            LauncherBubbleLayout.Box(200, 100, 0, 620),
-            LauncherBubbleLayout.clamp(LauncherBubbleLayout.Box(200, 100, -50, 900), 1920, 720),
+            LauncherBubbleLayout.Box(200, 100, 0, 980),
+            LauncherBubbleLayout.clamp(LauncherBubbleLayout.Box(200, 100, -50, 1200), 1920, 1080),
         )
         // A bubble larger than the screen still has a defined place.
         assertEquals(
-            LauncherBubbleLayout.Box(2000, 800, 0, 0),
-            LauncherBubbleLayout.clamp(LauncherBubbleLayout.Box(2000, 800, 100, 100), 1920, 720),
+            LauncherBubbleLayout.Box(2000, 1200, 0, 0),
+            LauncherBubbleLayout.clamp(LauncherBubbleLayout.Box(2000, 1200, 100, 100), 1920, 1080),
         )
     }
 

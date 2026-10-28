@@ -29,6 +29,19 @@ When the car's own music app is playing as well, the wheel reaches both it and C
 
 Tested on the car named above; other Geely/Lynk firmware is untested.
 
+## Lynk 01/05 820A factory HiCar
+
+**Settings → Vehicle → Wheel keys → Disable factory HiCar** appears when `com.ecarx.hmi` is
+installed, including when it is disabled. The control reads the package's actual state. Changing it
+requires the system permission `android.permission.CHANGE_COMPONENT_ENABLED_STATE`; builds without
+that permission show a read-only switch. Opening settings does not change HiCar.
+
+Turning the switch on disables factory HiCar to reduce long-press voice-key conflicts with Siri.
+It stays disabled after DiPlay closes. Turning the switch off restores HiCar; the head unit may
+need a restart before HiCar works again. DiPlay verifies the package state after each change.
+This control does not change microphone routing. Host tests cover the settings and package-state
+handling; the permission grant and actual voice-key behavior still need an 820A vehicle check.
+
 ## Android 9 Wi-Fi Direct and experimental features
 
 The Android 9 path creates or reuses a persistent system profile with the public legacy group API, reads generated credentials and uses the firmware channel setter where available. It serializes pinning/cancellation, avoids foreign groups and removes only its owned active group; persistent profiles are not deleted. Unknown setter outcomes stop startup, and unreliable pinning/cleanup should use the manual car hotspot. See [legacy limits](ANDROID9_WIFI_DIRECT.md); the contributor's Redmi K20 Pro result does not validate every BYD Android 9 firmware.

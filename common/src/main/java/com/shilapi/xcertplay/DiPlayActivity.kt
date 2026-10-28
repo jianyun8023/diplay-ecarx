@@ -62,6 +62,7 @@ import com.shilapi.xcertplay.backup.SettingsBackupServer
 import com.shilapi.xcertplay.backup.SettingsQrCode
 import com.shilapi.xcertplay.compat.closeCompat
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
+import com.shilapi.xcertplay.hud.EcarxHicarControl
 import com.shilapi.xcertplay.hud.EcarxOutputSettings
 import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
@@ -3421,6 +3422,20 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         siriKeyControls(card)
         ecarxSwKeyControls(card)
+        EcarxHicarControl.state(this)?.let { hicar ->
+            toggle(card, getString(R.string.settings_disable_factory_hicar),
+                getString(if (hicar.canChange) R.string.settings_disable_factory_hicar_description
+                    else R.string.settings_factory_hicar_permission_required),
+                hicar.disabled, enabled = hicar.canChange) { disabled ->
+                val applied = EcarxHicarControl.setDisabled(this, disabled)
+                toast(getString(when {
+                    !applied -> R.string.settings_factory_hicar_failed
+                    disabled -> R.string.settings_factory_hicar_disabled
+                    else -> R.string.settings_factory_hicar_restored
+                }))
+                render()
+            }
+        }
         toggle(card, getString(R.string.wheel_media_play_pause),
             getString(R.string.wheel_media_play_pause_description),
             WheelZoomSettings.mediaPlayPause(this)) {

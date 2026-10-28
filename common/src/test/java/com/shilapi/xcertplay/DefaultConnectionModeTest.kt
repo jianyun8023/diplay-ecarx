@@ -25,7 +25,7 @@ import org.robolectric.util.ReflectionHelpers
 import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 33], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28, 33], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class DefaultConnectionModeTest {
     private val app get() = RuntimeEnvironment.getApplication()

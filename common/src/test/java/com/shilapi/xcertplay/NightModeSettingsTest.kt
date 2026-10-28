@@ -26,7 +26,7 @@ import org.robolectric.shadows.ShadowToast
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28, 33], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28, 33], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 class NightModeSettingsTest {
     private lateinit var controller: ActivityController<DiPlayActivity>
     private lateinit var activity: DiPlayActivity

@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [28], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 class ManualHotspotControlsTest {
     private class Backend : ManualHotspotControls.Backend {
         var state = ManualHotspotControl.State.ON

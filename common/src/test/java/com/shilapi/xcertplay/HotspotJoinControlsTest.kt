@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [33], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 class HotspotJoinControlsTest {
     private class Backend : HotspotJoinControls.Backend {
         val actions = mutableListOf<HotspotJoinRepair.Action>()

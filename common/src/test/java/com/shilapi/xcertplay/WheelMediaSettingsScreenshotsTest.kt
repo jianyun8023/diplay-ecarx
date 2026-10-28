@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay
 
-import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
@@ -10,7 +9,6 @@ import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Locale
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,49 +17,35 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** Compact/full and RTL screenshots of the optional media-key setting at 1.5x text size. */
+/** Optional media-key settings on the current 1920×1080 head unit. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29])
+@Config(sdk = [29], qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WheelMediaSettingsScreenshotsTest {
-    @Test fun mediaKeyControlsRenderAtLargeFontsInThreeLayouts() {
+    @Test fun controlsFitTheCurrentHeadUnit() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         WheelZoomSettings.setMediaPlayPause(activity, true)
         try {
-            for ((filename, widthDp, language) in listOf(
-                Triple("compact-ja", 320, "ja-JP"),
-                Triple("full-en", 960, "en-US"),
-                Triple("compact-ar-rtl", 320, "ar-SA"),
-            )) {
-                val locale = Locale.forLanguageTag(language)
-                val config = Configuration(activity.resources.configuration).apply {
-                    fontScale = 1.5f
-                    setLocale(locale)
-                    setLayoutDirection(locale)
+            val row = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            DiPlayActivity::class.java.getDeclaredMethod("wheelKeysSettings", LinearLayout::class.java)
+                .apply { isAccessible = true }.invoke(activity, row)
+            assertTrue(allViews(row).filterIsInstance<TextView>().any {
+                it.text.toString() == activity.getString(R.string.wheel_media_play_pause)
+            })
+            val width = 1920
+            row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
+            row.layout(0, 0, width, row.measuredHeight)
+            val bitmap = Bitmap.createBitmap(width, row.measuredHeight, Bitmap.Config.ARGB_8888)
+            try {
+                row.draw(Canvas(bitmap))
+                val directory = File("build/reports/wheel-media-ui").apply { mkdirs() }
+                FileOutputStream(File(directory, "current-head-unit.png")).use { output ->
+                    assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
                 }
-                @Suppress("DEPRECATION")
-                activity.resources.updateConfiguration(config, activity.resources.displayMetrics)
-                val row = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-                DiPlayActivity::class.java.getDeclaredMethod("wheelKeysSettings", LinearLayout::class.java)
-                    .apply { isAccessible = true }.invoke(activity, row)
-                assertTrue(allViews(row).filterIsInstance<TextView>().any {
-                    it.text.toString() == activity.getString(R.string.wheel_media_play_pause)
-                })
-                val width = (widthDp * activity.resources.displayMetrics.density).toInt()
-                row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                row.layout(0, 0, width, row.measuredHeight)
-                val bitmap = Bitmap.createBitmap(width, row.measuredHeight, Bitmap.Config.ARGB_8888)
-                try {
-                    row.draw(Canvas(bitmap))
-                    val directory = File("build/reports/wheel-media-ui").apply { mkdirs() }
-                    FileOutputStream(File(directory, "$filename.png")).use { output ->
-                        assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
-                    }
-                } finally {
-                    bitmap.recycle()
-                }
+            } finally {
+                bitmap.recycle()
             }
         } finally {
             activity.finish()

@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowSettings
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], qualifiers = "sw720dp-w1280dp-h720dp-hdpi")
+@Config(sdk = [33], qualifiers = "w1920dp-h1080dp-land-mdpi")
 class CenterMapOverlayTest {
     private lateinit var context: Context
     private lateinit var card: View
@@ -39,20 +39,20 @@ class CenterMapOverlayTest {
     @After fun hideCard() { CenterMapOverlay.hide() }
 
     @Test fun smallPinchResizesBelowTheHeadUnitMinimumSpanAndPersistsWithoutOpeningCarPlay() {
-        assertTrue("Regression uses a span too small for the platform detector",
-            ViewConfiguration.get(context).scaledMinimumScalingSpan > 60)
+        assertTrue("Initial span stays below the platform detector minimum",
+            ViewConfiguration.get(context).scaledMinimumScalingSpan > 30)
         touch(MotionEvent.ACTION_DOWN, 0 to 300f)
         touch(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 0 to 300f, 1 to 330f)
         touch(MotionEvent.ACTION_MOVE, 0 to 300f, 1 to 330f)
         touch(MotionEvent.ACTION_MOVE, 0 to 285f, 1 to 345f)
-        assertEquals(840, params.width)
-        assertEquals(315, params.height)
+        assertEquals(940, params.width)
+        assertEquals(352, params.height)
         assertEquals(820, params.x + params.width / 2)
         assertEquals(420, params.y + params.height / 2)
         touch(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 0 to 285f, 1 to 345f)
         touch(MotionEvent.ACTION_UP, 0 to 285f)
         assertEquals(0, taps)
-        assertEquals(840, context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE).getInt("width", 0))
+        assertEquals(940, context.getSharedPreferences("diplay_center_map", Context.MODE_PRIVATE).getInt("width", 0))
     }
 
     @Test fun pinchRespectsSizeLimitsAndKeepsCardOnScreen() {
@@ -78,7 +78,7 @@ class CenterMapOverlayTest {
         touch(MotionEvent.ACTION_MOVE, 11 to 500f)
         touch(MotionEvent.ACTION_UP, 11 to 500f)
         assertEquals(x, params.x)
-        assertEquals(840, params.width)
+        assertEquals(940, params.width)
         assertEquals(0, taps)
     }
 
@@ -101,12 +101,12 @@ class CenterMapOverlayTest {
         touch(MotionEvent.ACTION_MOVE, 7 to 285f, 11 to 345f)
         touch(MotionEvent.ACTION_POINTER_DOWN or (2 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 7 to 285f, 11 to 345f, 2 to 500f)
         touch(MotionEvent.ACTION_MOVE, 7 to 285f, 11 to 345f, 2 to 900f)
-        assertEquals(840, params.width)
+        assertEquals(940, params.width)
         touch(MotionEvent.ACTION_POINTER_UP, 7 to 285f, 11 to 345f, 2 to 900f)
-        assertEquals(840, params.width)
+        assertEquals(940, params.width)
         touch(MotionEvent.ACTION_MOVE, 11 to 345f, 2 to 900f)
         touch(MotionEvent.ACTION_MOVE, 11 to 345f, 2 to 761.25f)
-        assertEquals(630, params.width)
+        assertEquals(705, params.width)
         assertEquals(0, taps)
     }
 

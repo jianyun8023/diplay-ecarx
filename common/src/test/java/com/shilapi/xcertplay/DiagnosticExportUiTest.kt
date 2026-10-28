@@ -22,7 +22,7 @@ import org.robolectric.util.ReflectionHelpers
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], qualifiers = "en", shadows = [FileProviderPathTestShadow::class])
+@Config(sdk = [28], qualifiers = "en-w1920dp-h1080dp-land-mdpi", shadows = [FileProviderPathTestShadow::class])
 class DiagnosticExportUiTest {
     @Test fun missingPickerSavesAReportAndProvidesSelectableTextInsideDiPlay() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()

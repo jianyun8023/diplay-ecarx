@@ -25,7 +25,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** What "Choose iPhone" says when Android's Bluetooth is missing, off, or will not stay on. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w1000dp-h700dp-land")
+@Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 class ChooseIphoneBluetoothDialogTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private var activity: DiPlayActivity? = null

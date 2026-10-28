@@ -40,9 +40,9 @@ class CarPlayStageTextTest {
         CarPlayBackgroundSession.clear()
     }
 
-    @Test @Config(qualifiers = "en") fun englishStages() = stagesFollowTheConnection()
+    @Test @Config(qualifiers = "en-w1920dp-h1080dp-land-mdpi") fun englishStages() = stagesFollowTheConnection()
 
-    @Test @Config(qualifiers = "zh-rCN") fun chineseStages() {
+    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi") fun chineseStages() {
         assertNotEquals("Connection interrupted. Retrying…", activity.getString(R.string.connection_interrupted_retrying))
         stagesFollowTheConnection()
     }

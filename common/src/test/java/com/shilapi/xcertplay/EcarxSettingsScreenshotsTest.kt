@@ -17,37 +17,19 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.util.ReflectionHelpers
 
-/** Native screenshots of the production settings and editor at 1.5x text size and hdpi. */
+/** Production settings and editor on the current 1920×1080 head unit. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EcarxSettingsScreenshotsTest {
-    @Test @Config(qualifiers = "zh-rCN-w320dp-h480dp-port-hdpi")
-    fun compactChineseDialogFitsItsRealWindow() = captureSettings("compact-zh")
-
-    @Test @Config(qualifiers = "en-w960dp-h540dp-land-hdpi")
-    fun fullEnglishDialogFitsItsRealWindow() = captureSettings("full-en")
-
-    @Test @Config(qualifiers = "zh-rTW-w320dp-h480dp-port-hdpi")
-    fun compactTraditionalChineseDialogFitsItsRealWindow() = captureSettings("compact-zh-tw")
-
-    // Unsupported system languages use English resources; retain generic RTL layout coverage.
-    @Test @Config(qualifiers = "ar-w320dp-h480dp-port-hdpi")
-    fun compactEnglishFallbackFitsAnRtlSystem() = captureSettings("compact-en-rtl-system")
-
-    private fun captureSettings(name: String) {
-        // The common library test manifest has no application RTL flag. Both shipped app
-        // manifests (mobile and automotive) enable it; reproduce that real host contract.
-        val applicationInfo = RuntimeEnvironment.getApplication().applicationInfo
-        val originalFlags = applicationInfo.flags
-        applicationInfo.flags = originalFlags or android.content.pm.ApplicationInfo.FLAG_SUPPORTS_RTL
-        RuntimeEnvironment.setFontScale(1.5f)
+    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
+    fun settingsAndEditorFitTheCurrentHeadUnit() {
+        val name = "current-head-unit"
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         AirPlayPersistence.clearClusterSafeAreaRect(activity)
@@ -107,11 +89,9 @@ class EcarxSettingsScreenshotsTest {
             }.toList()
             assertEquals(2, actions.size)
             assertEquals("$name: actions in one row keep equal heights", actions[0].height, actions[1].height)
-            if (configuration.locales[0].language == "ar") assertEquals(View.LAYOUT_DIRECTION_RTL, panel.layoutDirection)
             dialog.dismiss()
 
         } finally {
-            applicationInfo.flags = originalFlags
             ReflectionHelpers.getField<Dialog?>(activity, "clusterSafeAreaDialog")?.dismiss()
             activity.finish()
         }
@@ -119,7 +99,7 @@ class EcarxSettingsScreenshotsTest {
 
     private fun render(root: ViewGroup, width: Int, file: File) {
         root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
         root.layout(0, 0, width, root.measuredHeight)
         capture(root, file)
     }

@@ -40,6 +40,8 @@
       guard reports instead of changing anything.
     -->
     <uses-permission android:name="android.permission.BLUETOOTH_PRIVILEGED" />
+    <!-- The 820A factory HiCar switch is available only when this platform permission is granted. -->
+    <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
 
     <uses-feature
         android:name="android.hardware.usb.host"
@@ -62,6 +64,7 @@
         <package android:name="com.ecarx.eas.service" />
         <package android:name="com.ecarx.assistant" />
         <package android:name="com.ecarx.xiaoka" />
+        <package android:name="com.ecarx.hmi" />
         <package android:name="ecarx.naviservice" />
     </queries>
 

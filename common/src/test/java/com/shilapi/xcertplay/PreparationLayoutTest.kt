@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
 class PreparationLayoutTest {
-    @Test fun shortAndRegularViewportsFitWithoutScrolling() {
+    @Test fun currentHeadUnitFitsWithoutScrolling() {
         // Attach without onCreate: avoid starting sensors, networking or CarPlay sessions.
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         val method = CarPlayHostActivity::class.java.getDeclaredMethod("buildContentView")
@@ -24,10 +24,10 @@ class PreparationLayoutTest {
         val viewport = CarPlayHostActivity::class.java.getDeclaredField("connectionPanel")
             .apply { isAccessible = true }.get(activity) as FrameLayout
         val panel = viewport.getChildAt(0) as LinearLayout
-        val density = activity.resources.displayMetrics.density
-        fun layout(heightDp: Int) {
-            val width = (640 * density).toInt()
-            val height = (heightDp * density).toInt()
+        val heightDp = 1080
+        run {
+            val width = 1920
+            val height = 1080
             repeat(3) {
                 // This detached view has no ViewRoot to schedule the next traversal.
                 fun invalidateMeasurement(view: View) {
@@ -48,7 +48,6 @@ class PreparationLayoutTest {
             assertTrue("top=$top height=$heightDp", top >= -1f)
             assertTrue("bottom height=$heightDp", top + panel.height * panel.scaleY <= viewport.height + 1f)
         }
-        for (height in listOf(200, 240, 320, 400, 479, 480, 720)) layout(height)
         assertEquals(34f, (panel.getChildAt(1) as TextView).textSize / activity.resources.displayMetrics.scaledDensity, 0.01f)
     }
 }

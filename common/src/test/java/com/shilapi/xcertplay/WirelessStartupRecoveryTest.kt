@@ -28,7 +28,7 @@ import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class WirelessStartupRecoveryTest {
     private lateinit var activity: CarPlayHostActivity
@@ -266,7 +266,7 @@ class WirelessStartupRecoveryTest {
     @Test fun aHotspotThatIsNotReadyIsNamedAndTheStopIsSaid() =
         assertNamedUntilRetriesStop(hotspotNotReady, R.string.hotspot_network_not_ready)
 
-    @Test @Config(qualifiers = "zh-rCN") fun aHotspotThatIsNotReadyIsNamedInChinese() {
+    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi") fun aHotspotThatIsNotReadyIsNamedInChinese() {
         assertNotEquals("Hotspot network is not ready", activity.getString(R.string.hotspot_network_not_ready))
         assertNamedUntilRetriesStop(hotspotNotReady, R.string.hotspot_network_not_ready)
     }

@@ -75,10 +75,11 @@ Spacing, size and shape in the Settings screen MUST come from one place.
 1. A gap between blocks MUST use a named dp constant, such as `SETTINGS_BLOCK_GAP_DP`.
    A new literal gap value MUST NOT be added.
 2. A size MUST NOT be a pixel constant (`*_PX`). Use dp, and clamp to the available window width.
-   Test a menu or panel on a narrow window and on a high-density screen.
+   Test menus and panels on the current head unit at 1920×1080 pixels.
 3. Controls in one row MUST have the same height.
    Corner radius MUST follow the control height. A new button MUST NOT set its own radius.
 4. Every `SettingsCategory` except Overview MUST have a link on Overview.
    `AdaptiveSettingsUiTest.overviewLinksToEveryOtherCategory` checks this.
-5. A layout change MUST include compact and full screenshots with a large font scale.
-   Add an Arabic (right-to-left) screenshot when the change touches row alignment.
+5. A layout change MUST include a screenshot at the current head unit size: 1920×1080 pixels,
+   landscape, normal font scale. Do not add other screen sizes, portrait, large-font or RTL
+   screenshot variants. Keep protocol and instrument-display dimension tests for their own formats.

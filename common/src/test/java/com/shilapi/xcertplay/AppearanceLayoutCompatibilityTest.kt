@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 28, 33], qualifiers = "en-w700dp-h400dp-land")
+@Config(sdk = [25, 28, 33], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 class AppearanceLayoutCompatibilityTest {
     @Test fun appearanceChangesKeepNavigationAndVisibleSystemBarsOnOlderAndroid() {
         val context = RuntimeEnvironment.getApplication() as Context

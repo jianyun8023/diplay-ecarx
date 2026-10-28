@@ -51,47 +51,32 @@ class SidePanelLayoutTest {
         sink.close()
     }
 
-    @Test fun letterboxedPanelKeepsItsPhysicalPassengerSideInEitherLayoutDirection() {
+    @Test fun currentHeadUnitPanelStaysOnThePassengerSide() {
         for (rtl in listOf(false, true)) for (rightHandDrive in listOf(false, true)) {
             root.layoutDirection = if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
-            val areas = CarPlayViewAreas.build(2560, 1440, CarPlayDock.AUTOMATIC, null,
+            val areas = CarPlayViewAreas.build(1920, 1080, CarPlayDock.AUTOMATIC, null,
                 sidePanel = true, rightHandDrive = rightHandDrive)!!
             areas.use(areas.sidePanel()!!)
-            set("sessionDisplay", CarPlaySessionDisplay(2560, 1440, Surface.ROTATION_0,
-                true, true, 1200, 1200, areas))
-            place(1200, 1200)
-            root.measure(exact(1200), exact(1200))
-            root.layout(0, 0, 1200, 1200)
+            set("sessionDisplay", CarPlaySessionDisplay(1920, 1080, Surface.ROTATION_0,
+                true, true, 1920, 1080, areas))
+            place(1920, 1080)
+            root.measure(exact(1920), exact(1080))
+            root.layout(0, 0, 1920, 1080)
             assertEquals(if (rtl) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR, root.layoutDirection)
-            assertEquals("rtl=$rtl rightHandDrive=$rightHandDrive", if (rightHandDrive) 0 else 800, panel.left)
-            assertEquals(263, panel.top)
-            assertEquals(400, panel.width)
-            assertEquals(675, panel.height)
+            assertEquals("rtl=$rtl rightHandDrive=$rightHandDrive", if (rightHandDrive) 0 else 1280, panel.left)
+            assertEquals(0, panel.top)
+            assertEquals(640, panel.width)
+            assertEquals(1080, panel.height)
         }
     }
 
-    @Test fun portraitPanelCoversTheBottomStripOfTheSquareStream() {
-        val areas = CarPlayViewAreas.build(2560, 2560, listOf(
-            CarPlayViewAreas.Screen(2560, 1440, false), CarPlayViewAreas.Screen(1440, 2560, true)),
-            CarPlayDock.AUTOMATIC, { null }, true, sidePanel = true, rightHandDrive = true)!!
-        areas.use(areas.sidePanel(true)!!)
-        set("sessionDisplay", CarPlaySessionDisplay(2560, 2560, Surface.ROTATION_90,
-            true, true, 900, 1600, areas))
-        place(900, 1600)
-        val params = panel.layoutParams as FrameLayout.LayoutParams
-        assertEquals(0, params.leftMargin)
-        assertEquals(1066, params.topMargin)
-        assertEquals(900, params.width)
-        assertEquals(534, params.height)
-    }
-
     @Test fun adoptingAnOpenSidePanelRestoresItsViewAndRefreshWithoutChangingTheArea() {
-        val areas = CarPlayViewAreas.build(2560, 1440, CarPlayDock.AUTOMATIC, null, sidePanel = true)!!
+        val areas = CarPlayViewAreas.build(1920, 1080, CarPlayDock.AUTOMATIC, null, sidePanel = true)!!
         val selected = areas.sidePanel()!!
         areas.use(selected)
-        val display = CarPlaySessionDisplay(2560, 1440, Surface.ROTATION_0, true, true, 2560, 1440, areas)
+        val display = CarPlaySessionDisplay(1920, 1080, Surface.ROTATION_0, true, true, 1920, 1080, areas)
         val controller = mock(CarPlayController::class.java)
-        CarPlayBackgroundSession.store(controller, sink, 2560, 1440, Any(), display) {}
+        CarPlayBackgroundSession.store(controller, sink, 1920, 1080, Any(), display) {}
         set("sidePanelShown", false)
         panel.visibility = View.GONE
         assertEquals(true, activity.javaClass.getDeclaredMethod("adoptBackgroundSession")

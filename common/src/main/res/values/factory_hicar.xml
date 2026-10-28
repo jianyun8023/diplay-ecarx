@@ -1,0 +1,8 @@
+<resources>
+    <string name="settings_disable_factory_hicar">Disable factory HiCar</string>
+    <string name="settings_disable_factory_hicar_description">Free the long-press voice key for Siri. Factory HiCar stays disabled after DiPlay closes. Turn this off to restore HiCar; the head unit may need a restart.</string>
+    <string name="settings_factory_hicar_permission_required">This build lacks the system permission to change HiCar. Its current state is shown.</string>
+    <string name="settings_factory_hicar_disabled">Factory HiCar disabled</string>
+    <string name="settings_factory_hicar_restored">Factory HiCar restored. Restart the head unit if needed.</string>
+    <string name="settings_factory_hicar_failed">Could not change HiCar. Its actual state is shown.</string>
+</resources>

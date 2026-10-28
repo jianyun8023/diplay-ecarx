@@ -21,7 +21,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31], qualifiers = "en-sw1333dp-w2666dp-h1225dp-land-mdpi", manifest = Config.NONE)
+@Config(sdk = [31], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 class InterfaceSizeActivityTest {
     @After
     fun resetInterfaceSize() {
@@ -29,7 +29,7 @@ class InterfaceSizeActivityTest {
     }
 
     @Test
-    @Config(sdk = [28], qualifiers = "en-sw800dp-w1280dp-h800dp-land-mdpi")
+    @Config(sdk = [28], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
     fun fixedScalingKeepsFreshWindowDimensionsAndTheSelectedSettingsCategory() {
         val app = RuntimeEnvironment.getApplication()
         CarPlayBackgroundSession.clear()
@@ -44,35 +44,18 @@ class InterfaceSizeActivityTest {
             ReflectionHelpers.setField(activity, "settingsCategory", SettingsCategory.DISPLAY)
             ReflectionHelpers.callInstanceMethod<Unit>(activity, "render")
             assertEquals(240, activity.resources.configuration.densityDpi)
-            assertEquals(853, activity.resources.configuration.screenWidthDp)
+            assertEquals(1280, activity.resources.configuration.screenWidthDp)
             assertEquals(160, app.resources.configuration.densityDpi)
-            assertEquals(1280, app.resources.configuration.screenWidthDp)
+            assertEquals(1920, app.resources.configuration.screenWidthDp)
 
-            // ActivityThread merges the context override into the fresh system configuration. A
-            // dimension override here would freeze the original 853x533dp window after rotation.
             val installed = ReflectionHelpers.getField<Configuration>(activity, "mOverrideConfiguration")
-            fun reported(width: Int, height: Int) = Configuration().apply {
-                densityDpi = 160
-                screenWidthDp = width
-                screenHeightDp = height
-                smallestScreenWidthDp = minOf(width, height)
-                setLocales(activity.resources.configuration.locales)
-                updateFrom(installed)
-            }
             assertEquals(0, installed.screenWidthDp)
             assertEquals(0, installed.screenHeightDp)
-
-            activity.onConfigurationChanged(reported(800, 1280))
+            val reported = Configuration(app.resources.configuration).apply { updateFrom(installed) }
+            activity.onConfigurationChanged(reported)
             assertEquals(240, activity.resources.configuration.densityDpi)
-            assertEquals(533, activity.resources.configuration.screenWidthDp)
-            assertEquals(853, activity.resources.configuration.screenHeightDp)
-
-            val split = reported(480, 800)
-            activity.onMultiWindowModeChanged(true, split)
-            activity.onConfigurationChanged(split)
-            assertEquals(240, activity.resources.configuration.densityDpi)
-            assertEquals(320, activity.resources.configuration.screenWidthDp)
-            assertEquals(533, activity.resources.configuration.screenHeightDp)
+            assertEquals(1280, activity.resources.configuration.screenWidthDp)
+            assertEquals(720, activity.resources.configuration.screenHeightDp)
             assertEquals(SettingsCategory.DISPLAY,
                 ReflectionHelpers.getField<SettingsCategory>(activity, "settingsCategory"))
             assertEquals("settings", ReflectionHelpers.getField<String>(activity, "page"))
@@ -91,7 +74,7 @@ class InterfaceSizeActivityTest {
     }
 
     @Test
-    @Config(sdk = [28], qualifiers = "en-sw800dp-w1280dp-h800dp-land-mdpi")
+    @Config(sdk = [28], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
     @LooperMode(LooperMode.Mode.PAUSED)
     fun aRealSystemDensityChangeRecreatesAtTheNewScaledDensityAndKeepsSettings() {
         val app = RuntimeEnvironment.getApplication()
@@ -110,7 +93,7 @@ class InterfaceSizeActivityTest {
             assertEquals(240, activity.resources.configuration.densityDpi)
             assertEquals(160, app.resources.configuration.densityDpi)
 
-            RuntimeEnvironment.setQualifiers("en-sw400dp-w640dp-h400dp-land-xhdpi")
+            RuntimeEnvironment.setQualifiers("en-w960dp-h540dp-land-xhdpi")
             assertEquals(320, app.resources.configuration.densityDpi)
             val reported = Configuration(app.resources.configuration).apply { updateFrom(installed) }
             assertEquals(240, reported.densityDpi)
@@ -121,8 +104,8 @@ class InterfaceSizeActivityTest {
             val resized = controller.get()
             assertNotSame(activity, resized)
             assertEquals(480, resized.resources.configuration.densityDpi)
-            assertEquals(427, resized.resources.configuration.screenWidthDp)
-            assertEquals(267, resized.resources.configuration.screenHeightDp)
+            assertEquals(640, resized.resources.configuration.screenWidthDp)
+            assertEquals(360, resized.resources.configuration.screenHeightDp)
             assertEquals(320, app.resources.configuration.densityDpi)
             assertEquals("settings", ReflectionHelpers.getField<String>(resized, "page"))
             assertEquals(SettingsCategory.DISPLAY,

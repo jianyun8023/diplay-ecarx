@@ -34,7 +34,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** Settings button -> real editor -> stored mapping -> host config -> phone's type-111 declaration. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w960dp-h720dp")
+@Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 @LooperMode(LooperMode.Mode.PAUSED)
 class EcarxClusterSafeAreaFlowTest {
     private lateinit var settings: DiPlayActivity

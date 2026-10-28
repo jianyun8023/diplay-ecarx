@@ -18,11 +18,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], manifest = Config.NONE)
 class ResolutionDialogTest {
-    @Test @Config(qualifiers = "zh-rCN") fun chineseDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
-    @Test @Config(qualifiers = "ar") fun arabicDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
-    @Test @Config(qualifiers = "es") fun spanishDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
-    @Test @Config(qualifiers = "ru") fun russianDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
-    @Test @Config(qualifiers = "uk") fun ukrainianDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
+    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi") fun chineseDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
+    @Test @Config(qualifiers = "ar-w1920dp-h1080dp-land-mdpi") fun arabicDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
+    @Test @Config(qualifiers = "es-w1920dp-h1080dp-land-mdpi") fun spanishDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
+    @Test @Config(qualifiers = "ru-w1920dp-h1080dp-land-mdpi") fun russianDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
+    @Test @Config(qualifiers = "uk-w1920dp-h1080dp-land-mdpi") fun ukrainianDialogs() = numericDialogsKeepNaturalHeightWhenResetting()
     @Test fun numericDialogsKeepNaturalHeightWhenResetting() {
         val a = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         val parent = LinearLayout(a)

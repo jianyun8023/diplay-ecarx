@@ -18,7 +18,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33], qualifiers = "en")
+@Config(sdk = [33], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 @LooperMode(LooperMode.Mode.PAUSED)
 class WaitingScreenAppearanceTest {
     private lateinit var activity: CarPlayHostActivity

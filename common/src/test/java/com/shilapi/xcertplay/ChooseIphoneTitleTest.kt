@@ -22,7 +22,7 @@ import org.robolectric.util.ReflectionHelpers
 
 /** The Choose iPhone buttons name the chosen iPhone, and no iPhone before one is chosen. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], qualifiers = "en-w1000dp-h700dp-land")
+@Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi")
 class ChooseIphoneTitleTest {
     private val context: Context = RuntimeEnvironment.getApplication()
     private val opened = mutableListOf<DiPlayActivity>()
@@ -93,7 +93,7 @@ class ChooseIphoneTitleTest {
     }
 
     // The placeholder was English in every language: Traditional Chinese read "選擇 iPhone · Your iPhone".
-    @Config(qualifiers = "zh-rTW-w1000dp-h700dp-land")
+    @Config(qualifiers = "zh-rTW-w1920dp-h1080dp-land-mdpi")
     @Test fun inTraditionalChineseTheButtonIsAllChinese() {
         for ((name, screen) in pages()) {
             assertEquals(name, listOf("選擇 iPhone"), chooseButtons(screen))

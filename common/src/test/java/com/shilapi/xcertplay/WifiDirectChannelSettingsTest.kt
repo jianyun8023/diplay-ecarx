@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [32], qualifiers = "en", manifest = Config.NONE)
+@Config(sdk = [32], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
 class WifiDirectChannelSettingsTest {
     private lateinit var activity: DiPlayActivity
     private val prefs get() = RuntimeEnvironment.getApplication()
