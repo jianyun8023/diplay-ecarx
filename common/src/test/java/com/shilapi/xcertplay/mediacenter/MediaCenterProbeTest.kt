@@ -75,7 +75,7 @@ class MediaCenterProbeTest {
         repeat(3) {
             val report = MediaCenterProbe.report(context)
             assertTrue(report.contains("MediaCenter permissionDeclared="))
-            assertTrue(report.contains("UNI contract=UNAVAILABLE"))
+            assertTrue(report.contains("ECARX contract=UNAVAILABLE"))
         }
         assertEquals(0, bindings)
     }

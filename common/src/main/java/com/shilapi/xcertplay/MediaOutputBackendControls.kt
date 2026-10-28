@@ -5,30 +5,24 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
-import com.shilapi.xcertplay.hud.MediaOutputBackendSettings
 import com.shilapi.xcertplay.mediacenter.MediaCenterProbe
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Settings only: selecting an output never initializes, registers, or changes a running session. */
+/** Read-only MediaCenter diagnostics; probing never registers a session. */
 internal class MediaOutputBackendControls(
     private val activity: Activity,
-    private val reconnectNeeded: () -> Unit,
     private val backend: Backend = AndroidBackend(activity),
     private val labelFactory: (String) -> TextView = { TextView(activity).apply { text = it; textSize = 15f } },
     private val buttonFactory: (String, () -> Unit) -> Button = { title, click ->
         Button(activity).apply { text = title; setOnClickListener { click() } } },
 ) {
     interface Backend {
-        fun load(): MediaOutputBackendSettings.Backend
-        fun save(value: MediaOutputBackendSettings.Backend)
         fun diagnostics(): String
         fun probe(): String
         fun executeProbe(block: () -> Unit): Boolean
     }
     private class AndroidBackend(private val activity: Activity) : Backend {
-        override fun load() = MediaOutputBackendSettings.load(activity)
-        override fun save(value: MediaOutputBackendSettings.Backend) = MediaOutputBackendSettings.save(activity, value)
         override fun diagnostics() = CarPlayMediaOutput.diagnostics()
         override fun probe() = MediaCenterProbe.report(activity.applicationContext)
         override fun executeProbe(block: () -> Unit) = ProbeExecutor.submit(block)
@@ -56,9 +50,7 @@ internal class MediaOutputBackendControls(
             view.addView(buttonFactory(value, action).apply { isEnabled = enabled },
                 LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(CONTROL_GAP_DP) })
         text(activity.getString(R.string.settings_media_backend_description))
-        button(activity.getString(R.string.settings_media_backend_choice) + " · " + title(backend.load())) { choose() }
-        text(activity.getString(if (backend.load() == MediaOutputBackendSettings.Backend.STANDARD)
-            R.string.settings_media_backend_standard_help else R.string.settings_media_backend_permission))
+        text(activity.getString(R.string.settings_media_backend_permission))
         text(activity.getString(R.string.settings_media_backend_diagnostics) + "\n" +
             runCatching { backend.diagnostics() }.getOrDefault("UNAVAILABLE"))
         button(activity.getString(R.string.settings_media_backend_refresh)) { if (!closed) display() }
@@ -67,27 +59,6 @@ internal class MediaOutputBackendControls(
         if (probeRejected) text(activity.getString(R.string.settings_media_backend_probe_busy))
         probeReport?.let { text(it) }
     }
-
-    private fun choose() {
-        if (closed) return
-        val options = MediaOutputBackendSettings.Backend.entries
-        activity.appDialogBuilder().setTitle(R.string.settings_media_backend_choice)
-            .setItems(options.map(::title).toTypedArray()) { _, index ->
-                if (closed) return@setItems
-                val selected = options[index]
-                if (selected != backend.load()) {
-                    backend.save(selected)
-                    reconnectNeeded()
-                }
-                display()
-            }.setNegativeButton(R.string.cancel, null).show()
-    }
-
-    private fun title(value: MediaOutputBackendSettings.Backend) = activity.getString(when (value) {
-        MediaOutputBackendSettings.Backend.UNI_MEDIACENTER -> R.string.settings_media_backend_uni
-        MediaOutputBackendSettings.Backend.DIM -> R.string.settings_media_backend_dim
-        MediaOutputBackendSettings.Backend.STANDARD -> R.string.settings_media_backend_standard
-    })
 
     private fun probe() {
         if (closed || probeBusy) return

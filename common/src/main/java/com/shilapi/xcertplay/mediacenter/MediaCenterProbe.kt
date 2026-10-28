@@ -52,9 +52,9 @@ internal object MediaCenterProbe {
             }.onFailure { appendLine("SDK signatures unavailable=${it.javaClass.simpleName}") }
             val types = types(loader)
             val contract = Contract.resolve(types)
-            append("UNI contract=AVAILABLE artwork=${contract.artworkSupported} register=${signature(contract.register)} unregister=${signature(contract.unregister)}")
-        } catch (error: Exception) { append("UNI contract=UNAVAILABLE reason=${error.javaClass.simpleName}") }
-        catch (_: LinkageError) { append("UNI contract=UNAVAILABLE reason=LinkageError") }
+            append("ECARX contract=AVAILABLE artwork=${contract.artworkSupported} register=${signature(contract.register)} unregister=${signature(contract.unregister)}")
+        } catch (error: Exception) { append("ECARX contract=UNAVAILABLE reason=${error.javaClass.simpleName}") }
+        catch (_: LinkageError) { append("ECARX contract=UNAVAILABLE reason=LinkageError") }
     }
 
     fun loader(context: Context): ClassLoader {

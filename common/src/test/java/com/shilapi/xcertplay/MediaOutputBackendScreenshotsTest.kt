@@ -7,7 +7,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
-import com.shilapi.xcertplay.hud.MediaOutputBackendSettings
 import java.io.File
 import org.junit.Assert.*
 import org.junit.Test
@@ -27,8 +26,6 @@ class MediaOutputBackendScreenshotsTest {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         val backend = object : MediaOutputBackendControls.Backend {
-            override fun load() = MediaOutputBackendSettings.Backend.STANDARD
-            override fun save(value: MediaOutputBackendSettings.Backend) = error("Screenshot must never save")
             override fun diagnostics() = "IDLE / WAITING_FOR_CARPLAY_MEDIA"
             override fun probe() = error("Screenshot must never inspect")
             override fun executeProbe(block: () -> Unit) = error("Screenshot must never queue work")
@@ -39,7 +36,7 @@ class MediaOutputBackendScreenshotsTest {
         val labelMethod = activity.javaClass.getDeclaredMethod("label", String::class.java,
             Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
             Boolean::class.javaPrimitiveType).apply { isAccessible = true }
-        val controls = MediaOutputBackendControls(activity, {}, backend,
+        val controls = MediaOutputBackendControls(activity, backend,
             labelFactory = { labelMethod.invoke(activity, it, 15, 0xffdddddd.toInt(), false, false) as TextView },
             buttonFactory = { title, click -> buttonMethod.invoke(activity, title, false, click) as Button })
         try {

@@ -848,7 +848,7 @@
     <string name="ecarx_instrument_cluster_projection">儀表投屏</string>
     <string name="ecarx_instrument_cluster_projection_description">把中控畫面整屏鏡像到儀表。儀表導航改用投屏通道後已經不需要它，開啟反而會蓋住儀表上的箭頭與媒體卡片。只想要箭頭或媒體卡片時請保持關閉。</string>
     <string name="ecarx_media_on_instrument_cluster">儀表媒體卡片</string>
-    <string name="ecarx_media_on_instrument_cluster_description">啟用媒體資訊輸出，後端在進階設定中選擇，與導航獨立。UNI MediaCenter 需要韌體授權，失敗不會自動改用 DIM。後端切換於下次 CarPlay 連線時生效。</string>
+    <string name="ecarx_media_on_instrument_cluster_description">透過億咖通 ECARX MediaCenter 輸出媒體資訊，與導航獨立，需要相容韌體及權限。</string>
     <string name="ecarx_navigation">億咖通導航</string>
     <string name="ecarx_navigation_on_instrument_cluster">儀表導航</string>
     <string name="ecarx_navigation_on_instrument_cluster_description">透過車機 DIM 介面，在億咖通儀表上顯示 CarPlay 的轉向箭頭、距離、預計到達時間與路名。</string>

@@ -43,9 +43,6 @@ internal class MediaCenterSessionEngine(
         if (changed) queue()
     }
     fun snapshot(): Status = status
-    /** Cross-backend barrier: IDLE alone is insufficient while a worker/token may be pending. */
-    fun cleanForDim(): Boolean = !scheduled.get() && !dirty.get() && transport == null &&
-        operationAt == 0L && registeredOwner == null && !status.uncertain
     fun canSelect(owner: Any): Boolean = ownsCallbacks(owner) && operation == "NONE"
     fun select(owner: Any) { if (canSelect(owner)) { selectionOwner = owner; queue() } }
     fun ownsMediaKeys(owner: Any): Boolean = ownsCallbacks(owner) && status.claimed

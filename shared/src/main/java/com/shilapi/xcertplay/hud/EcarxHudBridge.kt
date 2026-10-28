@@ -1038,6 +1038,5 @@ internal object EcarxHudBridge {
         // Outside the lock above: the media half has its own lock and its own state, and nesting the
         // two here would only buy an ordering rule to remember.
         append(EcarxProjectionChannel.state())
-        append(EcarxMediaBridge.state())
     }
 }

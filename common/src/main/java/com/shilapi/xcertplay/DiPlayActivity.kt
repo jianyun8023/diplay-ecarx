@@ -1914,7 +1914,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         filteredSection(content, SettingsSection.MEDIA_OUTPUT_BACKEND,
             getString(R.string.settings_media_backend_title), R.drawable.ic_dp_advanced) { card ->
             val controls = mediaOutputBackendControls ?: MediaOutputBackendControls(this,
-                reconnectNeeded = ::markReconnectNeeded,
                 labelFactory = { label(it, 15, MUTED) },
                 buttonFactory = { title, click -> button(title, false, click) })
                 .also { mediaOutputBackendControls = it }
@@ -4758,8 +4757,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine(ConnectionDiagnostics.report(appContext))
         appendLine(CarPlayMediaOutput.diagnostics())
-        appendLine("Saved media backend=${com.shilapi.xcertplay.hud.MediaOutputBackendSettings.load(appContext)} " +
-            "clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
+        appendLine("ECARX MediaCenter clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
         appendLine(CarPlayMediaKeys.diagnosticReport())
         appendLine(CarPlayMediaKeys.artworkDiagnosticReport())
         appendLine(runCatching {

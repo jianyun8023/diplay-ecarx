@@ -1480,7 +1480,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (downOrUp && !inCall(this)) {
             val press = com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
                 com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), event.keyCode)
-            if (press != null && !(press.isMedia && com.shilapi.xcertplay.hud.MediaOutputBackendSettings.standardOnly(this))) {
+            if (press != null) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     val ctrl = controller
                     val sent = when {
@@ -1503,7 +1503,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             sessionActive = activeAirPlaySession != null,
             inCall = inCall(this),
         )
-        if (downOrUp && mediaPress != null && !com.shilapi.xcertplay.hud.MediaOutputBackendSettings.standardOnly(this)) {
+        if (downOrUp && mediaPress != null) {
             // A media button is a tap, and the wheel sends each tap as an instant down/up pair: send
             // once, on the press. The release is swallowed rather than passed on, or the car's own
             // player would receive an unpaired key.
@@ -1546,14 +1546,11 @@ open class CarPlayHostActivity : ComponentActivity() {
                 override fun onKeyPressed(keyCode: Int): Boolean {
                     appendLog("SWKey-CH[intercept] t=${System.currentTimeMillis()} key=$keyCode session=${activeAirPlaySession != null}")
                     if (activeAirPlaySession == null || inCall(this@CarPlayHostActivity)) return false
-                    if (com.shilapi.xcertplay.hud.MediaOutputBackendSettings.standardOnly(context) &&
-                        com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
-                            com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(context), keyCode)?.isMedia == true) return false
                     runOnUiThread { handleEcarxWheelKey(keyCode) }
                     return true
                 }
                 override fun onKeyReleased(keyCode: Int): Boolean = false
-            }, "carplay", includeMediaKeys = !com.shilapi.xcertplay.hud.MediaOutputBackendSettings.standardOnly(context))
+            }, "carplay")
             appendLog("SWKey: interception ${ecarxSwKeyHandle?.describe() ?: "unavailable"}")
         }
         // 2. Private voice-key broadcast (ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT).
@@ -1621,8 +1618,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), keyCode)
         if (press == null) return false
         val ctrl = controller
-        if (press.isMedia && (com.shilapi.xcertplay.hud.MediaOutputBackendSettings.standardOnly(this) ||
-                CarPlayMediaOutput.isMediaCenterActive(ctrl))) return false
+        if (press.isMedia && CarPlayMediaOutput.isMediaCenterActive(ctrl)) return false
         val sent = when {
             press.isSiri -> ctrl?.requestSiri() == true
             press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true

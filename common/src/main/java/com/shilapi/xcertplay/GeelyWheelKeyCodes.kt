@@ -23,6 +23,6 @@ internal object GeelyWheelKeyCodes {
      * iPhone's music, so registering the media keys here too would double-fire play/pause and skip.
      * Only the microphone key is registered then (long press -> Siri); otherwise all of them are.
      */
-    fun registeredCodes(bluetoothAudio: Boolean, standardOnly: Boolean = false): IntArray =
-        if (bluetoothAudio || standardOnly) SIRI_ONLY else ALL
+    fun registeredCodes(bluetoothAudio: Boolean): IntArray =
+        if (bluetoothAudio) SIRI_ONLY else ALL
 }

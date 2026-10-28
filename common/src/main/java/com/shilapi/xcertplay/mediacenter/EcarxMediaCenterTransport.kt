@@ -31,7 +31,7 @@ internal interface MediaCenterTransport {
 }
 
 /** Independent implementation of observed ECARX interfaces, not copied launcher code. */
-internal class UniMediaCenterTransport(
+internal class EcarxMediaCenterTransport(
     context: Context,
     private val command: (Int) -> Boolean,
     private val valid: () -> Boolean,
