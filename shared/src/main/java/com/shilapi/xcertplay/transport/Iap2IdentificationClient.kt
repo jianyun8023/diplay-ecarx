@@ -394,6 +394,8 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                     u16(2, 64) // MaxCurrentRoadNameLength
                     u16(4, 64) // MaxAfterManeuverRoadNameLength
                     u16(6, 8)
+                    u16(7, 64)
+                    u16(8, 8)
                 }
             }
         }
@@ -431,6 +433,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
             0x5001, // NowPlayingUpdate
             0x5201, // RouteGuidanceUpdate
             0x5202, // RouteGuidanceManeuverUpdate
+            0x5204, // LaneGuidanceInfoUpdate
             0xae01, // PowerUpdate
             0x4158, // CommunicationsUpdate
             0x4155, // CallStateUpdate
