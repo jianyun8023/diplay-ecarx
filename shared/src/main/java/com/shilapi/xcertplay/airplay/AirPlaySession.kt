@@ -96,6 +96,8 @@ class AirPlaySession(
         private set
     private var clusterStreamSetups = 0
     @Volatile private var mainScreenToken: Any? = null
+    @Volatile private var mainFrameRendered = false
+    val hasRenderedMainFrame: Boolean get() = mainFrameRendered && !closed.get()
 
     private val closed = AtomicBoolean(false)
     internal val isClosed: Boolean get() = closed.get()
@@ -135,7 +137,9 @@ class AirPlaySession(
     internal fun logDebug(message: String) = debugLog(message)
 
     internal fun videoFrameRendered() {
-        if (!closed.get()) listener.onVideoFrameRendered(this)
+        if (closed.get()) return
+        mainFrameRendered = true
+        listener.onVideoFrameRendered(this)
     }
 
     internal fun logTrace(message: String) = trace(message)

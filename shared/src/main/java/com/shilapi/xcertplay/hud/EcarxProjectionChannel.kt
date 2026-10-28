@@ -7,78 +7,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Executors
 
-/**
- * The **phone-projection** channel of the ECARX DIM stack — the switch that decides whether the
- * cluster's navigation card and media card are fed by the phone or by the head unit's own sources.
- *
- * ## Why this exists
- *
- * Everything in [EcarxHudBridge] and [EcarxMediaBridge] goes through the XUI DIM API
- * (`com.ecarx.xui.adaptapi.diminteraction`). Measured on the car, that is **not** sufficient:
- *
- *  * the turn arrow only reaches the cluster while the 仪表投屏 switch
- *    ([EcarxDimApi.setPresentationToDimSwitch]) is on — with it off, the card is drawn by the head
- *    unit's own navigation source and nothing we send is shown;
- *  * the media card reads **无媒体** even though every one of the four `IMediaInteraction` calls is
- *    accepted, because the cluster's media card is likewise pointed at the head unit's own sources.
- *
- * Both are the same root cause, and it is one topic away.
- *
- * ## What the head unit's own service does
- *
- * The cluster is served by `se.cevt.dimsupportservice` — a `coreApp`, `persistent` system app
- * (`DimSupportServiceHost`) that is nothing but a Paho MQTT client. Recovered from its own bytecode
- * (`handlers/NavigationHandler`, `handlers/MediaHandler`, both dumped off the car):
- *
- * ```
- * DimSupportService.defaultUri   = "localhost:1883"      // + system property persist.dimsupportservice.brokeruri
- * DimSupportService.clientId     = "dimsupportservice"
- *
- * NavigationHandler.updateNavigationPhoneProjection(int osType)   // 0|1|2, anything else throws
- * MediaHandler.updateMediaPhoneProjection(int osType)             // 0|1|2, anything else throws
- *     -> MqttHelper.publish("ihu/info/phoneprojection", {"statusType": <statusType>})
- *
- *     osType 0 -> "androidAutoNavigation" / "androidAutoMedia"
- *     osType 1 -> "carPlayNavigation"     / "carPlayMedia"
- *     osType 2 -> "noProjection"
- * ```
- *
- * The payload carries a **single key**, but the service has three publishers writing to it —
- * `NavigationHandler`, `MediaHandler` and `PhoneHandler` — each with its own set of values, so the
- * value is a **per-axis** one: `…Navigation` addresses the navigation axis, `…Media` the media axis,
- * `…Telephone` the telephone axis. That is why this class keeps both halves in one place instead of
- * letting the nav and media bridges race each other on the topic (see [update]), and why a frame per
- * axis is published rather than one collapsed value: a single value would mean a track change could
- * take the arrow off the cluster.
- *
- * `noProjection` is the one value with no axis in its name — all three publishers can emit it — so
- * it is treated as "undo the projection" and is only sent once both halves have asked for nothing
- * *and* something was actually projected (see [flush]).
- *
- * ## Why we speak MQTT instead of calling the API
- *
- * `updateNavigationPhoneProjection` / `updateMediaPhoneProjection` live on the *service*, and the
- * third-party-facing facade this project can reach — `DimInteraction` — was never observed to carry
- * a projection setter: the ECARX projection tool shipped on this image calls exactly four
- * `IMediaInteraction` methods and none of them touches this topic, and its `DimSupportManager`
- * binding is a no-op stub whose `onServiceConnected` only calls `getClass()`. So the topic, its exact payload and the state map
- * are the only part of this path that is *proven*; the API call that would have produced them is
- * not. Publishing the frame ourselves is the honest way to use what is proven.
- *
- * ## What is deliberately conservative
- *
- *  * **QoS 1, not 0.** These are `void` calls everywhere else in this stack and nothing on the DIM
- *    API reports refusal, so the broker's `PUBACK` is the only delivery evidence a third-party app
- *    can obtain. A refused publish is then a fact in the report rather than a silent drop.
- *  * **Nothing watches the broker.** The observer that used to subscribe to `ihu/#` and echo
- *    payloads into the report was removed for the release build: it answered questions that are
- *    now closed, and it cost a second connection, a background thread and up to 300 report lines
- *    per run. What remains is one publisher and its PUBACK, which is the only delivery evidence
- *    available for calls that are `void` everywhere else in this stack.
- *  * **Nothing is published until a feature asks for it.** An untouched install writes nothing to
- *    this topic (see [update]), so a head unit whose owner never enabled the cluster output is not
- *    re-pointed at a phone that is not there.
- */
+/** Navigation projection channel for the ECARX DIM stack. */
 internal object EcarxProjectionChannel {
     private const val TAG = "DiPlay-ECARX-PROJ"
 
@@ -107,7 +36,6 @@ internal object EcarxProjectionChannel {
     private const val KEY_STATUS = "statusType"
 
     private const val STATUS_CARPLAY_NAVIGATION = "carPlayNavigation"
-    private const val STATUS_CARPLAY_MEDIA = "carPlayMedia"
     private const val STATUS_NONE = "noProjection"
 
     /** A local loopback broker answers or fails immediately; these are a liveness check, not a budget. */
@@ -127,17 +55,7 @@ internal object EcarxProjectionChannel {
     private var packetId = 0
     private var lastConnectReason = "not attempted"
 
-    /**
-     * What the two halves want, and the **one** value the cluster was last told.
-     *
-     * This is a single state, not three independent axes. Measured on this head unit: a track
-     * change and a guidance start fired 2 ms apart, `carPlayMedia` then `carPlayNavigation`, and the
-     * cluster stayed on the navigation value — the later frame won and the media card it had just
-     * been handed never appeared. `noProjection` is likewise the only "off" value, so one half
-     * cannot be turned off while the other stays on; the honest frame to send is the survivor.
-     */
     private var navigationWanted = false
-    private var mediaWanted = false
 
     /** The value the cluster was last told, or `null` before the first successful frame. */
     private var published: String? = null
@@ -151,10 +69,10 @@ internal object EcarxProjectionChannel {
     /**
      * Every publish runs here rather than on the caller's thread.
      *
-     * The callers are [EcarxHudBridge] and [EcarxMediaBridge] tickers, and both hold their own lock
+     * The callers are [EcarxHudBridge] tickers, which hold the bridge lock
      * around the call; a broker that has gone away costs a connect timeout per attempt, which is not
      * something to spend inside a guidance frame. One thread also keeps the frames in the order the
-     * state changed, which is what makes the navigation-last rule in [planLocked] hold on the wire.
+     * state changed.
      */
     private val worker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "diplay-ecarx-projection").apply { isDaemon = true }
@@ -166,7 +84,7 @@ internal object EcarxProjectionChannel {
     private var reportSink: ((String) -> Unit)? = null
     private val unreported = ArrayDeque<String>()
 
-    /** Where this channel's lines go besides logcat; same seam as the two bridges. Idempotent. */
+    /** Where this channel's lines go besides logcat; same seam as the HUD bridge. Idempotent. */
     fun attachReport(sink: (String) -> Unit) = synchronized(lock) {
         reportSink = sink
         unreported.forEach(sink)
@@ -194,8 +112,6 @@ internal object EcarxProjectionChannel {
      */
     fun setNavigationProjection(on: Boolean): String = update { navigationWanted = on }
 
-    /** The media axis. Called when the now-playing card goes up and when it is cleared. */
-    fun setMediaProjection(on: Boolean): String = update { mediaWanted = on }
 
     /**
      * Tells the cluster that a navigation is running (or has stopped), on the event topic the head
@@ -261,27 +177,14 @@ internal object EcarxProjectionChannel {
         "projection=$wanted (queued)"
     }
 
-    /** `navi/media`, with `-` for a half that is off. Only for report lines. */
-    private fun describeLocked(): String =
-        (if (navigationWanted) "navi" else "-") + "/" + (if (mediaWanted) "media" else "-")
+    private fun describeLocked(): String = if (navigationWanted) "navi" else "-"
 
-    /**
-     * The single value the cluster should be showing.
-     *
-     * Navigation outranks media because the turn arrow is what a driver reads at a glance, and the
-     * topic cannot say both. This is also what keeps a guidance stop from blanking the card: with
-     * media still on, the answer is `carPlayMedia` rather than `noProjection`.
-     */
-    private fun desiredLocked(): String = when {
-        navigationWanted -> STATUS_CARPLAY_NAVIGATION
-        mediaWanted -> STATUS_CARPLAY_MEDIA
-        else -> STATUS_NONE
-    }
+    private fun desiredLocked(): String = if (navigationWanted) STATUS_CARPLAY_NAVIGATION else STATUS_NONE
 
     /** Whether the single value differs from what the cluster has been told. */
     private fun dirtyLocked(): Boolean {
         val wanted = desiredLocked()
-        // Nothing to say while both halves were never on: the head unit's own sources stay untouched.
+        // Nothing to say before navigation has been on: the head unit's own sources stay untouched.
         if (wanted == STATUS_NONE) return touched && published != STATUS_NONE
         return wanted != published
     }

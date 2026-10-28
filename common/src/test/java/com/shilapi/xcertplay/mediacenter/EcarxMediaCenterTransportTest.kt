@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
-class UniMediaCenterTransportTest {
+class EcarxMediaCenterTransportTest {
     interface Client {
         fun getCurrentSourceType(): Int
         fun getMediaSourceTypeList(): IntArray
@@ -61,7 +61,7 @@ class UniMediaCenterTransportTest {
         fun updateCurrentProgress(token: Token, position: Long) { progress = position }
         fun requestPlay(token: Token): Boolean { claims++; return accepted }
     }
-    private class Platform(val service: Service = Service()) : UniMediaCenterTransport.Platform {
+    private class Platform(val service: Service = Service()) : EcarxMediaCenterTransport.Platform {
         var binds = 0; var unbinds = 0; var denied = false; var nullBinding = false
         var connection: ServiceConnection? = null
         override fun contract(): MediaCenterProbe.Contract {
@@ -78,7 +78,7 @@ class UniMediaCenterTransportTest {
     }
     private val context get() = RuntimeEnvironment.getApplication()
     private fun transport(p: Platform, valid: () -> Boolean = { true }, command: (Int) -> Boolean = { true }) =
-        UniMediaCenterTransport(context, command, valid, p)
+        EcarxMediaCenterTransport(context, command, valid, p)
     private val track = CarPlayNowPlaying(title = "Actual title", artist = "Actual artist", album = "Actual album",
         durationMillis = 120_000, elapsedMillis = 42_000, playing = true)
 
@@ -120,7 +120,7 @@ class UniMediaCenterTransportTest {
         assertTrue(client.onNext()); assertTrue(client.onPrevious()); assertTrue(client.onPlay()); assertTrue(client.onPause())
         assertFalse(client.onSourceSelected(1)); assertTrue(client.onSourceSelected(6))
         assertEquals(listOf(CarPlayMediaButton.NEXT, CarPlayMediaButton.PREVIOUS, CarPlayMediaButton.PLAY,
-            CarPlayMediaButton.PAUSE, UniMediaCenterTransport.SELECT_SOURCE), calls)
+            CarPlayMediaButton.PAUSE, EcarxMediaCenterTransport.SELECT_SOURCE), calls)
         valid = false
         assertFalse(client.onNext()); assertEquals(-1, client.getCurrentSourceType()); assertTrue(client.getMediaSourceTypeList().isEmpty())
         assertEquals(5, calls.size); t.unregister(); t.close()

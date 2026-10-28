@@ -3740,8 +3740,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.presentationSwitch(this)) { on ->
             if (on) confirmClusterMirror(projectionRow) else applyClusterMirror(false)
         }
-        // A separate DIM channel from everything above — the media card, not the guidance feed — so
-        // it is gated on the media interface being there, not on the navigation one.
+        // The ECARX MediaCenter switch is independent of navigation.
         if (EcarxOutputSettings.mediaSupported()) {
             toggle(card, getString(R.string.ecarx_media_on_instrument_cluster),
                 getString(R.string.ecarx_media_on_instrument_cluster_description),
@@ -4579,6 +4578,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
         appendLine()
+        appendLine(CarPlayMediaOutput.diagnostics())
         appendLine(BluetoothDiagnosticSnapshot.report(appContext))
         appendLine()
         appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
