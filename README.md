@@ -1,13 +1,46 @@
-# DiPlay · 领克 05 / 亿咖通 ECARX 移植版
+# DiPlay · 领克 01（2021 款）/ 亿咖通 ECARX 适配
 
-[English summary](#english-summary) · [上游原版 README（存档）](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
+[当前适配与验证](#当前适配与验证) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English summary](#english-summary) · [上游原版 README（存档）](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
 
-把 CarPlay 车机端接进**领克 05（亿咖通 ECARX 车机）**的移植版本。基于上游
-[DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay) 源码，删掉全部比亚迪专用路径，改为亿咖通
-**DIM（DimInteraction）**通道：仪表盘显示 CarPlay 的转向箭头、距离、路名与预计到达时间，中控正常显示
-CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
+本仓库当前主要适配 **领克 01（2021 款）亿咖通 ECARX 车机**。源于
+[jiopia/DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 的领克 05 移植版，
+其通用上游为 [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay)。原 fork 的适配记录在下方保留，
+**不等于本仓库当前版本已在所有车型、固件或场景通过验证**。
 
-当前版本 **0.1**。只在**一辆**车上做过实车验证，见下面的[状态矩阵](#状态矩阵说到哪一步就是哪一步)。
+## 当前适配与验证
+
+### 分支与界面语言
+
+- **`release`（默认）**：收纳已确认功能；USB 连接手机已独立晋级。
+- **`dev`**：待验证改动与 Debug 测试；麦克风真实音源/统计、车机蓝牙恢复、ACL/重试诊断仍在这里。
+- **`main`**：保留原 fork 基线 `b46ff9be`；旧 main 备份为 `backup/main-before-upstream-reset`。
+- 应用界面仅保留 **English、简体中文、繁體中文**，以及跟随系统；不支持的系统语言回退英文。
+
+### 环境与证据边界
+
+| 项目 | 当前已知信息 |
+| --- | --- |
+| 主要适配目标 | 领克 01，2021 款，ECARX 车机 |
+| 用户测试报告环境 | Android 9 / API 28；Qualcomm MSM8996；板型 `dcy11_a1` |
+| 报告与构建关联 | 该报告未绑定 APK 提交 SHA，不能据此声称当前构建已在该车完整验收 |
+| 应用最低 Android 版本 | Android 7.0 / API 24（源码安装下限，不代表所有 Android 设备均支持车机功能） |
+
+| 功能 | 确认程度 |
+| --- | --- |
+| 仪表封面图片 | 用户实车确认 OK |
+| 导航车道 | 用户实车确认 OK |
+| 仪表可视区域 | 用户反馈“看起来 OK”；不等于全部显示尺寸与重连场景均通过 |
+| USB 连接手机 | 用户确认“测试 OK”，已进入 `release`；此次未说明测试设备、平台或版本，不扩大为所有 USB 异常路径已验收 |
+
+具体来源与范围见 [已确认功能说明](docs/LYNK_01_VERIFIED_BRANCH.md)。
+**仍待解决/确认**：语音键同时唤醒 HiCar、Siri 能否获得有效语音、普通蓝牙 A2DP 抢音乐输出、
+iPhone 设置中蓝牙关开后自动重连，以及 OEM 热点控制。目标是音乐走 CarPlay、蓝牙保留建连，
+不是禁用原生电话；目前不宣称这些问题已修复。
+
+最近一次 USB 晋级的云端软件验证对应 [`285953e7`](https://github.com/jianyun8023/diplay-ecarx/commit/285953e77b7eb6f92da8c6601512623ed162e116)
+（树 `436b917db86d03d8bcedf5c6b353c445e0e1cd0b`）：USB 44 项与既有功能回归 72 项通过，
+三个 lint 无错误、三个 Debug 构建通过。全量仍有 **14 项网络接口环境失败、1 项跳过**；
+失败在纯基线同样出现（云端仅 loopback 接口），不能称全量全绿，更不能替代实车验收。
 
 > ### ⚠️ 发布的 APK 不含 MFi 身份
 >
@@ -15,7 +48,9 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 > （`offline-mfi/identity.pk8` + `offline-mfi/certificate.p7b`）。这是 Apple 的授权资产，
 > 本仓库**不提供、不打包、不再分发**。
 >
-> 因此从 Releases 下载的 APK **能安装、能打开，但连不上 iPhone**。要在车上试，请自己构建一版：
+> source-only 构建不含这些资产；缺少可用身份时，应用会在设置/身份前置检查处停止，
+> **不是已经进入 USB 或无线握手才失败**。普通 Android 手机可先看 UI，独立测试系统热点入网或 OTG 枚举，
+> 但这些不等于本应用 CarPlay 链路验证。只有合法认证前置满足后，才谈端到端连接。要在车上试，请自行构建：
 > [如何把 MFi 身份打进 APK](#如何把-mfi-身份打进-apk)。
 >
 > 例外：如果这台车机上**已经装过**含身份的旧版（签名相同），覆盖安装不卸载时，旧版装进私有目录的
@@ -24,6 +59,9 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 ---
 
 ## 适用环境
+
+> **以下为原 fork 的领克 05 历史适配记录。** 环境、状态矩阵、车型特定操作与限制均按其原记录保留；
+> 本仓库领克 01 与 USB 的最新状态以上方[当前适配与验证](#当前适配与验证)为准。
 
 | 项 | 实测的那一台 |
 |---|---|
@@ -69,7 +107,7 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 - **导航结束收尾**：仪表交回车机自己的页面，不留残影、不盖住原厂仪表。
 - **导航语音压低音乐（duck）**、**车机蓝牙让位与自动恢复**。
 
-### ⚠️ 已实现但**没有**实车验证，不保证
+### ⚠️ 原 fork 当时未实车验证的项目（历史记录）
 
 - **USB 有线连接。** 本版没有在这台车上试过有线。线材、USB 权限、iAP2 握手都可能有本车前未暴露的
   问题，请不要把「无线好用」外推到「有线也好用」。
@@ -79,7 +117,7 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 - **iOS 版本跨度。** 只在测试机的 iOS 上验证过；系统升级后 Apple 端的认证与投屏行为可能变。
 - **多车型。** 只在一台 05 上验证。其它亿咖通车型的 display 编号、仪表尺寸、DIM 版本都可能不同。
 
-### 🚧 未适配，计划中
+### 🚧 原 fork 当时的计划（历史记录）
 
 - **USB 有线连接**的完整验证与修复（优先级最高）。
 - **百度地图的转向数据**（未测试；高德与苹果地图已可用）。
@@ -122,6 +160,9 @@ CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 - **不要同时用车机自带导航。** 车机自己的导航一开始就会去抢仪表那块屏，两套导航同时跑，画面会互相盖。
 
 ## 蓝牙与媒体：为什么必须关掉它
+
+> 本节保留原 fork 在领克 05 上的历史绕行方案，不是当前领克 01 的已验证修复或通用建议。
+> 用户实际操作是 iPhone「设置 → 蓝牙」关开，后续还需手点车机；A2DP 与自动重连根因仍待定位。
 
 **症状**：CarPlay 连上了、画面也有了，但**没有声音**；或者有声音却和 iPhone 不同步；或者仪表媒体卡片
 显示的是车机蓝牙里的歌，不是 CarPlay 正在放的那首。
@@ -267,7 +308,20 @@ unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep offline-mfi
 
 ## 从源码构建
 
-需要 JDK 21+、Android SDK 37，Gradle 用仓库自带的 wrapper。
+按当前 [CI 配置](.github/workflows/android.yml)准备 **JDK 25**、Android SDK `platforms;android-37.0`、
+Build Tools `36.0.0` 和 platform-tools；仓库 wrapper 固定 **Gradle 9.5.0**。
+CI 另安装 NDK `28.2.13676358`；本轮构建复用仓库预编译原生库，不能据此把安装该 NDK 写成所有普通构建的硬性前置。
+`compileSdk` / `targetSdk` 为 37，应用 `minSdk` 为 24。运行 Gradle 的 JDK 与 Java 11 源码目标不同。
+`BUILD.md` 保留历史环境说明，版本要求以当前 Gradle/CI 配置为准。
+
+```bash
+# 不含 MFi 身份的 Debug 包：适合代码/UI检查，不承诺可直接连 iPhone
+./gradlew :mobile:assembleDebug
+# 产物：mobile/build/outputs/apk/debug/mobile-debug.apk
+```
+
+完整检查命令见 [AGENTS.md](AGENTS.md)，覆盖 shared/common/home 测试、三个 lint 和三个 Debug 构建。
+下面的 Release 构建还需要你自己的合法签名配置；没有签名材料不能照搬成可发布包。
 
 ```bash
 # 发布包（不含 MFi 身份）
@@ -281,6 +335,9 @@ DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 见 [BUILD.md](BUILD.md)。
 
 ## 已知限制
+
+> 下列是原 fork 的历史限制，尤其“停用语音助手”“关闭蓝牙”等操作不应当作本仓库的通用修复。
+> 当前领克 01 的未解决问题及验证边界见[当前适配与验证](#当前适配与验证)。
 
 - 只在一台领克 05 上验证；其它亿咖通车型未适配。
 - 仪表是箭头 + 距离 + 路名，不是整幅地图。
@@ -301,23 +358,29 @@ DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 
 ## English summary
 
-A CarPlay head-unit port for the **Lynk & Co 05** (Geely/ECARX head unit, Snapdragon 820A, Android 9),
-based on upstream [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay). All BYD-specific code paths are
-removed; the instrument cluster is driven through ECARX **DIM (`DimInteraction`)** — turn arrows, distance,
-street names and ETA — while the cluster stream itself is a `Presentation` this app owns on display 1
-(1920×720 CarPlay cluster stream). A media card (title/artist/album/state) goes over `IMediaInteraction`.
+This fork now primarily targets the **2021 Lynk & Co 01 (ECARX)**. The original Lynk & Co 05 adaptation
+and its historical notes are retained above; they are not proof of current validation on the 01.
 
-Version **0.1**, verified on one car only: wireless CarPlay, cluster guidance, HUD, cluster media card,
-cluster hand-back on route end, Bluetooth yield/restore. **Not verified:** wired USB, microphone quality,
-steering-wheel keys per key, other ECARX models.
+- **Branches:** `release` is the default confirmed-feature branch; `dev` contains pending fixes/diagnostics;
+  `main` preserves the original fork baseline. USB has been promoted independently to `release`.
+- **Reported environment:** Android 9 / API 28, Qualcomm MSM8996, board `dcy11_a1`. The supplied report
+  was not tied to an APK commit SHA, so it does not certify the current build on that vehicle.
+- **User-confirmed:** cluster cover artwork and navigation lanes were confirmed in-car. The visible-area
+  editor “looks OK,” not an exhaustive display test. USB was reported as “tested OK,” without identifying
+  the device, platform or version used; do not infer complete vehicle/USB fault-path acceptance.
+- **Still unresolved/unconfirmed:** HiCar waking alongside Siri, usable Siri microphone input, A2DP music
+  taking the output, automatic reconnection after toggling iPhone Bluetooth in Settings, and OEM hotspot control.
+  Microphone diagnostics, head-unit Bluetooth recovery and ACL/retry traces in `dev` do not prove these fixed.
+- **UI languages:** English, Simplified Chinese and Traditional Chinese; system default remains available.
+- **Build:** JDK 25, Gradle wrapper 9.5.0, SDK platform 37.0 and Build Tools 36.0.0 match CI.
+  CI also installs NDK 28.2.13676358; the cloud build used prebuilt native libraries, so NDK installation
+  is not asserted as mandatory for every ordinary build. The app's minimum is API 24, not a guarantee of hardware compatibility.
 
-**The published APK contains no MFi identity**, so it installs and opens but cannot authenticate with an
-iPhone. Build your own with `DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease`
-after placing `identity.pk8` and `certificate.p7b` in `auth-assets/offline-mfi/`. Bundling an identity
-means redistributing Apple-issued material if you share the APK.
+**Source-only APKs contain no MFi identity.** Without valid, lawfully available authentication prerequisites,
+the app stops at setup/identity checks, before the USB or wireless connection flow. Installation, UI checks,
+system hotspot association and OTG enumeration alone do not validate CarPlay. Do not share credential-bearing APKs.
 
-iPhone Bluetooth must be switched off after CarPlay connects, or audio stays on the car's classic-Bluetooth
-path — use a Shortcuts automation: *CarPlay connected → wait 2 s → turn Bluetooth off → wait 1 s → play*.
-Waiting only 1 s breaks the iAP2 handshake and produces silence.
-
-Full details (settings matrix, Bluetooth/2-second timing, guidance view limitations) are in Chinese above.
+For evidence levels and the USB promotion scope, see [the release feature record](docs/LYNK_01_VERIFIED_BRANCH.md).
+The cloud check for commit `285953e7` (tree `436b917d`) passed the targeted regressions, lint and Debug builds,
+but the full suite retained 14 baseline network-environment failures and one skip; it was **not all green**
+and is not a substitute for vehicle testing.
