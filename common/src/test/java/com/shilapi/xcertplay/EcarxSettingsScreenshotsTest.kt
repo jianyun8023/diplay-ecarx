@@ -34,8 +34,12 @@ class EcarxSettingsScreenshotsTest {
     @Test @Config(qualifiers = "en-w960dp-h540dp-land-hdpi")
     fun fullEnglishDialogFitsItsRealWindow() = captureSettings("full-en")
 
+    @Test @Config(qualifiers = "zh-rTW-w320dp-h480dp-port-hdpi")
+    fun compactTraditionalChineseDialogFitsItsRealWindow() = captureSettings("compact-zh-tw")
+
+    // Unsupported system languages use English resources; retain generic RTL layout coverage.
     @Test @Config(qualifiers = "ar-w320dp-h480dp-port-hdpi")
-    fun compactArabicDialogFitsItsRealWindow() = captureSettings("compact-ar-rtl")
+    fun compactEnglishFallbackFitsAnRtlSystem() = captureSettings("compact-en-rtl-system")
 
     private fun captureSettings(name: String) {
         // The common library test manifest has no application RTL flag. Both shipped app

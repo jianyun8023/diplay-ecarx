@@ -21,14 +21,19 @@ class NightModeResourcesTest {
 
     @Test fun customSettingsFollowEverySupportedResourceLocale() {
         val expected = mapOf("en" to "Transition delay", "zh-CN" to "切换延迟",
-            "ar" to "تأخير التبديل", "ru" to "Задержка переключения",
-            "es" to "Retardo de cambio", "uk" to "Затримка перемикання")
+            "zh-TW" to "切換延遲")
         for ((tag, title) in expected) {
             val c = context(tag)
             assertEquals(tag, title, c.getString(R.string.ambient_delay_title))
             assertFalse(c.getString(R.string.carplay_night_time_note).isBlank())
             assertTrue(c.getString(R.string.ambient_light_threshold_summary, 30).endsWith(" lux"))
             assertFalse(c.getString(R.string.ambient_delay_title).contains("("))
+        }
+    }
+
+    @Test fun removedResourceLocalesFallBackToEnglish() {
+        for (tag in listOf("ar", "ru", "es", "uk", "ja", "it")) {
+            assertEquals(tag, "Transition delay", context(tag).getString(R.string.ambient_delay_title))
         }
     }
 

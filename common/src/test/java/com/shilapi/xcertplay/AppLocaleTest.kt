@@ -20,10 +20,10 @@ class AppLocaleTest {
     private val manager get() = context.getSystemService(LocaleManager::class.java)
 
     @Test fun pickerAndSystemSettingsShareTheSamePreference() {
-        AppLocale.save(context, AppLocale.ARABIC)
-        assertEquals("ar", manager.applicationLocales.toLanguageTags())
-        manager.applicationLocales = LocaleList.forLanguageTags("es")
-        assertEquals(AppLocale.SPANISH, AppLocale.preference(context))
+        AppLocale.save(context, AppLocale.ENGLISH)
+        assertEquals("en", manager.applicationLocales.toLanguageTags())
+        manager.applicationLocales = LocaleList.forLanguageTags("zh-CN")
+        assertEquals(AppLocale.SIMPLIFIED_CHINESE, AppLocale.preference(context))
         assertSame(context, AppLocale.wrap(context))
         AppLocale.save(context, AppLocale.SYSTEM)
         assertTrue(manager.applicationLocales.isEmpty)
@@ -32,9 +32,9 @@ class AppLocaleTest {
 
     @Test fun oldPreferenceMigratesOnceAndCannotOverrideLaterSystemChanges() {
         context.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit()
-            .putString("app_language", "ar").commit()
+            .putString("app_language", "en").commit()
         AppLocale.wrap(context)
-        assertEquals("ar", manager.applicationLocales.toLanguageTags())
+        assertEquals("en", manager.applicationLocales.toLanguageTags())
         manager.applicationLocales = LocaleList.getEmptyLocaleList()
         AppLocale.wrap(context)
         assertEquals(AppLocale.SYSTEM, AppLocale.preference(context))
@@ -42,7 +42,7 @@ class AppLocaleTest {
 
     @Test fun existingSystemChoiceWinsOverLegacyPreference() {
         context.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit()
-            .putString("app_language", "ar").commit()
+            .putString("app_language", "en").commit()
         manager.applicationLocales = LocaleList.forLanguageTags("zh-CN")
         AppLocale.wrap(context)
         assertEquals(AppLocale.SIMPLIFIED_CHINESE, AppLocale.preference(context))
@@ -50,12 +50,12 @@ class AppLocaleTest {
     }
 
     @Test @Config(sdk = [28, 32])
-    fun olderAndroidWrapsArabicAndReturnsToSystemWithoutChangingGlobalResources() {
+    fun olderAndroidWrapsEnglishAndReturnsToSystemWithoutChangingGlobalResources() {
         val original = context.resources.configuration.locales.toLanguageTags()
-        AppLocale.save(context, AppLocale.ARABIC)
+        AppLocale.save(context, AppLocale.ENGLISH)
         val wrapped = AppLocale.wrap(context)
-        assertEquals(Locale("ar"), wrapped.resources.configuration.locales[0])
-        assertEquals(View.LAYOUT_DIRECTION_RTL, wrapped.resources.configuration.layoutDirection)
+        assertEquals(Locale.ENGLISH, wrapped.resources.configuration.locales[0])
+        assertEquals(View.LAYOUT_DIRECTION_LTR, wrapped.resources.configuration.layoutDirection)
         assertEquals(original, context.resources.configuration.locales.toLanguageTags())
         AppLocale.save(context, AppLocale.SYSTEM)
         assertSame(context, AppLocale.wrap(context))
@@ -104,21 +104,71 @@ class AppLocaleTest {
         assertEquals("應用程式語言", wrapped.getString(R.string.language_app_language))
     }
 
-    @Test fun japaneseIsSelectableOnAndroid13() {
-        AppLocale.save(context, AppLocale.JAPANESE)
-        assertEquals("ja", manager.applicationLocales.toLanguageTags())
-        assertEquals(AppLocale.JAPANESE, AppLocale.preference(context))
-        assertEquals("日本語", AppLocale.displayName(context, AppLocale.JAPANESE))
-        assertSame(context, AppLocale.wrap(context))
+    @Test fun pickerContainsOnlySystemEnglishAndChineseVariants() {
+        assertEquals(listOf("system", "en", "zh", "zh-TW"), AppLocale.ALL)
+        assertEquals("English", AppLocale.displayName(context, AppLocale.ENGLISH))
+        assertEquals("简体中文", AppLocale.displayName(context, AppLocale.SIMPLIFIED_CHINESE))
+        assertEquals("繁體中文", AppLocale.displayName(context, AppLocale.TRADITIONAL_CHINESE))
+        for (removed in listOf("ar", "ru", "es", "uk", "ja", "it")) {
+            assertThrows(IllegalArgumentException::class.java) { AppLocale.save(context, removed) }
+        }
+    }
+
+    @Test fun removedPlatformLocalesReturnToSystemEvenAfterMigration() {
+        val prefs = context.getSharedPreferences("diplay", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("app_language_platform_migrated", true).commit()
+        for (removed in listOf("ar", "ru", "es", "uk", "ja", "it")) {
+            manager.applicationLocales = LocaleList.forLanguageTags(removed)
+            assertEquals(AppLocale.SYSTEM, AppLocale.preference(context))
+            assertSame(context, AppLocale.wrap(context))
+            assertTrue(manager.applicationLocales.isEmpty)
+        }
+    }
+
+    @Test fun unsupportedLegacyPreferencesAreNeverMigrated() {
+        val prefs = context.getSharedPreferences("diplay", Context.MODE_PRIVATE)
+        for (removed in listOf("ar", "ru", "es", "uk", "ja", "it")) {
+            prefs.edit().clear().putString("app_language", removed).commit()
+            manager.applicationLocales = LocaleList.getEmptyLocaleList()
+            AppLocale.wrap(context)
+            assertTrue(manager.applicationLocales.isEmpty)
+            assertEquals(AppLocale.SYSTEM, AppLocale.preference(context))
+            assertFalse(prefs.contains("app_language"))
+        }
+    }
+
+    @Test fun removedPlatformChoiceDoesNotResurrectAnOldSupportedPreference() {
+        context.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit()
+            .putString("app_language", AppLocale.TRADITIONAL_CHINESE).commit()
+        manager.applicationLocales = LocaleList.forLanguageTags("ja")
+        AppLocale.wrap(context)
+        assertTrue(manager.applicationLocales.isEmpty)
+        assertEquals(AppLocale.SYSTEM, AppLocale.preference(context))
     }
 
     @Test @Config(sdk = [28, 32])
-    fun japaneseWorksOnOlderAndroidAndUsesTranslatedResources() {
-        AppLocale.save(context, AppLocale.JAPANESE)
-        val wrapped = AppLocale.wrap(context)
-        assertEquals("ja", wrapped.resources.configuration.locales.toLanguageTags())
-        assertEquals("アプリの言語", wrapped.getString(R.string.language_app_language))
-        assertEquals(View.LAYOUT_DIRECTION_LTR, wrapped.resources.configuration.layoutDirection)
+    fun unsupportedLegacyPreferencesUseSystemWithoutChangingGlobalResources() {
+        val original = context.resources.configuration.locales.toLanguageTags()
+        val prefs = context.getSharedPreferences("diplay", Context.MODE_PRIVATE)
+        for (removed in listOf("ar", "ru", "es", "uk", "ja", "it")) {
+            prefs.edit().putString("app_language", removed).commit()
+            assertEquals(AppLocale.SYSTEM, AppLocale.preference(context))
+            assertSame(context, AppLocale.wrap(context))
+            assertEquals(original, context.resources.configuration.locales.toLanguageTags())
+        }
+    }
+
+    @Test @Config(sdk = [28, 32])
+    fun systemDefaultKeepsRightToLeftLayoutSupport() {
+        AppLocale.save(context, AppLocale.SYSTEM)
+        val systemContext = context.createConfigurationContext(
+            android.content.res.Configuration(context.resources.configuration).apply {
+                setLocale(Locale.forLanguageTag("ar"))
+                setLayoutDirection(Locale.forLanguageTag("ar"))
+            },
+        )
+        assertSame(systemContext, AppLocale.wrap(systemContext))
+        assertEquals(View.LAYOUT_DIRECTION_RTL, systemContext.resources.configuration.layoutDirection)
     }
 
     @Test @Config(sdk = [28, 32])

@@ -17,15 +17,8 @@ object AppLocale {
     const val ENGLISH = "en"
     const val SIMPLIFIED_CHINESE = "zh"
     const val TRADITIONAL_CHINESE = "zh-TW"
-    const val ARABIC = "ar"
-    const val RUSSIAN = "ru"
-    const val SPANISH = "es"
-    const val UKRAINIAN = "uk"
-    const val JAPANESE = "ja"
 
-    const val ITALIAN = "it"
-
-    val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN, JAPANESE, ITALIAN)
+    val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE)
 
     private const val PREFS = "diplay"
     private const val KEY_LANGUAGE = "app_language"
@@ -37,7 +30,7 @@ object AppLocale {
             val locales = context.getSystemService(LocaleManager::class.java).applicationLocales
             if (locales.isEmpty) return SYSTEM
             val selected = locales[0]
-            if (selected.language != "zh") return selected.language
+            if (selected.language != "zh") return if (selected.language == ENGLISH) ENGLISH else SYSTEM
             // An explicit BCP 47 script is more specific than the region's usual script.
             return when (selected.script) {
                 "Hant" -> TRADITIONAL_CHINESE
@@ -78,6 +71,13 @@ object AppLocale {
                     manager.applicationLocales = LocaleList(previous)
                 }
                 prefs.edit().putBoolean(KEY_MIGRATED, true).remove(KEY_LANGUAGE).apply()
+            }
+            // A language removed from the app may remain in Android's persisted app locales.
+            // Return to the system default rather than showing a stale, unsupported selection.
+            val manager = context.getSystemService(LocaleManager::class.java)
+            if (!manager.applicationLocales.isEmpty &&
+                manager.applicationLocales[0].language !in setOf("en", "zh")) {
+                manager.applicationLocales = LocaleList.getEmptyLocaleList()
             }
             return context
         }
@@ -134,12 +134,6 @@ object AppLocale {
         ENGLISH -> "English"
         SIMPLIFIED_CHINESE -> "简体中文"
         TRADITIONAL_CHINESE -> "繁體中文"
-        ARABIC -> "العربية"
-        RUSSIAN -> "Русский"
-        SPANISH -> "Español"
-        UKRAINIAN -> "Українська"
-        JAPANESE -> "日本語"
-        ITALIAN -> "Italiano"
         else -> language
     }
 
@@ -147,12 +141,6 @@ object AppLocale {
         ENGLISH -> Locale.ENGLISH
         SIMPLIFIED_CHINESE -> Locale.SIMPLIFIED_CHINESE
         TRADITIONAL_CHINESE -> Locale.TRADITIONAL_CHINESE
-        ARABIC -> Locale("ar")
-        RUSSIAN -> Locale("ru")
-        SPANISH -> Locale("es")
-        UKRAINIAN -> Locale("uk")
-        JAPANESE -> Locale.JAPANESE
-        ITALIAN -> Locale.ITALIAN
         else -> null
     }
 }
