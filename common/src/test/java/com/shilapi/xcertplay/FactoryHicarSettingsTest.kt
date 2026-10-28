@@ -81,6 +81,10 @@ class FactoryHicarSettingsTest {
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         assertFalse(control(settings()).isChecked)
+        val report = SettingsActionDiagnostics.report(activity)
+        assertTrue(report.contains("phase=begin targetDisabled=true before=false canChange=true"))
+        assertTrue(report.contains("phase=finished targetDisabled=true applied=true after=true"))
+        assertTrue(report.contains("phase=finished targetDisabled=false applied=true after=false"))
     }
 
     @Test fun externalPackageChangesAreReadWhenSettingsReopens() {
@@ -127,7 +131,9 @@ class FactoryHicarSettingsTest {
         }
         doThrow(SecurityException("ROM rejected state change")).`when`(manager)
             .setApplicationEnabledSetting(packageName, PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER, 0)
-        assertFalse(EcarxHicarControl.setDisabled(context, true))
+        val failures = mutableListOf<String>()
+        assertFalse(EcarxHicarControl.setDisabled(context, true, failures::add))
+        assertEquals(listOf("SecurityException"), failures)
         doNothing().`when`(manager)
             .setApplicationEnabledSetting(packageName, PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER, 0)
         assertFalse(EcarxHicarControl.setDisabled(context, true))

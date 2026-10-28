@@ -39,6 +39,8 @@ class DiagnosticExportUiTest {
             override fun getContract() = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/plain")
         }
         ReflectionHelpers.setField(activity, "export", missingPicker)
+        SettingsActionDiagnostics.record(context, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT,
+            "phase=finished enabled=true result=TIMED_OUT after=OFF")
         try {
             ReflectionHelpers.callInstanceMethod<Unit>(activity, "chooseReportDestination")
             val deadline = System.nanoTime() + 5_000_000_000L
@@ -61,6 +63,14 @@ class DiagnosticExportUiTest {
             assertTrue(report.contains("CarPlay media dispatch since process start:"))
             assertTrue(report.contains("Cluster artwork:"))
             assertTrue(report.contains("Factory HiCar:"))
+            assertTrue(report.contains("Platform signature check="))
+            assertTrue(report.contains("USB devices:"))
+            assertTrue(report.contains("USB setup permissions:"))
+            assertTrue(report.contains("Permission BLUETOOTH_PRIVILEGED="))
+            assertTrue(report.contains("Bluetooth settings:"))
+            assertTrue(report.contains("Manual hotspot: capability="))
+            assertTrue(report.contains("Firmware: product="))
+            assertTrue(report.contains("action=MANUAL_HOTSPOT phase=finished enabled=true result=TIMED_OUT after=OFF"))
             saved.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
             shadowOf(Looper.getMainLooper()).idle()
             val viewer = ShadowAlertDialog.getLatestAlertDialog()

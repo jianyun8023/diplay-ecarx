@@ -3345,6 +3345,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun autoApplyPermissions() {
         if (usbPermissionOperation != null || isFinishing || isDestroyed) return
+        SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.USB_PERMISSIONS,
+            "phase=begin before=${UsbPermissionSetup.snapshot(this)}")
         val operation = usbPermissionOperationFactory(applicationContext)
         usbPermissionOperation = operation
         val progress = appDialogBuilder()
@@ -3360,6 +3362,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         progress.show()
         Thread({
             val result = operation.run()
+            SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.USB_PERMISSIONS,
+                "phase=finished access=${result.access} cancelled=${operation.isCancelled} " +
+                    "verified=${result.verified} commandsFailed=${result.commandsFailed}")
             handler.post {
                 if (usbPermissionOperation !== operation || operation.isCancelled || isFinishing || isDestroyed) {
                     return@post
@@ -3471,7 +3476,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 getString(if (hicar.canChange) R.string.settings_disable_factory_hicar_description
                     else R.string.settings_factory_hicar_permission_required),
                 hicar.disabled, enabled = hicar.canChange) { disabled ->
-                val applied = EcarxHicarControl.setDisabled(this, disabled)
+                SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.FACTORY_HICAR,
+                    "phase=begin targetDisabled=$disabled before=${hicar.disabled} canChange=${hicar.canChange}")
+                val applied = EcarxHicarControl.setDisabled(this, disabled) { failure ->
+                    SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.FACTORY_HICAR,
+                        "phase=failure targetDisabled=$disabled error=$failure")
+                }
+                SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.FACTORY_HICAR,
+                    "phase=finished targetDisabled=$disabled applied=$applied " +
+                        "after=${runCatching { EcarxHicarControl.state(this)?.disabled }.getOrNull()}")
                 toast(getString(when {
                     !applied -> R.string.settings_factory_hicar_failed
                     disabled -> R.string.settings_factory_hicar_disabled
@@ -4740,6 +4753,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Report createdAtEpochMs=${System.currentTimeMillis()}")
         appendLine("Capture build: siriCommunicationCapture=${com.shilapi.xcertplay.shared.BuildConfig.SIRI_COMMUNICATION_CAPTURE}")
         appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
+        appendLine("App: package=${appContext.packageName} " +
+            "debuggable=${appContext.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0}")
+        appendLine("Platform signature check=${runCatching {
+            appContext.packageManager.checkSignatures(appContext.packageName, "android")
+        }.getOrNull()} (0=match; null=unavailable)")
+        for (permission in listOf("RECORD_AUDIO", "MODIFY_AUDIO_ROUTING", "BLUETOOTH_PRIVILEGED",
+            "CHANGE_COMPONENT_ENABLED_STATE", "TETHER_PRIVILEGED", "CONNECTIVITY_INTERNAL")) {
+            appendLine("Permission $permission=${appContext.checkSelfPermission("android.permission.$permission") == PackageManager.PERMISSION_GRANTED}")
+        }
+        appendLine("USB setup permissions: ${UsbPermissionSetup.snapshot(appContext)}")
+        appendLine(runCatching {
+            val usb = appContext.getSystemService(android.hardware.usb.UsbManager::class.java)
+            if (usb == null) "USB devices: unavailable" else buildString {
+                val devices = usb.deviceList.values
+                appendLine("USB devices: attached=${devices.size}")
+                devices.forEach { device ->
+                    appendLine("USB device: vendorId=${device.vendorId} productId=${device.productId} " +
+                        "interfaces=${device.interfaceCount} permission=${usb.hasPermission(device)}")
+                }
+            }
+        }.getOrElse { "USB devices: unavailable=${it.javaClass.simpleName}" })
         appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
         appendLine("Connection: ${if (AirPlayPersistence.loadWirelessEnabled(appContext)) "wireless" else "USB"}")
         AirPlayPersistence.loadUsbChargingCurrent(appContext).let {
@@ -4766,8 +4800,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             } ?: "Factory HiCar: visible=false (not installed or not visible to this app)"
         }.getOrElse { "Factory HiCar: unavailable=${it.javaClass.simpleName}" })
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
+        appendLine("Firmware: product=${Build.PRODUCT} device=${Build.DEVICE} fingerprint=${Build.FINGERPRINT}")
         appendLine()
         appendLine(BluetoothDiagnosticSnapshot.report(appContext))
+        appendLine("Bluetooth settings: carAudio=${AirPlayPersistence.loadCarBluetoothAudio(appContext)} " +
+            "mediaOnlyYield=${CarBluetoothProfileGuard.mediaOnlyEnabled(appContext)} " +
+            "adapterYield=${CarBluetoothProfileGuard.adapterEnabled(appContext)}")
+        appendLine(SettingsActionDiagnostics.report(appContext))
         appendLine()
         appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
         appendLine(DisplayDiagnosticSnapshot.report(appContext))
@@ -4779,6 +4818,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("Car hotspot control: autoEnable=${CarHotspotSettings.enabled(appContext)} " +
             "writeSettings=${CarHotspotTethering.permitted(appContext)} " +
             "hotspotOn=${runCatching { com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) }.getOrNull()}")
+        com.shilapi.xcertplay.network.ManualHotspotControl(appContext).let {
+            appendLine("Manual hotspot: capability=${it.capability()} state=${it.observe()}")
+        }
         appendLine(WheelKeyService.report(appContext))
         WheelKeyLog.report(WheelKeyService.connected()).forEach { appendLine(it) }
         appendLine()

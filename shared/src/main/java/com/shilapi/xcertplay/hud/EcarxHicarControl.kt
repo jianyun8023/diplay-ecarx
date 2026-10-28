@@ -27,7 +27,7 @@ object EcarxHicarControl {
         return State(disabled, context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED)
     }
 
-    fun setDisabled(context: Context, disabled: Boolean): Boolean {
+    fun setDisabled(context: Context, disabled: Boolean, onFailure: (String) -> Unit = {}): Boolean {
         val before = state(context) ?: return false
         if (!before.canChange) return false
         if (before.disabled == disabled) return true
@@ -41,6 +41,8 @@ object EcarxHicarControl {
             state(context)?.disabled == disabled
         }.getOrElse {
             Log.w("DiPlay-HiCar", "Could not change factory HiCar state", it)
+            val failure = it.javaClass.simpleName
+            runCatching { onFailure(failure) }
             false
         }
     }
