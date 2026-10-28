@@ -4,9 +4,9 @@
     <string name="settings_manual_hotspot_description">每次点击仅通过 Android 9 平台接口发出一次请求，并非 ECARX 专用开关。热点状态不代表互联网可用、iPhone 已连接或 CarPlay 就绪。不更改已保存的热点配置或自动开启设置；若已开启自动功能，下次连接可能重新打开热点。</string>
     <string name="settings_manual_hotspot_on">开启热点</string>
     <string name="settings_manual_hotspot_off">关闭热点</string>
-    <string name="settings_manual_hotspot_refresh">刷新热点状态</string>
-    <string name="settings_manual_hotspot_working">正在处理热点操作，请等待完成后再连接或重试。</string>
-    <string name="settings_manual_hotspot_disconnect">请先结束连接过程或断开 CarPlay，并等待热点启动操作结束，再更改热点状态。</string>
+    <string name="settings_manual_hotspot_refresh">刷新网络状态</string>
+    <string name="settings_manual_hotspot_working">正在处理网络开关操作，请等待完成后再连接或重试。</string>
+    <string name="settings_manual_hotspot_disconnect">请先结束连接过程或断开 CarPlay，并等待热点启动操作结束，再更改 Wi-Fi 或热点状态。</string>
     <string name="settings_manual_hotspot_confirm_off">关闭热点会断开所有使用它的设备，并可能中断 CarPlay。现在关闭？</string>
     <string name="settings_manual_hotspot_state_on">热点状态：已开启</string>
     <string name="settings_manual_hotspot_state_off">热点状态：已关闭</string>
@@ -16,7 +16,18 @@
     <string name="settings_manual_hotspot_state_unknown">热点状态：无法读取，请在车机设置中查看。</string>
     <string name="settings_manual_hotspot_permission">系统拒绝了热点控制请求。请检查系统设置；应用不会自行授予权限。</string>
     <string name="settings_manual_hotspot_unsupported">此系统无法直接控制热点，请使用车机热点设置。</string>
-    <string name="settings_manual_hotspot_timeout">超时前未确认热点达到目标状态。请查看车机设置；未自动重试。</string>
+    <string name="settings_manual_hotspot_timeout">超时前未确认达到目标状态。请查看车机设置；未自动重试。</string>
     <string name="settings_manual_hotspot_cancelled">已停止等待结果。已发送的请求仍可能完成，请先刷新状态再重试。</string>
     <string name="settings_manual_hotspot_failed">热点请求失败。请查看车机设置；未自动重试。</string>
+    <string name="settings_manual_wifi_description">请先断开 CarPlay 再切换 Wi-Fi。热点卡住时，可开启再关闭 Wi-Fi，然后开启热点。此操作会影响 Wi-Fi 连接和热点。</string>
+    <string name="settings_manual_wifi_on">开启 Wi-Fi</string>
+    <string name="settings_manual_wifi_off">关闭 Wi-Fi</string>
+    <string name="settings_manual_wifi_state_on">Wi-Fi 状态：已开启</string>
+    <string name="settings_manual_wifi_state_off">Wi-Fi 状态：已关闭</string>
+    <string name="settings_manual_wifi_state_starting">Wi-Fi 状态：正在开启</string>
+    <string name="settings_manual_wifi_state_stopping">Wi-Fi 状态：正在关闭</string>
+    <string name="settings_manual_wifi_state_unknown">Wi-Fi 状态：无法读取，请在车机设置中查看。</string>
+    <string name="settings_manual_wifi_permission">系统拒绝了 Wi-Fi 控制请求，请检查车机设置。</string>
+    <string name="settings_manual_wifi_unsupported">此系统无法直接控制 Wi-Fi，请使用车机设置。</string>
+    <string name="settings_manual_wifi_failed">Wi-Fi 请求失败。请查看车机设置；未自动重试。</string>
 </resources>

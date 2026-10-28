@@ -4,9 +4,9 @@
     <string name="settings_manual_hotspot_description">每次點擊僅透過 Android 9 平台介面發出一次請求，並非 ECARX 專用開關。熱點狀態不代表網際網路可用、iPhone 已連線或 CarPlay 就緒。不更改已儲存的熱點設定或自動開啟設定；若已開啟自動功能，下次連線可能重新開啟熱點。</string>
     <string name="settings_manual_hotspot_on">開啟熱點</string>
     <string name="settings_manual_hotspot_off">關閉熱點</string>
-    <string name="settings_manual_hotspot_refresh">重新整理熱點狀態</string>
-    <string name="settings_manual_hotspot_working">正在處理熱點操作，請等待完成後再連線或重試。</string>
-    <string name="settings_manual_hotspot_disconnect">請先結束連線過程或中斷 CarPlay，並等待熱點啟動操作結束，再變更熱點狀態。</string>
+    <string name="settings_manual_hotspot_refresh">重新整理網路狀態</string>
+    <string name="settings_manual_hotspot_working">正在處理網路開關操作，請等待完成後再連線或重試。</string>
+    <string name="settings_manual_hotspot_disconnect">請先結束連線過程或中斷 CarPlay，並等待熱點啟動操作結束，再變更 Wi-Fi 或熱點狀態。</string>
     <string name="settings_manual_hotspot_confirm_off">關閉熱點會中斷所有使用它的裝置，並可能中斷 CarPlay。現在關閉？</string>
     <string name="settings_manual_hotspot_state_on">熱點狀態：已開啟</string>
     <string name="settings_manual_hotspot_state_off">熱點狀態：已關閉</string>
@@ -16,7 +16,18 @@
     <string name="settings_manual_hotspot_state_unknown">熱點狀態：無法讀取，請在車機設定中查看。</string>
     <string name="settings_manual_hotspot_permission">系統拒絕了熱點控制請求。請檢查系統設定；應用程式不會自行授予權限。</string>
     <string name="settings_manual_hotspot_unsupported">此系統無法直接控制熱點，請使用車機熱點設定。</string>
-    <string name="settings_manual_hotspot_timeout">逾時前未確認熱點達到目標狀態。請查看車機設定；未自動重試。</string>
+    <string name="settings_manual_hotspot_timeout">逾時前未確認達到目標狀態。請查看車機設定；未自動重試。</string>
     <string name="settings_manual_hotspot_cancelled">已停止等待結果。已傳送的請求仍可能完成，請先重新整理狀態再重試。</string>
     <string name="settings_manual_hotspot_failed">熱點請求失敗。請查看車機設定；未自動重試。</string>
+    <string name="settings_manual_wifi_description">請先中斷 CarPlay 再切換 Wi-Fi。熱點卡住時，可開啟再關閉 Wi-Fi，然後開啟熱點。此操作會影響 Wi-Fi 連線和熱點。</string>
+    <string name="settings_manual_wifi_on">開啟 Wi-Fi</string>
+    <string name="settings_manual_wifi_off">關閉 Wi-Fi</string>
+    <string name="settings_manual_wifi_state_on">Wi-Fi 狀態：已開啟</string>
+    <string name="settings_manual_wifi_state_off">Wi-Fi 狀態：已關閉</string>
+    <string name="settings_manual_wifi_state_starting">Wi-Fi 狀態：正在開啟</string>
+    <string name="settings_manual_wifi_state_stopping">Wi-Fi 狀態：正在關閉</string>
+    <string name="settings_manual_wifi_state_unknown">Wi-Fi 狀態：無法讀取，請在車機設定中查看。</string>
+    <string name="settings_manual_wifi_permission">系統拒絕了 Wi-Fi 控制請求，請檢查車機設定。</string>
+    <string name="settings_manual_wifi_unsupported">此系統無法直接控制 Wi-Fi，請使用車機設定。</string>
+    <string name="settings_manual_wifi_failed">Wi-Fi 請求失敗。請查看車機設定；未自動重試。</string>
 </resources>

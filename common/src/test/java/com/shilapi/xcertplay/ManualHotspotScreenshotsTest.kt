@@ -29,6 +29,9 @@ class ManualHotspotScreenshotsTest {
         val backend = object : ManualHotspotControls.Backend {
             override fun observe() = ManualHotspotControl.State.ON
             override fun capability() = ManualHotspotControl.Capability.AVAILABLE
+            override fun observeWifi() = ManualHotspotControl.State.OFF
+            override fun wifiCapability() = ManualHotspotControl.Capability.AVAILABLE
+            override fun requestWifi(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result = error("Screenshot must never write")
             override fun request(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result = error("Screenshot must never write")
             override fun execute(block: () -> Unit) = error("Screenshot must never queue work")
         }

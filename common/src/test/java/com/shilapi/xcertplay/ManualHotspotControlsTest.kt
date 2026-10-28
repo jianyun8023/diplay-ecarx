@@ -21,6 +21,10 @@ import org.robolectric.shadows.ShadowAlertDialog
 class ManualHotspotControlsTest {
     private class Backend : ManualHotspotControls.Backend {
         var state = ManualHotspotControl.State.ON
+        var wifiState = ManualHotspotControl.State.OFF
+        var wifiAvailable = ManualHotspotControl.Capability.AVAILABLE
+        var wifiResult = ManualHotspotControl.Result.ON
+        val wifiWrites = mutableListOf<Boolean>()
         var available = ManualHotspotControl.Capability.AVAILABLE
         var result = ManualHotspotControl.Result.OFF
         val writes = mutableListOf<Boolean>()
@@ -29,6 +33,13 @@ class ManualHotspotControlsTest {
         var rejectExecution = false
         override fun observe() = state
         override fun capability() = available
+        override fun observeWifi() = wifiState
+        override fun wifiCapability() = wifiAvailable
+        override fun requestWifi(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result {
+            if (cancelled()) return ManualHotspotControl.Result.CANCELLED
+            wifiWrites += enabled
+            return wifiResult
+        }
         override fun request(enabled: Boolean, cancelled: () -> Boolean): ManualHotspotControl.Result {
             if (cancelled()) return ManualHotspotControl.Result.CANCELLED
             writes += enabled
@@ -130,6 +141,9 @@ class ManualHotspotControlsTest {
         assertEquals(1, f.backend.queuedCount)
         assertTrue(views(f.root).filterIsInstance<android.widget.TextView>().any { it.text == f.activity.getString(R.string.settings_manual_hotspot_timeout) })
         assertTrue(views(f.root).filterIsInstance<android.widget.TextView>().any { it.text == f.activity.getString(R.string.settings_manual_hotspot_state_on) })
+        val report = SettingsActionDiagnostics.report(f.activity)
+        assertTrue(report.contains("phase=begin enabled=false before=ON"))
+        assertTrue(report.contains("phase=finished enabled=false result=TIMED_OUT after=ON"))
         f.controls.close()
     }
     @Test fun onIsExplicitAndActiveOwnerBlocksIt() {
@@ -192,6 +206,62 @@ class ManualHotspotControlsTest {
         f.click(R.string.open_car_hotspot_settings)
         assertEquals(1, f.settings)
         assertEquals(0, f.backend.queuedCount)
+        f.controls.close()
+    }
+
+    @Test fun failedHotspotStillOffersExplicitWifiSwitchesAndRefreshesActualState() {
+        val f = Fixture()
+        f.backend.state = ManualHotspotControl.State.FAILED
+        f.backend.wifiResult = ManualHotspotControl.Result.TIMED_OUT
+        f.root = f.controls.build()
+        assertTrue(f.button(R.string.settings_manual_wifi_on).isEnabled)
+        f.click(R.string.settings_manual_wifi_on)
+        assertFalse(f.button(R.string.settings_manual_wifi_on).isEnabled)
+        f.finishWork()
+        assertEquals(listOf(true), f.backend.wifiWrites)
+        assertTrue(f.backend.writes.isEmpty())
+        assertTrue(views(f.root).filterIsInstance<android.widget.TextView>().any {
+            it.text == f.activity.getString(R.string.settings_manual_wifi_state_off)
+        })
+        val report = SettingsActionDiagnostics.report(f.activity)
+        assertTrue(report.contains("action=MANUAL_WIFI phase=begin enabled=true before=OFF"))
+        assertTrue(report.contains("action=MANUAL_WIFI phase=finished enabled=true result=TIMED_OUT after=OFF"))
+        f.backend.wifiState = ManualHotspotControl.State.ON
+        f.click(R.string.settings_manual_hotspot_refresh)
+        assertTrue(f.button(R.string.settings_manual_wifi_off).isEnabled)
+        assertFalse(f.button(R.string.settings_manual_wifi_on).isEnabled)
+        f.controls.close()
+    }
+
+    @Test fun wifiUsesTheExistingOwnerAndLifecycleCancellationGate() {
+        val f = Fixture()
+        f.session = true
+        f.click(R.string.settings_manual_wifi_on)
+        assertEquals(0, f.backend.queuedCount)
+        f.session = false
+        f.click(R.string.settings_manual_wifi_on)
+        f.controls.cancelPending()
+        f.finishWork()
+        assertTrue(f.backend.wifiWrites.isEmpty())
+        assertFalse(f.controls.isBusy)
+        f.click(R.string.settings_manual_wifi_on)
+        f.session = true
+        f.finishWork()
+        assertTrue(f.backend.wifiWrites.isEmpty())
+        f.controls.close()
+    }
+
+    @Test fun wifiOffIsExplicitAndWifiDoesNotNeedHotspotWriteSettingsPermission() {
+        val f = Fixture()
+        f.backend.available = ManualHotspotControl.Capability.PERMISSION_REQUIRED
+        f.backend.wifiState = ManualHotspotControl.State.ON
+        f.backend.wifiResult = ManualHotspotControl.Result.OFF
+        f.root = f.controls.build()
+        f.click(R.string.settings_manual_wifi_off)
+        f.finishWork()
+        assertEquals(listOf(false), f.backend.wifiWrites)
+        assertTrue(f.backend.writes.isEmpty())
+        assertEquals(0, f.permissions)
         f.controls.close()
     }
     companion object {

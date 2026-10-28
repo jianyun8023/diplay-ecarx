@@ -9,12 +9,19 @@ class ManualHotspotControlTest {
         override var sdk = 28
         var permission = true
         var current = ManualHotspotControl.State.OFF
+        var wifiCurrent = ManualHotspotControl.State.OFF
+        var wifiPermission = true
+        var wifiWrites = 0
+        var wifiEffect: (Boolean, (Int) -> Unit) -> Unit = { _, _ -> }
         var writes = 0
         var time = 0L
         var effect: (Boolean, (Int) -> Unit) -> Unit = { _, _ -> }
         var tick: () -> Unit = {}
         override fun permitted() = permission
         override fun state() = current
+        override fun wifiPermitted() = wifiPermission
+        override fun wifiState() = wifiCurrent
+        override fun requestWifi(enabled: Boolean, response: (Int) -> Unit) { wifiWrites++; wifiEffect(enabled, response) }
         override fun now() = time
         override fun pause() { time += 100; tick() }
         override fun request(enabled: Boolean, response: (Int) -> Unit) { writes++; effect(enabled, response) }
@@ -108,5 +115,74 @@ class ManualHotspotControlTest {
         val stale = callback!!
         fake.effect = { _, _ -> stale(0) }
         assertEquals(ManualHotspotControl.Result.TIMED_OUT, fake.request()); assertEquals(2, fake.writes)
+    }
+
+    @Test fun diagnosticsDistinguishCallbackRejectionAndPermissionFailureWithoutExceptionMessages() {
+        val reports = mutableListOf<String>()
+        val fake = Fake().apply { effect = { _, response -> response(5) } }
+        val control = ManualHotspotControl(fake, reports::add)
+        assertEquals(ManualHotspotControl.Result.FAILED, control.request(true, { false }, 300))
+        assertTrue(reports.contains("phase=preflight enabled=true sdk=28 capability=AVAILABLE"))
+        assertTrue(reports.contains("phase=observed enabled=true before=OFF"))
+        assertTrue(reports.contains("phase=callback enabled=true code=5"))
+        fake.effect = { _, _ -> throw InvocationTargetException(SecurityException("private ROM text")) }
+        assertEquals(ManualHotspotControl.Result.PERMISSION_REQUIRED, control.request(true, { false }, 300))
+        assertTrue(reports.contains("phase=failure enabled=true error=SecurityException"))
+        assertFalse(reports.any { it.contains("private ROM text") })
+    }
+
+    @Test fun unavailableDiagnosticsDoNotChangeThePlatformRequestOrItsResult() {
+        val fake = Fake().apply { effect = { _, response -> response(0); current = ManualHotspotControl.State.ON } }
+        val control = ManualHotspotControl(fake) { throw IllegalStateException("diagnostic unavailable") }
+        assertEquals(ManualHotspotControl.Result.ON, control.request(true, { false }, 300))
+        assertEquals(1, fake.writes)
+        assertFalse(ManualHotspotControl.isBusy())
+    }
+
+    @Test fun wifiControlWorksEvenWhenHotspotHasFailedOrIsTransitioning() {
+        for (hotspotState in listOf(ManualHotspotControl.State.FAILED, ManualHotspotControl.State.STARTING)) {
+            val fake = Fake().apply {
+                current = hotspotState
+                permission = false // WRITE_SETTINGS belongs to tethering, not Wi-Fi.
+                wifiEffect = { enabled, response ->
+                    assertTrue(enabled)
+                    response(0)
+                    wifiCurrent = ManualHotspotControl.State.ON
+                }
+            }
+            assertEquals(ManualHotspotControl.Result.ON,
+                ManualHotspotControl(fake).request(true, { false }, 300, wifi = true))
+            assertEquals(1, fake.wifiWrites)
+            assertEquals(0, fake.writes)
+        }
+    }
+
+    @Test fun wifiRequestUsesObservedStateAndNeverRetriesARejectedOrTimedOutWrite() {
+        val fake = Fake().apply { wifiEffect = { _, response -> response(0) } }
+        val control = ManualHotspotControl(fake)
+        assertEquals(ManualHotspotControl.Result.TIMED_OUT, control.request(true, { false }, 300, wifi = true))
+        assertEquals(1, fake.wifiWrites)
+        fake.wifiEffect = { _, response -> response(1) }
+        assertEquals(ManualHotspotControl.Result.FAILED, control.request(true, { false }, 300, wifi = true))
+        assertEquals(2, fake.wifiWrites)
+        assertEquals(ManualHotspotControl.State.OFF, control.observeWifi())
+        fake.wifiPermission = false
+        assertEquals(ManualHotspotControl.Result.PERMISSION_REQUIRED, control.request(true, { false }, 300, wifi = true))
+        assertEquals(2, fake.wifiWrites)
+    }
+
+    @Test fun wifiSharesConnectionGateAndCancelsWithoutUndoingASentRequest() {
+        val fake = Fake()
+        var cancel = false
+        fake.wifiEffect = { _, _ ->
+            assertFalse(ManualHotspotControl.runIfIdle { fail("Connection must not start") })
+            assertEquals(ManualHotspotControl.Result.BUSY, Fake().request())
+            cancel = true
+        }
+        assertEquals(ManualHotspotControl.Result.CANCELLED,
+            ManualHotspotControl(fake).requestWifi(true) { cancel })
+        assertEquals(1, fake.wifiWrites)
+        assertEquals(0, fake.writes)
+        assertFalse(ManualHotspotControl.isBusy())
     }
 }

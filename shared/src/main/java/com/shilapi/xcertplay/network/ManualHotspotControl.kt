@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.network
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -10,10 +11,14 @@ import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-/** One explicit user request, using the saved Android hotspot configuration. Never uses ADB,
+/** One explicit hotspot or Wi-Fi request, preserving the saved hotspot configuration. Never uses ADB,
  * changes credentials, grants permissions, retries a write, or exempts hidden API restrictions. */
-class ManualHotspotControl internal constructor(private val platform: Platform) {
-    constructor(context: Context) : this(AndroidPlatform(context.applicationContext))
+class ManualHotspotControl @JvmOverloads internal constructor(
+    private val platform: Platform,
+    private val onDiagnostic: (String) -> Unit = {},
+) {
+    @JvmOverloads constructor(context: Context, onDiagnostic: (String) -> Unit = {}) :
+        this(AndroidPlatform(context.applicationContext), onDiagnostic)
 
     enum class State { OFF, ON, STARTING, STOPPING, FAILED, UNKNOWN }
     enum class Capability { AVAILABLE, PERMISSION_REQUIRED, UNSUPPORTED }
@@ -24,11 +29,20 @@ class ManualHotspotControl internal constructor(private val platform: Platform) 
         fun permitted(): Boolean
         fun state(): State
         fun request(enabled: Boolean, response: (Int) -> Unit)
+        fun wifiPermitted(): Boolean
+        fun wifiState(): State
+        fun requestWifi(enabled: Boolean, response: (Int) -> Unit)
         fun now(): Long = System.nanoTime() / 1_000_000L
         fun pause() = Thread.sleep(100L)
     }
 
     fun observe(): State = runCatching { platform.state() }.getOrDefault(State.UNKNOWN)
+    fun observeWifi(): State = runCatching { platform.wifiState() }.getOrDefault(State.UNKNOWN)
+    fun wifiCapability(): Capability = when {
+        platform.sdk != 28 -> Capability.UNSUPPORTED
+        !runCatching { platform.wifiPermitted() }.getOrDefault(false) -> Capability.PERMISSION_REQUIRED
+        else -> Capability.AVAILABLE
+    }
     fun capability(): Capability = when {
         platform.sdk != 28 -> Capability.UNSUPPORTED
         !runCatching { platform.permitted() }.getOrDefault(false) -> Capability.PERMISSION_REQUIRED
@@ -39,22 +53,30 @@ class ManualHotspotControl internal constructor(private val platform: Platform) 
     fun request(targetEnabled: Boolean, isCancelled: () -> Boolean): Result =
         request(targetEnabled, isCancelled, 8_000L)
 
-    internal fun request(targetEnabled: Boolean, isCancelled: () -> Boolean, timeoutMillis: Long): Result {
+    fun requestWifi(targetEnabled: Boolean, isCancelled: () -> Boolean): Result =
+        request(targetEnabled, isCancelled, 8_000L, wifi = true)
+
+    internal fun request(targetEnabled: Boolean, isCancelled: () -> Boolean, timeoutMillis: Long,
+        wifi: Boolean = false): Result {
         if (!synchronized(connectionGate) { busy.compareAndSet(false, true) }) return Result.BUSY
         var locked = false
+        val radio = if (wifi) "radio=wifi " else ""
         fun cancelled() = Thread.currentThread().isInterrupted || isCancelled()
         try {
             if (cancelled()) return Result.CANCELLED
             locked = CarHotspotTethering.startupLock.tryLock()
             if (!locked) return Result.BUSY
-            when (capability()) {
+            val capability = if (wifi) wifiCapability() else capability()
+            report("${radio}phase=preflight enabled=$targetEnabled sdk=${platform.sdk} capability=$capability")
+            when (capability) {
                 Capability.UNSUPPORTED -> return Result.UNSUPPORTED
                 Capability.PERMISSION_REQUIRED -> return Result.PERMISSION_REQUIRED
                 Capability.AVAILABLE -> Unit
             }
             val target = if (targetEnabled) State.ON else State.OFF
             val success = if (targetEnabled) Result.ON else Result.OFF
-            val initial = observe()
+            val initial = if (wifi) observeWifi() else observe()
+            report("${radio}phase=observed enabled=$targetEnabled before=$initial")
             if (initial == target) return success
             // A boolean getter cannot distinguish OFF from a transition or a failure.
             if (initial == State.UNKNOWN) return Result.UNSUPPORTED
@@ -63,10 +85,14 @@ class ManualHotspotControl internal constructor(private val platform: Platform) 
             if (cancelled()) return Result.CANCELLED
             val deadline = platform.now() + timeoutMillis
             val response = AtomicInteger(-1)
-            platform.request(targetEnabled) { response.compareAndSet(-1, it) }
+            val callback: (Int) -> Unit = {
+                response.compareAndSet(-1, it)
+                report("${radio}phase=callback enabled=$targetEnabled code=$it")
+            }
+            if (wifi) platform.requestWifi(targetEnabled, callback) else platform.request(targetEnabled, callback)
             while (true) {
                 if (cancelled()) return Result.CANCELLED
-                val state = observe()
+                val state = if (wifi) observeWifi() else observe()
                 if (cancelled()) return Result.CANCELLED
                 if (state == target) return success
                 if (state == State.FAILED || response.get() > 0) return Result.FAILED
@@ -76,18 +102,22 @@ class ManualHotspotControl internal constructor(private val platform: Platform) 
         } catch (error: Exception) {
             if (error is InterruptedException) { Thread.currentThread().interrupt(); return Result.CANCELLED }
             val cause = (error as? InvocationTargetException)?.targetException ?: error
+            report("${radio}phase=failure enabled=$targetEnabled error=${cause.javaClass.simpleName}")
             return when (cause) {
                 is SecurityException -> Result.PERMISSION_REQUIRED
                 is ReflectiveOperationException -> Result.UNSUPPORTED
                 else -> Result.FAILED
             }
         } catch (_: LinkageError) {
+            report("${radio}phase=failure enabled=$targetEnabled error=LinkageError")
             return Result.UNSUPPORTED
         } finally {
             if (locked) CarHotspotTethering.startupLock.unlock()
             busy.set(false)
         }
     }
+
+    private fun report(message: String) { runCatching { onDiagnostic(message) } }
 
     companion object {
         private val busy = AtomicBoolean(false)
@@ -127,6 +157,21 @@ class ManualHotspotControl internal constructor(private val platform: Platform) 
     private class AndroidPlatform(private val context: Context) : Platform {
         override val sdk get() = Build.VERSION.SDK_INT
         override fun permitted() = Settings.System.canWrite(context)
+        override fun wifiPermitted() = context.checkSelfPermission(android.Manifest.permission.CHANGE_WIFI_STATE) ==
+            PackageManager.PERMISSION_GRANTED
+        override fun wifiState(): State = when (context.getSystemService(WifiManager::class.java)?.wifiState) {
+            WifiManager.WIFI_STATE_DISABLING -> State.STOPPING
+            WifiManager.WIFI_STATE_DISABLED -> State.OFF
+            WifiManager.WIFI_STATE_ENABLING -> State.STARTING
+            WifiManager.WIFI_STATE_ENABLED -> State.ON
+            else -> State.UNKNOWN
+        }
+        @Suppress("DEPRECATION")
+        override fun requestWifi(enabled: Boolean, response: (Int) -> Unit) {
+            val wifi = context.getSystemService(WifiManager::class.java)
+                ?: throw NoSuchMethodException("Wi-Fi service unavailable")
+            response(if (wifi.setWifiEnabled(enabled)) 0 else 1)
+        }
         override fun state(): State {
             val wifi = context.getSystemService(WifiManager::class.java) ?: return State.UNKNOWN
             return decode(WifiManager::class.java.getMethod("getWifiApState").invoke(wifi) as? Int)
