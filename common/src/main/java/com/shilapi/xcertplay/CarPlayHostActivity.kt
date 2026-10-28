@@ -1752,7 +1752,9 @@ open class CarPlayHostActivity : ComponentActivity() {
      * takes to come up.
      */
     private fun showClusterPanel() {
-        if (isDestroyed || shuttingDown.get() || clusterPresentation != null) return
+        if (isDestroyed || shuttingDown.get() || activeAirPlaySession?.hasRenderedMainFrame != true) return
+        clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
+        if (clusterPresentation != null) return
         val manager = getSystemService(DisplayManager::class.java)
         val display = manager?.getDisplay(CLUSTER_PANEL_DISPLAY_ID)
         if (display == null) {
@@ -1801,7 +1803,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         clusterSurface = surface
         val media = sink ?: return
         if (previous != null) media.clearSurface(SCREEN_TYPE_ALT, previous)
-        if (surface != null) media.setSurface(SCREEN_TYPE_ALT, surface)
+        if (surface != null && activeAirPlaySession?.hasRenderedMainFrame == true) {
+            media.setSurface(SCREEN_TYPE_ALT, surface)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -6392,7 +6396,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Stream 111 is the instrument-cluster stream, and its only surface is the panel's own
         // window ([onClusterSurface]). Pointing it at the centre screen as well — which this used
         // to do — would draw the cluster picture on top of CarPlay as soon as the panel streams.
-        clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
+        if (activeAirPlaySession?.hasRenderedMainFrame == true) {
+            clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
+        }
     }
 
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {

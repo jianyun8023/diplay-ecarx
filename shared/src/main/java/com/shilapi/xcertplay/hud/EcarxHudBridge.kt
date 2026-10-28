@@ -295,6 +295,11 @@ internal object EcarxHudBridge {
     private fun reclaimLocked(): Boolean {
         val app = context ?: return false
         val hadNavi = navi != null
+        if (dim == null && Looper.myLooper() != Looper.getMainLooper()) {
+            // DIM constructs a Handler; never wait for the main thread while holding the HUD lock.
+            Handler(Looper.getMainLooper()).post { synchronized(lock) { reclaimLocked() } }
+            return false
+        }
         if (dim == null) dim = EcarxDimApi.createDimInteraction(app)
         val interaction = dim ?: return false
         if (navi == null) navi = EcarxDimApi.naviInteraction(interaction)
@@ -1035,8 +1040,6 @@ internal object EcarxHudBridge {
             // cluster mirrors (probe v3/v4), so it is printed for correlation, never acted on.
             dim?.let { append(" showPresentationOption=").append(EcarxDimApi.showPresentationOption(it)) }
         }
-        // Outside the lock above: the media half has its own lock and its own state, and nesting the
-        // two here would only buy an ordering rule to remember.
         append(EcarxProjectionChannel.state())
     }
 }
