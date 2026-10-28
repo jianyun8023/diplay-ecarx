@@ -3,11 +3,14 @@
 [English summary](#english-summary) · [上游原版 README（存档）](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
 
 把 CarPlay 车机端接进**领克 05（亿咖通 ECARX 车机）**的移植版本。基于上游
-[DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay) 源码，删掉全部比亚迪专用路径，改为亿咖通
+[DiPlay 0.2.22](https://github.com/shihabal3amri/DiPlay) 源码，删掉全部比亚迪专用路径，改为亿咖通
 **DIM（DimInteraction）**通道：仪表盘显示 CarPlay 的转向箭头、距离、路名与预计到达时间，中控正常显示
 CarPlay，仪表盘另一角显示 CarPlay 正在播放的音乐卡片。
 
-当前版本 **0.1**。只在**一辆**车上做过实车验证，见下面的[状态矩阵](#状态矩阵说到哪一步就是哪一步)。
+当前开发源码为 **0.2 / versionCode 101**，基于上游 **v0.2.22**，尚未发布或完成实车验收。
+合并取舍见[升级记录](docs/UPSTREAM-0.2.22-INTEGRATION.md)。以下实车状态与版本对照保留 **0.1** 的验证记录。
+
+已发布版本 **0.1**。只在**一辆**车上做过实车验证，见下面的[状态矩阵](#状态矩阵说到哪一步就是哪一步)。
 
 > ### ⚠️ 发布的 APK 不含 MFi 身份
 >
@@ -302,12 +305,13 @@ DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 ## English summary
 
 A CarPlay head-unit port for the **Lynk & Co 05** (Geely/ECARX head unit, Snapdragon 820A, Android 9),
-based on upstream [DiPlay 0.2.21](https://github.com/shihabal3amri/DiPlay). All BYD-specific code paths are
+based on upstream [DiPlay 0.2.22](https://github.com/shihabal3amri/DiPlay). All BYD-specific code paths are
 removed; the instrument cluster is driven through ECARX **DIM (`DimInteraction`)** — turn arrows, distance,
 street names and ETA — while the cluster stream itself is a `Presentation` this app owns on display 1
 (1920×720 CarPlay cluster stream). A media card (title/artist/album/state) goes over `IMediaInteraction`.
 
-Version **0.1**, verified on one car only: wireless CarPlay, cluster guidance, HUD, cluster media card,
+Development source is **0.2 (101)**, not yet released or vehicle-validated.
+Version **0.1** was verified on one car only: wireless CarPlay, cluster guidance, HUD, cluster media card,
 cluster hand-back on route end, Bluetooth yield/restore. **Not verified:** wired USB, microphone quality,
 steering-wheel keys per key, other ECARX models.
 

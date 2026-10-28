@@ -129,6 +129,25 @@ class MicrophoneCaptureStatsTest {
         assertTrue(reports.single().contains("routedDeviceType=unknown"))
     }
 
+    @Test fun onlyASilentWindowAsksWhatElseIsRecording() {
+        var now = 0L
+        var asked = 0
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add) { now }
+        stats.level(byteArrayOf(0x00, 0xc0.toByte()))
+        now = 5_000_000_000
+        stats.flush(silence = { asked++; "audioMode=3 otherRecordings=none" })
+        assertEquals(0, asked)
+        assertTrue(reports.last().contains("peakDbfs=-6 ") && reports.last().endsWith("ended=false"))
+        stats.level(ByteArray(960))
+        now += 5_000_000_000
+        stats.flush(silence = { asked++; "audioMode=3 otherRecordings=none" })
+        assertEquals(1, asked)
+        assertTrue(reports.last().contains("peakDbfs=silent ") && reports.last().endsWith("audioMode=3 otherRecordings=none ended=false"))
+        stats.flush(ended = true, silence = { throw SecurityException("audio service refused") })
+        assertTrue(reports.last().contains("peakDbfs=silent ") && reports.last().endsWith("ended=true"))
+    }
+
     @Test fun fallbackSourceIsReportedAfterTheRefusedSource() {
         val reports = mutableListOf<String>()
         val stats = MicrophoneCaptureStats(config.copy(audioType = "speechrecognition"), reports::add) { 0 }
