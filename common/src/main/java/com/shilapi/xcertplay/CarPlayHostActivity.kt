@@ -5855,10 +5855,8 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
-        // Wireless CarPlay's handshake needs the head unit's own adapter. Adapter mode may have
-        // switched it off moments ago and the session-end restore runs on the guard's own thread,
-        // so ask for it here rather than letting this reconnect be the one that fails.
-        if (wirelessEnabled) CarBluetoothProfileGuard.ensureAdapterOn(this)?.let { appendLog(it) }
+        // The wireless worker restores only a radio paused by DiPlay and waits for STATE_ON.
+        // Do not eagerly enable a radio the driver turned off from this UI reconnect entry.
         startupRetryBudget.disconnected()
         startupRetryButton?.visibility = View.GONE
         appendLog(reason)
