@@ -2,85 +2,44 @@
 
 [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
 
-在领克车机上使用 iPhone 的导航、音乐、Siri 和通话。当前主要适配 **2021 款领克 01**，其他车型和系统版本尚未确认。
+DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话，目前主要适配 **2021 款领克 01**。
 
-## 可以做什么
-
-- 在中控使用 CarPlay 导航、播放音乐和接打电话。
-- 在车机支持的情况下，将导航提示、车道信息显示到仪表和 HUD。
-- 显示正在播放的歌曲和封面，使用方向盘按键控制播放、暂停和切歌。
-- 使用车机热点连接 iPhone，并在热点启动失败时尝试恢复。
-
-界面支持简体中文、繁体中文和英文，可跟随系统语言。
-
-## 安装与更新
-
-请先确认安装包适用于自己的车机，并具备连接 iPhone 所需的认证配置。普通源码构建包可用于查看界面，连接前还需要配置认证。
-
-1. 将安装包复制到车机或 U 盘，通过文件管理器安装。
-2. 更新时优先覆盖安装，保留已有设置。如果提示无法覆盖，请先备份设置和诊断报告，再处理旧版。
-3. 首次打开后，按界面提示完成权限和连接设置。
-
-开发测试包与常规安装包的设置不自动互通。测试前退出其他投屏应用的连接，避免同时使用同一台 iPhone。
-
-## 连接 iPhone
-
-**无线连接**：在连接设置中选择车机热点、Wi-Fi Direct 或已有 Wi-Fi，按界面提示完成手机配对和网络连接。不要同时运行其他投屏会话。
-
-**USB 连接**：使用支持数据传输的线缆和车机数据接口，按提示允许访问，并在 iPhone 上确认信任。当前 USB 连接仍有未解决的问题。
-
-热点启动失败时，应用会尝试切换 Wi-Fi 并恢复热点一次。过程中，其他已连接的无线设备可能暂时断开。
-
-## 常用设置
-
-| 想做什么 | 在哪里设置 |
+| 功能 | 需要开启的设置 |
 | --- | --- |
-| 选择连接方式、手机和车机热点 | 连接 |
-| 调整画面大小、显示效果和帧率 | 显示 |
-| 调整音乐与导航声音 | 音频 |
-| 开启仪表、HUD 导航提示和调整可视区域 | 导航 |
-| 配置方向盘按键 | 车辆 |
-| 保存问题报告 | 诊断 |
+| 仪表和 HUD 导航提示 | **设置 → 导航 → 亿咖通导航**，开启「仪表导航」 |
+| 车道指引 | 同一页面开启「仪表车道指引」 |
+| 歌曲信息和封面 | 同一页面开启「仪表媒体卡片」 |
+| 音乐走 CarPlay、保留蓝牙电话 | **设置 → 高级 → 视频与音频**，开启「CarPlay 期间停用蓝牙媒体」，关闭「通过车辆蓝牙播放 CarPlay 音频」 |
+| 无线连接 | 在连接设置中选择车机热点、Wi-Fi Direct 或已有 Wi-Fi，按提示完成配置 |
+| 开机自动连接 | **设置 → 连接 → 自动连接**，开启「车机启动后打开」和「打开 DiPlay 时连接」 |
+| 自定义方向盘按键 | **设置 → 车辆 → 方向盘按键**，开启按键服务并学习需要的按键 |
 
-**音乐走 CarPlay**：可按需开启蓝牙媒体让位，让音乐使用 CarPlay，同时保留原车电话功能。它与关闭整个车机蓝牙是不同的选项。
+**Siri**：可通过 CarPlay 界面唤起；此版本暂不包含方向盘语音键短按唤起功能。
 
-**仪表画面**：整屏镜像会覆盖仪表上的导航提示和媒体卡片，只在确有需要时开启。
+只显示导航提示和歌曲信息时，保持「仪表投屏」关闭。设置修改后，按界面提示重新连接。
 
-**Siri**：可通过 CarPlay 画面唤起 Siri。方向盘语音键可能与原车助手冲突；短按唤起 Siri 的改进目前在开发版测试。
-
-## 目前需要留意的问题
-
-- USB 首次连接和重连仍有问题，早期某次连接成功不代表所有场景都已正常。
-- iPhone 关闭再开启蓝牙后，部分情况下仍需要手动选择车机连接。
-- 热点恢复和语音键响应会受车机系统影响，新版本仍需在实际车辆上确认。
-
-不需要按旧版说明一律关闭手机蓝牙或停用系统语音助手。遇到问题时，先记录现象并保存报告。
-
-## 遇到问题
-
-复现问题后，打开 **设置 → 诊断 → 保存诊断报告**。保存提示会显示文件位置，也可选择其他保存位置。
-
-反馈时请说明车型、车机系统版本、iPhone 型号和 iOS 版本、连接方式，以及具体操作和发生时间。
-附上完整报告和必要截图，不要提供热点密码或认证文件。
-
-## 关于项目
+目前 USB 连接仍有问题。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
 
 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分界面改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。许可与第三方声明见 [LICENSE](LICENSE) 和 [相关说明](docs/THIRD_PARTY_NOTICES.md)。
 
-开发者可查阅[开发约定](AGENTS.md)；旧版适配、构建及验证记录保留在[历史文档](https://github.com/jianyun8023/diplay-ecarx/blob/3cb11ce5/README.md)。
 CarPlay 及相关标识属于 Apple；本项目与 Apple、领克、亿咖通无隶属或背书关系。
 
 ## English
 
 DiPlay brings iPhone navigation, music, Siri and calls to the **2021 Lynk & Co 01** head unit.
-Other models and firmware versions have not been confirmed.
 
-- **Install:** use a package prepared for your head unit with the required iPhone authentication setup. Ordinary source builds need that setup before they can connect. Update in place to preserve settings; back up settings and reports before replacing an incompatible installation.
-- **Connect:** follow the app's connection setup for wireless pairing or USB. Use a data-capable cable for USB, and confirm access and trust prompts. USB connection issues remain unresolved.
-- **Use:** compatible head units can show navigation and lane guidance on the cluster/HUD, music artwork and steering-wheel playback controls. Configure these in Navigation and Vehicle settings.
-- **Audio:** Bluetooth media yield lets music use CarPlay while retaining the car's phone connection. It is separate from turning off the entire Bluetooth adapter.
-- **Hotspot:** after a failed start, the app can try one recovery. This may temporarily disconnect other wireless devices.
-- **Siri:** use Siri from the CarPlay screen. The steering-wheel voice key may conflict with the factory assistant; improved short-press handling is being tested in the development build.
-- **Help:** reproduce the issue, then choose Settings → Diagnostics → Save diagnostic report. Include the car and phone models, system versions, connection method and what happened. Do not share hotspot passwords or authentication files.
+| Feature | Settings |
+| --- | --- |
+| Cluster and HUD navigation | **Settings → Navigation → ECARX navigation**: enable “Navigation on the instrument cluster” |
+| Lane guidance | On the same page, enable “Cluster lane guidance” |
+| Song information and artwork | On the same page, enable “Cluster media card” |
+| Music through CarPlay, keep Bluetooth calls | **Settings → Advanced → Video and audio**: enable “Pause Bluetooth media for CarPlay” and disable “CarPlay audio over the car's Bluetooth” |
+| Wireless connection | Choose the car hotspot, Wi-Fi Direct or existing Wi-Fi in connection setup, then follow the prompts |
+| Automatic connection at startup | **Settings → Connection → Automatic connection**: enable “Open after the car starts” and “Connect when DiPlay opens” |
+| Custom steering-wheel controls | **Settings → Vehicle → Wheel keys**: enable the key service and learn the buttons you need |
 
-The interface supports English, Simplified Chinese and Traditional Chinese.
+**Siri:** use the CarPlay interface. Short-press steering-wheel voice-button activation is not included in this release.
+
+Keep full-screen cluster mirroring off when you only want navigation and song information. After changing settings, reconnect when prompted.
+
+USB connection issues remain unresolved. To report a problem, choose **Settings → Diagnostics → Save diagnostic report**.
