@@ -576,6 +576,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     override fun onDestroy() {
+        invalidateCarHotspotConfig()
         settingsSearchPopup?.dismiss()
         appearanceObserverRemoval?.invoke()
         appearanceObserverRemoval = null
@@ -2701,9 +2702,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private var carHotspotConfigStatus: Int? = null
     @Volatile private var carHotspotConfigBusy = false
+    // Main-thread ownership of preference/UI commits, separate from a worker still using the API.
+    private var carHotspotConfigGeneration = 0L
     private var hotspotDetailsExpanded = false
 
+    private fun invalidateCarHotspotConfig() {
+        carHotspotConfigGeneration++
+        carHotspotConfigStatus = null
+    }
+
     private fun importCarHotspotConfig(edit: Boolean = false) {
+        if (isFinishing || isDestroyed) return
         if (manualHotspotBusy() || CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning) {
             toast(getString(R.string.settings_manual_hotspot_disconnect))
             return
@@ -2715,21 +2724,23 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         carHotspotConfigBusy = true
         carHotspotConfigStatus = R.string.settings_hotspot_reading
+        val generation = carHotspotConfigGeneration
         render()
         val app = applicationContext
         Thread({
             val read = CarHotspotConfigRead.read(app, mayAsk = true, log = { Log.i("DiPlay-Hotspot", it) })
             Log.i("DiPlay-Hotspot", "car hotspot config read: credentials=${read.credentials != null} reason=${read.reason}")
             val saved = read.credentials
-            if (saved != null && !edit) {
-                AirPlayPersistence.saveManualHotspotSsid(app, saved.ssid)
-                AirPlayPersistence.saveManualHotspotPassphrase(app, saved.passphrase)
-                AirPlayPersistence.saveManualHotspotSecurity(app, saved.security)
-                AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
-            }
             runOnUiThread {
                 carHotspotConfigBusy = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                if (generation != carHotspotConfigGeneration) { render(); return@runOnUiThread }
+                if (saved != null && !edit) {
+                    AirPlayPersistence.saveManualHotspotSsid(app, saved.ssid)
+                    AirPlayPersistence.saveManualHotspotPassphrase(app, saved.passphrase)
+                    AirPlayPersistence.saveManualHotspotSecurity(app, saved.security)
+                    AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
+                }
                 carHotspotConfigStatus = when {
                     saved != null && edit -> null
                     saved != null -> R.string.settings_car_hotspot_config_imported
@@ -2746,14 +2757,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 }
                 render()
                 if (saved != null && edit) askHotspotCredentials(carCredentials = saved) { ssid, password, security, _ ->
-                    writeCarHotspotConfigNow(HotspotCredentials(ssid, password, security,
-                        AirPlayPersistence.loadManualHotspotBand(this)))
+                    if (generation == carHotspotConfigGeneration) {
+                        writeCarHotspotConfigNow(HotspotCredentials(ssid, password, security,
+                            AirPlayPersistence.loadManualHotspotBand(this)))
+                    }
                 }
             }
         }, "diplay-hotspot-config-read").start()
     }
 
     private fun writeCarHotspotConfigNow(credentials: HotspotCredentials) {
+        if (isFinishing || isDestroyed) return
         if (manualHotspotBusy() || CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning) {
             toast(getString(R.string.settings_manual_hotspot_disconnect))
             return
@@ -2764,6 +2778,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         carHotspotConfigBusy = true
         carHotspotConfigStatus = R.string.settings_manual_hotspot_working
+        val generation = carHotspotConfigGeneration
         render()
         val app = applicationContext
         Thread({
@@ -2775,15 +2790,16 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             val outcome = if (access != LocalAdb.Access.READY) CarHotspotConfigWrite.WriteOutcome(CarHotspotConfigWrite.Result.ADB_UNAVAILABLE)
             else CarHotspotConfigWrite.write(app, credentials, log = { Log.i("DiPlay-Hotspot", it) })
             Log.i("DiPlay-Hotspot", "car hotspot config write: ${outcome.result}")
-            if (outcome.result == CarHotspotConfigWrite.Result.WRITTEN) {
-                AirPlayPersistence.saveManualHotspotSsid(app, outcome.ssid ?: credentials.ssid)
-                AirPlayPersistence.saveManualHotspotPassphrase(app, credentials.passphrase)
-                AirPlayPersistence.saveManualHotspotSecurity(app, credentials.security)
-                AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
-            }
             runOnUiThread {
                 carHotspotConfigBusy = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                if (generation != carHotspotConfigGeneration) { render(); return@runOnUiThread }
+                if (outcome.result == CarHotspotConfigWrite.Result.WRITTEN) {
+                    AirPlayPersistence.saveManualHotspotSsid(app, outcome.ssid ?: credentials.ssid)
+                    AirPlayPersistence.saveManualHotspotPassphrase(app, credentials.passphrase)
+                    AirPlayPersistence.saveManualHotspotSecurity(app, credentials.security)
+                    AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
+                }
                 carHotspotConfigStatus = when (outcome.result) {
                     CarHotspotConfigWrite.Result.WRITTEN -> {
                         pendingCarHotspotSetup = false
@@ -3034,6 +3050,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             } else LinearLayout.LayoutParams(-1, -2))
             option.addView(button("${if (mode == candidate) "✓  " else ""}${titles[index]}", mode == candidate) {
                 if (candidate == WirelessHotspotMode.MANUAL) {
+                    invalidateCarHotspotConfig()
                     pendingCarHotspotSetup = true
                     render()
                     if (CarHotspotSettings.enabled(this)) Handler(Looper.getMainLooper()).post { startCarHotspotOnLaunch() }
@@ -4316,6 +4333,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun applyWirelessLink(mode: WirelessHotspotMode) {
+        invalidateCarHotspotConfig()
         startupHotspotCancelled = true
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
         render()
