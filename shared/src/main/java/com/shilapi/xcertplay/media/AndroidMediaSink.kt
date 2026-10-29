@@ -2170,7 +2170,8 @@ private class AudioRenderer(
 
     /** 0 uses usage-based routing; 1–20 attempt legacy stream types supported by the head unit. */
     private fun channelOverride(channel: AudioChannel): Int = when (channel) {
-        AudioChannel.MEDIA -> mediaChannel
+        // ECARX can silently consume USAGE_ASSISTANT; use the driver's working media output for Siri.
+        AudioChannel.MEDIA, AudioChannel.ASSISTANT -> mediaChannel
         AudioChannel.NAVIGATION -> navigationChannel
         else -> 0
     }
