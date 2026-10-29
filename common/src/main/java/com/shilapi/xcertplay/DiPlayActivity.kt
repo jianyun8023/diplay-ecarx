@@ -3809,8 +3809,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
      * Six more used to live here: 投屏窗口包名、箭头实验开关、导航投影轴、媒体投影轴、导航进行中事件、
      * 集群导航模式. Each was a question the car had already answered, and each wrong answer made the
      * cluster show nothing — so they now carry their correct value in code and are gone from this
-     * page (fix33). What is left is the three pictures the driver can actually see: the guidance on
-     * the cluster, the full-screen mirror, and the media card.
+     * page (fix33). The remaining controls cover cluster guidance, its desktop map copy,
+     * the full-screen mirror, and the media card.
      */
     private fun ecarxNavigationOutputs(card: LinearLayout) {
         toggle(card, getString(R.string.ecarx_navigation_on_instrument_cluster),
@@ -3818,6 +3818,16 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.enabled(this)) {
             EcarxOutputSettings.setEnabled(this, it)
             NavigationOutputs.ecarxChanged(this)
+        }
+        toggle(card, getString(R.string.center_map_follows_dashboard),
+            getString(R.string.center_map_follows_dashboard_description),
+            AirPlayPersistence.loadCenterMapOverlay(this) && AirPlayPersistence.loadCenterMapFollowsDashboard(this)) { on ->
+            AirPlayPersistence.saveCenterMapOverlay(this, on)
+            AirPlayPersistence.saveCenterMapFollowsDashboard(this, on)
+            if (on) {
+                if (!CenterMapOverlay.permitted(this)) openOverlayPermission()
+                CenterMapOverlay.scheduleShow()
+            } else CenterMapOverlay.hide()
         }
         toggle(card, getString(R.string.settings_ecarx_lane_guidance),
             getString(R.string.settings_ecarx_lane_guidance_description),

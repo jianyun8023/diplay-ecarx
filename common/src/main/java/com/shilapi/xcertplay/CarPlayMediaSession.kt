@@ -369,7 +369,8 @@ internal object CarPlayMediaSession {
 
     private fun start(context: Context) {
         val expectedController = controller ?: return
-        val focusDisabled = AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
+        val rendererOwnsFocus = AirPlayPersistence.loadAudioFocusEnabled(context)
+        val focusDisabled = rendererOwnsFocus || AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
         transientFocusInterrupted = false
         val granted = if (focusDisabled) {
             // Some OEMs route physical volume buttons to the focus owner. Keep an active
@@ -403,8 +404,8 @@ internal object CarPlayMediaSession {
             isActive = true
         }
         publishHyArtwork()
-        Log.i(TAG, "media keys active focusDisabled=$focusDisabled focusGranted=$granted")
-        WheelKeyLog.note("media keys active focusDisabled=$focusDisabled focusGranted=$granted")
+        Log.i(TAG, "media keys active focusDisabled=$focusDisabled focusGranted=$granted rendererOwnsFocus=$rendererOwnsFocus")
+        WheelKeyLog.note("media keys active focusDisabled=$focusDisabled focusGranted=$granted rendererOwnsFocus=$rendererOwnsFocus")
     }
 
     private fun forwardGrantedFocusLocked() {
