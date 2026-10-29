@@ -40,9 +40,10 @@ import kotlin.math.roundToInt
  * Coordinates CarPlay media controls, Android metadata and the ECARX MediaCenter session.
  *
  * Android delivers media keys to a media session; some head units pick the session of the
- * audio-focus owner. DiPlay normally holds focus and an active session until the CarPlay session
- * ends, but focus can be disabled on head units that otherwise route physical volume buttons to
- * DiPlay. Keys go to the iPhone as CarPlay media HID presses ([CarPlayMediaButton]).
+ * audio-focus owner. When renderer focus is enabled, this session does not request music focus
+ * again. Otherwise it holds focus until CarPlay ends, unless the media-key focus compatibility
+ * setting disables that request. Keys go to the iPhone as CarPlay media HID presses
+ * ([CarPlayMediaButton]); HY display updates do not dispatch controls.
  */
 internal object CarPlayMediaSession {
     private const val TAG = "DiPlay-MediaKeys"
@@ -249,20 +250,7 @@ internal object CarPlayMediaSession {
         val context = appContext ?: return
         if (session?.isActive != true) return
         val uri = clusterArtworkUris[nowPlaying.artworkTransferId] ?: return
-        // HY 3.5.1 polls bitmap rowBytes and misses same-size covers; its dashboard accepts a URI.
-        runCatching {
-            context.sendBroadcast(Intent("com.hyphp.hywebview.HyMediaReceiver")
-                .setPackage("com.hyphp.hywebview")
-                .putExtra("method", "dashboard")
-                .putExtra("getTrackName", nowPlaying.title.orEmpty())
-                .putExtra("getArtistName", nowPlaying.artist.orEmpty())
-                .putExtra("getAlbumName", nowPlaying.album.orEmpty())
-                .putExtra("getDuration", (nowPlaying.durationMillis ?: 0L).toString())
-                .putExtra("getArtwork", uri.toString())
-                .putExtra("appName", context.applicationInfo.loadLabel(context.packageManager).toString())
-                .putExtra("pkgName", context.packageName)
-                .putExtra("playState", if (nowPlaying.playing) "1" else "0"))
-        }.onFailure { Log.w(TAG, "HY artwork update failed", it) }
+        HyMediaDisplay.publishArtwork(context, nowPlaying, uri)
     }
 
     @Synchronized
