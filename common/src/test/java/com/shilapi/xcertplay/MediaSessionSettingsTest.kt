@@ -12,14 +12,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class MediaSessionSettingsTest {
-    @Test fun modeIsIndependentOfExternalSiriAndIncludedInBackup() {
+    @Test fun modeDefaultsToAndroidAndIsIncludedInBackup() {
         val app = RuntimeEnvironment.getApplication()
         app.getSharedPreferences("diplay_media_session", 0).edit().clear().commit()
         assertEquals(MediaSessionMode.ANDROID, MediaSessionSettings.mode(app))
-        ExternalSiriSettings.setEnabled(app, true)
-        assertEquals(MediaSessionMode.ANDROID, MediaSessionSettings.mode(app))
         MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
-        ExternalSiriSettings.setEnabled(app, false)
         assertEquals(MediaSessionMode.ECARX, MediaSessionSettings.mode(app))
         val backup = JSONObject(String(SettingsBackupCodec.export(app, "test")))
         assertTrue(backup.getJSONObject("settings").getJSONObject("diplay_media_session").getBoolean("ecarx"))

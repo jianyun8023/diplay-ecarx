@@ -107,16 +107,9 @@ class SimplifiedSettingsUiTest {
         assertTrue(hasTitle(settings(SettingsCategory.NAVIGATION), R.string.report_location_to_iphone))
     }
 
-    @Test fun mediaModeAndExternalSiriHaveSeparateAdvancedEntries() {
-        activity.getSharedPreferences("diplay_hy_compatibility", 0).edit().clear().commit()
-        activity.getSharedPreferences("diplay_external_siri", 0).edit().clear().commit()
-        assertFalse(ExternalSiriSettings.enabled(activity))
-        assertTrue(SettingsSection.EXTERNAL_SIRI in
-            SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.ADVANCED))
+    @Test fun mediaModeHasAnAdvancedEntry() {
         val root = settings(SettingsCategory.ADVANCED)
         assertTrue(hasTitle(root, R.string.settings_media_output_mode))
-        assertTrue(hasTitle(root, R.string.settings_external_siri))
-        ExternalSiriSettings.setEnabled(activity, true)
         val focused = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 16, 24, 16)
@@ -124,10 +117,9 @@ class SimplifiedSettingsUiTest {
         }
         ReflectionHelpers.callInstanceMethod<Unit>(activity, "renderSections",
             ReflectionHelpers.ClassParameter.from(LinearLayout::class.java, focused),
-            ReflectionHelpers.ClassParameter.from(Set::class.java, setOf(SettingsSection.MEDIA_OUTPUT, SettingsSection.EXTERNAL_SIRI)))
-        assertTrue(hasTitle(focused, R.string.settings_external_siri))
+            ReflectionHelpers.ClassParameter.from(Set::class.java, setOf(SettingsSection.MEDIA_OUTPUT)))
+        assertTrue(hasTitle(focused, R.string.settings_media_output_mode))
         screenshot(focused, "media-session-mode")
-        ExternalSiriSettings.setEnabled(activity, false)
     }
 
     @Test fun searchOpensTheCollapsedControls() {

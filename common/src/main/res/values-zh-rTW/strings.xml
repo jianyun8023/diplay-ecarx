@@ -912,6 +912,4 @@
     <string name="settings_media_output_android">標準 Android</string>
     <string name="settings_media_output_ecarx">億咖通</string>
     <string name="settings_media_output_description">Android 模式只發布 Android MediaSession；億咖通模式只發布 ECARX MediaCenter，並管理車輛媒體按鍵。自訂 Siri 按鍵在兩種模式下皆可用。下次連接 CarPlay 生效。</string>
-    <string name="settings_external_siri">由外部觸發應用程式喚起 Siri</string>
-    <string name="settings_external_siri_description">CarPlay 已連接時，透過應用程式啟動入口開啟 DiPlay 會喚起 Siri；點選桌面圖示也會觸發。與媒體工作階段模式無關。</string>
 </resources>

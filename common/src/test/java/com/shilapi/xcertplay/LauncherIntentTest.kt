@@ -5,11 +5,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
 import android.view.ViewGroup
-import androidx.lifecycle.Lifecycle
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import org.mockito.Mockito.*
-import java.lang.ref.WeakReference
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.*
 import org.junit.Before
@@ -39,6 +37,7 @@ class LauncherIntentTest {
         app.getSharedPreferences("diplay", 0).edit().clear().commit()
         app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
         app.getSharedPreferences("diplay_hy_compatibility", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_external_siri", 0).edit().clear().commit()
         CarPlayBackgroundSession.clear()
         ReflectionHelpers.setField(CarPlayScreen, "open", null)
         val stop: ((() -> Unit) -> Unit) = { done -> stops++; done() }
@@ -53,107 +52,50 @@ class LauncherIntentTest {
     }
     private fun launcher() = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
 
-    private fun siriSession(visible: Boolean, sent: Boolean = true): CarPlayController {
+    private fun sessionWithRetiredLauncherSiriEnabled(): CarPlayController {
         val app = RuntimeEnvironment.getApplication()
-        ExternalSiriSettings.setEnabled(app, true)
+        app.getSharedPreferences("diplay_external_siri", 0).edit().putBoolean("enabled", true).commit()
+        app.getSharedPreferences("diplay_hy_compatibility", 0).edit()
+            .putBoolean("enabled", true).putBoolean("siri_on_launch", true).commit()
         val session = mock(CarPlayController::class.java)
-        `when`(session.requestSiri()).thenReturn(sent)
         CarPlayBackgroundSession.store(session, mock(AndroidMediaSink::class.java), 800, 480, Any(),
             CarPlaySessionDisplay(800, 480, 0, false, false, 800, 480)) { stops++; it() }
-        val host = mock(CarPlayHostActivity::class.java)
-        val lifecycle = mock(Lifecycle::class.java)
-        `when`(host.lifecycle).thenReturn(lifecycle)
-        `when`(lifecycle.currentState).thenReturn(if (visible) Lifecycle.State.STARTED else Lifecycle.State.CREATED)
-        ReflectionHelpers.setField(CarPlayScreen, "open", WeakReference(host))
         return session
     }
 
-    @Test fun freshHyVoiceLaunchOnlyForwardsSiriWhileProjectionIsVisible() {
-        val session = siriSession(visible = true)
+    @Test fun freshLauncherRestoresProjectionWithoutSiriEvenWithRetiredSettingsEnabled() {
+        val session = sessionWithRetiredLauncherSiriEnabled()
         controller = Robolectric.buildActivity(DiPlayActivity::class.java, launcher()).create()
         val activity = controller!!.get()
-        verify(session).requestSiri()
+        verify(session, never()).requestSiri()
         assertTrue(activity.isFinishing)
         assertEquals(0, activity.findViewById<ViewGroup>(android.R.id.content).childCount)
-        assertNull(shadowOf(activity).nextStartedActivity)
+        assertEquals(CarPlayHostActivity::class.java.name,
+            shadowOf(activity).nextStartedActivity?.component?.className)
         assertTrue(CarPlayBackgroundSession.hasSession())
         assertEquals(0, stops)
     }
 
-    @Test fun existingHyVoiceEntryDoesNotRenderManagementOrReopenVisibleProjection() {
+    @Test fun existingLauncherRestoresProjectionWithoutSiriEvenWithRetiredSettingsEnabled() {
         controller = Robolectric.buildActivity(DiPlayActivity::class.java,
             Intent().putExtra("page", "settings")).create()
-        val activity = controller!!.get()
-        val content = activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
-        val session = siriSession(visible = true)
+        val session = sessionWithRetiredLauncherSiriEnabled()
         controller!!.newIntent(launcher())
-        verify(session).requestSiri()
-        assertTrue(activity.isFinishing)
-        assertEquals("settings", ReflectionHelpers.getField<String>(activity, "page"))
-        assertSame(content, activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0))
-        assertNull(shadowOf(activity).nextStartedActivity)
-        assertEquals(0, stops)
-    }
-
-    @Test fun hyVoiceEntryRestoresHiddenOrClosedProjectionWithoutRenderingManagement() {
-        for (hostExists in listOf(true, false)) {
-            val session = siriSession(visible = false)
-            if (!hostExists) ReflectionHelpers.setField(CarPlayScreen, "open", null)
-            val entry = Robolectric.buildActivity(DiPlayActivity::class.java, launcher()).create()
-            verify(session).requestSiri()
-            assertTrue(entry.get().isFinishing)
-            assertEquals(0, entry.get().findViewById<ViewGroup>(android.R.id.content).childCount)
-            assertEquals(CarPlayHostActivity::class.java.name,
-                shadowOf(entry.get()).nextStartedActivity?.component?.className)
-            entry.destroy()
-        }
-        assertEquals(0, stops)
-    }
-
-    @Test fun failedSiriRequestStillRestoresProjection() {
-        val session = siriSession(visible = true, sent = false)
-        controller = Robolectric.buildActivity(DiPlayActivity::class.java, launcher()).create()
-        verify(session).requestSiri()
+        verify(session, never()).requestSiri()
         assertEquals(CarPlayHostActivity::class.java.name,
             shadowOf(controller!!.get()).nextStartedActivity?.component?.className)
+        assertTrue(CarPlayBackgroundSession.hasSession())
         assertEquals(0, stops)
     }
 
-    @Test fun explicitSettingsIntentWithHyEnabledStillOpensManagement() {
-        val session = siriSession(visible = true)
+    @Test fun explicitSettingsIntentWithRetiredSiriEnabledStillOpensManagement() {
+        val session = sessionWithRetiredLauncherSiriEnabled()
         controller = Robolectric.buildActivity(DiPlayActivity::class.java,
             launcher().putExtra("page", "settings")).create()
         assertFalse(controller!!.get().isFinishing)
         assertEquals("settings", ReflectionHelpers.getField<String>(controller!!.get(), "page"))
         verifyNoInteractions(session)
         assertNull(shadowOf(controller!!.get()).nextStartedActivity)
-    }
-
-    @Test fun launcherSiriRequiresExplicitOptInAndRequestsOnce() {
-        val app = RuntimeEnvironment.getApplication()
-        var requests = 0
-        val request = { requests++; true }
-        assertFalse(DiPlayActivity.requestLauncherSiri(app, launcher(), request))
-        ExternalSiriSettings.setEnabled(app, true)
-        assertTrue(DiPlayActivity.requestLauncherSiri(app, launcher(), request))
-        assertEquals(1, requests)
-        ExternalSiriSettings.setEnabled(app, false)
-        assertFalse(DiPlayActivity.requestLauncherSiri(app, launcher(), request))
-        assertEquals(1, requests)
-    }
-
-    @Test fun launcherSiriNeverCreatesASessionOrHandlesSettingsIntents() {
-        val app = RuntimeEnvironment.getApplication()
-        ExternalSiriSettings.setEnabled(app, true)
-        CarPlayBackgroundSession.clear()
-        assertFalse(DiPlayActivity.requestLauncherSiri(app, launcher()))
-        assertFalse(CarPlayBackgroundSession.hasSession())
-        var requests = 0
-        for (intent in listOf(Intent(), launcher().putExtra("page", "settings"))) {
-            assertFalse(DiPlayActivity.requestLauncherSiri(app, intent) { requests++; true })
-        }
-        assertEquals(0, requests)
-        assertFalse(DiPlayActivity.requestLauncherSiri(app, launcher()) { false })
     }
 
     private fun bootLaunch(): Intent {

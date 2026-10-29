@@ -61,7 +61,6 @@ object SettingsBackupCodec {
     private val PICTURE_KEYS = CarPlayPicture.keys.toSet()
     // The driver's choices only. "ignore_off_report" records what one car's firmware reports, so it stays out.
     private val CAR_HOTSPOT_KEYS = setOf("auto_enable", "config_write")
-    private val LEGACY_LAUNCHER_SIRI_KEYS = setOf("enabled", "siri_on_launch")
     private val FILES = mapOf(
         "xcertplay_airplay" to Policy.Allow(AIRPLAY_KEYS, AIRPLAY_PREFIXES,
             types = mapOf("navigation_usage_route_migrated" to KeyType.BOOLEAN,
@@ -71,9 +70,7 @@ object SettingsBackupCodec {
         // has no type to compare with, so the type is declared here.
         "carplay_picture" to Policy.Allow(PICTURE_KEYS, types = PICTURE_KEYS.associateWith { KeyType.INT }),
         "diplay_car_hotspot" to Policy.Allow(CAR_HOTSPOT_KEYS, types = CAR_HOTSPOT_KEYS.associateWith { KeyType.BOOLEAN }),
-        "diplay_external_siri" to Policy.Allow(setOf("enabled"), types = mapOf("enabled" to KeyType.BOOLEAN)),
         "diplay_media_session" to Policy.Allow(setOf("ecarx"), types = mapOf("ecarx" to KeyType.BOOLEAN)),
-        "diplay_hy_compatibility" to Policy.Allow(LEGACY_LAUNCHER_SIRI_KEYS, types = LEGACY_LAUNCHER_SIRI_KEYS.associateWith { KeyType.BOOLEAN }),
     )
 
     private enum class KeyType { BOOLEAN, INT }

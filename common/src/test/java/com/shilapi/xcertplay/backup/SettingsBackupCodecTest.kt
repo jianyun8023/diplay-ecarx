@@ -123,17 +123,18 @@ class SettingsBackupCodecTest {
     }
 
     @Test
-    fun importedPictureHotspotAndHyFilesTakeOnlyTheirOwnKeys() {
+    fun importedPictureAndHotspotSettingsIgnoreRetiredLauncherSiri() {
         val document = """
             {"format": "diplay-settings", "version": 1, "settings": {
               "carplay_picture": {"brightness": 10, "contrast": 120, "saturation": 90, "warmth": -5, "planted_key": "x"},
               "diplay_car_hotspot": {"auto_enable": true, "config_write": true, "planted_key": true},
-              "diplay_hy_compatibility": {"enabled": true, "siri_on_launch": true, "planted_key": true}
+              "diplay_hy_compatibility": {"enabled": true, "siri_on_launch": true, "planted_key": true},
+              "diplay_external_siri": {"enabled": true}
             }}
         """.trimIndent()
         val outcome = SettingsBackupCodec.import(context, document.toByteArray())
-        assertEquals(8, outcome.applied)
-        assertEquals(3, outcome.skipped)
+        assertEquals(6, outcome.applied)
+        assertEquals(6, outcome.skipped)
         assertEquals(10, prefs("carplay_picture").getInt("brightness", 0))
         assertEquals(120, prefs("carplay_picture").getInt("contrast", 0))
         assertEquals(90, prefs("carplay_picture").getInt("saturation", 0))
@@ -142,13 +143,14 @@ class SettingsBackupCodecTest {
         assertTrue(prefs("diplay_car_hotspot").getBoolean("config_write", false))
         assertFalse(prefs("carplay_picture").contains("planted_key"))
         assertFalse(prefs("diplay_car_hotspot").contains("planted_key"))
-        assertTrue(prefs("diplay_hy_compatibility").getBoolean("enabled", false))
-        assertTrue(prefs("diplay_hy_compatibility").getBoolean("siri_on_launch", false))
-        assertFalse(prefs("diplay_hy_compatibility").contains("planted_key"))
+        assertTrue(prefs("diplay_hy_compatibility").all.isEmpty())
+        assertTrue(prefs("diplay_external_siri").all.isEmpty())
+        prefs("diplay_hy_compatibility").edit().putBoolean("enabled", true).putBoolean("siri_on_launch", true).commit()
+        prefs("diplay_external_siri").edit().putBoolean("enabled", true).commit()
         val exported = JSONObject(SettingsBackupCodec.export(context, "test").toString(Charsets.UTF_8))
-            .getJSONObject("settings").getJSONObject("diplay_hy_compatibility")
-        assertTrue(exported.getBoolean("enabled"))
-        assertTrue(exported.getBoolean("siri_on_launch"))
+            .getJSONObject("settings")
+        assertFalse(exported.has("diplay_hy_compatibility"))
+        assertFalse(exported.has("diplay_external_siri"))
     }
 
     @Test
