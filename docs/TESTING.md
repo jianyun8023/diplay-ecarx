@@ -58,6 +58,10 @@ below: 2,679 tests passed, one existing test skipped, all three lint tasks and D
 
 ## Host unit tests
 
+`common` loads Mockito as a Java agent when its test JVM starts, using the same version as
+`testImplementation`. Gradle resolves the agent path and tracks it as a test input; no local
+init script or dynamic agent attachment is required on JDK 25.
+
 Run the complete unit-test, lint and debug-build command in [AGENTS.md](../AGENTS.md).
 The USB permission command tests need a POSIX shell: `sh` on Linux/macOS, or Git for Windows.
 On Windows the tests find the standard `%ProgramFiles%/Git/bin/sh.exe` installation automatically;

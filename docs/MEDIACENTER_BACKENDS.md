@@ -14,7 +14,8 @@ HYWebviewDCY 3.5.1 的同尺寸封面刷新兼容：其 `a1.a` 元数据回调�
 `HyMediaDisplay` 协议适配器向
 `com.hyphp.hywebview` 定向发送其既有 `HyMediaReceiver` / `dashboard` 展示消息，附当前歌曲
 字段和本机回环封面 URL。复用现有 `ClusterArtworkServer`，不更改图片尺寸、歌曲时长或
-MediaSession 元数据。进度轮询不补发；旧会话、非当前封面、解码失败及断连后不补发。
+MediaSession 元数据。播放／暂停状态变化时补发展示消息；仅进度变化不补发。
+旧会话、非当前封面、解码失败及断连后不补发。
 HY 的接收端保留自身的启用条件；HY 未运行时该消息不会缓存等待投递。此入口更新展示，
 不调用 `requestPlay`，不发送方控或 Siri 命令。
 

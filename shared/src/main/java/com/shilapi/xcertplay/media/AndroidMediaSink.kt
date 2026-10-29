@@ -130,7 +130,7 @@ internal class AudioFocusCoordinator(
             if (abandoned != null) runCatching { report("Audio: focus released activeTracks=0") }
             return
         }
-        if (request != null && requestedChannel == primary.channel) return
+        if (request != null && requestedChannel == primary.channel && focusGranted) return
         focusGeneration += 1
         manager?.let { request?.abandon(it) }
         val gain = when (primary.channel) {

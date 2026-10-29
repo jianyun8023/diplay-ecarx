@@ -184,6 +184,29 @@ class AudioFocusAutoYieldTest {
         assertEquals(listOf(0f, 1f), volumes(siri))
     }
 
+    @Test fun deniedFocusRetriesForNewTracksOnTheSameChannelAndRestoresExistingTracks() {
+        val diagnostics = mutableListOf<String>()
+        val coordinator = AudioFocusCoordinator(context, true, true, diagnostics::add).also(coordinators::add)
+        val first = track(); val second = track(); val third = track()
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        coordinator.acquire(first, AudioChannel.MEDIA, attributes)
+        assertEquals(listOf(0f), volumes(first))
+        val deniedListener = coordinator.listener
+
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        coordinator.acquire(second, AudioChannel.MEDIA, attributes)
+        assertEquals(2, diagnostics.count { it.contains("focus requested") })
+        assertEquals(listOf(0f, 1f), volumes(first))
+        assertTrue(volumes(second).isEmpty())
+        deniedListener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        assertEquals(listOf(0f, 1f), volumes(first))
+        assertTrue(volumes(second).isEmpty())
+
+        coordinator.acquire(third, AudioChannel.MEDIA, attributes)
+        assertEquals(2, diagnostics.count { it.contains("focus requested") })
+        assertTrue(volumes(third).isEmpty())
+    }
+
     private fun coordinator(enabled: Boolean = true, autoYield: Boolean = true) =
         AudioFocusCoordinator(context, enabled, autoYield).also(coordinators::add)
     private fun track(): AudioTrack = AudioTrack.Builder().setAudioAttributes(attributes)

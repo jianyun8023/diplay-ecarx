@@ -182,6 +182,7 @@ internal object CarPlayMediaSession {
                 }
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
+                val playingChanged = nowPlaying.playing != update.playing
                 nowPlaying = update
                 publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId])
                 if (metadataChanged) ClusterMusicState.publish(update, artwork)
@@ -192,8 +193,8 @@ internal object CarPlayMediaSession {
                 // minutes. The position goes in the playback state.
                 if (metadataChanged) {
                     session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
-                    publishHyArtwork()
                 }
+                if (metadataChanged || playingChanged) publishHyArtwork()
                 publishPlaybackStateLocked()
             }
         }

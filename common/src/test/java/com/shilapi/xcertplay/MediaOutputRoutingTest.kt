@@ -427,6 +427,38 @@ class MediaOutputRoutingTest {
         assertEquals(1, updates().size)
     }
 
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hyPlaybackChangesRefreshOnceWithoutRepublishingMetadataOrControls() {
+        EcarxOutputSettings.setMediaEnabled(app, false)
+        val attached = attach("Playing", 7)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(7, png()); awaitArtwork()
+        val session = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
+        field(CarPlayMediaSession, "session").set(CarPlayMediaSession, session)
+        val updates = { shadowOf(app).broadcastIntents.filter { it.action == "com.hyphp.hywebview.HyMediaReceiver" } }
+        assertEquals(1, updates().size)
+        val artworkUri = updates().single().getStringExtra("getArtwork")
+
+        for (playing in listOf(false, true)) {
+            val update = song("Playing", 7).copy(playing = playing, elapsedMillis = 2_000)
+            `when`(attached.controller.nowPlayingSnapshot()).thenReturn(update)
+            attached.now(update); shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(if (playing) 3 else 2, updates().size)
+            assertEquals(if (playing) "1" else "0", updates().last().getStringExtra("playState"))
+            assertEquals(artworkUri, updates().last().getStringExtra("getArtwork"))
+
+            val progress = update.copy(elapsedMillis = 3_000)
+            `when`(attached.controller.nowPlayingSnapshot()).thenReturn(progress)
+            attached.now(progress); shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(if (playing) 3 else 2, updates().size)
+        }
+        verify(session, never()).setMetadata(any())
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        verify(attached.controller, never()).requestSiri()
+    }
+
     private data class Attached(val controller: CarPlayController,
         val now: (CarPlayNowPlaying) -> Unit, val cover: (Int, ByteArray) -> Unit)
     private fun attach(title: String, artwork: Int? = null): Attached {

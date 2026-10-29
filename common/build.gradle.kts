@@ -3,6 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val mockitoAgent by configurations.creating {
+    isTransitive = false
+}
+
 android {
     namespace = "com.shilapi.xcertplay.host"
     compileSdk {
@@ -48,6 +52,22 @@ dependencies {
     implementation(libs.zxing.core)
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.17")
-    testImplementation("org.mockito:mockito-core:5.20.0")
+    val mockito = "org.mockito:mockito-core:5.20.0"
+    testImplementation(mockito)
+    mockitoAgent(mockito)
     testImplementation(libs.jmdns)
+}
+
+abstract class MockitoAgentProvider : CommandLineArgumentProvider {
+    @get:Classpath
+    abstract val agentJar: ConfigurableFileCollection
+
+    override fun asArguments(): Iterable<String> = listOf("-javaagent:${agentJar.singleFile.absolutePath}")
+}
+
+tasks.withType<Test>().configureEach {
+    // Load instrumentation at startup; inline mocks must not rely on dynamic JVM attachment.
+    jvmArgumentProviders.add(objects.newInstance<MockitoAgentProvider>().apply {
+        agentJar.from(mockitoAgent)
+    })
 }
