@@ -2,7 +2,6 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
@@ -10,7 +9,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.media.AudioRouteAttributes
 import java.io.Closeable
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -51,31 +52,28 @@ internal class AudioChannelPreview(
         activeTrack.get()?.let { runCatching { it.stop() } }
         pending = worker.submit {
             var track: AudioTrack? = null
-            var focus: AudioFocusRequest? = null
+            var focus: AudioFocusRequestCompat? = null
             var focusGranted = false
             val focusListener = AudioManager.OnAudioFocusChangeListener { }
             try {
                 if (closed || generation.get() != request) return@submit
-                val attributes = if (navigation && channel == 0) {
-                    com.shilapi.xcertplay.media.NavigationAudioAttributes.create(oemContent)
-                } else AudioAttributes.Builder().setUsage(usage).setContentType(contentType).build()
+                val attributes = if (navigation) {
+                    AudioRouteAttributes.navigation(channel, oemContent)
+                } else AudioRouteAttributes.resolve(channel) {
+                    AudioAttributes.Builder().setUsage(usage).setContentType(contentType).build()
+                }
                 report("phase=attributes request=$request resolvedUsage=${attributes.usage} " +
                     "resolvedContentType=${attributes.contentType} attributesSource=builder")
                 if (requestFocus) {
                     val manager = checkNotNull(audioManager)
-                    val granted = if (Build.VERSION.SDK_INT >= 26) {
-                        focus = AudioFocusRequest.Builder(focusGain)
-                            .setAudioAttributes(attributes).setOnAudioFocusChangeListener(focusListener, mainHandler).build()
-                        manager.requestAudioFocus(focus!!)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        manager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, focusGain)
-                    }
+                    val next = AudioFocusRequestCompat(focusGain, attributes, focusListener, mainHandler)
+                    focus = next
+                    val granted = next.request(manager)
                     focusGranted = granted == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
                     report("phase=focus request=$request granted=$focusGranted result=$granted focusGain=$focusGain " +
                         "focusConfigurationSource=${if (Build.VERSION.SDK_INT >= 26) "attributes" else "legacyStream"} " +
-                        "focusUsage=${if (Build.VERSION.SDK_INT >= 26) usage else -1} " +
-                        "focusContentType=${if (Build.VERSION.SDK_INT >= 26) contentType else -1}")
+                        "focusUsage=${if (Build.VERSION.SDK_INT >= 26) attributes.usage else -1} " +
+                        "focusContentType=${if (Build.VERSION.SDK_INT >= 26) attributes.contentType else -1}")
                     check(focusGranted) { "Preview audio focus was not granted" }
                 }
                 val pcm = appContext.resources.openRawResource(R.raw.audio_channel_preview).use { it.readBytes() }
@@ -149,11 +147,7 @@ internal class AudioChannelPreview(
                 activeTrack.compareAndSet(track, null)
                 track?.let { runCatching { it.stop() }; it.release() }
                 if (focusGranted) {
-                    val result = if (Build.VERSION.SDK_INT >= 26 && focus != null) audioManager!!.abandonAudioFocusRequest(focus!!)
-                    else {
-                        @Suppress("DEPRECATION")
-                        audioManager!!.abandonAudioFocus(focusListener)
-                    }
+                    val result = focus!!.abandon(audioManager!!)
                     report("phase=focus-released request=$request result=$result")
                 }
             }

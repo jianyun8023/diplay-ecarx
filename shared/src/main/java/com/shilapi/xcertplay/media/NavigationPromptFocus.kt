@@ -10,7 +10,7 @@ import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 
 /** The attributes the navigation renderer plays with, for a focus request made before its track exists. */
 internal fun navigationRouteAttributes(navigationChannel: Int, oemContent: Boolean = false): AudioAttributes =
-    LegacyAudioFallback.attributes(navigationChannel) ?: NavigationAudioAttributes.create(navigationChannel == 0 && oemContent)
+    AudioRouteAttributes.navigation(navigationChannel, oemContent)
 
 /**
  * Opt-in audio focus for navigation prompts (#946, #545). Navigation audio takes no focus by default,

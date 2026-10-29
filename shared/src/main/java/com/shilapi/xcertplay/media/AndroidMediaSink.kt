@@ -2219,7 +2219,7 @@ private class AudioRenderer(
     private fun audioAttributesFor(
         selection: AudioChannelSelection,
         streamOverride: Int,
-    ): AudioAttributes = LegacyAudioFallback.attributes(streamOverride) ?: audioAttributesFor(selection)
+    ): AudioAttributes = AudioRouteAttributes.resolve(streamOverride) { audioAttributesFor(selection) }
 
     private fun mappedSelection(): AudioChannelSelection {
         val mode = if (advancedAudioChannelMapping) {
