@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -32,6 +33,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 /** Actual media-session listeners → production engine → fake OEM endpoints. No system Binder. */
@@ -338,6 +340,93 @@ class MediaOutputRoutingTest {
         }
     }
 
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hyGetsTheNewSameSizeCoverWithoutChangingStandardMetadataOrControls() {
+        EcarxOutputSettings.setMediaEnabled(app, false)
+        val attached = attach("First", 7)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        val session = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
+        field(CarPlayMediaSession, "session").set(CarPlayMediaSession, session)
+        val published = ArgumentCaptor.forClass(MediaMetadata::class.java)
+        attached.cover(7, png(Color.RED)); awaitArtwork()
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        val oldArt = published.value.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)!!
+        val updates = { shadowOf(app).broadcastIntents.filter { it.action == "com.hyphp.hywebview.HyMediaReceiver" } }
+        assertEquals(1, updates().size)
+
+        // HY polls duration and rowBytes, not bitmap content. New title arrives before its cover.
+        val next = song("Second", 8).copy(durationMillis = 123_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
+        attached.now(next); shadowOf(Looper.getMainLooper()).idle()
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        assertEquals("Second", published.value.getString(MediaMetadata.METADATA_KEY_TITLE))
+        assertSame(oldArt, published.value.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))
+        assertEquals(1, updates().size) // Do not label the previous cover as the new one for HY.
+
+        attached.cover(8, png(Color.BLUE)); awaitArtwork()
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        val standard = published.value
+        val newArt = standard.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)!!
+        assertEquals(oldArt.rowBytes, newArt.rowBytes)
+        assertEquals(Color.BLUE, newArt.getPixel(0, 0))
+        assertSame(newArt, standard.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART))
+        assertEquals(123_000L, standard.getLong(MediaMetadata.METADATA_KEY_DURATION))
+        assertEquals("Second", standard.getString(MediaMetadata.METADATA_KEY_TITLE))
+        assertEquals(2, updates().size)
+        val update = updates().last()
+        assertEquals("com.hyphp.hywebview", update.`package`)
+        assertEquals("dashboard", update.getStringExtra("method"))
+        assertEquals("Second", update.getStringExtra("getTrackName"))
+        assertEquals("123000", update.getStringExtra("getDuration"))
+        assertEquals("1", update.getStringExtra("playState"))
+        assertEquals(app.packageName, update.getStringExtra("pkgName"))
+        val image = java.net.URL(update.getStringExtra("getArtwork")).openStream().use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        }!!
+        assertEquals(Color.BLUE, image.getPixel(0, 0))
+
+        // Another track with the same duration/size and a reused artwork reference must refresh too.
+        val third = next.copy(title = "Third")
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(third)
+        attached.now(third); shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(8, png(Color.GREEN)); awaitArtwork()
+        val latest = updates().last()
+        assertEquals("Third", latest.getStringExtra("getTrackName"))
+        assertNotEquals(update.getStringExtra("getArtwork"), latest.getStringExtra("getArtwork"))
+        val latestImage = java.net.URL(latest.getStringExtra("getArtwork")).openStream().use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        }!!
+        assertEquals(Color.GREEN, latestImage.getPixel(0, 0))
+        assertTrue(ecarx.isEmpty())
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        verify(attached.controller, never()).requestSiri()
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hyCachedCoverWaitsForAnActiveSessionAndIgnoresProgressAndStaleArtwork() {
+        EcarxOutputSettings.setMediaEnabled(app, false)
+        val attached = attach("Cached", 7)
+        val updates = { shadowOf(app).broadcastIntents.filter { it.action == "com.hyphp.hywebview.HyMediaReceiver" } }
+        attached.cover(7, png()); awaitArtwork()
+        assertTrue(updates().isEmpty())
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, updates().size)
+        val next = song("Cached", 7).copy(elapsedMillis = 2_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
+        attached.now(next); shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(99, png()); awaitArtwork()
+        attached.cover(7, byteArrayOf(1, 2, 3)); awaitArtwork()
+        assertEquals(1, updates().size)
+        CarPlayMediaSession.detach(attached.controller)
+        attached.cover(7, png()); awaitArtwork()
+        attached.now(song("Stale", 7)); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, updates().size)
+    }
+
     private data class Attached(val controller: CarPlayController,
         val now: (CarPlayNowPlaying) -> Unit, val cover: (Int, ByteArray) -> Unit)
     private fun attach(title: String, artwork: Int? = null): Attached {
@@ -360,8 +449,8 @@ class MediaOutputRoutingTest {
         queue.execute(Runnable { done.countDown() }); assertTrue(done.await(5, TimeUnit.SECONDS))
         shadowOf(Looper.getMainLooper()).idle()
     }
-    private fun png(): ByteArray {
-        val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+    private fun png(color: Int = Color.TRANSPARENT): ByteArray {
+        val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
         return try { java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray() }
         finally { bitmap.recycle() }
     }

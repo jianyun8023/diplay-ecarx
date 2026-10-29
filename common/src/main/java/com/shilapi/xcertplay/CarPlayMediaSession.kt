@@ -189,7 +189,10 @@ internal object CarPlayMediaSession {
                 // Republishing the metadata each time sent a copy of the artwork through system_server
                 // to every media listener, and on one head unit that exhausted memory within
                 // minutes. The position goes in the playback state.
-                if (metadataChanged) session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
+                if (metadataChanged) {
+                    session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
+                    publishHyArtwork()
+                }
                 publishPlaybackStateLocked()
             }
         }
@@ -238,7 +241,28 @@ internal object CarPlayMediaSession {
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
+            publishHyArtwork()
         }
+    }
+
+    private fun publishHyArtwork() {
+        val context = appContext ?: return
+        if (session?.isActive != true) return
+        val uri = clusterArtworkUris[nowPlaying.artworkTransferId] ?: return
+        // HY 3.5.1 polls bitmap rowBytes and misses same-size covers; its dashboard accepts a URI.
+        runCatching {
+            context.sendBroadcast(Intent("com.hyphp.hywebview.HyMediaReceiver")
+                .setPackage("com.hyphp.hywebview")
+                .putExtra("method", "dashboard")
+                .putExtra("getTrackName", nowPlaying.title.orEmpty())
+                .putExtra("getArtistName", nowPlaying.artist.orEmpty())
+                .putExtra("getAlbumName", nowPlaying.album.orEmpty())
+                .putExtra("getDuration", (nowPlaying.durationMillis ?: 0L).toString())
+                .putExtra("getArtwork", uri.toString())
+                .putExtra("appName", context.applicationInfo.loadLabel(context.packageManager).toString())
+                .putExtra("pkgName", context.packageName)
+                .putExtra("playState", if (nowPlaying.playing) "1" else "0"))
+        }.onFailure { Log.w(TAG, "HY artwork update failed", it) }
     }
 
     @Synchronized
@@ -378,6 +402,7 @@ internal object CarPlayMediaSession {
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true
         }
+        publishHyArtwork()
         Log.i(TAG, "media keys active focusDisabled=$focusDisabled focusGranted=$granted")
         WheelKeyLog.note("media keys active focusDisabled=$focusDisabled focusGranted=$granted")
     }
