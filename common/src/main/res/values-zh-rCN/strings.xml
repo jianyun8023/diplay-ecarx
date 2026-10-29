@@ -462,8 +462,8 @@
     <string name="turn_card_distance_m">%1$d 米</string>
     <string name="turn_card_distance_km">%1$.1f 公里</string>
     <string name="turn_card_exit">出口 %1$d</string>
-    <string name="center_map_follows_dashboard">主屏幕地图与仪表盘同步</string>
-    <string name="center_map_follows_dashboard_description">开启：主屏幕卡片镜像仪表盘地图。关闭：主屏幕不显示该卡片，仪表盘地图只出现在仪表盘上。不会改变 CarPlay 主屏自己的画面。</string>
+    <string name="center_map_follows_dashboard">在车机桌面显示 CarPlay 地图</string>
+    <string name="center_map_follows_dashboard_description">在车机桌面卡片中显示仪表地图，不改变 CarPlay 主屏画面。</string>
     <string name="dashboard_map_only_in_small_and_full_navi">仅在小屏或全屏导航时显示仪表盘地图</string>
     <string name="dashboard_map_only_in_small_and_full_navi_description">DiPlay 读取你在方向盘菜单中选择的导航模式。在“关闭”和“导航时开启”模式下仪表盘只显示箭头，因此 iPhone 不发送地图；在小屏导航和全屏导航模式下会发送，切换后一两秒内生效。需要在车机上开启网络 ADB。</string>
     <string name="check_adb_access">检查 ADB 访问</string>
@@ -844,8 +844,8 @@
     <string name="ecarx_navigation">亿咖通导航</string>
     <string name="ecarx_navigation_on_instrument_cluster">仪表导航</string>
     <string name="ecarx_navigation_on_instrument_cluster_description">通过车机 DIM 接口，在亿咖通仪表上显示 CarPlay 的转向箭头、距离、预计到达时间和路名。</string>
-    <string name="ecarx_instrument_cluster_projection">仪表投屏</string>
-    <string name="ecarx_instrument_cluster_projection_description">把中控画面整屏镜像到仪表。仪表导航改用投屏通道后已经不需要它，打开反而会盖住仪表上的箭头和媒体卡片。只想要箭头或媒体卡片时请保持关闭。</string>
+    <string name="ecarx_instrument_cluster_projection">整屏镜像到仪表</string>
+    <string name="ecarx_instrument_cluster_projection_description">把中控画面整屏镜像到仪表，会遮住仪表导航和媒体卡片。只使用箭头、车道或歌曲信息时请保持关闭。</string>
     <string name="ecarx_cluster_call_rejected">车机拒绝了这次调用：需要系统签名且 DIM 权限被授予。</string>
     <string name="ecarx_cluster_mirror_confirm">打开后会把整个中控画面镜像到仪表，并盖住仪表上的导航箭头与媒体卡片。\n\n确定要打开吗？</string>
     <string name="ecarx_media_on_instrument_cluster">仪表媒体卡片</string>
@@ -878,4 +878,11 @@
     <string name="usb_trust_cancelled">USB 配对已取消。准备好连接后，请轻点“重试”。</string>
     <string name="settings_existing_wifi_interface">网络接口（可选）</string>
     <string name="settings_existing_wifi_interface_description">仅用于把同一局域网连接放在 Android 不认为是 Wi-Fi 的网络接口上的车机，例如 USB 网卡上的 eth1。留空则自动选择。</string>
+    <string name="settings_custom_wheel_keys">自定义方向盘按键</string>
+    <string name="settings_generic_wheel_keys">通用按键学习</string>
+    <string name="settings_ecarx_wheel_automatic">CarPlay 连接期间自动处理原车语音键短按，无需先学习。需要更改按键用途时，再展开自定义设置。</string>
+    <string name="settings_audio_tuning">声音异常排查</string>
+    <string name="settings_bluetooth_audio">蓝牙音频</string>
+    <string name="settings_expand">展开</string>
+    <string name="settings_collapse">收起</string>
 </resources>

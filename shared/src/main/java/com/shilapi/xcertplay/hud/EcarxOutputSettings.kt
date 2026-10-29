@@ -63,7 +63,7 @@ object EcarxOutputSettings {
         }
     }
 
-    fun laneGuidanceEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_LANE_GUIDANCE, false)
+    fun laneGuidanceEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_LANE_GUIDANCE, true)
 
     fun setLaneGuidanceEnabled(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_LANE_GUIDANCE, enabled).commit()) {

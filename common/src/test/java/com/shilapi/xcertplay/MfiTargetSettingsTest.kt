@@ -46,9 +46,9 @@ class MfiTargetSettingsTest {
         CarPlayBackgroundSession.clear()
     }
 
-    @Test fun connectionSettingsSwitchFromCh341BackToLocalWithoutConnecting() {
+    @Test fun advancedSettingsSwitchFromCh341BackToLocalWithoutConnecting() {
         AirPlayPersistence.saveMfiTarget(activity, MfiTarget.USB_CH341)
-        renderConnection()
+        renderAdvanced()
         assertEquals("${activity.getString(R.string.mfi_certificate_signing_target)} · ${activity.getString(R.string.usb_ch341)}",
             targetButton().text.toString())
         assertTrue(views(page).filterIsInstance<TextView>().any {
@@ -69,7 +69,7 @@ class MfiTargetSettingsTest {
 
     @Test fun expertTargetsSetOutsideTheTwoChoicesAreNotOverwritten() {
         AirPlayPersistence.saveMfiTarget(activity, MfiTarget.REMOTE)
-        renderConnection()
+        renderAdvanced()
 
         assertTrue(views(page).filterIsInstance<Button>().none {
             it.text.startsWith(activity.getString(R.string.mfi_certificate_signing_target))
@@ -77,9 +77,9 @@ class MfiTargetSettingsTest {
         assertEquals(MfiTarget.REMOTE, AirPlayPersistence.loadMfiTarget(activity))
     }
 
-    private fun renderConnection() {
+    private fun renderAdvanced() {
         ReflectionHelpers.setField(activity, "page", "settings")
-        ReflectionHelpers.setField(activity, "settingsCategory", SettingsCategory.CONNECTION)
+        ReflectionHelpers.setField(activity, "settingsCategory", SettingsCategory.ADVANCED)
         ReflectionHelpers.callInstanceMethod<Unit>(activity, "render")
         page = ReflectionHelpers.getField<ScrollView>(activity, "rootScroll").getChildAt(0) as LinearLayout
     }

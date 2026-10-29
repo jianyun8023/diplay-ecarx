@@ -462,8 +462,8 @@
     <string name="turn_card_distance_m">%1$d 公尺</string>
     <string name="turn_card_distance_km">%1$.1f 公里</string>
     <string name="turn_card_exit">出口 %1$d</string>
-    <string name="center_map_follows_dashboard">主螢幕地圖與儀表板同步</string>
-    <string name="center_map_follows_dashboard_description">開啟：主螢幕卡片鏡像儀表板地圖。關閉：主螢幕不顯示該卡片，儀表板地圖只出現在儀表板上。不會改變 CarPlay 主螢幕自己的畫面。</string>
+    <string name="center_map_follows_dashboard">在車機桌面顯示 CarPlay 地圖</string>
+    <string name="center_map_follows_dashboard_description">在車機桌面卡片中顯示儀表地圖，不改變 CarPlay 主螢幕畫面。</string>
     <string name="dashboard_map_only_in_small_and_full_navi">僅在小螢幕或全螢幕導航時顯示儀表板地圖 · 需要 ADB</string>
     <string name="dashboard_map_only_in_small_and_full_navi_description">DiPlay 讀取你在方向盤選單中選擇的導航模式。在「關閉」和「導航時開啟」模式下，儀表板只顯示箭頭，因此 iPhone 不會傳送地圖；在小螢幕導航和全螢幕導航模式下會傳送，切換後一至兩秒內生效。需要在車機上開啟網路 ADB。</string>
     <string name="check_adb_access">檢查 ADB 存取權限</string>
@@ -843,8 +843,8 @@
     <string name="settings_hotspot_interface_description">僅用於把熱點放在 Android 不認為是 Wi-Fi 熱點的網路介面上的車機，例如部分吉利、領克及其它高通車機上的 eth0.3。留空則自動尋找。</string>
     <string name="ecarx_cluster_call_rejected">車機拒絕了這次呼叫：需要系統簽章且已授予 DIM 權限。</string>
     <string name="ecarx_cluster_mirror_confirm">開啟後會把整個中央螢幕鏡像到儀表，並蓋住儀表上的導航箭頭與媒體卡片。\n\n確定要開啟嗎？</string>
-    <string name="ecarx_instrument_cluster_projection">儀表投屏</string>
-    <string name="ecarx_instrument_cluster_projection_description">把中控畫面整屏鏡像到儀表。儀表導航改用投屏通道後已經不需要它，開啟反而會蓋住儀表上的箭頭與媒體卡片。只想要箭頭或媒體卡片時請保持關閉。</string>
+    <string name="ecarx_instrument_cluster_projection">整屏鏡像到儀表</string>
+    <string name="ecarx_instrument_cluster_projection_description">把中控畫面整屏鏡像到儀表，會蓋住儀表導航和媒體卡片。只使用箭頭、車道或歌曲資訊時請保持關閉。</string>
     <string name="ecarx_media_on_instrument_cluster">儀表媒體卡片</string>
     <string name="ecarx_media_on_instrument_cluster_description">透過億咖通 ECARX MediaCenter 輸出媒體資訊，與導航獨立，需要相容韌體及權限。</string>
     <string name="ecarx_navigation">億咖通導航</string>
@@ -878,4 +878,11 @@
     <string name="usb_trust_cancelled">USB 配對已取消。準備好連線後，請點選「重試」。</string>
     <string name="settings_existing_wifi_interface">網路介面（選填）</string>
     <string name="settings_existing_wifi_interface_description">僅用於把同一區域網路連線放在 Android 不認為是 Wi-Fi 的網路介面上的車機，例如 USB 網卡上的 eth1。留空則自動選擇。</string>
+    <string name="settings_custom_wheel_keys">自訂方向盤按鍵</string>
+    <string name="settings_generic_wheel_keys">通用按鍵學習</string>
+    <string name="settings_ecarx_wheel_automatic">CarPlay 連線期間自動處理原車語音鍵短按，無需先學習。需要更改按鍵用途時，再展開自訂設定。</string>
+    <string name="settings_audio_tuning">聲音異常排查</string>
+    <string name="settings_bluetooth_audio">藍牙音訊</string>
+    <string name="settings_expand">展開</string>
+    <string name="settings_collapse">收起</string>
 </resources>

@@ -87,6 +87,9 @@ class EcarxLaneGuidanceFlowTest {
     }
 
     @Test fun laneFramesReachTypedDimArrayThroughTheProductionWorkerAndSwitch() {
+        assertTrue(EcarxOutputSettings.laneGuidanceEnabled(context))
+        EcarxOutputSettings.setLaneGuidanceEnabled(context, false)
+        assertFalse(EcarxOutputSettings.laneGuidanceEnabled(context))
         val frame = Iap2Frame(0x5204, hex(
             "00 06 00 00 00 2a 00 06 00 01 00 00" +
                 " 00 15 00 02 00 06 00 00 00 00 00 05 00 01 00 00 06 00 02 ff a6" +

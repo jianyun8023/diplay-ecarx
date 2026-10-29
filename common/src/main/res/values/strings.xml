@@ -501,8 +501,8 @@
     <string name="turn_card_distance_m">%1$d m</string>
     <string name="turn_card_distance_km">%1$.1f km</string>
     <string name="turn_card_exit">Exit %1$d</string>
-    <string name="center_map_follows_dashboard">Keep the home-screen map in sync with the dashboard</string>
-    <string name="center_map_follows_dashboard_description">On: the home-screen card mirrors the dashboard map. Off: hide the home-screen card so only the instrument cluster shows that map. This does not change CarPlay’s own main screen.</string>
+    <string name="center_map_follows_dashboard">Show CarPlay map on the car home screen</string>
+    <string name="center_map_follows_dashboard_description">Show the instrument-cluster map in a card on the car home screen. This does not change CarPlay’s main screen.</string>
     <string name="dashboard_map_only_in_small_and_full_navi">Dashboard map only in Small and Full navi</string>
     <string name="dashboard_map_only_in_small_and_full_navi_description">DiPlay reads the navi mode you pick on the steering wheel. In Off and Turn on by navi the dashboard shows arrows only, so the iPhone does not send the map; in Small and Full screen navi it does, within a second or two of the switch. Needs ADB over network on the head unit.</string>
     <string name="check_adb_access">Check ADB access</string>
@@ -886,8 +886,8 @@
     <string name="ecarx_navigation">ECARX navigation</string>
     <string name="ecarx_navigation_on_instrument_cluster">Navigation on the instrument cluster</string>
     <string name="ecarx_navigation_on_instrument_cluster_description">Show CarPlay turn arrows, distance, ETA and street names on the ECARX instrument cluster through the head unit\'s DIM interface.</string>
-    <string name="ecarx_instrument_cluster_projection">Instrument-cluster projection</string>
-    <string name="ecarx_instrument_cluster_projection_description">Mirror the centre screen onto the instrument cluster. The guidance feed no longer needs it, and turning it on covers the very arrow and media card drawn on the cluster. Leave it off to keep those two visible.</string>
+    <string name="ecarx_instrument_cluster_projection">Mirror the full screen to the instrument cluster</string>
+    <string name="ecarx_instrument_cluster_projection_description">Mirror the centre screen onto the instrument cluster. This covers the cluster navigation and media cards. Leave it off to keep turn arrows, lane guidance and song information visible.</string>
     <string name="ecarx_cluster_call_rejected">The head unit refused that call. It needs the system signature and the DIM permissions to be granted.</string>
     <string name="ecarx_cluster_mirror_confirm">This mirrors the whole centre screen onto the instrument cluster and covers the navigation arrow and media card drawn there.\n\nTurn it on anyway?</string>
     <string name="ecarx_media_on_instrument_cluster">Cluster media card</string>
@@ -920,4 +920,11 @@
     <string name="usb_trust_cancelled">USB pairing was cancelled. Tap Retry when you are ready to connect.</string>
     <string name="settings_existing_wifi_interface">Network interface (optional)</string>
     <string name="settings_existing_wifi_interface_description">Only for units whose LAN connection runs on an interface Android does not report as Wi-Fi, for example a USB network card on eth1. Leave empty to pick it automatically.</string>
+    <string name="settings_custom_wheel_keys">Customize steering-wheel keys</string>
+    <string name="settings_generic_wheel_keys">Generic key learning</string>
+    <string name="settings_ecarx_wheel_automatic">While CarPlay is connected, the factory voice-key short press is handled automatically. Learn a key only when you need a custom assignment.</string>
+    <string name="settings_audio_tuning">Sound troubleshooting</string>
+    <string name="settings_bluetooth_audio">Bluetooth audio</string>
+    <string name="settings_expand">Expand</string>
+    <string name="settings_collapse">Collapse</string>
 </resources>

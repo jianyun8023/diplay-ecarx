@@ -118,6 +118,9 @@ internal enum class SettingsSection {
     ADVANCED_MEDIA,
     CAR_BUTTON,
     AUDIO_ROUTING,
+    BLUETOOTH_AUDIO,
+    AUTHENTICATION,
+    EXTERNAL_CONTROLLER,
     NAVIGATION_WHEEL,
     LOCATION,
     LAUNCHER_BUBBLE,
@@ -137,7 +140,7 @@ internal object SettingsInformationArchitecture {
             SettingsSection.PERMISSIONS_AND_HELP,
         ),
         SettingsCategory.DISPLAY to setOf(SettingsSection.DISPLAY_AND_PERFORMANCE),
-        SettingsCategory.AUDIO to setOf(SettingsSection.AUDIO_ROUTING),
+        SettingsCategory.AUDIO to setOf(SettingsSection.AUDIO_ROUTING, SettingsSection.BLUETOOTH_AUDIO),
         SettingsCategory.NAVIGATION to setOf(SettingsSection.LOCATION),
         SettingsCategory.VEHICLE to setOf(
             SettingsSection.CARPLAY_CONTROLS,
@@ -147,6 +150,8 @@ internal object SettingsInformationArchitecture {
         SettingsCategory.DIAGNOSTICS to setOf(SettingsSection.DIAGNOSTICS),
         SettingsCategory.ADVANCED to setOf(
             SettingsSection.LAUNCHER_BUBBLE,
+            SettingsSection.AUTHENTICATION,
+            SettingsSection.EXTERNAL_CONTROLLER,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
             SettingsSection.NAVIGATION_WHEEL,
@@ -178,6 +183,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var connectionSettingsReturnCategory: SettingsCategory? = null
     private var setupStep = SetupGuide.STEP_CONNECTION
     private var setupFromSettings = false
+    private var customWheelKeysExpanded = false
+    private var audioTuningExpanded = false
     private var settingsSectionFilter: Set<SettingsSection>? = null
     private var clusterSafeAreaDialog: Dialog? = null
     private var clusterContentRequestVersion = 0L
@@ -1252,9 +1259,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             AirPlayPersistence.saveHideBottomBar(this@DiPlayActivity, enabled)
             applyFullscreenMode()
         }
-        toggle(this, getString(R.string.report_location_to_iphone),
-            "${getString(R.string.location_reporting_reconnects)} ${getString(R.string.sends_precise_android_location_as_carplay_gps_data_when_th)}",
-            AirPlayPersistence.loadLocationReportingEnabled(this@DiPlayActivity), save = ::onLocationReportingChanged)
         Unit
     }
 
@@ -1357,7 +1361,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     // Renders every category into a detached view and records what the builders label.
     // render() afterwards replaces every widget reference those detached builds assigned.
-    // ponytail: indexes the default state only; controls behind an expander (vehicle data) are not found.
+    // Dependent controls are indexed only when their enabling setting is on.
     private fun buildSettingsSearchIndex(): List<SettingsSearchResult> {
         val selected = settingsCategory
         // Category names first, so a card that only links to a category cannot claim its name.
@@ -1390,6 +1394,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun openSearchResult(result: SettingsSearchResult) {
         setSearchKeyboard(settingsSearchBox, false)
         clearSettingsSearchState()
+        if (result.category == SettingsCategory.VEHICLE) customWheelKeysExpanded = true
+        if (result.category == SettingsCategory.AUDIO) audioTuningExpanded = true
         openSettingsCategory(result.category)
         val scroll = rootScroll ?: return
         val match = descendants(scroll).filterIsInstance<TextView>().firstOrNull {
@@ -1671,9 +1677,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             getString(R.string.connection_setup), R.drawable.ic_dp_connection) { card ->
             card.addView(label(getString(R.string.choose_how_to_connect_follow_the_setup_steps_and_save_your), 16, MUTED))
             card.addView(button(getString(R.string.open_connection_setup), false, ::openConnectionSetupFromSettings), matchButton(12, 60))
-            card.addView(space(12))
-            // Also here, not only in the CarPlay menu: with the CH341 removed CarPlay cannot connect,
-            // so that menu could not be reached to switch back (#696).
+        }
+        filteredSection(content, SettingsSection.AUTHENTICATION,
+            getString(R.string.mfi_certificate_signing_target), R.drawable.ic_dp_connection) { card ->
             val mfiTargets = listOf(MfiTarget.LOCAL, MfiTarget.USB_CH341)
             val storedMfiTarget = AirPlayPersistence.loadMfiTarget(this)
             if (storedMfiTarget in mfiTargets) {
@@ -1870,7 +1876,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.EXPERIMENTAL_DISPLAY,
             getString(R.string.settings_experimental_display), R.drawable.ic_dp_display) { card ->
-            toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
+            if (!com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified || AirPlayPersistence.loadHarmanFullscreen(this)) toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
                 getString(R.string.settings_harman_fullscreen_experimental_description),
                 AirPlayPersistence.loadHarmanFullscreen(this)) { enabled ->
                 AirPlayPersistence.saveHarmanFullscreen(this, enabled)
@@ -1993,6 +1999,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveCallAtCallRate(this, it)
                 markReconnectNeeded()
             }
+        }
+        filteredSection(content, SettingsSection.BLUETOOTH_AUDIO,
+            getString(R.string.settings_bluetooth_audio), R.drawable.ic_dp_audio) { card ->
             val mediaYieldToggle = toggle(card, getString(R.string.settings_bluetooth_media_yield),
                 getString(R.string.settings_bluetooth_media_yield_description),
                 CarBluetoothProfileGuard.mediaOnlyEnabled(this),
@@ -2011,8 +2020,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             getString(R.string.car_button_in_carplay), R.drawable.ic_dp_car) { card -> carButtonCard = card; carButtonControls(card) }
         filteredSection(content, SettingsSection.AUDIO_ROUTING,
             getString(R.string.audio_routing), R.drawable.ic_dp_audio) { card ->
-            mediaChannelControl(card)
-            navigationChannelControl(card)
             val gainSlider = overlaySliderRow(
                 getString(R.string.settings_navigation_attenuation),
                 (com.shilapi.xcertplay.media.NavigationAudioGain.MIN_DB..
@@ -2033,10 +2040,20 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(label(getString(R.string.settings_navigation_attenuation_description), 14, MUTED).apply {
                 setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0)
             })
-            musicBufferChoice(card, wireless = true)
-            musicBufferChoice(card, wireless = false)
-            toggle(card, getString(R.string.settings_call_speakerphone), getString(R.string.settings_call_speakerphone_description),
+            if (!com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified || AirPlayPersistence.loadCallSpeakerphone(this)) toggle(card, getString(R.string.settings_call_speakerphone), getString(R.string.settings_call_speakerphone_description),
                 AirPlayPersistence.loadCallSpeakerphone(this)) { AirPlayPersistence.saveCallSpeakerphone(this, it) }
+            settingsDetails(card, R.string.settings_audio_tuning, audioTuningExpanded, { audioTuningExpanded = it }) { details ->
+                mediaChannelControl(details)
+                navigationChannelControl(details)
+                musicBufferChoice(details, wireless = true)
+                musicBufferChoice(details, wireless = false)
+            }
+        }
+        filteredSection(content, SettingsSection.EXTERNAL_CONTROLLER,
+            getString(R.string.settings_external_controller), R.drawable.ic_dp_controls) { card ->
+            // Any head unit: a paired keyboard, remote or rotary controller works alongside touch.
+            toggle(card, getString(R.string.settings_external_controller), getString(R.string.settings_external_controller_description),
+                AirPlayPersistence.loadExternalController(this)) { AirPlayPersistence.saveExternalController(this, it) }
         }
         filteredSection(content, SettingsSection.NAVIGATION_WHEEL,
             getString(R.string.settings_navigation_wheel_volume), R.drawable.ic_dp_audio) { card ->
@@ -3451,14 +3468,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     /** Steering-wheel keys for the dashboard map zoom and the CarPlay joystick: the switches, the key service and the keys. */
     // One place for the key service setup, above every feature that needs it.
     private fun wheelKeysSettings(card: LinearLayout) {
-        val zoomAvailable = wheelMapZoomAvailable()
-        val vehicleKeysOn = WheelZoomSettings.joystick(this) ||
-            (zoomAvailable && WheelZoomSettings.enabled(this))
-        if (WheelZoomSettings.siriKey(this) || WheelZoomSettings.mediaPlayPause(this) || vehicleKeysOn) {
-            wheelKeyServiceControls(card)
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
+            card.addView(label(getString(R.string.settings_ecarx_wheel_automatic), 14, MUTED))
         }
-        siriKeyControls(card)
-        ecarxSwKeyControls(card)
         EcarxHicarControl.state(this)?.let { hicar ->
             toggle(card, getString(R.string.settings_disable_factory_hicar),
                 getString(if (hicar.canChange) R.string.settings_disable_factory_hicar_description
@@ -3481,21 +3493,29 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 render()
             }
         }
-        toggle(card, getString(R.string.wheel_media_play_pause),
-            getString(R.string.wheel_media_play_pause_description),
-            WheelZoomSettings.mediaPlayPause(this)) {
-            WheelZoomSettings.setMediaPlayPause(this, it)
-            render()
+        settingsDetails(card, R.string.settings_custom_wheel_keys, customWheelKeysExpanded, { customWheelKeysExpanded = it }) { card ->
+            ecarxSwKeyControls(card)
+            card.addView(label(getString(R.string.settings_generic_wheel_keys), 16, MUTED))
+            val zoomAvailable = wheelMapZoomAvailable()
+            val vehicleKeysOn = WheelZoomSettings.joystick(this) ||
+                (zoomAvailable && WheelZoomSettings.enabled(this))
+            if (WheelZoomSettings.siriKey(this) || WheelZoomSettings.mediaPlayPause(this) || vehicleKeysOn) {
+                wheelKeyServiceControls(card)
+            }
+            siriKeyControls(card)
+            toggle(card, getString(R.string.wheel_media_play_pause),
+                getString(R.string.wheel_media_play_pause_description),
+                WheelZoomSettings.mediaPlayPause(this)) {
+                WheelZoomSettings.setMediaPlayPause(this, it)
+                render()
+            }
+            if (WheelZoomSettings.mediaPlayPause(this)) {
+                wheelKeyAssignButton(card, WheelZoomSettings.Role.MEDIA_PLAY_PAUSE,
+                    getString(R.string.wheel_key_role_media_play_pause))
+            }
+            // Keep previously configured controls reachable even if nothing else is turned on.
+            if (zoomAvailable || WheelZoomSettings.joystick(this)) wheelKeyControls(card)
         }
-        if (WheelZoomSettings.mediaPlayPause(this)) {
-            wheelKeyAssignButton(card, WheelZoomSettings.Role.MEDIA_PLAY_PAUSE,
-                getString(R.string.wheel_key_role_media_play_pause))
-        }
-        // Any head unit: a paired keyboard, remote or rotary controller works alongside touch.
-        toggle(card, getString(R.string.settings_external_controller), getString(R.string.settings_external_controller_description),
-            AirPlayPersistence.loadExternalController(this)) { AirPlayPersistence.saveExternalController(this, it) }
-        // Keep previously configured controls reachable even if nothing else is turned on.
-        if (zoomAvailable || WheelZoomSettings.joystick(this)) wheelKeyControls(card)
     }
 
     // Map zoom only works where the dashboard map card used to show these controls.
@@ -5030,6 +5050,26 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         parent.addView(dependent)
     }
 
+
+    private fun settingsDetails(parent: LinearLayout, title: Int, expanded: Boolean,
+        saveExpanded: (Boolean) -> Unit, build: (LinearLayout) -> Unit) {
+        val details = column().apply {
+            build(this)
+            visibility = if (expanded) View.VISIBLE else View.GONE
+        }
+        var open = expanded
+        val control = button(getString(title) + VALUE_SEPARATOR +
+            getString(if (open) R.string.settings_collapse else R.string.settings_expand), false) {}
+        control.setOnClickListener {
+            open = !open
+            saveExpanded(open)
+            details.visibility = if (open) View.VISIBLE else View.GONE
+            control.text = getString(title) + VALUE_SEPARATOR +
+                getString(if (open) R.string.settings_collapse else R.string.settings_expand)
+        }
+        parent.addView(control, matchButton(SETTINGS_BLOCK_GAP_DP, CONTROL_HEIGHT_DP))
+        parent.addView(details)
+    }
 
     private fun filteredSection(
         parent: LinearLayout,
