@@ -47,7 +47,6 @@ class MicrophoneCaptureLifecycleTest {
         policy.needed = true
         CaptureAudioManager.rejectMode = null
         CaptureAudioManager.rejectParameter = null
-        CaptureAudioManager.rejectRecordings = false
         MicrophoneSourceFallbackTest.RecorderBuilder.attempts.clear()
         MicrophoneSourceFallbackTest.RecorderBuilder.built.clear()
         MicrophoneSourceFallbackTest.RecorderBuilder.rejectSources = emptySet()
@@ -154,18 +153,11 @@ class MicrophoneCaptureLifecycleTest {
     @Test fun vendorParameterFailureDoesNotPreventDirectCaptureOrResourceRelease() {
         CaptureAudioManager.rejectParameter = "ASR_AEC=ON"
         start()
-        assertTrue(reports.any { it.contains("ASR_AEC=ON writeOk=false") })
+        assertTrue(reports.any { it.contains("ASR_AEC=ON failed=SecurityException") })
         assertTrue(reports.any { it.startsWith("Microphone: start") })
         sink!!.onMicrophoneStopped(call)
         assertEquals(1, policy.releases)
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
-    }
-
-    @Test fun inaccessibleRecordingClientsAreUnknownRatherThanReportedAbsent() {
-        CaptureAudioManager.rejectRecordings = true
-        start()
-        assertTrue(reports.any { it.contains("activeRecordings=unknown") })
-        assertTrue(reports.any { it.startsWith("Microphone: start") })
     }
 
     @Test fun failedModeRestoreStillClosesVendorParametersAndReleasesTheMic() {
@@ -210,16 +202,10 @@ class MicrophoneCaptureLifecycleTest {
         assertEquals(1, policy.releases)
     }
 
-    @Test fun recordingClientsAndMuteStateAreReportedWithoutClaimingFullVisibility() {
+    @Test fun microphoneMuteStateIsReported() {
         manager.isMicrophoneMute = true
-        val shadow = shadowOf(manager)
-        shadow.setActiveRecordingConfigurations(listOf(
-            shadow.createActiveRecordingConfiguration(1, MediaRecorder.AudioSource.VOICE_COMMUNICATION, "com.shihab.diplay.hudtest"),
-            shadow.createActiveRecordingConfiguration(2, MediaRecorder.AudioSource.MIC, "com.ecarx.assistant")), false)
-        start()
-        assertTrue(reports.any { it.contains("microphoneMute=true") && it.contains("activeRecordings=2") &&
-            it.contains("visibility=anonymized-or-filtered") })
-        assertTrue(reports.any { it.contains("package=com.ecarx.assistant source=1") })
+        start(id = siri)
+        assertTrue(reports.any { it.contains("phase=capture") && it.contains("microphoneMute=true") })
     }
 
     private fun start(id: AudioStreamId = call) {
@@ -243,14 +229,9 @@ class MicrophoneCaptureLifecycleTest {
             if (parameters == rejectParameter) throw SecurityException("Test vendor refusal")
             super.setParameters(parameters)
         }
-        @Implementation override fun getActiveRecordingConfigurations(): List<android.media.AudioRecordingConfiguration> {
-            if (rejectRecordings) throw SecurityException("Test visibility refusal")
-            return super.getActiveRecordingConfigurations()
-        }
         companion object {
             var rejectMode: Int? = null
             var rejectParameter: String? = null
-            var rejectRecordings = false
         }
     }
 }

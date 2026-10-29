@@ -595,29 +595,8 @@ class AndroidMediaSink(
         val manager = audioManager ?: return
         val mode = runCatching { manager.mode.toString() }.getOrDefault("unknown")
         val mute = runCatching { manager.isMicrophoneMute.toString() }.getOrDefault("unknown")
-        val recordings = runCatching { manager.activeRecordingConfigurations }.getOrNull()
-        // Android can anonymize clients or deny package visibility. A partial list never proves
-        // that another assistant is absent; do not infer packages from a source or route.
-        val privileged = appContext?.checkSelfPermission("android.permission.MODIFY_AUDIO_ROUTING") ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
         runCatching {
-            onAudioDiagnostic("Microphone: environment stream=$id phase=$phase mode=$mode" +
-                " microphoneMute=$mute" +
-                " activeRecordings=${recordings?.size ?: "unknown"}" +
-                " visibility=${if (privileged) "privileged" else "anonymized-or-filtered"}")
-        }
-        recordings?.take(8)?.forEachIndexed { index, recording ->
-            val source = runCatching { recording.clientAudioSource.toString() }.getOrDefault("unknown")
-            val client = runCatching {
-                recording.javaClass.getMethod("getClientPackageName").invoke(recording) as? String
-            }.getOrNull()?.takeIf { it.isNotEmpty() }
-            // Package names are the only identity requested here; no device IDs, session IDs or audio.
-            val name = client?.takeIf { it.length <= 160 && it.matches(Regex("[A-Za-z0-9_.]+")) }
-                ?: "unavailable"
-            runCatching {
-                onAudioDiagnostic("Microphone: recording stream=$id phase=$phase index=$index" +
-                    " package=$name source=$source")
-            }
+            onAudioDiagnostic("Microphone: environment stream=$id phase=$phase mode=$mode microphoneMute=$mute")
         }
     }
 
@@ -723,10 +702,11 @@ class AndroidMediaSink(
         } else {
             listOf("hicar_enable=false", "AudioControlMode=01121000", "ASR_AEC=OFF")
         }) {
-            val result = runCatching { manager.setParameters(parameter) }
-            result.onFailure { Log.w("xcertplay-usb", "could not set $parameter", it) }
-            runCatching {
-                onAudioDiagnostic("Audio: 820 mic parameter $parameter writeOk=${result.isSuccess}")
+            runCatching { manager.setParameters(parameter) }.onFailure { error ->
+                Log.w("xcertplay-usb", "could not set $parameter", error)
+                runCatching {
+                    onAudioDiagnostic("Audio: 820 mic parameter $parameter failed=${error.javaClass.simpleName}")
+                }
             }
         }
     }
