@@ -14,7 +14,9 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 | 开机自动连接 | **设置 → 连接 → 自动连接**，开启「车机启动后打开」和「打开 DiPlay 时连接」 |
 | 自定义方向盘按键 | **设置 → 车辆 → 方向盘按键**，开启按键服务并学习需要的按键 |
 
-**DEV 的 Siri 短按功能**：连接后自动生效，无需额外开关；使用 HY 时，请关闭 HY 的语音键接管。该功能仍在实车验证中。
+**使用 HY 时，请关闭 HY 的方控接管。**
+
+**DEV 的 Siri 短按功能**：连接后自动生效，无需额外开关。该功能仍在实车验证中。
 
 只显示导航提示和歌曲信息时，保持「仪表投屏」关闭。设置修改后，按界面提示重新连接。
 
@@ -38,7 +40,9 @@ DiPlay brings iPhone navigation, music, Siri and calls to the **2021 Lynk & Co 0
 | Automatic connection at startup | **Settings → Connection → Automatic connection**: enable “Open after the car starts” and “Connect when DiPlay opens” |
 | Custom steering-wheel controls | **Settings → Vehicle → Wheel keys**: enable the key service and learn the buttons you need |
 
-**Siri in DEV:** short-press voice-button activation works automatically while connected. Disable HY voice-button takeover when using HY. Vehicle testing is still in progress.
+**If you use HY, disable its steering-wheel control takeover.**
+
+**Siri in DEV:** short-press voice-button activation works automatically while connected. Vehicle testing is still in progress.
 
 Keep full-screen cluster mirroring off when you only want navigation and song information. After changing settings, reconnect when prompted.
 
