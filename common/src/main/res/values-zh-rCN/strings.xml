@@ -908,4 +908,6 @@
     <string name="settings_hotspot_probe_rejected">请求被拒绝或输入不合法。</string>
     <string name="settings_hotspot_probe_denied">接口拒绝访问，权限不足。</string>
     <string name="settings_hotspot_probe_unsupported">接口或配置不受支持。</string>
+    <string name="settings_external_siri">由外部触发应用唤起 Siri</string>
+    <string name="settings_external_siri_description">CarPlay 已连接时，通过应用启动入口打开 DiPlay 会唤起 Siri；点击桌面图标也会触发。与媒体会话模式无关。</string>
 </resources>

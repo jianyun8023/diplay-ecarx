@@ -42,6 +42,7 @@ import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
 import androidx.core.content.FileProvider
 import androidx.core.widget.doAfterTextChanged
 import androidx.core.view.doOnLayout
@@ -115,6 +116,7 @@ internal enum class SettingsSection {
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
     ADVANCED_MEDIA,
+    EXTERNAL_SIRI,
     CAR_BUTTON,
     AUDIO_ROUTING,
     BLUETOOTH_AUDIO,
@@ -153,6 +155,7 @@ internal object SettingsInformationArchitecture {
             SettingsSection.EXTERNAL_CONTROLLER,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
+            SettingsSection.EXTERNAL_SIRI,
             SettingsSection.NAVIGATION_WHEEL,
         ),
     )
@@ -355,6 +358,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && forwardLauncherSiri(intent)) { finish(); return }
         // Back on the home page finishes this activity while the session runs on, so the icon lands here.
         if (savedInstanceState == null && isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
             openProjection(); finish(); return
@@ -411,6 +415,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
+        if (forwardLauncherSiri(intent)) return
         connectionSettingsReturnCategory = null
         // CarPlay runs in its own task, so the launcher icon resumes this one. Settings opened from
         // CarPlay carry a "page" extra, which isLauncherIntent rejects.
@@ -427,6 +432,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             handler.post { connectWithSource(true, ConnectionTraceSource.PHONE_ACL) }
         }
     }
+    private fun forwardLauncherSiri(intent: Intent): Boolean {
+        if (!requestLauncherSiri(this, intent)) return false
+        // A paused but visible host still owns its Surface; do not reopen it just to deliver Siri.
+        if (CarPlayScreen.current()?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) {
+            finish()
+        } else {
+            openProjection()
+        }
+        return true
+    }
+
     private fun consumeBluetoothAutoConnectIntent(intent: Intent): Boolean {
         val requested = intent.getStringExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT) == PhoneBluetoothReceiver.launchToken
         intent.removeExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT)
@@ -1984,6 +2000,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
         }
         // Opt-in controls that can cost sound or video on some head units.
+        filteredSection(content, SettingsSection.EXTERNAL_SIRI,
+            getString(R.string.settings_external_siri), R.drawable.ic_dp_controls) { card ->
+            toggle(card, getString(R.string.settings_external_siri),
+                getString(R.string.settings_external_siri_description), ExternalSiriSettings.enabled(this)) {
+                ExternalSiriSettings.setEnabled(this, it)
+            }
+        }
         filteredSection(content, SettingsSection.ADVANCED_MEDIA,
             getString(R.string.settings_advanced_media), R.drawable.ic_dp_advanced) { card ->
             navigationContentControl(card)
@@ -5746,6 +5769,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         internal fun isLauncherIntent(intent: Intent): Boolean =
             intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER) &&
                 !intent.hasExtra("page")
+
+        internal fun requestLauncherSiri(context: Context, intent: Intent,
+            request: (() -> Boolean)? = CarPlayBackgroundSession.snapshot()?.controller?.let { it::requestSiri }): Boolean {
+            if (!isLauncherIntent(intent) || !ExternalSiriSettings.enabled(context) || request == null) return false
+            val sent = request()
+            android.util.Log.i("DiPlay-Siri", "external launcher Siri sent=$sent")
+            WheelKeyLog.note("External launcher Siri sent=$sent")
+            return sent
+        }
 
         private const val ADB_KEY_SAVE_WAIT_MILLIS = 500L
         /**

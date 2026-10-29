@@ -950,4 +950,6 @@
     <string name="settings_hotspot_probe_rejected">Request rejected or input invalid.</string>
     <string name="settings_hotspot_probe_denied">Permission denied.</string>
     <string name="settings_hotspot_probe_unsupported">API or configuration unsupported.</string>
+    <string name="settings_external_siri">Wake Siri when opened externally</string>
+    <string name="settings_external_siri_description">When CarPlay is connected, opening DiPlay through its launcher entry wakes Siri. Tapping the desktop icon also triggers Siri. Independent of the media session mode.</string>
 </resources>
