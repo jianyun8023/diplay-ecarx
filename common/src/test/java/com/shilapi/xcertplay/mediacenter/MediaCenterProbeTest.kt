@@ -1,15 +1,11 @@
 package com.shilapi.xcertplay.mediacenter
 
 import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.PermissionInfo
 import android.content.pm.ServiceInfo
-import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,19 +60,5 @@ class MediaCenterProbeTest {
         assertFalse(MediaCenterProbe.access(f.context).serviceUsable)
         `when`(f.pm.checkPermission(MediaCenterProbe.PERMISSION, "actual.diplay")).thenReturn(PackageManager.PERMISSION_DENIED)
         assertFalse(MediaCenterProbe.access(f.context).granted)
-    }
-    @Test fun repeatedReadonlyReportsNeverBindAService() {
-        var bindings = 0
-        val context = object : ContextWrapper(RuntimeEnvironment.getApplication()) {
-            override fun bindService(intent: Intent, connection: ServiceConnection, flags: Int): Boolean {
-                bindings++; error("read-only probe cannot bind")
-            }
-        }
-        repeat(3) {
-            val report = MediaCenterProbe.report(context)
-            assertTrue(report.contains("MediaCenter permissionDeclared="))
-            assertTrue(report.contains("ECARX contract=UNAVAILABLE"))
-        }
-        assertEquals(0, bindings)
     }
 }

@@ -116,7 +116,6 @@ internal enum class SettingsSection {
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
     ADVANCED_MEDIA,
-    MEDIA_OUTPUT_BACKEND,
     CAR_BUTTON,
     AUDIO_ROUTING,
     NAVIGATION_WHEEL,
@@ -150,7 +149,6 @@ internal object SettingsInformationArchitecture {
             SettingsSection.LAUNCHER_BUBBLE,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
-            SettingsSection.MEDIA_OUTPUT_BACKEND,
             SettingsSection.NAVIGATION_WHEEL,
         ),
     )
@@ -186,7 +184,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var pendingCarHotspotSetup = false
     private var hotspotJoinControls: HotspotJoinControls? = null
     private var manualHotspotControls: ManualHotspotControls? = null
-    private var mediaOutputBackendControls: MediaOutputBackendControls? = null
     @Volatile private var hotspotStartupRunning = false
     @Volatile private var projectionRequested = false
     private var setupError: String? = null
@@ -534,7 +531,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         handler.removeCallbacks(appearancePoll)
         hotspotJoinControls?.close()
         manualHotspotControls?.close()
-        mediaOutputBackendControls?.close()
         cancelUsbPermissionSetup()
         cancelKeyLearning()
         cancelEcarxSwLearning()
@@ -1910,14 +1906,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     markReconnectNeeded()
                 }
             }
-        }
-        filteredSection(content, SettingsSection.MEDIA_OUTPUT_BACKEND,
-            getString(R.string.settings_media_backend_title), R.drawable.ic_dp_advanced) { card ->
-            val controls = mediaOutputBackendControls ?: MediaOutputBackendControls(this,
-                labelFactory = { label(it, 15, MUTED) },
-                buttonFactory = { title, click -> button(title, false, click) })
-                .also { mediaOutputBackendControls = it }
-            card.addView(controls.build())
         }
         // Opt-in controls that can cost sound or video on some head units.
         filteredSection(content, SettingsSection.ADVANCED_MEDIA,
@@ -3503,8 +3491,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             wheelKeyAssignButton(card, WheelZoomSettings.Role.MEDIA_PLAY_PAUSE,
                 getString(R.string.wheel_key_role_media_play_pause))
         }
-        toggle(card, getString(R.string.wheel_siri_long_press_only), getString(R.string.wheel_siri_long_press_only_description),
-            WheelZoomSettings.siriLongPressOnly(this)) { WheelZoomSettings.setSiriLongPressOnly(this, it) }
         // Any head unit: a paired keyboard, remote or rotary controller works alongside touch.
         toggle(card, getString(R.string.settings_external_controller), getString(R.string.settings_external_controller_description),
             AirPlayPersistence.loadExternalController(this)) { AirPlayPersistence.saveExternalController(this, it) }

@@ -648,8 +648,6 @@
     <string name="wheel_siri_double_press_description">单击保留车辆原有功能。在设定间隔内按两次，DiPlay 会在设定延时后打开 Siri。如果原车助手会接管屏幕，则必须启用方向盘按键服务。立即生效。</string>
     <string name="wheel_siri_double_press_interval">双击间隔</string>
     <string name="wheel_siri_trigger_delay">Siri 触发延时</string>
-    <string name="wheel_siri_long_press_only">仅长按打开 Siri</string>
-    <string name="wheel_siri_long_press_only_description">只有长按方向盘语音键才会打开 Siri，短按时 DiPlay 不执行任何操作。</string>
     <string name="wheel_key_role_back">返回</string>
     <string name="wheel_key_service_label">DiPlay 方向盘按键</string>
     <string name="wheel_key_service_description">可选方向盘按键过滤，用于导航播报音量、仪表地图缩放、CarPlay摇杆及通话控制。不读取屏幕内容。</string>

@@ -42,9 +42,6 @@ object CarPlayMediaButton {
         keyCode == ECARX_VOICE_8001 ||
         keyCode == ECARX_OFFSET + KeyEvent.KEYCODE_VOICE_ASSIST
 
-    /** The voice key a short press of the wheel's voice button sends. */
-    fun isShortVoiceKey(keyCode: Int): Boolean = opensSiri(keyCode)
-
     /** The CarPlay press for [keyCode], or null when the key is not a media key CarPlay handles. */
     fun forKeyCode(keyCode: Int): Int? = when (keyCode) {
         KeyEvent.KEYCODE_MEDIA_NEXT, ECARX_OFFSET + KeyEvent.KEYCODE_MEDIA_NEXT -> NEXT

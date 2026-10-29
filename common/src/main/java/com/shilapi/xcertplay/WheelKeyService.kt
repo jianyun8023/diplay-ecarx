@@ -942,7 +942,6 @@ object WheelZoomSettings {
     private const val KEY_SIRI_DOUBLE_PRESS = "siri_double_press"
     private const val KEY_SIRI_DOUBLE_PRESS_INTERVAL = "siri_double_press_interval"
     private const val KEY_SIRI_TRIGGER_DELAY = "siri_trigger_delay"
-    private const val KEY_SIRI_LONG_ONLY = "siri_long_press_only"
     private const val LEARNED_KEYS = "learned-keys"
     const val TIMED_MODE_MILLIS = 5_000L
     const val JOYSTICK_IDLE_MILLIS = 15_000L
@@ -1007,13 +1006,6 @@ object WheelZoomSettings {
     fun setMediaPlayPause(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_MEDIA_PLAY_PAUSE, enabled).apply()
         WheelKeyService.settingsChanged()
-    }
-
-    /** With this on, only the wheel's long press opens Siri; a short press of the voice key does nothing. */
-    fun siriLongPressOnly(context: Context): Boolean = prefs(context).getBoolean(KEY_SIRI_LONG_ONLY, false)
-
-    fun setSiriLongPressOnly(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_SIRI_LONG_ONLY, enabled).apply()
     }
 
     fun setSiriKey(context: Context, enabled: Boolean) {

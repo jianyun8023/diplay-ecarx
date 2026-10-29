@@ -7,7 +7,7 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
-/** Diagnostics only. No SDK factory/init, wrapper constructor, binding or registration is invoked. */
+/** ECARX service access and reflected contract; inspecting them never registers a media session. */
 internal object MediaCenterProbe {
     const val PERMISSION = "ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION"
     const val SERVICE_PACKAGE = "ecarx.xsf.mediacenter"
@@ -38,23 +38,6 @@ internal object MediaCenterProbe {
             append(" serviceEnabled=${service?.enabled ?: "unknown"} servicePermission=${service?.permission ?: "none"}")
             append(" servicePermissionGranted=$servicePermissionGranted")
         })
-    }
-
-    fun report(context: Context): String = buildString {
-        appendLine(runCatching { access(context).report }.getOrDefault("MediaCenter access=UNKNOWN"))
-        try {
-            val loader = loader(context)
-            appendLine("SDK signatures (read-only; no SDK registration backend):")
-            runCatching {
-                Class.forName("com.ecarx.sdk.mediacenter.MediaCenterAPI", false, loader).methods
-                    .filter { it.name in setOf("get", "init", "registerMusic", "unregister", "release") }
-                    .map(::signature).distinct().sorted().forEach { appendLine(it) }
-            }.onFailure { appendLine("SDK signatures unavailable=${it.javaClass.simpleName}") }
-            val types = types(loader)
-            val contract = Contract.resolve(types)
-            append("ECARX contract=AVAILABLE artwork=${contract.artworkSupported} register=${signature(contract.register)} unregister=${signature(contract.unregister)}")
-        } catch (error: Exception) { append("ECARX contract=UNAVAILABLE reason=${error.javaClass.simpleName}") }
-        catch (_: LinkageError) { append("ECARX contract=UNAVAILABLE reason=LinkageError") }
     }
 
     fun loader(context: Context): ClassLoader {
