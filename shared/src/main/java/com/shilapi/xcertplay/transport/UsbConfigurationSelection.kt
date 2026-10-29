@@ -26,14 +26,15 @@ internal object UsbConfigurationSelection {
 
         fun diagnostic(): String =
             "USB configuration select target=$target ok=$selected before=${before ?: "unknown"} " +
-                "detached=${detached.joinToString(",").ifEmpty { "none" }} after=${after ?: "unknown"}"
+                "detached=${detached.joinToString(",").ifEmpty { "none" }} after=${after ?: "unknown"}" +
+                if (selected && before == target) " action=reuse-active" else ""
     }
 
     /**
-     * Returns null when the first [setConfiguration] succeeds. Otherwise, unless
-     * [activeConfiguration] already reads [target], detaches drivers from [interfaceIds] with a
-     * claim that stays held, lets [reopen] close and reopen the connection to drop those claims,
-     * and tries once more on the new connection.
+     * Reuses an already active [target] without resetting its interfaces. Returns null when the
+     * first [setConfiguration] succeeds. Otherwise, unless the phone now reads [target], detaches
+     * drivers from [interfaceIds] with a claim that stays held, lets [reopen] close and reopen the
+     * connection to drop those claims, and tries once more on the new connection.
      */
     fun select(
         target: Int,
@@ -43,9 +44,11 @@ internal object UsbConfigurationSelection {
         detach: (Int) -> Boolean,
         reopen: () -> Unit,
     ): Outcome? {
-        if (setConfiguration()) return null
         val before = activeConfiguration()
-        if (before == target) return Outcome(target, selected = false, before, before, emptyList())
+        if (before == target) return Outcome(target, selected = true, before, before, emptyList())
+        if (setConfiguration()) return null
+        val after = activeConfiguration()
+        if (after == target) return Outcome(target, selected = false, before, after, emptyList())
         val detached = interfaceIds.distinct().sorted().filter(detach)
         if (detached.isNotEmpty()) reopen()
         val selected = setConfiguration()

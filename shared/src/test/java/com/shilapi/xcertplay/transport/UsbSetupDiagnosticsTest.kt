@@ -53,7 +53,7 @@ class UsbSetupDiagnosticsTest {
     @Test
     fun configurationSwitchDetachesDriversOnlyAfterAndroidRefusesIt() {
         val detached = mutableListOf<Int>()
-        assertNull(UsbConfigurationSelection.select(6, listOf(0, 1), { true }, { 6 }, { detached += it; true }) { fail("no reopen") })
+        assertNull(UsbConfigurationSelection.select(6, listOf(0, 1), { true }, { 2 }, { detached += it; true }) { fail("no reopen") })
         assertTrue(detached.isEmpty())
 
         // The 8227L kernel's snd-usb-audio held interface 0 of configuration 2 (#518). The switch
@@ -83,12 +83,35 @@ class UsbSetupDiagnosticsTest {
 
         // Already in configuration 6: the forced claims later detach cdc_ncm; nothing to switch here.
         val detached = mutableListOf<Int>()
-        val current = UsbConfigurationSelection.select(6, listOf(0, 3), { false }, { 6 }, { detached += it; true }) { fail("no reopen") }
+        val current = UsbConfigurationSelection.select(6, listOf(0, 3), { fail("must not reset the active configuration"); false }, { 6 }, { detached += it; true }) { fail("no reopen") }
         assertFalse(current!!.wrongConfiguration)
+        assertTrue(current.selected)
+        assertEquals("USB configuration select target=6 ok=true before=6 detached=none after=6 action=reuse-active", current.diagnostic())
         assertTrue(detached.isEmpty())
 
         // An unreadable configuration keeps the earlier claim-anyway behavior.
         assertFalse(UsbConfigurationSelection.select(6, listOf(0), { false }, { null }, { true }) {}!!.wrongConfiguration)
+    }
+
+    @Test fun configurationIsReadBeforeAnySwitchAndFalseSuccessDoesNotDetachDrivers() {
+        val calls = mutableListOf<String>()
+        var active = 2
+        val outcome = UsbConfigurationSelection.select(6, listOf(0, 3), {
+            calls += "set"
+            active = 6
+            false
+        }, { calls += "get"; active }, { fail("configuration is already correct"); false }) { fail("no reopen") }
+        assertEquals(listOf("get", "set", "get"), calls)
+        assertFalse(outcome!!.wrongConfiguration)
+        assertEquals(2, outcome.before)
+        assertEquals(6, outcome.after)
+    }
+
+    @Test fun unreadableConfigurationStillAttemptsTheSwitch() {
+        var switches = 0
+        assertNull(UsbConfigurationSelection.select(6, listOf(0), { switches++; true }, { null },
+            { fail("no detach"); false }) { fail("no reopen") })
+        assertEquals(1, switches)
     }
 
     @Test

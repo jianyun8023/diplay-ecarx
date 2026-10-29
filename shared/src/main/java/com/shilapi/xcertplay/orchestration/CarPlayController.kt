@@ -2489,7 +2489,17 @@ class CarPlayController(
             )
         } catch (error: Throwable) {
             debugLog("wired bring-up failed", error)
-            if (!ncmOwnedLocally) vpnService?.detach()
+            // Stop control and USBMUX before releasing NCM back to the kernel driver.
+            closeBestEffort("CSM") { csm?.close() }
+            csm = null
+            closeBestEffort("USBMUX") { mux?.close() ?: usbSession.close() }
+            mux = null
+            if (ncmOwnedLocally) {
+                closeBestEffort("NCM") { ncm.close() }
+                ncmOwnedLocally = false
+            } else {
+                closeBestEffort("VPN/NCM") { vpnService?.detach() }
+            }
             fail(error)
         } finally {
             wiredStartWatchdog?.terminate()
