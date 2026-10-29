@@ -62,8 +62,7 @@ object EcarxSwKeyIntercept {
      * so two live registrations (the settings screen and the CarPlay screen) can both answer one
      * press, and the log has to say which one did.
      */
-    fun register(context: Context, listener: Listener, label: String = "app", includeMediaKeys: Boolean = true): Handle? {
-        val keys = if (includeMediaKeys) oneOsKey else oneOsKey.filter { it !in 200085..200088 }.toIntArray()
+    fun register(context: Context, listener: Listener, label: String = "app"): Handle? {
         val input = createInput(context) ?: return null
         val callbackClass = callbackClass() ?: return null
         val callbackHandler = CallbackHandler(listener)
@@ -75,13 +74,13 @@ object EcarxSwKeyIntercept {
         val registered = runCatching {
             val method = lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
                 ?: return null
-            method.invoke(input, keys, proxy) as? IntArray
+            method.invoke(input, oneOsKey, proxy) as? IntArray
         }.getOrElse {
             Log.i(TAG, "requestKeysInterception failed: ${describe(it)}")
             return null
         }
         // The DCY11 SDK returns registered keys; its dispatcher ignores callback Boolean results.
-        val handle = Handle(input, proxy, callbackClass, label, registered, keys.size) { inputObj, callbackObj ->
+        val handle = Handle(input, proxy, callbackClass, label, registered, oneOsKey.size) { inputObj, callbackObj ->
             callbackHandler.active = false
             runCatching {
                 val abandon = lookup(inputObj, "abandonKeysInterception", arrayOf(callbackClass))
@@ -89,7 +88,7 @@ object EcarxSwKeyIntercept {
                 else {
                     val release = lookup(inputObj, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
                         ?: return@runCatching false
-                    release.invoke(inputObj, keys, callbackObj)
+                    release.invoke(inputObj, oneOsKey, callbackObj)
                 }
                 true
             }.getOrDefault(false)

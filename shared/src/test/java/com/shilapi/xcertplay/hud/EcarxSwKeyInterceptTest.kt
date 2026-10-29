@@ -11,24 +11,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 class EcarxSwKeyInterceptTest {
-    @Test fun standardModeDoesNotInterceptMediaAndReleasesExactlyItsOwnKeys() {
-        for (includeMedia in listOf(true, false)) {
-            Input.instance = Input()
-            val handle = checkNotNull(EcarxSwKeyIntercept.register(RuntimeEnvironment.getApplication(),
-                object : EcarxSwKeyIntercept.Listener {
-                    override fun onKeyPressed(keyCode: Int) = false
-                    override fun onKeyReleased(keyCode: Int) = false
-                }, includeMediaKeys = includeMedia))
-            val requested = Input.instance.requested
-            for (key in listOf(200085, 200087, 200088)) assertEquals(includeMedia, key in requested)
-            assertTrue("voice key is preserved", 200231 in requested)
-            assertTrue(handle.describe().contains("keys=${requested.size}"))
-            assertTrue(handle.describe().contains("registered="))
-            assertFalse(handle.describe().contains("refused"))
-            handle.release()
-            assertArrayEquals(requested, Input.instance.released)
-            assertNull(Input.instance.callback)
-        }
+    @Test fun registersMediaAndVoiceAndReleasesExactlyItsOwnKeys() {
+        Input.instance = Input()
+        val handle = checkNotNull(EcarxSwKeyIntercept.register(RuntimeEnvironment.getApplication(),
+            object : EcarxSwKeyIntercept.Listener {
+                override fun onKeyPressed(keyCode: Int) = false
+                override fun onKeyReleased(keyCode: Int) = false
+            }))
+        val requested = Input.instance.requested
+        for (key in listOf(200085, 200087, 200088)) assertTrue(key in requested)
+        assertTrue("voice key is preserved", 200231 in requested)
+        assertTrue(handle.describe().contains("keys=${requested.size}"))
+        assertTrue(handle.describe().contains("registered="))
+        assertFalse(handle.describe().contains("refused"))
+        handle.release()
+        assertArrayEquals(requested, Input.instance.released)
+        assertNull(Input.instance.callback)
     }
 
     @Test fun aReleasedCallbackCannotTriggerSiriAgain() {
