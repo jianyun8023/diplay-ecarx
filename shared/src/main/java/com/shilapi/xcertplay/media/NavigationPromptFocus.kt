@@ -9,11 +9,8 @@ import android.util.Log
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
 
 /** The attributes the navigation renderer plays with, for a focus request made before its track exists. */
-internal fun navigationRouteAttributes(navigationChannel: Int): AudioAttributes =
-    LegacyAudioFallback.attributes(navigationChannel) ?: AudioAttributes.Builder()
-        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-        .build()
+internal fun navigationRouteAttributes(navigationChannel: Int, oemContent: Boolean = false): AudioAttributes =
+    LegacyAudioFallback.attributes(navigationChannel) ?: NavigationAudioAttributes.create(navigationChannel == 0 && oemContent)
 
 /**
  * Opt-in audio focus for navigation prompts (#946, #545). Navigation audio takes no focus by default,
@@ -73,7 +70,10 @@ internal class NavigationPromptFocus(
     }
 
     private fun requestFocus(manager: AudioManager): Boolean {
-        val routeAttributes = attributes()
+        val routeAttributes = runCatching { attributes() }.getOrElse {
+            report("Audio: navigation prompt attributes unavailable detail=${it.message}")
+            return false
+        }
         val next = AudioFocusRequestCompat(
             AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, routeAttributes, listener, handler,
         )

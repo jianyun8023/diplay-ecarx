@@ -1,4 +1,9 @@
 <resources>
+    <string name="sound_output_test">Sound output test</string>
+    <string name="sound_output_test_note">Media and navigation speech samples use saved settings. Compare fixed navigation 12/1 and ECARX 12/20 with the same speech sample and gain. All request temporary focus. Unsupported attributes are reported as a failure; outputs do not identify individual seats.</string>
+    <string name="sound_output_test_media">Play media speech sample</string>
+    <string name="sound_output_test_navigation">Play navigation speech sample</string>
+    <string name="sound_output_test_auto_navigation">Play automatic navigation speech sample (12/1)</string>
     <string name="existing_wifi_title">Existing Wi-Fi / Same LAN</string>
     <string name="existing_wifi_description">Use an existing router or portable Wi-Fi. Keep the iPhone and car on the same network with Internet access.</string>
     <string name="existing_wifi_hint">Existing Wi-Fi · Keep both devices on the same Wi-Fi and Bluetooth on. No car hotspot is needed.</string>

@@ -39,13 +39,13 @@ class AudioRebufferDiagnosticsTest {
             .build()
 
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val renderer = type.declaredConstructors.single { it.parameterCount == 12 }
+        val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
             .apply { isAccessible = true }
             .newInstance(
                 AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0,
                 AudioFocusCoordinator(null, false, false),
-                0, 500, { msg: String -> reports.add(msg) }, false, null, false
+                0, 500, { msg: String -> reports.add(msg) }, false, null, false, false
             )
 
         fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
@@ -112,13 +112,13 @@ class AudioRebufferDiagnosticsTest {
             .build()
 
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val renderer = type.declaredConstructors.single { it.parameterCount == 12 }
+        val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
             .apply { isAccessible = true }
             .newInstance(
                 AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0,
                 AudioFocusCoordinator(null, false, false),
-                0, 500, { msg: String -> reports.add(msg) }, false, null, false
+                0, 500, { msg: String -> reports.add(msg) }, false, null, false, false
             )
 
         fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)

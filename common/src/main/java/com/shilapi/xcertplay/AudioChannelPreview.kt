@@ -1,20 +1,30 @@
 package com.shilapi.xcertplay
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.shilapi.xcertplay.host.R
 import java.io.Closeable
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.sin
 
-/** Plays one short tone through the same legacy stream route used by CarPlay audio. */
-internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : Closeable {
+/** Plays the same bundled speech sample through every tested CarPlay audio route. */
+internal class AudioChannelPreview(
+    context: Context,
+    private val report: (String) -> Unit = {},
+    private val onUnavailable: (Int) -> Unit,
+) : Closeable {
+    private val appContext = context.applicationContext
+    private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "diplay-channel-preview").apply { isDaemon = true }
@@ -24,17 +34,53 @@ internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : C
     private var pending: Future<*>? = null
     @Volatile private var closed = false
 
-    fun play(channel: Int, navigation: Boolean) {
+    fun play(channel: Int, navigation: Boolean, requestFocus: Boolean = false, oemContent: Boolean = false) {
         if (closed) return
         require(channel in AirPlayPersistence.AUDIO_CHANNELS)
         val request = generation.incrementAndGet()
+        val usage = if (navigation) AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE else AudioAttributes.USAGE_MEDIA
+        val contentType = if (navigation) {
+            if (channel == 0 && oemContent) 20 else AudioAttributes.CONTENT_TYPE_SPEECH
+        } else AudioAttributes.CONTENT_TYPE_MUSIC
+        val focusGain = if (navigation) AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK else AudioManager.AUDIOFOCUS_GAIN
+        report("phase=request request=$request channel=$channel navigation=$navigation focusRequested=$requestFocus " +
+            "configurationSource=${if (channel == 0) "attributes" else "legacyStream"} " +
+            "legacyStream=${if (channel == 0) -1 else channel} " +
+            "configuredUsage=${if (channel == 0) usage else -1} configuredContentType=${if (channel == 0) contentType else -1}")
         pending?.cancel(true)
         activeTrack.get()?.let { runCatching { it.stop() } }
         pending = worker.submit {
             var track: AudioTrack? = null
+            var focus: AudioFocusRequest? = null
+            var focusGranted = false
+            val focusListener = AudioManager.OnAudioFocusChangeListener { }
             try {
                 if (closed || generation.get() != request) return@submit
-                val pcm = tone()
+                val attributes = if (navigation && channel == 0) {
+                    com.shilapi.xcertplay.media.NavigationAudioAttributes.create(oemContent)
+                } else AudioAttributes.Builder().setUsage(usage).setContentType(contentType).build()
+                report("phase=attributes request=$request resolvedUsage=${attributes.usage} " +
+                    "resolvedContentType=${attributes.contentType} attributesSource=builder")
+                if (requestFocus) {
+                    val manager = checkNotNull(audioManager)
+                    val granted = if (Build.VERSION.SDK_INT >= 26) {
+                        focus = AudioFocusRequest.Builder(focusGain)
+                            .setAudioAttributes(attributes).setOnAudioFocusChangeListener(focusListener, mainHandler).build()
+                        manager.requestAudioFocus(focus!!)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        manager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, focusGain)
+                    }
+                    focusGranted = granted == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+                    report("phase=focus request=$request granted=$focusGranted result=$granted focusGain=$focusGain " +
+                        "focusConfigurationSource=${if (Build.VERSION.SDK_INT >= 26) "attributes" else "legacyStream"} " +
+                        "focusUsage=${if (Build.VERSION.SDK_INT >= 26) usage else -1} " +
+                        "focusContentType=${if (Build.VERSION.SDK_INT >= 26) contentType else -1}")
+                    check(focusGranted) { "Preview audio focus was not granted" }
+                }
+                val pcm = appContext.resources.openRawResource(R.raw.audio_channel_preview).use { it.readBytes() }
+                report("phase=sample request=$request sample=spoken_zh_v1 sampleRate=$SAMPLE_RATE channels=1 " +
+                    "durationMs=${pcm.size * 1000L / (SAMPLE_RATE * 2)} sampleBytes=${pcm.size} volume=0.6")
                 val minimum = AudioTrack.getMinBufferSize(
                     SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
                 )
@@ -43,12 +89,7 @@ internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : C
                 val built = if (channel == 0) {
                     AudioTrack.Builder()
                         .setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(if (navigation) AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
-                                    else AudioAttributes.USAGE_MEDIA)
-                                .setContentType(if (navigation) AudioAttributes.CONTENT_TYPE_SPEECH
-                                    else AudioAttributes.CONTENT_TYPE_MUSIC)
-                                .build(),
+                            attributes,
                         )
                         .setAudioFormat(
                             AudioFormat.Builder()
@@ -72,28 +113,49 @@ internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : C
                 activeTrack.set(built)
                 built.setVolume(0.6f)
                 built.play()
+                val actualAttributes = if (Build.VERSION.SDK_INT >= 29) built.audioAttributes else null
+                report("phase=started request=$request channel=$channel navigation=$navigation " +
+                    "trackState=${built.state} usage=${actualAttributes?.usage ?: -1} " +
+                    "contentType=${actualAttributes?.contentType ?: -1} attributesSource=${if (actualAttributes == null) "unavailable" else "track"}")
                 var written = 0
                 while (written < pcm.size && !closed && generation.get() == request) {
                     val count = built.write(
                         pcm, written, minOf(4096, pcm.size - written), AudioTrack.WRITE_BLOCKING,
                     )
-                    check(count > 0) { "Could not write preview tone" }
+                    check(count > 0) { "Could not write preview speech" }
                     written += count
                 }
                 if (!closed && generation.get() == request && written == pcm.size) {
                     Log.i(TAG, "Preview started channel=$channel navigation=$navigation")
                 }
-                Thread.sleep(120L)
+                // A blocking write can leave the last buffer queued; let the spoken ending drain.
+                Thread.sleep(bufferBytes * 1000L / (SAMPLE_RATE * 2) + 120L)
+                val device = built.routedDevice
+                report("phase=result request=$request channel=$channel navigation=$navigation " +
+                    "cancelled=${closed || generation.get() != request} writtenBytes=$written " +
+                    "playbackHeadFrames=${built.playbackHeadPosition.toLong() and 0xffff_ffffL} " +
+                    "routeId=${device?.id ?: -1} routeType=${device?.type ?: -1} " +
+                    "routeAddress=${device?.address ?: "none"}")
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } catch (error: Exception) {
                 Log.w(TAG, "Channel preview unavailable channel=$channel", error)
+                report("phase=failed request=$request channel=$channel navigation=$navigation error=${error.javaClass.simpleName} " +
+                    "detail=${DiagnosticRedactor.redact(error.message ?: error.javaClass.simpleName)}")
                 mainHandler.post {
                     if (!closed && generation.get() == request) onUnavailable(channel)
                 }
             } finally {
                 activeTrack.compareAndSet(track, null)
                 track?.let { runCatching { it.stop() }; it.release() }
+                if (focusGranted) {
+                    val result = if (Build.VERSION.SDK_INT >= 26 && focus != null) audioManager!!.abandonAudioFocusRequest(focus!!)
+                    else {
+                        @Suppress("DEPRECATION")
+                        audioManager!!.abandonAudioFocus(focusListener)
+                    }
+                    report("phase=focus-released request=$request result=$result")
+                }
             }
         }
     }
@@ -106,24 +168,8 @@ internal class AudioChannelPreview(private val onUnavailable: (Int) -> Unit) : C
         worker.shutdownNow()
     }
 
-    private fun tone(): ByteArray {
-        val sampleCount = SAMPLE_RATE * TONE_MILLIS / 1000
-        val fadeSamples = SAMPLE_RATE / 100
-        return ByteArray(sampleCount * 2).also { pcm ->
-            for (index in 0 until sampleCount) {
-                val fade = minOf(1.0, index.toDouble() / fadeSamples,
-                    (sampleCount - index - 1).toDouble() / fadeSamples).coerceAtLeast(0.0)
-                val sample = (sin(2.0 * Math.PI * 880.0 * index / SAMPLE_RATE) *
-                    fade * Short.MAX_VALUE * 0.45).toInt()
-                pcm[index * 2] = sample.toByte()
-                pcm[index * 2 + 1] = (sample ushr 8).toByte()
-            }
-        }
-    }
-
     private companion object {
         private const val TAG = "DiPlayAudioPreview"
         private const val SAMPLE_RATE = 48_000
-        private const val TONE_MILLIS = 600
     }
 }

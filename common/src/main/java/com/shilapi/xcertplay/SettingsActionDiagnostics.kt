@@ -7,7 +7,7 @@ import android.os.SystemClock
 internal object SettingsActionDiagnostics {
     private const val PREFS = "diplay_settings_actions"
     private const val LIMIT = 64
-    enum class Action { MANUAL_HOTSPOT, HOTSPOT_RECOVERY, HOTSPOT_PROBE, FACTORY_HICAR, USB_PERMISSIONS }
+    enum class Action { MANUAL_HOTSPOT, HOTSPOT_RECOVERY, HOTSPOT_PROBE, FACTORY_HICAR, USB_PERMISSIONS, AUDIO_PREVIEW }
 
     @Synchronized
     fun record(context: Context, action: Action, detail: String) {

@@ -28,6 +28,8 @@ object SettingsBackupCodec {
         "navigation_prompt_audio_focus", "disable_media_key_audio_focus", "media_audio_channel", "navigation_audio_channel",
         "navigation_stream_type", "wireless_enabled", "wireless_hotspot_mode", "wifi_p2p_preferred_channel", "wifi_direct_scan_pause",
         "navigation_audio_attenuation_db",
+        "navigation_usage_route_migrated",
+        "navigation_oem_content",
         "manual_hotspot_band", "manual_hotspot_channel", "manual_hotspot_security", "app_appearance",
         "ambient_lux_threshold", "display_fps", "media_buffer_ms", "wired_media_buffer_ms", "main_buffered_audio",
         "ambient_delay_seconds",
@@ -60,7 +62,9 @@ object SettingsBackupCodec {
     // The driver's choices only. "ignore_off_report" records what one car's firmware reports, so it stays out.
     private val CAR_HOTSPOT_KEYS = setOf("auto_enable", "config_write")
     private val FILES = mapOf(
-        "xcertplay_airplay" to Policy.Allow(AIRPLAY_KEYS, AIRPLAY_PREFIXES),
+        "xcertplay_airplay" to Policy.Allow(AIRPLAY_KEYS, AIRPLAY_PREFIXES,
+            types = mapOf("navigation_usage_route_migrated" to KeyType.BOOLEAN,
+                "navigation_oem_content" to KeyType.BOOLEAN)),
         "diplay" to Policy.Allow(DIPLAY_KEYS),
         // These readers call getInt and getBoolean, which throw on any other stored type. A key that is not stored yet
         // has no type to compare with, so the type is declared here.

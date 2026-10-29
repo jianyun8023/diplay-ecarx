@@ -21,6 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
@@ -41,6 +42,22 @@ class SimplifiedSettingsUiTest {
     @After fun cleanup() {
         shadowOf(activity.packageManager).removePackage("com.ecarx.xui.service")
         activity.finish()
+    }
+
+    @Test fun soundOutputDialogShowsMediaAndNavigationTestsAtHeadUnitSize() {
+        ReflectionHelpers.callInstanceMethod<Unit>(activity, "showSoundOutputTest")
+        val dialog = requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
+        try {
+            val content = dialog.window!!.decorView.findViewById<View>(android.R.id.content)
+            val labels = views(content).filterIsInstance<TextView>().map { it.text.toString() }.toList()
+            assertTrue(labels.contains(activity.getString(R.string.sound_output_test_media)))
+            assertTrue(labels.contains(activity.getString(R.string.sound_output_test_navigation)))
+            assertTrue(labels.contains(activity.getString(R.string.sound_output_test_auto_navigation)))
+            assertTrue(labels.contains(activity.getString(R.string.sound_output_test_note)))
+            // Dialog scroll indicators expect a real Window attach record while Robolectric draws.
+            views(content).forEach { it.scrollIndicators = 0 }
+            screenshot(content, "sound-output-test")
+        } finally { dialog.dismiss() }
     }
 
     @Test fun customWheelKeysAreCollapsedWithoutChangingSavedAssignments() {

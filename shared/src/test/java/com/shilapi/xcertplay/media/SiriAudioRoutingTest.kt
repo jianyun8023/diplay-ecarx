@@ -18,11 +18,11 @@ class SiriAudioRoutingTest {
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
         for (advanced in listOf(false, true)) {
             for (media in listOf(0, 3, 11)) {
-                val renderer = type.declaredConstructors.single { it.parameterCount == 12 }
+                val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
                     .apply { isAccessible = true }.newInstance(
                         AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 100, "speechrecognition"),
                         advanced, false, media, 14, AudioFocusCoordinator(null, false, false),
-                        14, 500, { _: String -> }, false, null, false,
+                        14, 500, { _: String -> }, false, null, false, false,
                     ) as Closeable
                 renderer.use {
                     val selection = type.getDeclaredMethod("mappedSelection").apply { isAccessible = true }
@@ -44,11 +44,11 @@ class SiriAudioRoutingTest {
         for (mediaChannel in listOf(0, 3)) {
             val reports = mutableListOf<String>()
             val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-            val renderer = type.declaredConstructors.single { it.parameterCount == 12 }
+            val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
                 .apply { isAccessible = true }.newInstance(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 100, "speechrecognition"),
                     false, false, mediaChannel, 14, AudioFocusCoordinator(null, false, false),
-                    14, 500, { line: String -> reports.add(line); Unit }, false, null, false,
+                    14, 500, { line: String -> reports.add(line); Unit }, false, null, false, false,
                 ) as Closeable
             try {
                 type.getDeclaredMethod("createTrack").apply { isAccessible = true }.invoke(renderer)

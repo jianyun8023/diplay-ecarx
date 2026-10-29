@@ -1391,6 +1391,39 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun diagnosticsSettings(content: LinearLayout) {
         settingsPageTitle(content, getString(R.string.diagnostics), getString(R.string.settings_diagnostics_summary))
         renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.DIAGNOSTICS))
+        content.addView(button(getString(R.string.sound_output_test), false) { showSoundOutputTest() }, matchButton(10, 60))
+    }
+
+    private fun showSoundOutputTest() {
+        var oemPreview = false
+        val preview = AudioChannelPreview(context = this, report = { detail ->
+            SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.AUDIO_PREVIEW, detail)
+        }) { channel ->
+            toast(if (oemPreview) getString(R.string.settings_navigation_test_oem_failed)
+                else getString(R.string.contrib_audio_home_channel_preview_unavailable, channel))
+        }
+        val body = column()
+        body.addView(label(getString(R.string.sound_output_test_note), 14, MUTED))
+        body.addView(button(getString(R.string.sound_output_test_media), false) {
+            oemPreview = false
+            preview.play(AirPlayPersistence.loadMediaAudioChannel(this), navigation = false, requestFocus = true)
+        }, matchButton(10, 60))
+        body.addView(button(getString(R.string.sound_output_test_navigation), false) {
+            oemPreview = AirPlayPersistence.loadNavigationAudioChannel(this) == 0 && AirPlayPersistence.loadNavigationOemContent(this)
+            preview.play(AirPlayPersistence.loadNavigationAudioChannel(this), navigation = true, requestFocus = true,
+                oemContent = AirPlayPersistence.loadNavigationOemContent(this))
+        }, matchButton(10, 60))
+        body.addView(button(getString(R.string.sound_output_test_auto_navigation), false) {
+            oemPreview = false
+            preview.play(0, navigation = true, requestFocus = true)
+        }, matchButton(10, 60))
+        body.addView(button(getString(R.string.settings_navigation_test_oem), false) {
+            oemPreview = true
+            preview.play(0, navigation = true, requestFocus = true, oemContent = true)
+        }, matchButton(10, 60))
+        appDialogBuilder().setTitle(getString(R.string.sound_output_test)).setView(body)
+            .setPositiveButton(getString(R.string.close), null)
+            .setOnDismissListener { preview.close() }.show()
     }
 
     internal data class SettingsSearchResult(val title: String, val category: SettingsCategory)
@@ -1953,6 +1986,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Opt-in controls that can cost sound or video on some head units.
         filteredSection(content, SettingsSection.ADVANCED_MEDIA,
             getString(R.string.settings_advanced_media), R.drawable.ic_dp_advanced) { card ->
+            navigationContentControl(card)
             toggle(card, getString(R.string.efficient_video), getString(R.string.use_hevc_leave_off_for_the_widest_head_unit_compatibility), AirPlayPersistence.loadHevcEnabled(this)) {
                 AirPlayPersistence.saveHevcEnabled(this, it)
                 markReconnectNeeded()
@@ -3102,6 +3136,28 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         })
     }
 
+    private fun navigationContentControl(parent: LinearLayout) {
+        val choices = arrayOf(getString(R.string.settings_navigation_content_standard),
+            getString(R.string.settings_navigation_content_oem))
+        val title = getString(R.string.settings_navigation_content)
+        val control = button("$title · ${choices[if (AirPlayPersistence.loadNavigationOemContent(this)) 1 else 0]}", false) {}
+        control.setOnClickListener {
+            var selection = if (AirPlayPersistence.loadNavigationOemContent(this)) 1 else 0
+            appDialogBuilder().setTitle(title).setSingleChoiceItems(choices, selection) { _, which -> selection = which }
+                .setPositiveButton(R.string.save) { _, _ ->
+                    if (runCatching { com.shilapi.xcertplay.media.NavigationAudioAttributes.create(selection == 1) }.isFailure) {
+                        toast(getString(R.string.settings_navigation_content_unavailable))
+                        return@setPositiveButton
+                    }
+                    AirPlayPersistence.saveNavigationOemContent(this, selection == 1)
+                    control.text = "$title · ${choices[selection]}"
+                    markReconnectNeeded()
+                }.setNegativeButton(R.string.cancel, null).show()
+        }
+        parent.addView(control, matchButton(10, 60))
+        parent.addView(label(getString(R.string.settings_navigation_content_note), 14, MUTED))
+    }
+
     private fun mediaChannelControl(parent: LinearLayout) {
         val summary: (Int) -> String = {
             getString(R.string.contrib_audio_home_choice_summary, getString(R.string.contrib_audio_home_media_channel_label), channelLabel(it))
@@ -3140,7 +3196,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun showChannelDialog(title: String, current: Int, navigation: Boolean, onApply: (Int) -> Unit) {
-        val preview = AudioChannelPreview { channel ->
+        val preview = AudioChannelPreview(context = this, report = { detail ->
+            SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.AUDIO_PREVIEW, detail)
+        }) { channel ->
             toast(getString(R.string.contrib_audio_home_channel_preview_unavailable, channel))
         }
         val channels = AirPlayPersistence.AUDIO_CHANNELS
@@ -3149,7 +3207,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appDialogBuilder().setTitle(title)
             .setSingleChoiceItems(labels, selection) { _, which ->
                 selection = which
-                preview.play(which, navigation)
+                preview.play(which, navigation, oemContent = AirPlayPersistence.loadNavigationOemContent(this))
             }
             .setPositiveButton(if (CarPlayBackgroundSession.hasSession()) getString(R.string.apply_and_reconnect) else getString(R.string.save)) { _, _ ->
                 onApply(selection)
@@ -4903,6 +4961,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("ECARX MediaCenter clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
         appendLine(CarPlayMediaSession.diagnosticReport())
         appendLine(CarPlayMediaSession.artworkDiagnosticReport())
+        appendLine(AudioDiagnosticSnapshot.report(appContext))
         appendLine(runCatching {
             EcarxHicarControl.state(appContext)?.let {
                 "Factory HiCar: visible=true disabled=${it.disabled} canChange=${it.canChange}"

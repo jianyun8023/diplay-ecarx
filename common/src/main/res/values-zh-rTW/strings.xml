@@ -1,4 +1,9 @@
 <resources>
+    <string name="sound_output_test">聲音輸出測試</string>
+    <string name="sound_output_test_note">媒體和導航測試語音使用已儲存設定；標準12/1與ECARX 12/20使用相同測試語音和增益，均暫時申請焦點。不支援的屬性會回報失敗，輸出不代表獨立座位。</string>
+    <string name="sound_output_test_media">播放媒體測試語音</string>
+    <string name="sound_output_test_navigation">播放導航測試語音</string>
+    <string name="sound_output_test_auto_navigation">播放自動導航測試語音（12/1）</string>
     <string name="existing_wifi_title">現有 Wi-Fi / 同一區域網路</string>
     <string name="existing_wifi_description">使用已有路由器或隨身 Wi-Fi。讓 iPhone 和車機保持連線同一網路，並透過它上網。</string>
     <string name="existing_wifi_hint">現有 Wi-Fi · 兩部裝置保持連線同一 Wi-Fi，藍牙保持開啟，無需開啟車機熱點。</string>

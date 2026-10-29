@@ -229,6 +229,7 @@ class AndroidMediaSink(
     private val mtkDecoderTuningEnabled: Boolean = false,
     /** Opt-in (#946): navigation prompts request duckable focus while the iPhone ducks audio. Needs [audioFocusEnabled]. */
     navigationPromptAudioFocus: Boolean = false,
+    private val navigationOemContent: Boolean = false,
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
     private val callEchoReferences = ConcurrentHashMap<AudioStreamId, EchoReference>()
@@ -245,7 +246,7 @@ class AndroidMediaSink(
         appContext,
         promptFocusEnabled = navigationPromptAudioFocus,
         audioFocusEnabled = audioFocusEnabled,
-        attributes = { navigationRouteAttributes(navigationChannel) },
+        attributes = { navigationRouteAttributes(navigationChannel, navigationOemContent) },
         report = onAudioDiagnostic,
     )
 
@@ -844,6 +845,7 @@ class AndroidMediaSink(
             speakerphoneCall = false,
             echoReference = echoReference,
             voiceFilter = callVoiceFilter && format.audioType == TELEPHONY_AUDIO_TYPE,
+            navigationOemContent = navigationOemContent,
         ).also {
             it.setNavigationAttenuationDb(navigationAttenuationDb)
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
@@ -1864,6 +1866,7 @@ private class AudioRenderer(
     /** Receives the played call audio so the call microphone can cancel its echo. */
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
+    private val navigationOemContent: Boolean = false,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
 
@@ -1989,7 +1992,7 @@ private class AudioRenderer(
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
                 "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} " +
-                "mediaChannel=$mediaChannel navigationChannel=$navigationChannel focus=$audioFocusEnabled") }
+                "mediaChannel=$mediaChannel navigationChannel=$navigationChannel navigationOemContent=$navigationOemContent focus=$audioFocusEnabled") }
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
                 AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
@@ -2232,7 +2235,9 @@ private class AudioRenderer(
     }
 
     private fun audioAttributesFor(selection: AudioChannelSelection): AudioAttributes =
-        AudioAttributes.Builder()
+        if (selection.channel == AudioChannel.NAVIGATION && navigationChannel == 0) {
+            NavigationAudioAttributes.create(navigationOemContent)
+        } else AudioAttributes.Builder()
             .setUsage(usageFor(selection.channel))
             .setContentType(contentTypeFor(selection.contentType))
             .build()
@@ -2658,9 +2663,10 @@ private class AudioRenderer(
         // "PHONE " marks the iPhone's own log lines, which the report drops, and it dropped every
         // call's playback line with it (#647).
         val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
-        val line = "audio stats audioType=${format.audioType} channel=$channelName " +
-            "routeType=${currentTrack?.routedDevice?.type ?: -1} routeAddress=${currentTrack?.routedDevice?.address ?: "none"} " +
+        val line = "audio stats audioType=${format.audioType} payloadType=${format.payloadType} channel=$channelName " +
+            "routeId=${currentTrack?.routedDevice?.id ?: -1} routeType=${currentTrack?.routedDevice?.type ?: -1} routeAddress=${currentTrack?.routedDevice?.address ?: "none"} " +
             "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType} codec=${format.codec} " +
+            "attributesSource=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) "track" else "configured"} legacyStream=${actualLegacyStreamType ?: "none"} " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
             "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +

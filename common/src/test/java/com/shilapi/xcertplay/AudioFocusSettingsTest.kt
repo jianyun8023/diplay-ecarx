@@ -50,11 +50,15 @@ class AudioFocusSettingsTest {
         assertTrue(mute.isChecked)
     }
 
-    @Test fun navigationPromptFocusIsOffByDefaultAndShownOnlyWithAudioFocus() {
+    @Test fun audioRoutingAndFocusDefaultOnAndPreserveExplicitOptOut() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         activity.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
-        assertFalse(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+        assertTrue(AirPlayPersistence.loadAdvancedAudioChannelMapping(activity))
+        assertTrue(AirPlayPersistence.loadAudioFocusEnabled(activity))
+        assertTrue(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+        assertEquals(0, AirPlayPersistence.loadMediaAudioChannel(activity))
+        assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(activity))
         val page = LinearLayout(activity)
         DiPlayActivity::class.java.getDeclaredMethod("audioFocusControls", LinearLayout::class.java)
             .apply { isAccessible = true }.invoke(activity, page)
@@ -66,16 +70,16 @@ class AudioFocusSettingsTest {
         }
         val mute = switches.single { it.contentDescription == activity.getString(R.string.audio_focus_auto_yield) }
         assertSame(mute.parent.parent, prompts.parent.parent)
-        assertEquals(View.GONE, (prompts.parent.parent as View).visibility)
-        assertFalse(prompts.isChecked)
-        focus.isChecked = true
         assertEquals(View.VISIBLE, (prompts.parent.parent as View).visibility)
-        prompts.isChecked = true
-        assertTrue(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+        assertTrue(focus.isChecked)
+        assertTrue(prompts.isChecked)
         focus.isChecked = false
         assertTrue(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
         prompts.isChecked = false
         assertFalse(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+        AirPlayPersistence.saveAdvancedAudioChannelMapping(activity, false)
+        assertFalse(AirPlayPersistence.loadAdvancedAudioChannelMapping(activity))
+        assertFalse(AirPlayPersistence.loadAudioFocusEnabled(activity))
     }
 
     private fun views(view: View): Sequence<View> = sequence {
