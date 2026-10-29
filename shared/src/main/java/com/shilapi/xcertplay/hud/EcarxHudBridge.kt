@@ -575,7 +575,11 @@ internal object EcarxHudBridge {
             if (firstFrame) report("factory navigation ${EcarxFactoryNavigationControl.release(app)}")
             return
         }
-        if (firstFrame) EcarxDimApi.notifyTurnByTurnStarted(naviRef)
+        if (firstFrame) {
+            val started = EcarxDimApi.notifyTurnByTurnStarted(naviRef)
+            report("DIM lifecycle start status=$NAVI_STATUS_ACTIVE aggregate=${outcome(result)} " +
+                "notify=${outcome(started)} detail=${started.reason}")
+        }
         // The `void` notification above has never been confirmed to reach the service. Publish the
         // event the service itself would have published, so the cluster is told a navigation exists
         // even if that call went nowhere; see EcarxProjectionChannel.setNavigationOngoing.
@@ -709,7 +713,16 @@ internal object EcarxHudBridge {
         lanes = null
         val naviRef = navi
         if (naviRef != null) {
-            EcarxDimApi.notifyTurnByTurnStopped(naviRef)
+            // The recovered SDK's Stop only clears lanes/exits; idle resets its cached active state for the next start.
+            val idle = EcarxDimApi.updateNavigationInfo(naviRef, EcarxDimApi.Guidance(
+                status = NAVI_STATUS_IDLE,
+                distanceToNextMeters = 0,
+                distanceToDestinationMeters = 0,
+                etaEpochSeconds = 0,
+            ))
+            val stopped = EcarxDimApi.notifyTurnByTurnStopped(naviRef)
+            report("DIM lifecycle stop status=$NAVI_STATUS_IDLE aggregate=${outcome(idle)} " +
+                "notify=${outcome(stopped)} aggregateDetail=${idle.reason} notifyDetail=${stopped.reason}")
             if (context?.let(EcarxOutputSettings::naviCardEvent) == true) {
                 EcarxProjectionChannel.setNavigationOngoing(false, "")
             }

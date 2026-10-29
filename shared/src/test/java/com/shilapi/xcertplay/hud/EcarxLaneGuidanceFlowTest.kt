@@ -296,6 +296,90 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=arrived"))
     }
 
+    @Test fun identicalRoutesRestartAfterNoRouteArrivalAndDisconnect() {
+        initialize()
+        repeat(3) { cycle ->
+            // Route data can precede its maneuver; never reuse the previous route's cached turn.
+            guidance()
+            assertFalse(EcarxHudBridge.isActive())
+            maneuver()
+            assertTrue(EcarxHudBridge.isActive())
+            assertTrue(DimInteraction.navi.ongoingNavigationActive)
+            assertEquals(350L, calls("updateNavigationInfo").last().payload["getDistanceToNextGuidancePoint"])
+            repeat(5) { tick() }
+            assertEquals(cycle * 2 + 1, DimInteraction.navi.ongoingTransitions.size)
+            when (cycle) {
+                0 -> send(0x5201) { u8(1, 0) }
+                1 -> send(0x5201) { u8(1, 2) }
+                else -> EcarxHudBridge.clear()
+            }
+            assertFalse(EcarxHudBridge.isActive())
+            assertFalse(DimInteraction.navi.ongoingNavigationActive)
+            assertNull(route.current())
+            val idle = calls("updateNavigationInfo").last().payload
+            assertEquals(0, idle["getNavigationStatus"])
+            assertEquals(0L, idle["getDistanceToNextGuidancePoint"])
+            assertEquals(0L, idle["getDistanceToDestination"])
+            assertEquals(0L, idle["getETA"])
+            assertEquals("", idle["getNextGuidancePointName"])
+            assertTrue(names().lastIndexOf("updateNavigationInfo") < names().lastIndexOf("notifyTurnByTurnStopped"))
+            val endedCalls = names().size
+            repeat(5) { tick() }
+            assertEquals(endedCalls, names().size)
+        }
+        assertEquals(listOf(true, false, true, false, true, false), DimInteraction.navi.ongoingTransitions)
+        assertEquals(listOf(true, false, true, false, true, false), panelRequests)
+        assertEquals(3, calls("notifyTurnByTurnStarted").size)
+        assertEquals(3, calls("notifyTurnByTurnStopped").size)
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+        assertEquals(3, reports.count { it.startsWith("DIM lifecycle start status=1 aggregate=ok notify=ok") })
+        assertEquals(3, reports.count { it.startsWith("DIM lifecycle stop status=0 aggregate=ok notify=ok") })
+    }
+
+    @Test fun unchangedRouteExpiresAtExistingDeadlineAndFreshInputRestartsIt() {
+        initialize(); maneuver(); guidance()
+        nowNs += 29_000_000_000L
+        repeat(5) { tick() }
+        assertTrue(EcarxHudBridge.isActive())
+        assertEquals(listOf(true), DimInteraction.navi.ongoingTransitions)
+        nowNs += 1_000_000_000L
+        tick()
+        assertFalse(EcarxHudBridge.isActive())
+        assertEquals(listOf(true, false), DimInteraction.navi.ongoingTransitions)
+        repeat(5) { tick() }
+        assertEquals(listOf(true, false), DimInteraction.navi.ongoingTransitions)
+        // A timeout hides output but retains maneuver details; a fresh partial update can resume it.
+        send(0x5201) { u32(0x0a, 290) }
+        assertTrue(EcarxHudBridge.isActive())
+        assertEquals(290L, calls("updateNavigationInfo").last().payload["getDistanceToNextGuidancePoint"])
+        send(0x5201) { u16List(0x0d, emptyList()) }
+        nowNs += 3_000_000_000L
+        tick()
+        assertEquals(listOf(true, false, true, false), DimInteraction.navi.ongoingTransitions)
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=empty-list-timeout"))
+    }
+
+    @Test fun lifecycleReportsSeparateNotificationFailureFromIdleStateFailure() {
+        initialize(); maneuver()
+        FixtureLog.failOnce("notifyTurnByTurnStarted")
+        guidance()
+        assertTrue(DimInteraction.navi.ongoingNavigationActive)
+        assertTrue(reports.any { it.startsWith("DIM lifecycle start status=1 aggregate=ok notify=failed") })
+        FixtureLog.failOnce("notifyTurnByTurnStopped")
+        send(0x5201) { u8(1, 0) }
+        assertFalse(DimInteraction.navi.ongoingNavigationActive)
+        assertTrue(reports.any { it.startsWith("DIM lifecycle stop status=0 aggregate=ok notify=failed") })
+        maneuver(); guidance()
+        assertEquals(listOf(true, false, true), DimInteraction.navi.ongoingTransitions)
+        FixtureLog.failOnce("updateNavigationInfo")
+        send(0x5201) { u8(1, 2) }
+        assertFalse(EcarxHudBridge.isActive())
+        assertNull(route.current())
+        assertTrue(DimInteraction.navi.ongoingNavigationActive)
+        assertTrue(reports.any { it.startsWith("DIM lifecycle stop status=0 aggregate=failed notify=ok") })
+        assertEquals(listOf(true, false, true, false), panelRequests)
+    }
+
     @Test fun laneWithNoPushedManeuverClearsWithoutSendingNavigationStartOrStop() {
         EcarxOutputSettings.setLaneGuidanceEnabled(context, true)
         initialize(); maneuver()

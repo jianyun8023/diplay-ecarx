@@ -8,6 +8,8 @@ import java.util.Map;
 
 public final class NaviFixture implements INaviInteraction {
     public INavigationInteractionCallback callback;
+    public boolean ongoingNavigationActive;
+    public final List<Boolean> ongoingTransitions = new ArrayList<>();
     public void updateNavigationInfo(INavigationInfo i) {
         FixtureLog.capture("updateNavigationInfo",
             "getNavigationTurnId", i.getNavigationTurnId(),
@@ -20,6 +22,12 @@ public final class NaviFixture implements INaviInteraction {
             "getNavigationTurnSVG", i.getNavigationTurnSVG(),
             "getHighwayExitInfo", i.getHighwayExitInfo(),
             "getRoadCameraInfo", i.getRoadCameraInfo(), "getServiceAreaInfo", i.getServiceAreaInfo());
+        // Recovered NaviInteraction only sends ongoing navigation when active changes (mute stays 0 here).
+        boolean active = i.getNavigationStatus() == 1;
+        if (active != ongoingNavigationActive) {
+            ongoingNavigationActive = active;
+            ongoingTransitions.add(active);
+        }
     }
     public void updateTurnByTurnArrow(int arrow) { FixtureLog.capture("updateTurnByTurnArrow(int)", "arrow", arrow); }
     public void updateTurnByTurnArrow(String svg) { FixtureLog.capture("updateTurnByTurnArrow(String)", "svg", svg); }

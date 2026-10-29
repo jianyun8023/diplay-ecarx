@@ -29,6 +29,8 @@ public final class DimInteraction {
         presentationOption = -1;
         INSTANCE.callback = null;
         navi.callback = null;
+        navi.ongoingNavigationActive = false;
+        navi.ongoingTransitions.clear();
         FixtureLog.reset();
     }
     public IMediaInteraction getMediaInteraction() {
