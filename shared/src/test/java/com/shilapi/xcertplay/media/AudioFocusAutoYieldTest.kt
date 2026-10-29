@@ -63,7 +63,7 @@ class AudioFocusAutoYieldTest {
         coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
         coordinator.acquire(second, AudioChannel.MEDIA, attributes)
         coordinator.acquire(phone, AudioChannel.PHONE, attributes)
-        assertEquals(listOf(0f), volumes(second))
+        assertEquals(listOf(0f, 1f), volumes(second))
         assertTrue(volumes(phone).isEmpty())
         coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
         assertEquals(listOf(0f, 1f), volumes(first))
@@ -132,11 +132,10 @@ class AudioFocusAutoYieldTest {
         coordinator.acquire(phone, AudioChannel.PHONE, attributes)
         coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
         shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
-        coordinator.release(first)
+        coordinator.release(phone)
         shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
         coordinator.acquire(second, AudioChannel.MEDIA, attributes)
         assertEquals(listOf(0f), volumes(second))
-        assertTrue(volumes(phone).isEmpty())
         coordinator.onExternalFocusChange(AudioManager.AUDIOFOCUS_GAIN)
         assertEquals(listOf(0f, 1f), volumes(second))
     }
@@ -156,6 +155,33 @@ class AudioFocusAutoYieldTest {
         assertSame(abandoned, shadowOf(manager).lastAbandonedAudioFocusRequest)
         assertEquals(listOf(0f), volumes(first))
         assertTrue(volumes(late).isEmpty())
+    }
+
+    @Test fun siriTemporarilyOwnsFocusAndMusicRegainsItAfterSpeech() {
+        val diagnostics = mutableListOf<String>()
+        val coordinator = AudioFocusCoordinator(context, true, true, diagnostics::add).also(coordinators::add)
+        val music = track(); val siri = track()
+        val speech = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        coordinator.acquire(music, AudioChannel.MEDIA, attributes)
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN, shadowOf(manager).lastAudioFocusRequest.durationHint)
+        coordinator.acquire(siri, AudioChannel.ASSISTANT, speech)
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, shadowOf(manager).lastAudioFocusRequest.durationHint)
+        assertTrue(diagnostics.last().contains("channel=ASSISTANT"))
+        assertTrue(diagnostics.last().contains("usage=1 contentType=1"))
+        coordinator.release(siri)
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN, shadowOf(manager).lastAudioFocusRequest.durationHint)
+        assertTrue(diagnostics.last().contains("channel=MEDIA"))
+    }
+
+    @Test fun deniedSpeechFocusSilencesTracksUntilGain() {
+        val coordinator = coordinator()
+        val siri = track()
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        coordinator.acquire(siri, AudioChannel.ASSISTANT, attributes)
+        assertEquals(listOf(0f), volumes(siri))
+        coordinator.onExternalFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+        assertEquals(listOf(0f, 1f), volumes(siri))
     }
 
     private fun coordinator(enabled: Boolean = true, autoYield: Boolean = true) =

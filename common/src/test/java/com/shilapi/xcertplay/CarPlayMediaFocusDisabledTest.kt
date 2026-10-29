@@ -39,6 +39,7 @@ class CarPlayMediaFocusDisabledTest {
         controllers.forEach(CarPlayMediaKeys::detach)
         CarPlayBackgroundSession.clear()
         AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
+        AirPlayPersistence.saveAudioFocusEnabled(app, false)
         shadowOf(Looper.getMainLooper()).idle()
     }
 
@@ -46,6 +47,16 @@ class CarPlayMediaFocusDisabledTest {
         val session = start(mock(CarPlayController::class.java).also(controllers::add))
 
         assertTrue(session.isActive)
+        assertFocusDisabled()
+    }
+
+    @Test fun rendererFocusKeepsMediaSessionWithoutASecondMusicRequest() {
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
+        AirPlayPersistence.saveAudioFocusEnabled(app, true)
+        val session = start(mock(CarPlayController::class.java).also(controllers::add))
+        assertTrue(session.isActive)
+        CarPlayMediaKeys.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
         assertFocusDisabled()
     }
 

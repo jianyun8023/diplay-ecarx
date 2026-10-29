@@ -41,23 +41,27 @@ class SiriAudioRoutingTest {
     }
 
     @Test fun siriCanCreateItsMediaTrackBeforeAnyMusicHasPlayed() {
-        val reports = mutableListOf<String>()
-        val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val renderer = type.declaredConstructors.single { it.parameterCount == 12 }
-            .apply { isAccessible = true }.newInstance(
-                AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 100, "speechrecognition"),
-                false, false, 3, 14, AudioFocusCoordinator(null, false, false),
-                14, 500, { line: String -> reports.add(line); Unit }, false, null, false,
-            ) as Closeable
-        try {
-            type.getDeclaredMethod("createTrack").apply { isAccessible = true }.invoke(renderer)
-            assertTrue(reports.any { it.contains("route=streamType=3 ") && it.contains("trackState=1") })
-            val attributes = type.getDeclaredField("trackAttributes").apply { isAccessible = true }
-                .get(renderer) as AudioAttributes
-            assertEquals(AudioAttributes.USAGE_MEDIA, attributes.usage)
-        } finally {
-            type.getDeclaredMethod("release").apply { isAccessible = true }.invoke(renderer)
-            renderer.close()
+        for (mediaChannel in listOf(0, 3)) {
+            val reports = mutableListOf<String>()
+            val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
+            val renderer = type.declaredConstructors.single { it.parameterCount == 12 }
+                .apply { isAccessible = true }.newInstance(
+                    AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 100, "speechrecognition"),
+                    false, false, mediaChannel, 14, AudioFocusCoordinator(null, false, false),
+                    14, 500, { line: String -> reports.add(line); Unit }, false, null, false,
+                ) as Closeable
+            try {
+                type.getDeclaredMethod("createTrack").apply { isAccessible = true }.invoke(renderer)
+                val route = if (mediaChannel == 0) "usage" else "streamType=3"
+                assertTrue(reports.any { it.contains("route=$route ") && it.contains("trackState=1") })
+                val attributes = type.getDeclaredField("trackAttributes").apply { isAccessible = true }
+                    .get(renderer) as AudioAttributes
+                assertEquals(AudioAttributes.USAGE_MEDIA, attributes.usage)
+                if (mediaChannel == 0) assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, attributes.contentType)
+            } finally {
+                type.getDeclaredMethod("release").apply { isAccessible = true }.invoke(renderer)
+                renderer.close()
+            }
         }
     }
 }

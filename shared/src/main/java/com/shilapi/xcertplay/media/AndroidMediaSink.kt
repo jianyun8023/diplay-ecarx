@@ -52,6 +52,7 @@ internal class AudioFocusCoordinator(
     private var request: AudioFocusRequestCompat? = null
     private var requestedChannel: AudioChannel? = null
     private var mediaVolume = FULL_VOLUME
+    private var focusGranted = true
     private var closed = false
     private var focusGeneration = 0L
     private var currentListener = listenerFor(focusGeneration)
@@ -81,9 +82,11 @@ internal class AudioFocusCoordinator(
                         setMediaVolume(0f)
                     }
                 }
-                AudioManager.AUDIOFOCUS_GAIN -> setMediaVolume(FULL_VOLUME)
-                // Keep CarPlay audio running on permanent loss. Some head units
-                // do not send a later gain callback after taking focus back.
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    focusGranted = true
+                    setMediaVolume(FULL_VOLUME)
+                }
+                // Preserve the existing permanent-loss workaround for ROMs that never send gain again.
             }
         }
     }
@@ -122,7 +125,9 @@ internal class AudioFocusCoordinator(
             request = null
             requestedChannel = null
             mediaVolume = FULL_VOLUME
+            focusGranted = true
             manager?.let { abandoned?.abandon(it) }
+            if (abandoned != null) runCatching { report("Audio: focus released activeTracks=0") }
             return
         }
         if (request != null && requestedChannel == primary.channel) return
@@ -139,8 +144,11 @@ internal class AudioFocusCoordinator(
         request = next
         requestedChannel = primary.channel
         val result = manager?.let(next::request)
-        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) setMediaVolume(FULL_VOLUME)
-        val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result activeTracks=${active.size}"
+        focusGranted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        setMediaVolume(if (focusGranted) FULL_VOLUME else 0f)
+        val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result " +
+            "usage=${primary.attributes.usage} contentType=${primary.attributes.contentType} " +
+            "api=${if (Build.VERSION.SDK_INT >= 26) "AudioFocusRequest" else "legacy"} activeTracks=${active.size}"
         Log.i(TAG, line)
         runCatching { report(line) }
     }
@@ -151,17 +159,18 @@ internal class AudioFocusCoordinator(
     }
 
     private fun applyMediaVolume(track: AudioTrack, entry: Entry) {
-        // Telephony and assistant speech remain audible, and navigation never enters this map.
+        // A rejected request silences its tracks; ordinary ducking affects only music.
         // This changes only the renderer's relative gain, never Android's user stream volume.
-        if (entry.channel != AudioChannel.MEDIA || entry.appliedVolume == mediaVolume) return
-        val applied = runCatching { track.setStereoVolume(mediaVolume, mediaVolume) == AudioTrack.SUCCESS }.getOrDefault(false)
-        if (applied) entry.appliedVolume = mediaVolume
+        val volume = if (!focusGranted) 0f else if (entry.channel == AudioChannel.MEDIA) mediaVolume else FULL_VOLUME
+        if (entry.appliedVolume == volume) return
+        val applied = runCatching { track.setStereoVolume(volume, volume) == AudioTrack.SUCCESS }.getOrDefault(false)
+        if (applied) entry.appliedVolume = volume
     }
 
     private fun AudioChannel.focusPriority(): Int = when (this) {
-        AudioChannel.MEDIA -> 3
-        AudioChannel.PHONE -> 2
-        AudioChannel.ASSISTANT -> 1
+        AudioChannel.MEDIA -> 1
+        AudioChannel.PHONE -> 3
+        AudioChannel.ASSISTANT -> 2
         AudioChannel.NAVIGATION -> 0
     }
 
@@ -2278,12 +2287,8 @@ private class AudioRenderer(
     private fun usageFor(channel: AudioChannel): Int = when (channel) {
         AudioChannel.MEDIA -> AudioAttributes.USAGE_MEDIA
         AudioChannel.PHONE -> AudioAttributes.USAGE_VOICE_COMMUNICATION
-        // Android 7.x has no assistant usage and would record the track as an unknown usage.
-        AudioChannel.ASSISTANT -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            AudioAttributes.USAGE_ASSISTANT
-        } else {
-            AudioAttributes.USAGE_MEDIA
-        }
+        // Keep Siri's transient focus identity while playing speech through the working media route.
+        AudioChannel.ASSISTANT -> AudioAttributes.USAGE_MEDIA
         AudioChannel.NAVIGATION -> AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
     }
 
@@ -2654,7 +2659,8 @@ private class AudioRenderer(
         // call's playback line with it (#647).
         val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
         val line = "audio stats audioType=${format.audioType} channel=$channelName " +
-            "routeType=${currentTrack?.routedDevice?.type ?: -1} codec=${format.codec} " +
+            "routeType=${currentTrack?.routedDevice?.type ?: -1} routeAddress=${currentTrack?.routedDevice?.address ?: "none"} " +
+            "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType} codec=${format.codec} " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
             "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
