@@ -36,7 +36,13 @@ HY 的接收端保留自身的启用条件；HY 未运行时该消息不会缓�
 | HY 展示兼容 | `HyMediaDisplay` | 只把当前曲目与非空封面 URI 转成定向 `dashboard` 广播，封装协议字段和广播失败；无缓存、计时器、偏好读取或控制器引用。`HyMediaDisplayTest` 验证完整字段、空值默认值及失败隔离。 |
 | ECARX 媒体输出 | `CarPlayMediaSession` → `MediaCenterSessionEngine` | 协调器提供同源元数据；引擎负责注册、播放归属与清理。HY 展示不能申请 MediaCenter 播放归属。 |
 | Siri 声音与音频焦点 | `AndroidMediaSink` 的渲染器及焦点协调器 | Siri 沿媒体输出播放，但保留 ASSISTANT 身份与临时焦点；启用渲染器焦点时，媒体会话不重复申请音乐焦点。对应 `SiriAudioRoutingTest`、`AudioFocusAutoYieldTest`、`CarPlayMediaFocusDisabledTest`。声音路由不决定谁接收语音按钮。 |
-| 桌面地图 | `CarPlayHostActivity.showCenterMap`、`CenterMapOverlay`、`MapMirrors` | 宿主按活动的 111 地图流及显示条件决定展示，Overlay 管窗口，MapMirrors 管镜像 Surface；不以旧仪表地图偏好代替实际流状态。`CenterMapFollowsDashboardTest` 验证设置、流就绪及镜像绑定。 |
+| 桌面地图 | `CenterMapLifecycle`、`CenterMapOverlay`、`MapMirrors` | 生命周期对象管理显示条件、桌面监听和回调注册／清理；宿主提供真实 111 地图流状态与当前 sink，Overlay 管窗口，MapMirrors 管镜像 Surface。`CenterMapFollowsDashboardTest` 验证设置、宿主流回调及新 sink 绑定；`CenterMapLifecycleTest` 验证前后台、导航结束和重连时序。 |
+
+桌面地图保留原时序：正常切后台由 Overlay 延迟 600ms 检查进程前台状态；回到 DiPlay
+立即隐藏并停止桌面监听。地图流结束延迟 3000ms 隐藏，期间恢复则取消隐藏；超过宽限期
+后恢复，重新按 600ms 展示路径处理。宿主的代次检查仍先过滤旧流回调，生命周期对象
+不复制流状态。新建或接续 sink 时仍由宿主调用 `MapMirrors.reapply()`，绑定回调读取当前
+sink。销毁时取消闲置隐藏、停止监听、隐藏窗口并释放自己注册的回调。
 
 会话资格、当前曲目与异步封面归属仍集中在 `CarPlayMediaSession`，不下放给 HY 适配器，
 避免建立第二套媒体状态。广播失败只记录诊断，不影响标准元数据、播放状态及其他媒体输出。
