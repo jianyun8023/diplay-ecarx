@@ -29,3 +29,33 @@ A source-only Debug APK without legitimate identity material cannot exercise the
 - Android 9's [IConnectivityManager](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-9.0.0_r1/core/java/android/net/IConnectivityManager.aidl) defines the platform start/stop signatures. [ConnectivityService](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-9.0.0_r1/services/core/java/com/android/server/ConnectivityService.java#L3232-L3246) performs permission enforcement; WRITE_SETTINGS is not a universal guarantee of access.
 
 Automated fixtures validate software behavior only. Device validation and the final full-suite result must be reported separately; no real-car success is claimed here.
+
+## Android 9 API detection panel
+
+Open **Settings → Diagnostics → Car hotspot API checks**. This separate probe does not save
+DiPlay connection credentials or change the automatic hotspot policy. Use it before promoting
+any platform call into the normal setup flow.
+
+The recovered OEM settings app uses `WifiManager.getWifiApConfiguration`,
+`setWifiApConfiguration`, `startSoftAp` and `stopSoftAp`. The recovered ECARX
+`WifiAp/IWifiAPHost` SDK exposes capability, band and client information; it does not expose
+SSID/password setters or hotspot start/stop. The panel inventories those classes without
+creating the SDK object (its constructor registers a process-lifetime receiver).
+
+1. Disconnect CarPlay, then inspect APIs and permission grants. A method being present is not a
+   successful call. The optional API-28 signature permissions are declared, never auto-granted.
+2. Read the original configuration. The panel bypasses the generic import feature's SDK gate
+   only for this explicit API-28 probe. The name and masked password populate the local fields;
+   the report includes only presence and whether they match DiPlay's saved connection details.
+3. On a WPA2 hotspot, enter a temporary name and password, confirm the write, and inspect the
+   readback result. Hidden state and band/channel are preserved. Configuration readback does
+   not establish what an already-running AP is broadcasting; restart only through an explicit
+   action. The panel retains its original configuration in memory for restoration.
+4. Test Android tethering and the OEM SoftAP start/stop paths separately. A false setter return,
+   permission denial, timeout or unknown state is not success. There is no automatic recovery,
+   Wi-Fi reset or retry. Cross-check the observed AP state in the native settings.
+5. Restore the original configuration, and explicitly restart if needed. The temporary backup
+   does not survive Activity destruction/process exit; restore before leaving the test session.
+6. Save a normal diagnostic report. `HOTSPOT_PROBE` events retain path, duration, exception type,
+   readback/state evidence and equality flags, without SSID, password or exception messages.
+   These checks do not prove iPhone association or a complete wireless CarPlay session.

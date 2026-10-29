@@ -885,4 +885,22 @@
     <string name="settings_bluetooth_audio">蓝牙音频</string>
     <string name="settings_expand">展开</string>
     <string name="settings_collapse">收起</string>
+    <string name="settings_hotspot_probe_title">原车热点 API 检测</string>
+    <string name="settings_hotspot_probe_description">先验证原车 Android 9 接口，再接入日常设置。检测、读取不会修改配置；写入和启停需确认。请先读取，并在离开前恢复原始配置；备份仅在本面板会话内临时保留。报告不包含热点名称和密码。</string>
+    <string name="settings_hotspot_probe_inspect">检测接口与权限</string>
+    <string name="settings_hotspot_probe_read">读取原车热点信息</string>
+    <string name="settings_hotspot_probe_write">写入输入值并回读验证</string>
+    <string name="settings_hotspot_probe_restore">恢复原始配置</string>
+    <string name="settings_hotspot_probe_start_platform">用 Android 共享接口开启</string>
+    <string name="settings_hotspot_probe_stop_platform">用 Android 共享接口关闭</string>
+    <string name="settings_hotspot_probe_start_oem">用原厂 SoftAP 接口开启</string>
+    <string name="settings_hotspot_probe_stop_oem">用原厂 SoftAP 接口关闭</string>
+    <string name="settings_hotspot_probe_confirm_write">将修改原车保存的热点配置，下次热点重启时可能影响其他设备。不会同步修改 DiPlay 的连接配置。是否继续？</string>
+    <string name="settings_hotspot_probe_confirm_radio">将改变原车热点状态，可能断开其他设备。每个按钮只测试一条接口路径，不自动执行恢复操作。是否继续？</string>
+    <string name="settings_hotspot_probe_not_run">尚未检测。请先检测接口，再读取原始配置。</string>
+    <string name="settings_hotspot_probe_observed">已读取结果，未证明系统状态发生变化。</string>
+    <string name="settings_hotspot_probe_verified">回读一致或已观测到目标状态。</string>
+    <string name="settings_hotspot_probe_rejected">请求被拒绝或输入不合法。</string>
+    <string name="settings_hotspot_probe_denied">接口拒绝访问，权限不足。</string>
+    <string name="settings_hotspot_probe_unsupported">接口或配置不受支持。</string>
 </resources>

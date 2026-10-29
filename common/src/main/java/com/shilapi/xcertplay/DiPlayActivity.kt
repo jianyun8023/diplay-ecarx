@@ -191,6 +191,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var pendingCarHotspotSetup = false
     private var hotspotJoinControls: HotspotJoinControls? = null
     private var manualHotspotControls: ManualHotspotControls? = null
+    private var hotspotProbeControls: HotspotProbeControls? = null
+    private var hotspotProbeDialog: Dialog? = null
     @Volatile private var hotspotStartupRunning = false
     @Volatile private var projectionRequested = false
     private var setupError: String? = null
@@ -472,6 +474,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
         manualHotspotControls?.cancelPending()
+        hotspotProbeControls?.cancelPending()
         projectionRequested = false
         super.onStop()
         if (!isFinishing && !isChangingConfigurations) {
@@ -538,6 +541,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         handler.removeCallbacks(appearancePoll)
         hotspotJoinControls?.close()
         manualHotspotControls?.close()
+        hotspotProbeDialog?.dismiss()
+        hotspotProbeControls?.close()
         cancelUsbPermissionSetup()
         cancelKeyLearning()
         cancelEcarxSwLearning()
@@ -1699,6 +1704,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.DIAGNOSTICS,
             getString(R.string.diagnostics), R.drawable.ic_dp_diagnostics) { card ->
+            card.addView(button(getString(R.string.settings_hotspot_probe_title), false, ::openHotspotProbe), matchButton(0, CONTROL_HEIGHT_DP))
             exportButton = button(if (exportInProgress) getString(R.string.saving_report) else getString(R.string.save_diagnostic_report), false) {
                 saveReportToDownloads()
             }.apply { isEnabled = !exportInProgress }
@@ -2459,6 +2465,30 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun openWriteSettingsAccess() =
         openSystem(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
+
+    private fun openHotspotProbe() {
+        if (hotspotProbeDialog?.isShowing == true) return
+        val controls = hotspotProbeControls ?: HotspotProbeControls(this,
+            connectionBusy = { CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning ||
+                manualHotspotControls?.isBusy == true },
+            labelFactory = { label(it, 15, MUTED) },
+            buttonFactory = { title, click -> button(title, false, click) })
+            .also { hotspotProbeControls = it }
+        val content = column().apply {
+            setPadding(dp(SETTINGS_BLOCK_GAP_DP), dp(SETTINGS_BLOCK_GAP_DP),
+                dp(SETTINGS_BLOCK_GAP_DP), dp(SETTINGS_BLOCK_GAP_DP))
+            setBackgroundColor(SURFACE)
+            addView(label(getString(R.string.settings_hotspot_probe_title), 22, TEXT, true))
+            addView(ScrollView(this@DiPlayActivity).apply { addView(controls.build()) }, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(button(getString(R.string.close), false) { hotspotProbeDialog?.dismiss() }, matchButton(CONTROL_GAP_DP, CONTROL_HEIGHT_DP))
+        }
+        val dialog = appDialog().apply { setContentView(content) }
+        hotspotProbeDialog = dialog
+        dialog.setOnDismissListener { controls.cancelPending(); hotspotProbeDialog = null }
+        dialog.show()
+        val metrics = resources.displayMetrics
+        dialog.window?.setLayout((metrics.widthPixels * 0.9f).toInt(), (metrics.heightPixels * 0.9f).toInt())
+    }
 
     private fun adbToggle(parent: LinearLayout, title: Int, description: Int, read: () -> Boolean,
         needsAdb: () -> Boolean = { true },
@@ -4520,7 +4550,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         parent.addView(space(12))
     }
 
-    private fun manualHotspotBusy(): Boolean = manualHotspotControls?.isBusy == true ||
+    private fun manualHotspotBusy(): Boolean = hotspotProbeControls?.isBusy == true || manualHotspotControls?.isBusy == true ||
         com.shilapi.xcertplay.network.ManualHotspotControl.isBusy()
 
     private fun connect(wireless: Boolean) = connectWithSource(wireless, ConnectionTraceSource.UI_OR_CONTINUATION)

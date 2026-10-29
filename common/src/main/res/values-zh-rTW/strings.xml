@@ -885,4 +885,22 @@
     <string name="settings_bluetooth_audio">藍牙音訊</string>
     <string name="settings_expand">展開</string>
     <string name="settings_collapse">收起</string>
+    <string name="settings_hotspot_probe_title">原車熱點 API 檢測</string>
+    <string name="settings_hotspot_probe_description">先驗證原車 Android 9 介面，再接入日常設定。檢測、讀取不會修改配置；寫入和啟停需確認。請先讀取，並在離開前恢復原始配置；備份僅在本面板工作階段內暫時保留。報告不包含熱點名稱和密碼。</string>
+    <string name="settings_hotspot_probe_inspect">檢測介面與權限</string>
+    <string name="settings_hotspot_probe_read">讀取原車熱點資訊</string>
+    <string name="settings_hotspot_probe_write">寫入輸入值並回讀驗證</string>
+    <string name="settings_hotspot_probe_restore">恢復原始配置</string>
+    <string name="settings_hotspot_probe_start_platform">用 Android 共用介面開啟</string>
+    <string name="settings_hotspot_probe_stop_platform">用 Android 共用介面關閉</string>
+    <string name="settings_hotspot_probe_start_oem">用原廠 SoftAP 介面開啟</string>
+    <string name="settings_hotspot_probe_stop_oem">用原廠 SoftAP 介面關閉</string>
+    <string name="settings_hotspot_probe_confirm_write">將修改原車儲存的熱點配置，下次熱點重啟時可能影響其他裝置。不會同步修改 DiPlay 的連線配置。是否繼續？</string>
+    <string name="settings_hotspot_probe_confirm_radio">將改變原車熱點狀態，可能中斷其他裝置。每個按鈕只測試一條介面路徑，不自動執行恢復操作。是否繼續？</string>
+    <string name="settings_hotspot_probe_not_run">尚未檢測。請先檢測介面，再讀取原始配置。</string>
+    <string name="settings_hotspot_probe_observed">已讀取結果，未證明系統狀態發生變化。</string>
+    <string name="settings_hotspot_probe_verified">回讀一致或已觀測到目標狀態。</string>
+    <string name="settings_hotspot_probe_rejected">請求被拒絕或輸入不合法。</string>
+    <string name="settings_hotspot_probe_denied">介面拒絕存取，權限不足。</string>
+    <string name="settings_hotspot_probe_unsupported">介面或配置不受支援。</string>
 </resources>

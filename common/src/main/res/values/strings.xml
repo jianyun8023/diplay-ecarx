@@ -927,4 +927,22 @@
     <string name="settings_bluetooth_audio">Bluetooth audio</string>
     <string name="settings_expand">Expand</string>
     <string name="settings_collapse">Collapse</string>
+    <string name="settings_hotspot_probe_title">Car hotspot API checks</string>
+    <string name="settings_hotspot_probe_description">Check the recovered Android 9 APIs before enabling them in normal setup. Inspect and read are read-only. Writes and radio changes require confirmation. Start with a read; restore the original configuration before leaving. The temporary backup lasts only for this panel session. Wi-Fi details are never included in the report.</string>
+    <string name="settings_hotspot_probe_inspect">Inspect APIs and permissions</string>
+    <string name="settings_hotspot_probe_read">Read original hotspot details</string>
+    <string name="settings_hotspot_probe_write">Write fields and verify readback</string>
+    <string name="settings_hotspot_probe_restore">Restore original configuration</string>
+    <string name="settings_hotspot_probe_start_platform">Start with Android tethering API</string>
+    <string name="settings_hotspot_probe_stop_platform">Stop with Android tethering API</string>
+    <string name="settings_hotspot_probe_start_oem">Start with factory SoftAP API</string>
+    <string name="settings_hotspot_probe_stop_oem">Stop with factory SoftAP API</string>
+    <string name="settings_hotspot_probe_confirm_write">This writes the hotspot configuration and can affect other devices at the next hotspot restart. DiPlay connection settings are not updated. Continue?</string>
+    <string name="settings_hotspot_probe_confirm_radio">This changes the car hotspot state and may disconnect other devices. Each button tests one API path without automatic recovery. Continue?</string>
+    <string name="settings_hotspot_probe_not_run">Not tested. Inspect the APIs, then read the original configuration.</string>
+    <string name="settings_hotspot_probe_observed">Observed only; no system change verified.</string>
+    <string name="settings_hotspot_probe_verified">Verified by readback or observed state.</string>
+    <string name="settings_hotspot_probe_rejected">Request rejected or input invalid.</string>
+    <string name="settings_hotspot_probe_denied">Permission denied.</string>
+    <string name="settings_hotspot_probe_unsupported">API or configuration unsupported.</string>
 </resources>
