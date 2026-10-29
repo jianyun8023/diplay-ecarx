@@ -870,8 +870,8 @@ class CarPlayController(
     }
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
-    private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
-        NavigationOutputs.onFrame(frame)
+    private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame, source: String) {
+        NavigationOutputs.onFrame(frame, source)
         com.shilapi.xcertplay.glance.CarPlayGlance.onFrame(frame)
         synchronized(playbackStatus) {
             val previousPlaying = playbackStatus.playing
@@ -1646,7 +1646,7 @@ class CarPlayController(
                 keepAliveAfterDeadline = { keepBluetoothControlAlive(generation) },
                 beforeStartSession = { startedHotspot?.validateReady() },
                 onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
-                onIncoming = ::onRouteFrame,
+                onIncoming = { onRouteFrame(it, "wireless-rfcomm") },
                 onProgress = { message ->
                     diagnostics.controlProgress(message)
                     debugLog(message)
@@ -1755,7 +1755,7 @@ class CarPlayController(
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
-                        onIncoming = ::onRouteFrame,
+                        onIncoming = { onRouteFrame(it, "wireless-tunnel") },
                         onProgress = { message -> debugLog("iAP tunnel $message") },
                     )
                     if (closed || generation != wirelessGeneration.get()) return@execute
@@ -2467,7 +2467,7 @@ class CarPlayController(
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
                 vehicleStatusProvider = vehicleStatusProvider,
-                onIncoming = ::onRouteFrame,
+                onIncoming = { onRouteFrame(it, "wired-usb") },
                 onProgress = { message ->
                     if (message == Iap2WiredControlClient.START_SESSION_AGAIN_PROGRESS) {
                         startWatchdog.startSessionSentAgain()

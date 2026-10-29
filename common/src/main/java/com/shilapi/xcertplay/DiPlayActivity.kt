@@ -378,6 +378,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
             getString(R.string.setup_error_auth)
         }
+        if (!CarPlayBackgroundSession.hasSession()) {
+            Log.i("DiPlay-ECARX", "factory navigation startup ${com.shilapi.xcertplay.hud.EcarxFactoryNavigationControl.release(applicationContext)}")
+        }
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
         settingsCategory = savedInstanceState?.getString("settings_category")
             ?.let { runCatching { SettingsCategory.valueOf(it) }.getOrNull() }
@@ -3914,6 +3917,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             getString(R.string.ecarx_navigation_on_instrument_cluster_description),
             EcarxOutputSettings.enabled(this)) {
             EcarxOutputSettings.setEnabled(this, it)
+            NavigationOutputs.ecarxChanged(this)
+        }
+        toggle(card, getString(R.string.settings_pause_factory_navigation),
+            getString(R.string.settings_pause_factory_navigation_description),
+            EcarxOutputSettings.pauseFactoryNavigation(this)) {
+            EcarxOutputSettings.setPauseFactoryNavigation(this, it)
             NavigationOutputs.ecarxChanged(this)
         }
         toggle(card, getString(R.string.center_map_follows_dashboard),

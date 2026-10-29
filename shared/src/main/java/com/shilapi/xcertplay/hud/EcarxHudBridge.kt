@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.shilapi.xcertplay.iap2.message.Iap2LaneGuidance
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
@@ -185,6 +186,7 @@ internal object EcarxHudBridge {
     private var lastArrowChannel: String? = null
     private var ticksSincePush = 0
     private var guidanceActive = false
+    private var lastGuidanceEnd = "none"
 
     /**
      * Called with `true` when a route starts and `false` when it ends, for the owner that draws the
@@ -353,7 +355,7 @@ internal object EcarxHudBridge {
         }.scheduleAtFixedRate(::tick, 1, 1, TimeUnit.SECONDS)
     }
 
-    fun onFrame(frame: Iap2Frame) = synchronized(lock) {
+    fun onFrame(frame: Iap2Frame, source: String = "unspecified") = synchronized(lock) {
         if (!ecarxDetected) return@synchronized
         if (frame.messageId == 0x5204) {
             val parsed = Iap2LaneGuidance.parse(frame.payload) ?: run {
@@ -373,13 +375,17 @@ internal object EcarxHudBridge {
             pushLaneLocked(false)
             return@synchronized
         }
-        when (route.accept(frame.messageId, frame.payload)) {
+        val change = route.accept(frame.messageId, frame.payload)
+        report("DIM input source=$source id=0x${frame.messageId.toString(16)} ${route.diagnosticInput} " +
+            "change=$change currentNext=${route.current()?.distanceMeters ?: "none"} " +
+            "elapsedMs=${SystemClock.elapsedRealtime()} ${route.diagnosticState()}")
+        when (change) {
             RouteGuidanceChange.GUIDANCE -> {
                 pushLocked(force = false)
                 pushLaneLocked(false)
             }
             RouteGuidanceChange.CLEAR -> {
-                if (lastPushed != null) endLocked() else clearLanesLocked()
+                if (lastPushed != null) endLocked(route.diagnosticState()) else clearLanesLocked()
             }
             RouteGuidanceChange.NONE -> Unit
         }
@@ -387,11 +393,19 @@ internal object EcarxHudBridge {
 
     fun clear() = synchronized(lock) {
         route.clear() // Stop the keepalive from restoring guidance after cleanup.
-        if (lastPushed != null) endLocked() else clearLanesLocked()
+        if (lastPushed != null) endLocked("reason=clear-or-session-stop") else {
+            clearLanesLocked()
+            context?.let { report("factory navigation ${EcarxFactoryNavigationControl.release(it)}") }
+        }
     }
 
     fun settingsChanged() = synchronized(lock) {
         val app = context ?: return@synchronized
+        if (!EcarxOutputSettings.pauseFactoryNavigation(app)) {
+            report("factory navigation ${EcarxFactoryNavigationControl.release(app)}")
+        } else if (lastPushed != null) {
+            report("factory navigation ${EcarxFactoryNavigationControl.acquire(app)}")
+        }
         if (!EcarxOutputSettings.laneGuidanceEnabled(app)) lanes = null
         pushLaneLocked(false)
     }
@@ -503,7 +517,7 @@ internal object EcarxHudBridge {
         watchProjectionLocked()
         // Guidance can expire without a frame (a list that stays empty), so check every second.
         if (route.current() == null && (lastPushed != null || lanes != null || lastLanePushed != null)) {
-            if (lastPushed != null) endLocked() else clearLanesLocked()
+            if (lastPushed != null) endLocked(route.diagnosticState()) else clearLanesLocked()
         }
         else if (++ticksSincePush >= KEEPALIVE_TICKS) {
             pushLocked(force = true)
@@ -540,25 +554,27 @@ internal object EcarxHudBridge {
     private fun pushLocked(force: Boolean) {
         val app = context ?: return
         if (!EcarxOutputSettings.enabled(app)) {
-            if (lastPushed != null) endLocked()
+            if (lastPushed != null) endLocked("reason=setting-disabled")
             return
         }
         val naviRef = navi ?: return
         val maneuver = route.current()
         if (maneuver == null) {
-            if (lastPushed != null) endLocked()
+            if (lastPushed != null) endLocked(route.diagnosticState())
             return
         }
         val guidance = guidanceFor(maneuver)
         if (!force && guidance == lastPushed) return
+        val firstFrame = lastPushed == null
+        if (firstFrame) report("factory navigation ${EcarxFactoryNavigationControl.acquire(app)}")
 
         // Order matches the toolkit: the aggregate payload first, then the discrete fields.
         val result = EcarxDimApi.updateNavigationInfo(naviRef, guidance)
         if (!result.ok) {
-            report("updateNavigationInfo failed: ${result.reason}")
+            report("updateNavigationInfo failed next=${maneuver.distanceMeters}m: ${result.reason}")
+            if (firstFrame) report("factory navigation ${EcarxFactoryNavigationControl.release(app)}")
             return
         }
-        val firstFrame = lastPushed == null
         if (firstFrame) EcarxDimApi.notifyTurnByTurnStarted(naviRef)
         // The `void` notification above has never been confirmed to reach the service. Publish the
         // event the service itself would have published, so the cluster is told a navigation exists
@@ -592,11 +608,15 @@ internal object EcarxHudBridge {
 
         lastPushed = guidance
         ticksSincePush = 0
+        report("DIM publish next=${maneuver.distanceMeters}m arrowId=${guidance.turnId} " +
+            "status=${guidance.status} force=$force first=$firstFrame aggregate=${outcome(result)} " +
+            "next=${outcome(nextPoint)} destination=${outcome(remaining)} eta=${outcome(eta)} " +
+            "elapsedMs=${SystemClock.elapsedRealtime()}")
         if (!guidanceActive) {
             guidanceActive = true
             report(
                 "DIM guidance started arrowId=${guidance.turnId} next=${maneuver.distanceMeters}m " +
-                    "road=\"${maneuver.road}\"",
+                    "road=\"${maneuver.road}\" elapsedMs=${SystemClock.elapsedRealtime()} ${route.diagnosticState()}",
             )
             // Every one of these calls has always been fired and its answer thrown away, so a
             // field the cluster never received looked exactly like one the cluster ignored. The
@@ -684,7 +704,8 @@ internal object EcarxHudBridge {
         return ARROW_OFF
     }
 
-    private fun endLocked() {
+    private fun endLocked(reason: String) {
+        lastGuidanceEnd = "$reason elapsedMs=${SystemClock.elapsedRealtime()}"
         lanes = null
         val naviRef = navi
         if (naviRef != null) {
@@ -714,11 +735,12 @@ internal object EcarxHudBridge {
         }
         if (guidanceActive) {
             guidanceActive = false
-            report("DIM guidance ended")
+            report("DIM guidance ended $lastGuidanceEnd")
             // Hand the panel back: the presentation stops requesting the cluster stream, so the
             // head unit's own instrument page returns instead of a frozen last map frame.
             clusterPresentationRequested?.invoke(false)
         }
+        context?.let { report("factory navigation ${EcarxFactoryNavigationControl.release(it)}") }
     }
 
     /**
@@ -1016,6 +1038,7 @@ internal object EcarxHudBridge {
         append(" presentation=").append(EcarxOutputSettings.presentationSwitch(context))
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
         append(" media=").append(EcarxOutputSettings.mediaEnabled(context))
+        append(" factoryNavigation=[").append(EcarxFactoryNavigationControl.status(context)).append(']')
         synchronized(lock) {
             append(" wired=").append(ecarxDetected)
             append(" dim=").append(dim != null)
@@ -1033,6 +1056,7 @@ internal object EcarxHudBridge {
             append(" projectionPackage=").append(presentedPackage ?: "")
             append(" arrowId=").append(lastPushed?.turnId ?: -1)
             append(" active=").append(lastPushed != null)
+            append(" route=[").append(route.diagnosticState()).append("] lastEnd=[").append(lastGuidanceEnd).append(']')
             append(" status=").append(if (lastPushed != null) NAVI_STATUS_ACTIVE else NAVI_STATUS_IDLE)
             // The only read-back the API offers. Uninterpreted on purpose — it stays -1 while the
             // cluster mirrors (probe v3/v4), so it is printed for correlation, never acted on.

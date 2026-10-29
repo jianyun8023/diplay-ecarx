@@ -1,0 +1,4 @@
+<resources>
+    <string name="settings_pause_factory_navigation">导航期间停用原厂导航（实验性）</string>
+    <string name="settings_pause_factory_navigation_description">CarPlay 仪表导航期间暂时停用原厂导航应用，期间无法使用原车导航。导航结束后恢复原状态；若 DiPlay 异常退出，下次打开时重试恢复。</string>
+</resources>
