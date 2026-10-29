@@ -19,7 +19,8 @@ data class CarHotspotSavedCredentials(
 /**
  * Reads the car's saved hotspot configuration without touching it. Android 7.1 reads from the app:
  * getWifiApConfiguration is hidden, but its only service-side gate is ACCESS_WIFI_STATE and the
- * stored WifiConfiguration still carries the raw SSID and passphrase. Android 11+ reads through the
+ * stored WifiConfiguration still carries the raw SSID and passphrase. The platform-signed Android 9
+ * vehicle build uses the same verified getter. Android 11+ reads through the
  * shell helper, because the service enforces the signature NETWORK_SETTINGS permission that the
  * shell holds. WPA3 configurations are read as-is; DiPlay publishes them unchanged.
  */
@@ -41,7 +42,7 @@ object CarHotspotConfigRead {
             log("car hotspot config: unsupported Android $sdk")
             return Outcome(reason = Reason.UNSUPPORTED_SDK)
         }
-        return if (sdk <= Build.VERSION_CODES.N_MR1) readWithApp(context, log)
+        return if (sdk <= Build.VERSION_CODES.N_MR1 || sdk == 28) readWithApp(context, log)
         else readWithAdb(LocalAdb(AdbKeys.load(context)), context.applicationInfo.sourceDir, mayAsk, log)
     }
 
@@ -68,7 +69,7 @@ object CarHotspotConfigRead {
             log = log)
         if (credentials == null) Outcome(reason = Reason.UNAVAILABLE) else Outcome(credentials)
     } catch (error: Exception) {
-        log("car hotspot config: app read failed ${CarHotspotTethering.describe(error)}")
+        log("car hotspot config: app read failed ${error.javaClass.simpleName}")
         Outcome(reason = Reason.UNAVAILABLE)
     }
 

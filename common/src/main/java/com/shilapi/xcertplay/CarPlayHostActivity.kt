@@ -435,6 +435,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var menuSettingsSignature: Int? = null
     // The same for the Wi-Fi details that Save checks, so details the menu left alone are not checked.
     private var menuWirelessNetworkSignature: Int? = null
+    private var menuManualHotspotSettings: List<Any>? = null
     // Opens the menu page that holds a view; set by the menu that is showing.
     private var revealInSettingsMenu: (View) -> Unit = {}
     private var locationReportingSwitch: Switch? = null
@@ -1011,6 +1012,10 @@ open class CarPlayHostActivity : ComponentActivity() {
         existingWifiSsid = AirPlayPersistence.loadExistingWifiSsid(this)
         existingWifiPassphrase = AirPlayPersistence.loadExistingWifiPassphrase(this)
         existingWifiInterface = AirPlayPersistence.loadExistingWifiInterface(this)
+        loadManualHotspotSettings()
+    }
+
+    private fun loadManualHotspotSettings() {
         manualHotspotSsid = AirPlayPersistence.loadManualHotspotSsid(this)
         manualHotspotPassphrase = AirPlayPersistence.loadManualHotspotPassphrase(this)
         manualHotspotBand = AirPlayPersistence.loadManualHotspotBand(this)
@@ -3311,12 +3316,15 @@ open class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveWirelessHotspotMode(this, wirelessHotspotMode)
         AirPlayPersistence.saveExistingWifiCredentials(this, existingWifiSsid, existingWifiPassphrase)
         AirPlayPersistence.saveExistingWifiInterface(this, existingWifiInterface)
-        AirPlayPersistence.saveManualHotspotSsid(this, manualHotspotSsid)
-        AirPlayPersistence.saveManualHotspotPassphrase(this, manualHotspotPassphrase)
-        AirPlayPersistence.saveManualHotspotBand(this, manualHotspotBand)
-        AirPlayPersistence.saveManualHotspotChannel(this, manualHotspotChannel)
-        AirPlayPersistence.saveManualHotspotSecurity(this, manualHotspotSecurity)
-        AirPlayPersistence.saveManualHotspotInterface(this, manualHotspotInterface)
+        // An automatic car read can update these while this menu holds an older snapshot.
+        if (manualHotspotSettings() != menuManualHotspotSettings) {
+            AirPlayPersistence.saveManualHotspotSsid(this, manualHotspotSsid)
+            AirPlayPersistence.saveManualHotspotPassphrase(this, manualHotspotPassphrase)
+            AirPlayPersistence.saveManualHotspotBand(this, manualHotspotBand)
+            AirPlayPersistence.saveManualHotspotChannel(this, manualHotspotChannel)
+            AirPlayPersistence.saveManualHotspotSecurity(this, manualHotspotSecurity)
+            AirPlayPersistence.saveManualHotspotInterface(this, manualHotspotInterface)
+        }
         AirPlayPersistence.saveLocationReportingEnabled(this, locationReportingEnabled)
         AirPlayPersistence.saveAutoStartOnBoot(this, autoStartOnBoot)
         AirPlayPersistence.saveAdvancedAudioChannelMapping(this, advancedAudioChannelMapping)
@@ -3340,6 +3348,11 @@ open class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveMainDisplayDisableSafeArea(this, mainDisplayDisableSafeArea)
         AirPlayPersistence.saveBlackCornerRadiusDp(this, blackCornerRadiusDp)
     }
+
+    private fun manualHotspotSettings(): List<Any> = listOf(
+        manualHotspotSsid, manualHotspotPassphrase, manualHotspotBand, manualHotspotChannel,
+        manualHotspotSecurity, manualHotspotInterface,
+    )
 
     /**
      * The fields [validateManualHotspotSettings] checks and the wireless switch, hashed like
@@ -5451,6 +5464,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Settings → Connection can change the target while this screen stays open (#696).
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         runCatching { DiPlayBootstrap.ensure(this, mfiTarget) }
+        loadManualHotspotSettings()
         val config = createRuntimeConfig()
         val effectiveSize = if (isMultiWindowActive() && !AirPlayPersistence.loadAdaptPipResolution(this) &&
             maximumDetectedWidthPixels >= size.width && maximumDetectedHeightPixels >= size.height &&
@@ -6011,6 +6025,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         settingsBaseline = captureSettingsBaseline()
         menuSettingsSignature = menuSettingsSignature()
         menuWirelessNetworkSignature = wirelessNetworkSignature()
+        menuManualHotspotSettings = manualHotspotSettings()
         // Rebuild controls from saved values so a cancelled edit cannot reappear on reopening.
         settingsMenu?.let { previous ->
             val parent = previous.parent as ViewGroup
@@ -6113,6 +6128,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         menuOpen = false
         menuSettingsSignature = null
         menuWirelessNetworkSignature = null
+        menuManualHotspotSettings = null
         settingsMenu?.visibility = View.GONE
         gestureOverlay?.visibility = View.VISIBLE
         settingsGestureHint?.text = settingsGestureHintText()

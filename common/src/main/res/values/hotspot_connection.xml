@@ -1,0 +1,16 @@
+<resources>
+    <string name="settings_hotspot_reading">Reading the car hotspot…</string>
+    <string name="settings_hotspot_read_failed">Could not read the car hotspot. Retry or enter the connection details manually.</string>
+    <string name="settings_hotspot_modify">Modify the car hotspot</string>
+    <string name="settings_hotspot_modify_when_off">Turn off the hotspot before changing its name or password.</string>
+    <string name="settings_hotspot_modify_description">Save changes to the car hotspot. Other devices may need to reconnect. Changes take effect the next time the hotspot starts.</string>
+    <string name="settings_hotspot_manual_description">Save connection details to DiPlay only. This does not change the car hotspot.</string>
+    <string name="settings_hotspot_save_to_car">Save to the car</string>
+    <string name="settings_hotspot_more">More hotspot settings</string>
+    <string name="settings_hotspot_checking">Checking the car hotspot…</string>
+    <string name="settings_hotspot_starting">Starting the car hotspot…</string>
+    <string name="settings_hotspot_waiting_network">Waiting for the mobile network before retrying the hotspot…</string>
+    <string name="settings_mobile_network_ready">Mobile network ready</string>
+    <string name="settings_mobile_network_waiting">Waiting for the mobile network</string>
+    <string name="settings_mobile_network_unknown">Mobile network status unavailable</string>
+</resources>

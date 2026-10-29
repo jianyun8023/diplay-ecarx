@@ -77,7 +77,6 @@ import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.network.CarHotspotTethering
 import com.shilapi.xcertplay.network.HotspotCredentials
 import com.shilapi.xcertplay.network.WifiP2pChannels
-import com.shilapi.xcertplay.orchestration.ManualHotspotProvisioning
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.ManualHotspotValidation
 import com.shilapi.xcertplay.orchestration.MfiTarget
@@ -254,6 +253,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var updateMessage: String? = null
     private var carButtonCard: LinearLayout? = null
     private var hotspotStartupResult: CarHotspotTethering.Result? = null
+    private var hotspotStartupPhase: CarHotspotSetup.Phase? = null
+    private var hotspotConnectSource: ConnectionTraceSource? = null
+    private var hotspotEntryChecked = false
+    private var lastMobileNetworkReady: Boolean? = null
+    internal var prepareHotspot: (() -> Boolean, (CarHotspotSetup.Phase) -> Unit) -> CarHotspotTethering.Result = { cancelled, progress ->
+        CarHotspotSetup.prepare(applicationContext, cancelled, progress) {
+            SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT, it)
+        }
+    }
     @Volatile private var startupHotspotCancelled = false
     private var adbSwitchChangePending = false
     private var pausedForAdbSwitchChange = false
@@ -264,7 +272,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         connect(notificationTransport)
     }
     private val tick = object : Runnable {
-        override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
+        override fun run() {
+            refreshStatus()
+            if (CarHotspotSettings.enabled(this@DiPlayActivity) &&
+                (page == "home" || page == "connection" || page == "setup")) {
+                val ready = CarHotspotSetup.networkReady(this@DiPlayActivity)
+                if (ready != lastMobileNetworkReady) {
+                    lastMobileNetworkReady = ready
+                    render()
+                }
+            }
+            handler.postDelayed(this, 1000)
+        }
     }
     private val appearancePoll = object : Runnable {
         override fun run() {
@@ -473,6 +492,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         cancelUsbPermissionSetup()
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
+        hotspotConnectSource = null
         manualHotspotControls?.cancelPending()
         hotspotProbeControls?.cancelPending()
         projectionRequested = false
@@ -520,7 +540,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                         return@postDelayed
                     }
                     connectWithSource(DiPlayPreferences.autoConnectWireless(this), ConnectionTraceSource.APP_LAUNCH)
-                }, AUTO_CONNECT_AFTER_LAUNCH_MILLIS)
+                }, if (autoHotspotWanted()) 0L else AUTO_CONNECT_AFTER_LAUNCH_MILLIS)
             }
         }
     }
@@ -614,6 +634,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun render() = render(appearanceOnly = false)
 
     private fun render(appearanceOnly: Boolean, preferredFocusTag: Any? = null) {
+        if (page != "connection" && page != "setup") hotspotEntryChecked = false
         enforceInterfaceSize()
         refreshAppearance()
         applyWindowAppearance()
@@ -915,6 +936,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         homeConnectionHint = if (compact) null else label(connectionHint, 15, MUTED).apply { setPadding(0, dp(14), 0, 0) }
         homeConnectionHint?.let(card::addView)
+        if (hotspotStartupRunning) {
+            card.addView(label(getString(when (hotspotStartupPhase) {
+                CarHotspotSetup.Phase.STARTING -> R.string.settings_hotspot_starting
+                CarHotspotSetup.Phase.WAITING_FOR_NETWORK -> R.string.settings_hotspot_waiting_network
+                else -> R.string.settings_hotspot_checking
+            }), 15, MUTED))
+        }
         val startupProblem = hotspotStartupResult?.takeIf {
             it != CarHotspotTethering.Result.READY && it != CarHotspotTethering.Result.CANCELLED &&
                 CarHotspotSettings.shouldEnable(this, true, AirPlayPersistence.loadWirelessHotspotMode(this)) &&
@@ -2439,30 +2467,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             CarHotspotSettings.reportedOff(this, com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this)) &&
             !(CarHotspotSettings.enabled(this) && CarHotspotTethering.permitted(this))
 
-    /**
-     * Other head units: starting the hotspot needs only Android's "Modify system settings" access
-     * (WRITE_SETTINGS), which the driver allows on the system screen. No ADB is involved.
-     */
-    private fun systemHotspotSettings(parent: LinearLayout) {
-        section(parent, getString(R.string.settings_car_hotspot_control), R.drawable.ic_dp_permissions) { card ->
-            toggle(card, getString(R.string.auto_car_hotspot_title),
-                getString(R.string.settings_auto_car_hotspot_system_description), CarHotspotSettings.enabled(this)) { enabled ->
-                CarHotspotSettings.setEnabled(this, enabled)
-                if (!enabled) startupHotspotCancelled = true
-                else if (!CarHotspotTethering.permitted(this)) openWriteSettingsAccess()
-            }
-            val permitted = CarHotspotTethering.permitted(this)
-            card.addView(label(getString(if (permitted) R.string.settings_write_settings_granted
-                else R.string.settings_write_settings_missing), 14, if (permitted) READY else MUTED).apply {
-                setPadding(0, dp(6), 0, dp(4))
-            })
-            if (!permitted) {
-                card.addView(button(getString(R.string.settings_write_settings_allow), false) { openWriteSettingsAccess() },
-                    matchButton(8, 54))
-            }
-        }
-    }
-
     private fun openWriteSettingsAccess() =
         openSystem(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
 
@@ -2545,106 +2549,146 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         updatingAdbSwitches = false
     }
 
-    private fun startCarHotspotOnLaunch() {
-        if (!startupHotspotEligible() || manualHotspotBusy()) return
+    private fun startCarHotspotOnLaunch(connectSource: ConnectionTraceSource? = null) {
+        if (!startupHotspotEligible() && !(connectSource != null && autoHotspotWanted())) return
+        if (hotspotStartupRunning) {
+            if (connectSource != null) hotspotConnectSource = connectSource
+            return
+        }
+        if (manualHotspotBusy()) {
+            if (connectSource != null) toast(getString(R.string.settings_manual_hotspot_working))
+            return
+        }
+        hotspotConnectSource = connectSource
+        startupHotspotCancelled = false
         hotspotStartupRunning = true
+        hotspotStartupResult = null
+        hotspotStartupPhase = CarHotspotSetup.Phase.CHECKING
+        render()
         val app = applicationContext
         Thread({
-            val result = try { CarHotspotTethering.enable(app,
-                isCancelled = { startupHotspotCancelled || !startupHotspotEligible() },
-                log = { Log.i("DiPlay-Hotspot", it) },
-            ) } finally { hotspotStartupRunning = false }
+            val result = prepareHotspot(
+                { startupHotspotCancelled || !CarHotspotSettings.enabled(app) },
+                { phase -> runOnUiThread {
+                    if (!startupHotspotCancelled && !isFinishing && !isDestroyed) {
+                        SettingsActionDiagnostics.record(app, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT,
+                            "phase=prepare state=$phase")
+                        hotspotStartupPhase = phase
+                        render()
+                    }
+                } },
+            )
+            val saved = if (result == CarHotspotTethering.Result.READY && Build.VERSION.SDK_INT == 28 &&
+                !startupHotspotCancelled) CarHotspotConfigRead.read(app, mayAsk = false,
+                    log = { Log.i("DiPlay-Hotspot", it) }).credentials else null
+            if (saved != null && !startupHotspotCancelled) {
+                AirPlayPersistence.saveManualHotspotSsid(app, saved.ssid)
+                AirPlayPersistence.saveManualHotspotPassphrase(app, saved.passphrase)
+                AirPlayPersistence.saveManualHotspotSecurity(app, saved.security)
+            }
             runOnUiThread {
-                if (isFinishing || isDestroyed || result == CarHotspotTethering.Result.CANCELLED) return@runOnUiThread
+                hotspotStartupRunning = false
+                val source = hotspotConnectSource
+                hotspotConnectSource = null
+                if (isFinishing || isDestroyed || startupHotspotCancelled || result == CarHotspotTethering.Result.CANCELLED) {
+                    hotspotStartupPhase = null
+                    return@runOnUiThread
+                }
                 hotspotStartupResult = result
-                if (page == "home") render()
+                hotspotStartupPhase = if (result == CarHotspotTethering.Result.READY) CarHotspotSetup.Phase.READY else null
+                if (saved != null) {
+                    pendingCarHotspotSetup = false
+                    AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
+                }
+                render()
+                if (source != null) {
+                    if (result == CarHotspotTethering.Result.READY) connectPreparedWithSource(true, source)
+                    else toast(hotspotResultText(result))
+                }
             }
         }, "diplay-hotspot-startup").start()
     }
 
-    private var carHotspotConfigStatus: Int? = null
-    // What the import last read from the car. Saving exactly these writes nothing new to the car, so
-    // it gets no overwrite warning.
-    private var importedCarHotspot: CarHotspotSavedCredentials? = null
+    private fun autoHotspotWanted(): Boolean = CarHotspotSettings.enabled(this) &&
+        (pendingCarHotspotSetup || AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL)
 
-    // Copies the car's saved hotspot details into our settings without touching the car. When the
-    // car's configuration cannot be read the write path runs instead, after a warning: it keeps the
-    // car's name and password, or creates new details when nothing is saved on either side.
-    private fun importCarHotspotConfig() {
-        // The driver just turned the switch on, so the read may ask the car to approve DiPlay's ADB key,
-        // as the other ADB switches do. Without asking it could only fail on a car that never saw the key.
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) {
-            carHotspotConfigStatus = R.string.adb_checking_may_ask
-            render()
+    private fun checkHotspotOnEntry() {
+        if (hotspotEntryChecked) return
+        hotspotEntryChecked = true
+        handler.post {
+            if (!isFinishing && !isDestroyed && (page == "connection" || page == "setup") && autoHotspotWanted()) {
+                startCarHotspotOnLaunch()
+            }
         }
+    }
+
+    private var carHotspotConfigStatus: Int? = null
+    @Volatile private var carHotspotConfigBusy = false
+    private var hotspotDetailsExpanded = false
+
+    private fun importCarHotspotConfig(edit: Boolean = false) {
+        if (manualHotspotBusy() || CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning) {
+            toast(getString(R.string.settings_manual_hotspot_disconnect))
+            return
+        }
+        if (edit && Build.VERSION.SDK_INT == 28 &&
+            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) != false) {
+            toast(getString(R.string.settings_hotspot_modify_when_off))
+            return
+        }
+        carHotspotConfigBusy = true
+        carHotspotConfigStatus = R.string.settings_hotspot_reading
+        render()
+        val app = applicationContext
         Thread({
-            val read = CarHotspotConfigRead.read(applicationContext, mayAsk = true, log = { Log.i("DiPlay-Hotspot", it) })
+            val read = CarHotspotConfigRead.read(app, mayAsk = true, log = { Log.i("DiPlay-Hotspot", it) })
             Log.i("DiPlay-Hotspot", "car hotspot config read: credentials=${read.credentials != null} reason=${read.reason}")
             val saved = read.credentials
-            if (saved != null) {
-                AirPlayPersistence.saveManualHotspotSsid(applicationContext, saved.ssid)
-                AirPlayPersistence.saveManualHotspotPassphrase(applicationContext, saved.passphrase)
-                AirPlayPersistence.saveManualHotspotSecurity(applicationContext, saved.security)
-                runOnUiThread {
-                    carHotspotConfigStatus = null
-                    importedCarHotspot = saved
-                    toast(getString(R.string.settings_car_hotspot_config_imported))
-                    render()
-                }
-                return@Thread
+            if (saved != null && !edit) {
+                AirPlayPersistence.saveManualHotspotSsid(app, saved.ssid)
+                AirPlayPersistence.saveManualHotspotPassphrase(app, saved.passphrase)
+                AirPlayPersistence.saveManualHotspotSecurity(app, saved.security)
+                AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
             }
             runOnUiThread {
-                when {
-                    read.reason == CarHotspotConfigRead.Reason.ADB_UNAVAILABLE -> {
-                        carHotspotConfigStatus = when (read.access) {
-                            LocalAdb.Access.NOT_APPROVED -> R.string.adb_not_approved
-                            LocalAdb.Access.UNSUPPORTED -> R.string.adb_pairing_only
-                            else -> adbOffText()
-                        }
-                        render()
+                carHotspotConfigBusy = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                carHotspotConfigStatus = when {
+                    saved != null && edit -> null
+                    saved != null -> R.string.settings_car_hotspot_config_imported
+                    read.reason == CarHotspotConfigRead.Reason.ADB_UNAVAILABLE -> when (read.access) {
+                        LocalAdb.Access.NOT_APPROVED -> R.string.adb_not_approved
+                        LocalAdb.Access.UNSUPPORTED -> R.string.adb_pairing_only
+                        else -> adbOffText()
                     }
-                    else -> {
-                        carHotspotConfigStatus = null
-                        render()
-                        AlertDialog.Builder(this)
-                            .setTitle(getString(R.string.settings_car_hotspot_config_dialog_title))
-                            .setMessage(getString(
-                                // With nothing saved yet the write creates the details, so the warning
-                                // must say that instead of only announcing an overwrite.
-                                if (hasSavedHotspotDetails()) R.string.settings_car_hotspot_config_dialog_message
-                                else R.string.settings_car_hotspot_config_dialog_generate_message,
-                            ))
-                            .setPositiveButton(getString(R.string.settings_car_hotspot_config_dialog_confirm)) { _, _ -> writeCarHotspotConfigNow() }
-                            .setNegativeButton(getString(R.string.cancel)) { _, _ ->
-                                CarHotspotSettings.setConfigWrite(this, false)
-                                render()
-                            }
-                            .setOnCancelListener {
-                                CarHotspotSettings.setConfigWrite(this, false)
-                                render()
-                            }
-                            .show()
-                    }
+                    else -> R.string.settings_hotspot_read_failed
+                }
+                if (saved != null && !edit) {
+                    pendingCarHotspotSetup = false
+                    markReconnectNeeded()
+                }
+                render()
+                if (saved != null && edit) askHotspotCredentials(carCredentials = saved) { ssid, password, security, _ ->
+                    writeCarHotspotConfigNow(HotspotCredentials(ssid, password, security,
+                        AirPlayPersistence.loadManualHotspotBand(this)))
                 }
             }
         }, "diplay-hotspot-config-read").start()
     }
 
-    /** True when valid manual hotspot details are already saved, without generating any. */
-    private fun hasSavedHotspotDetails(): Boolean {
-        val ssid = AirPlayPersistence.loadManualHotspotSsid(this)
-        val passphrase = AirPlayPersistence.loadManualHotspotPassphrase(this)
-        return ssid.isNotBlank() && ManualHotspotValidation.error(ssid, passphrase) == null
-    }
-
-    // One-shot write of the saved manual hotspot details; the toggle only stores the opt-in.
-    private fun writeCarHotspotConfigNow() {
-        val credentials = launchHotspotCredentials()
-        if (credentials == null) {
-            carHotspotConfigStatus = R.string.finish_setup_save_your_hotspot_details_to_use_this_mode
-            render()
+    private fun writeCarHotspotConfigNow(credentials: HotspotCredentials) {
+        if (manualHotspotBusy() || CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning) {
+            toast(getString(R.string.settings_manual_hotspot_disconnect))
             return
         }
+        if (Build.VERSION.SDK_INT == 28 && com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) != false) {
+            toast(getString(R.string.settings_hotspot_modify_when_off))
+            return
+        }
+        carHotspotConfigBusy = true
+        carHotspotConfigStatus = R.string.settings_manual_hotspot_working
+        render()
+        val app = applicationContext
         Thread({
             var access = LocalAdb.Access.READY
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -2652,14 +2696,21 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     .getOrDefault(LocalAdb.Access.UNREACHABLE)
             }
             val outcome = if (access != LocalAdb.Access.READY) CarHotspotConfigWrite.WriteOutcome(CarHotspotConfigWrite.Result.ADB_UNAVAILABLE)
-            else CarHotspotConfigWrite.write(applicationContext, credentials, log = { Log.i("DiPlay-Hotspot", it) })
+            else CarHotspotConfigWrite.write(app, credentials, log = { Log.i("DiPlay-Hotspot", it) })
             Log.i("DiPlay-Hotspot", "car hotspot config write: ${outcome.result}")
+            if (outcome.result == CarHotspotConfigWrite.Result.WRITTEN) {
+                AirPlayPersistence.saveManualHotspotSsid(app, outcome.ssid ?: credentials.ssid)
+                AirPlayPersistence.saveManualHotspotPassphrase(app, credentials.passphrase)
+                AirPlayPersistence.saveManualHotspotSecurity(app, credentials.security)
+                AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
+            }
             runOnUiThread {
+                carHotspotConfigBusy = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 carHotspotConfigStatus = when (outcome.result) {
                     CarHotspotConfigWrite.Result.WRITTEN -> {
-                        // The car may have kept its own SSID; DiPlay must offer the iPhone the name
-                        // that is actually broadcast.
-                        outcome.ssid?.let { AirPlayPersistence.saveManualHotspotSsid(applicationContext, it) }
+                        pendingCarHotspotSetup = false
+                        markReconnectNeeded()
                         toast(getString(R.string.settings_car_hotspot_config_effect))
                         R.string.settings_car_hotspot_config_written
                     }
@@ -2677,26 +2728,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }, "diplay-hotspot-config-write").start()
     }
 
-    private fun launchHotspotCredentials(): HotspotCredentials? {
-        if (!CarHotspotSettings.configWrite(this)) return null
-        val ssid = AirPlayPersistence.loadManualHotspotSsid(this)
-        val passphrase = AirPlayPersistence.loadManualHotspotPassphrase(this)
-        if (ssid.isBlank()) {
-            val generated = ManualHotspotProvisioning.generate()
-            AirPlayPersistence.saveManualHotspotSsid(this, generated.ssid)
-            AirPlayPersistence.saveManualHotspotPassphrase(this, generated.passphrase)
-            AirPlayPersistence.saveManualHotspotSecurity(this, ManualHotspotSecurity.WPA2)
-            Log.i("DiPlay-Hotspot", "provisioned a generated hotspot")
-            return HotspotCredentials(generated.ssid, generated.passphrase,
-                ManualHotspotSecurity.WPA2, AirPlayPersistence.loadManualHotspotBand(this))
-        }
-        if (ManualHotspotValidation.error(ssid, passphrase) != null) return null
-        return HotspotCredentials(ssid, passphrase,
-            AirPlayPersistence.loadManualHotspotSecurity(this), AirPlayPersistence.loadManualHotspotBand(this))
-    }
-
     private fun startupHotspotEligible(): Boolean =
-        CarHotspotSetup.shouldStartOnLaunch(applicationContext, CarPlayBackgroundSession.hasSession())
+        CarHotspotSetup.shouldStartOnLaunch(applicationContext, CarPlayBackgroundSession.hasSession()) ||
+            pendingCarHotspotSetup && autoHotspotWanted() && !CarPlayBackgroundSession.hasSession()
 
     private fun hotspotResultText(result: CarHotspotTethering.Result): String = getString(when (result) {
         CarHotspotTethering.Result.READY -> R.string.hotspot_control_on
@@ -2804,6 +2838,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun setupConnectionStep(content: LinearLayout) {
+        checkHotspotOnEntry()
         setupTitle(content, R.string.setup_connection_title, getString(R.string.setup_connection_description))
         val card = card()
         wirelessLinkControls(card)
@@ -2882,6 +2917,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun connectionSetup(content: LinearLayout) {
+        checkHotspotOnEntry()
         content.addView(label(getString(R.string.connection_setup), 34, TEXT, true))
         content.addView(label(getString(R.string.set_up_once_your_details_stay_saved_for_the_next_drive_cha), 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         section(content, getString(R.string.s_1_choose_your_connection)) { card -> wirelessLinkControls(card) }
@@ -2923,6 +2959,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 if (candidate == WirelessHotspotMode.MANUAL) {
                     pendingCarHotspotSetup = true
                     render()
+                    if (CarHotspotSettings.enabled(this)) Handler(Looper.getMainLooper()).post { startCarHotspotOnLaunch() }
                 } else if (candidate == WirelessHotspotMode.EXISTING_WIFI) {
                     askHotspotCredentials(existingWifi = true) { ssid, password, _, interfaceName ->
                         AirPlayPersistence.saveExistingWifiCredentials(this, ssid, password)
@@ -2939,57 +2976,64 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         if (mode == WirelessHotspotMode.MANUAL) {
             parent.addView(label(getString(R.string.hotspot_setup), 22, TEXT, true))
-            parent.addView(label(getString(R.string.s_1_open_car_hotspot_settings_turn_the_hotspot_on_and_sele), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(12)) })
-            parent.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(0, 60))
-            // Before anything is saved there is no hotspot to edit and no name to show after the dot.
             val detailsMissing = carHotspotDetailsMissing()
-            parent.addView(button(if (detailsMissing) getString(R.string.save_hotspot_details_and_use_this_mode) else "${getString(R.string.edit_saved_hotspot_prefix)}${storedSsid()}", false) {
-                askHotspotCredentials { ssid, password, security, interfaceName ->
-                    saveHotspotCredentials(ssid, password, security, interfaceName)
-                    pendingCarHotspotSetup = false
-                    applyWirelessLink(WirelessHotspotMode.MANUAL)
-                }
-            }, matchButton(12, 60))
-            parent.addView(label(if (detailsMissing) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
+            if (!detailsMissing) parent.addView(label(storedSsid(), 18, TEXT))
             if (CarHotspotConfigWrite.supported()) {
-                searchIndexSink?.add(getString(R.string.settings_car_hotspot_config_title))
-                parent.addView(SettingsWidgets.createSwitchRow(
-                    context = this,
-                    label = getString(R.string.settings_car_hotspot_config_title),
-                    description = getString(R.string.settings_car_hotspot_config_description),
-                    labelSizeSp = 22f,
-                    checked = CarHotspotSettings.configWrite(this), theme = SettingsTheme.card(palette),
-                    contentDescription = getString(R.string.settings_car_hotspot_config_title),
-                    onChanged = { enabled ->
-                        if (!enabled) {
-                            CarHotspotSettings.setConfigWrite(this, false)
-                            carHotspotConfigStatus = null
-                            render()
-                            return@createSwitchRow
-                        }
-                        CarHotspotSettings.setConfigWrite(this@DiPlayActivity, true)
-                        importCarHotspotConfig()
-                    }).rowView)
-                carHotspotConfigStatus?.let { status ->
-                    parent.addView(label(getString(status), 15, MUTED).apply { setPadding(0, dp(10), 0, 0) })
-                }
+                parent.addView(button(getString(R.string.settings_car_hotspot_config_title), false) {
+                    importCarHotspotConfig()
+                }.apply { isEnabled = !carHotspotConfigBusy }, matchButton(CONTROL_GAP_DP, CONTROL_HEIGHT_DP))
             } else {
                 parent.addView(label(getString(R.string.settings_car_hotspot_config_unsupported), 15, MUTED).apply {
-                    setPadding(0, dp(12), 0, 0)
+                    setPadding(0, dp(CONTROL_GAP_DP), 0, 0)
                 })
             }
+            carHotspotConfigStatus?.let { parent.addView(label(getString(it), 15, MUTED)) }
+            toggle(parent, getString(R.string.auto_car_hotspot_title),
+                getString(R.string.settings_auto_car_hotspot_system_description), CarHotspotSettings.enabled(this)) { enabled ->
+                CarHotspotSettings.setEnabled(this, enabled)
+                if (!enabled) startupHotspotCancelled = true
+                else if (!CarHotspotTethering.permitted(this)) openWriteSettingsAccess()
+                else Handler(Looper.getMainLooper()).post { startCarHotspotOnLaunch() }
+            }
+            val phaseText = if (hotspotStartupRunning) when (hotspotStartupPhase) {
+                CarHotspotSetup.Phase.CHECKING -> R.string.settings_hotspot_checking
+                CarHotspotSetup.Phase.STARTING -> R.string.settings_hotspot_starting
+                CarHotspotSetup.Phase.WAITING_FOR_NETWORK -> R.string.settings_hotspot_waiting_network
+                else -> null
+            } else null
+            phaseText?.let { parent.addView(label(getString(it), 15, MUTED)) }
+            parent.addView(label(getString(when (CarHotspotSetup.networkReady(this)) {
+                true -> R.string.settings_mobile_network_ready
+                false -> R.string.settings_mobile_network_waiting
+                null -> R.string.settings_mobile_network_unknown
+            }), 15, MUTED))
             val manual = manualHotspotControls ?: ManualHotspotControls(this,
-                connectionBusy = { CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning },
+                connectionBusy = { CarPlayBackgroundSession.hasSession() || projectionRequested || hotspotStartupRunning || carHotspotConfigBusy },
                 openSettings = ::openCarWifiSettings, requestPermission = ::openWriteSettingsAccess,
                 labelFactory = { label(it, 15, MUTED) },
                 buttonFactory = { title, click -> button(title, false, click) })
                 .also { manualHotspotControls = it }
             parent.addView(manual.build())
-            val join = hotspotJoinControls ?: HotspotJoinControls(this,
-                { CarPlayBackgroundSession.hasSession() }, beforeAction = { startupHotspotCancelled = true },
-                labelFactory = { label(it, 15, MUTED) }, buttonFactory = { title, click -> button(title, false, click) })
-                .also { hotspotJoinControls = it }
-            parent.addView(join.build())
+            settingsDetails(parent, R.string.settings_hotspot_more,
+                hotspotDetailsExpanded || detailsMissing || settingsSearchQuery.isNotBlank(), { hotspotDetailsExpanded = it }) { more ->
+                if (CarHotspotConfigWrite.supported()) more.addView(button(getString(R.string.settings_hotspot_modify), false) {
+                    importCarHotspotConfig(edit = true)
+                }.apply { isEnabled = !carHotspotConfigBusy }, matchButton(CONTROL_GAP_DP, CONTROL_HEIGHT_DP))
+                more.addView(button(if (detailsMissing) getString(R.string.save_hotspot_details_and_use_this_mode)
+                    else "${getString(R.string.edit_saved_hotspot_prefix)}${storedSsid()}", false) {
+                    askHotspotCredentials { ssid, password, security, interfaceName ->
+                        saveHotspotCredentials(ssid, password, security, interfaceName)
+                        pendingCarHotspotSetup = false
+                        applyWirelessLink(WirelessHotspotMode.MANUAL)
+                    }
+                }, matchButton(CONTROL_GAP_DP, CONTROL_HEIGHT_DP))
+                val join = hotspotJoinControls ?: HotspotJoinControls(this,
+                    { CarPlayBackgroundSession.hasSession() || carHotspotConfigBusy || hotspotStartupRunning },
+                    beforeAction = { startupHotspotCancelled = true },
+                    labelFactory = { label(it, 15, MUTED) }, buttonFactory = { title, click -> button(title, false, click) })
+                    .also { hotspotJoinControls = it }
+                more.addView(join.build())
+            }
         } else if (mode == WirelessHotspotMode.EXISTING_WIFI) {
             parent.addView(label(getString(R.string.existing_wifi_instructions), 16, MUTED))
             parent.addView(button(getString(R.string.open_car_wi_fi_settings), false) { openCarClientWifiSettings() }, matchButton(12, 60))
@@ -3150,33 +3194,28 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         AirPlayPersistence.saveManualHotspotChannel(this, 0)
         AirPlayPersistence.saveManualHotspotInterface(this, interfaceName)
         markReconnectNeeded()
-        val fromCar = importedCarHotspot == CarHotspotSavedCredentials(ssid, password, security)
-        if (CarHotspotConfigWrite.supported() && CarHotspotSettings.configWrite(this) && !fromCar) {
-            AlertDialog.Builder(this)
-                .setTitle(getString(R.string.settings_car_hotspot_config_dialog_title))
-                .setMessage(getString(R.string.settings_car_hotspot_config_dialog_save_message))
-                .setPositiveButton(getString(R.string.settings_car_hotspot_config_dialog_confirm)) { _, _ -> writeCarHotspotConfigNow() }
-                .setNegativeButton(getString(R.string.cancel), null)
-                .setOnCancelListener { render() }
-                .show()
-        }
     }
 
     private fun askHotspotCredentials(
         existingWifi: Boolean = false,
+        carCredentials: CarHotspotSavedCredentials? = null,
         done: (String, String, ManualHotspotSecurity, String) -> Unit,
     ) {
         val dialogContext = appDialogContext()
         val fields = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
-        fields.addView(label(getString(if (existingWifi) R.string.existing_wifi_instructions else R.string.copy_these_from_the_car_s_hotspot_settings_use_5_ghz_if_av), 16, MUTED))
+        fields.addView(label(getString(when {
+            existingWifi -> R.string.existing_wifi_instructions
+            carCredentials != null -> R.string.settings_hotspot_modify_description
+            else -> R.string.settings_hotspot_manual_description
+        }), 16, MUTED))
         val ssid = EditText(dialogContext).apply {
             hint = getString(if (existingWifi) R.string.existing_wifi_ssid else R.string.hotspot_name)
-            setText(if (existingWifi) AirPlayPersistence.loadExistingWifiSsid(this@DiPlayActivity) else storedSsid())
+            setText(carCredentials?.ssid ?: if (existingWifi) AirPlayPersistence.loadExistingWifiSsid(this@DiPlayActivity) else storedSsid())
             setSingleLine()
         }
         val password = EditText(dialogContext).apply {
             hint = getString(if (existingWifi) R.string.existing_wifi_password else R.string.hotspot_password)
-            setText(if (existingWifi) AirPlayPersistence.loadExistingWifiPassphrase(this@DiPlayActivity) else storedPassword())
+            setText(carCredentials?.passphrase ?: if (existingWifi) AirPlayPersistence.loadExistingWifiPassphrase(this@DiPlayActivity) else storedPassword())
             setSingleLine()
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
@@ -3226,8 +3265,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             setSingleLine()
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
-        fields.addView(hotspotInterface)
-        fields.addView(label(getString(interfaceDescription), 14, MUTED))
+        if (carCredentials == null) {
+            fields.addView(hotspotInterface)
+            fields.addView(label(getString(interfaceDescription), 14, MUTED))
+        }
         fields.addView(CheckBox(dialogContext).apply {
             text = getString(R.string.show_password)
             setOnCheckedChangeListener { _, checked ->
@@ -3237,9 +3278,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         })
         val securityModes = listOf(ManualHotspotSecurity.WPA2, ManualHotspotSecurity.WPA3_TRANSITION, ManualHotspotSecurity.WPA3)
         val securityTitles = listOf(getString(R.string.wpa2), getString(R.string.wpa3_transition), getString(R.string.wpa3))
-        var protectedSecurity = AirPlayPersistence.loadManualHotspotSecurity(this)
+        var protectedSecurity = (carCredentials?.security ?: AirPlayPersistence.loadManualHotspotSecurity(this))
             .takeIf { it in securityModes } ?: ManualHotspotSecurity.WPA2
-        if (!existingWifi) {
+        if (!existingWifi && carCredentials == null) {
             lateinit var securityControl: Button
             fun updateSecurityControl() {
                 val hasPassword = password.text.isNotEmpty()
@@ -3270,9 +3311,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         val error = label("", 14, WARNING)
         error.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         fields.addView(error)
-        val dialog = appDialogBuilder().setTitle(getString(if (existingWifi) R.string.existing_wifi_details else R.string.car_hotspot_details))
+        val dialog = appDialogBuilder().setTitle(getString(when {
+            existingWifi -> R.string.existing_wifi_details
+            carCredentials != null -> R.string.settings_hotspot_modify
+            else -> R.string.car_hotspot_details
+        }))
             .setView(ScrollView(dialogContext).apply { addView(fields) })
-            .setPositiveButton(getString(R.string.save_details), null).setNegativeButton(getString(R.string.cancel)) { _, _ -> hideKeyboard() }
+            .setPositiveButton(getString(if (carCredentials != null) R.string.settings_hotspot_save_to_car else R.string.save_details), null)
+            .setNegativeButton(getString(R.string.cancel)) { _, _ -> hideKeyboard() }
             .setNeutralButton(getString(R.string.hide_keyboard), null).create()
         dialog.setOnShowListener {
             dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -3280,7 +3326,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = if (existingWifi) ssid.text.toString() else ssid.text.toString().trim()
                 val secret = password.text.toString()
-                val problem = hotspotError(name, secret)
+                val problem = if (carCredentials?.security == ManualHotspotSecurity.WPA2 && secret.isEmpty())
+                    getString(R.string.settings_car_hotspot_config_open) else hotspotError(name, secret)
                 if (problem != null) error.text = problem
                 else {
                     val security = if (secret.isEmpty()) ManualHotspotSecurity.OPEN else protectedSecurity
@@ -4550,22 +4597,31 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         parent.addView(space(12))
     }
 
-    private fun manualHotspotBusy(): Boolean = hotspotProbeControls?.isBusy == true || manualHotspotControls?.isBusy == true ||
+    private fun manualHotspotBusy(): Boolean = carHotspotConfigBusy || hotspotProbeControls?.isBusy == true || manualHotspotControls?.isBusy == true ||
         com.shilapi.xcertplay.network.ManualHotspotControl.isBusy()
 
     private fun connect(wireless: Boolean) = connectWithSource(wireless, ConnectionTraceSource.UI_OR_CONTINUATION)
 
     private fun connectWithSource(wireless: Boolean, source: ConnectionTraceSource) {
+        if (wireless && !CarPlayBackgroundSession.hasSession() && autoHotspotWanted()) {
+            startCarHotspotOnLaunch(source)
+            return
+        }
+        connectPreparedWithSource(wireless, source)
+    }
+
+    private fun connectPreparedWithSource(wireless: Boolean, source: ConnectionTraceSource) {
         if (manualHotspotBusy()) { toast(getString(R.string.settings_manual_hotspot_working)); return }
         ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.CONNECT_ENTERED)
         startupHotspotCancelled = true
-        if (wireless && pendingCarHotspotSetup) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED); toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; render(); return }
+        if (wireless && pendingCarHotspotSetup) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED); toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; hotspotEntryChecked = true; render(); return }
         if (setupError != null) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.SETUP_BLOCKED); toast(setupError!!); return }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             hotspotError(storedSsid(), storedPassword()) != null) {
             ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED)
             pendingCarHotspotSetup = true
             page = "connection"
+            hotspotEntryChecked = true
             render()
             toast(getString(R.string.save_the_name_and_password_from_the_car_s_hotspot_settings))
             return

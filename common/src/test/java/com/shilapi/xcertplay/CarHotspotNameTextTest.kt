@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import java.util.Locale
@@ -80,7 +81,10 @@ class CarHotspotNameTextTest {
         val setup = open("connection")
         val shown = texts(setup)
         assertTrue(shown.toString(), setup.getString(R.string.save_hotspot_details_and_use_this_mode) in shown)
-        assertTrue(shown.toString(), setup.getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) in shown)
+        val manual = descendants(setup.window.decorView).filterIsInstance<Button>().single {
+            it.text == setup.getString(R.string.save_hotspot_details_and_use_this_mode)
+        }
+        assertTrue("Manual setup must already be expanded when details are missing", manual.isShown)
         // Nothing is saved, so there is no hotspot to edit and nothing to call saved.
         assertFalse(shown.toString(), shown.any { it.startsWith(setup.getString(R.string.edit_saved_hotspot_prefix)) })
         assertFalse(shown.toString(), setup.getString(R.string.hotspot_details_saved) in shown)
@@ -99,8 +103,17 @@ class CarHotspotNameTextTest {
         saveHotspot("Car 5G")
         val setup = open("connection")
         val shown = texts(setup)
+        assertTrue(shown.toString(), "Car 5G" in shown)
         assertTrue(shown.toString(), setup.getString(R.string.edit_saved_hotspot_prefix) + "Car 5G" in shown)
-        assertTrue(shown.toString(), setup.getString(R.string.hotspot_details_off) in shown)
+        val edit = descendants(setup.window.decorView).filterIsInstance<Button>().single {
+            it.text.toString() == setup.getString(R.string.edit_saved_hotspot_prefix) + "Car 5G"
+        }
+        assertFalse("Saved details belong under More", edit.isShown)
+        descendants(setup.window.decorView).filterIsInstance<Button>().single {
+            it.text.startsWith(setup.getString(R.string.settings_hotspot_more) + " · ")
+        }.performClick()
+        assertTrue(edit.isShown)
+        assertTrue(shown.toString(), setup.getString(R.string.settings_manual_hotspot_state_unknown) in shown)
         assertFalse(shown.toString(), setup.getString(R.string.save_hotspot_details_and_use_this_mode) in shown)
     }
 }

@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.content.Context
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
+import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -46,6 +47,37 @@ class HostConnectionSettingsRefreshTest {
         assertEquals(WirelessHotspotMode.WIFI_P2P, config.wirelessHotspotMode)
         assertEquals("New car", config.manualHotspotSsid)
         assertEquals(149, config.wifiP2pPreferredChannel)
+    }
+
+    @Test fun unrelatedMenuSavePreservesFreshCarCredentialsButExplicitHotspotEditsAreSaved() {
+        AirPlayPersistence.saveManualHotspotSsid(app, "Old car")
+        AirPlayPersistence.saveManualHotspotPassphrase(app, "old-password")
+        AirPlayPersistence.saveManualHotspotSecurity(app, ManualHotspotSecurity.WPA2)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).setup().get()
+        val hostType = CarPlayHostActivity::class.java
+        val baseline = hostType.getDeclaredMethod("manualHotspotSettings")
+            .apply { isAccessible = true }.invoke(host)
+        hostType.getDeclaredField("menuManualHotspotSettings").apply { isAccessible = true }
+            .set(host, baseline)
+
+        // A car-config read finishes while the Host still holds the menu's old values.
+        AirPlayPersistence.saveManualHotspotSsid(app, "New car")
+        AirPlayPersistence.saveManualHotspotPassphrase(app, "new-password")
+        AirPlayPersistence.saveManualHotspotChannel(app, 149)
+        val save = hostType.getDeclaredMethod("persistMenuSettings").apply { isAccessible = true }
+        save.invoke(host)
+        assertEquals("New car", AirPlayPersistence.loadManualHotspotSsid(app))
+        assertEquals("new-password", AirPlayPersistence.loadManualHotspotPassphrase(app))
+        assertEquals(149, AirPlayPersistence.loadManualHotspotChannel(app))
+
+        // The driver's explicit edit still owns the group when they save it.
+        hostType.getDeclaredField("manualHotspotSsid").apply { isAccessible = true }.set(host, "Edited car")
+        hostType.getDeclaredField("manualHotspotPassphrase").apply { isAccessible = true }
+            .set(host, "edited-password")
+        save.invoke(host)
+        assertEquals("Edited car", AirPlayPersistence.loadManualHotspotSsid(app))
+        assertEquals("edited-password", AirPlayPersistence.loadManualHotspotPassphrase(app))
+        assertEquals(ManualHotspotSecurity.WPA2, AirPlayPersistence.loadManualHotspotSecurity(app))
     }
 
     private fun runtimeConfig(host: CarPlayHostActivity): CarPlayRuntimeConfig {

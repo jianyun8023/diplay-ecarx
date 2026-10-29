@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.network.CarHotspotSettings
+import com.shilapi.xcertplay.network.CarHotspotTethering.Result
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import org.junit.Assert.*
 import org.junit.Before
@@ -26,14 +27,64 @@ class CarHotspotSetupTest {
         assertFalse(eligible())
     }
 
-    @Test fun startupNeedsValidCredentialsAndNoExistingSession() {
-        CarHotspotSettings.setEnabled(context, true)
-        assertFalse(eligible())
+    @Test fun startupCanReadActualCredentialsAndStillRequiresNoExistingSession() {
         configureHotspot()
+        CarHotspotSettings.setEnabled(context, true)
+        AirPlayPersistence.saveManualHotspotSsid(context, "")
+        AirPlayPersistence.saveManualHotspotPassphrase(context, "")
         assertTrue(eligible())
         assertFalse(CarHotspotSetup.shouldStartOnLaunch(context, hasSession = true))
         AirPlayPersistence.saveManualHotspotPassphrase(context, "short")
-        assertFalse(eligible())
+        assertTrue(eligible())
+    }
+
+    @Test fun successUsesExistingHotspotOrStartsWithoutWaitingForCellular() {
+        var enabled = true
+        var starts = 0
+        val phases = mutableListOf<CarHotspotSetup.Phase>()
+        fun prepare() = CarHotspotSetup.prepare(30_000, { false }, phases::add, {},
+            hotspotEnabled = { enabled }, networkReady = { false },
+            enable = { starts++; Result.READY }, clock = { 0L }, pause = { fail("must not wait") })
+        assertEquals(Result.READY, prepare())
+        assertEquals(0, starts)
+        enabled = false
+        assertEquals(Result.READY, prepare())
+        assertEquals(1, starts)
+        assertFalse(phases.contains(CarHotspotSetup.Phase.WAITING_FOR_NETWORK))
+    }
+
+    @Test fun cellularReadinessAllowsOnlyOneRetryWithinTheOriginalBudget() {
+        var now = 0L
+        val budgets = mutableListOf<Long>()
+        val result = CarHotspotSetup.prepare(30_000, { false }, {}, {},
+            hotspotEnabled = { false }, networkReady = { now >= 12_000 },
+            enable = { remaining ->
+                budgets += remaining
+                if (budgets.size == 1) { now += remaining; Result.TIMED_OUT } else Result.FAILED
+            }, clock = { now }, pause = { now += it })
+        assertEquals(Result.FAILED, result)
+        assertEquals(listOf(10_000L, 18_000L), budgets)
+
+        now = 0
+        val timedOut = CarHotspotSetup.prepare(500, { false }, {}, {},
+            hotspotEnabled = { false }, networkReady = { false }, enable = { Result.FAILED },
+            clock = { now }, pause = { now += it })
+        assertEquals(Result.TIMED_OUT, timedOut)
+        assertEquals(500L, now)
+    }
+
+    @Test fun permissionFailureDoesNotRetryAndCancellationStopsNetworkWait() {
+        var cancelled = false
+        var starts = 0
+        var outcome = Result.PERMISSION_REQUIRED
+        fun prepare() = CarHotspotSetup.prepare(30_000, { cancelled }, {}, {},
+            hotspotEnabled = { false }, networkReady = { false }, enable = { starts++; outcome },
+            clock = { 0L }, pause = { cancelled = true })
+        assertEquals(Result.PERMISSION_REQUIRED, prepare())
+        assertEquals(1, starts)
+        outcome = Result.FAILED
+        assertEquals(Result.CANCELLED, prepare())
+        assertEquals(2, starts)
     }
 
     @Test fun wiredModeNeverPreparesAHotspotEvenWhenTheChoiceIsSaved() {

@@ -7,7 +7,6 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import com.shilapi.xcertplay.network.CarHotspotSavedCredentials
 import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
@@ -21,7 +20,6 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlertDialog
-import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [32], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
@@ -39,8 +37,6 @@ class CarHotspotImportSaveTest {
         AirPlayPersistence.saveManualHotspotPassphrase(app, "12345678")
         AirPlayPersistence.saveManualHotspotSecurity(app, ManualHotspotSecurity.WPA2)
         CarHotspotSettings.setConfigWrite(app, true)
-        ReflectionHelpers.setField(activity, "importedCarHotspot",
-            CarHotspotSavedCredentials("Car hotspot", "12345678", ManualHotspotSecurity.WPA2))
     }
 
     // Galaxy Note20, Android 13: the import read the car's own details, and saving them unchanged
@@ -51,11 +47,12 @@ class CarHotspotImportSaveTest {
         assertEquals("12345678", AirPlayPersistence.loadManualHotspotPassphrase(app))
     }
 
-    @Test fun changedDetailsStillWarnBeforeTheCarIsOverwritten() {
+    @Test fun changingManualConnectionDetailsNeverOffersToOverwriteTheCar() {
         val dialog = editCredentials()
         descendants(dialog.window!!.decorView).filterIsInstance<EditText>().toList()[1].setText("87654321")
         save(dialog)
-        assertEquals(overwrite, shadowOf(ShadowAlertDialog.getLatestAlertDialog()).title)
+        assertNotEquals(overwrite, shadowOf(ShadowAlertDialog.getLatestAlertDialog()).title)
+        assertEquals("87654321", AirPlayPersistence.loadManualHotspotPassphrase(app))
     }
 
     private fun editCredentials(): AlertDialog {

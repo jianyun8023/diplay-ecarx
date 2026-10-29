@@ -103,6 +103,34 @@ class SimplifiedSettingsUiTest {
         assertTrue(ReflectionHelpers.getField(activity, "customWheelKeysExpanded"))
     }
 
+    @Test @Config(sdk = [28]) fun carHotspotKeepsReadAndStartTogetherAndModificationUnderMore() {
+        AirPlayPersistence.saveWirelessHotspotMode(activity, com.shilapi.xcertplay.orchestration.WirelessHotspotMode.MANUAL)
+        AirPlayPersistence.saveManualHotspotSsid(activity, "Lynk 01")
+        AirPlayPersistence.saveManualHotspotPassphrase(activity, "private-password")
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 16, 24, 16)
+            setBackgroundColor(DiPlayPalette.DARK.surface)
+        }
+        ReflectionHelpers.callInstanceMethod<Unit>(activity, "wirelessLinkControls",
+            ReflectionHelpers.ClassParameter.from(LinearLayout::class.java, root))
+        val read = views(root).filterIsInstance<Button>().single {
+            it.text == activity.getString(R.string.settings_car_hotspot_config_title)
+        }
+        val modify = views(root).filterIsInstance<Button>().single {
+            it.text == activity.getString(R.string.settings_hotspot_modify)
+        }
+        assertTrue(visible(read))
+        assertFalse(visible(modify))
+        assertTrue(hasTitle(root, R.string.auto_car_hotspot_title))
+        assertFalse(views(root).filterIsInstance<TextView>().any { it.text.contains("private-password") })
+        screenshot(root, "connection-hotspot")
+        views(root).filterIsInstance<Button>().single {
+            it.text.startsWith(activity.getString(R.string.settings_hotspot_more) + " · ")
+        }.performClick()
+        assertTrue(visible(modify))
+    }
+
     private fun settings(category: SettingsCategory): LinearLayout {
         ReflectionHelpers.setField(activity, "settingsCategory", category)
         ReflectionHelpers.setField(activity, "settingsSectionFilter",

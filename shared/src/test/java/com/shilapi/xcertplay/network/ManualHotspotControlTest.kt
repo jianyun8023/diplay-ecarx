@@ -305,4 +305,22 @@ class ManualHotspotControlTest {
         assertEquals(0, expired.writes + expired.wifiWrites)
     }
 
+    @Test fun sharedStartupAndWifiRecoverySpendOneDeadlineInsteadOfRestartingEachStep() {
+        val fake = Fake().apply {
+            effect = { enabled, callback ->
+                if (enabled) { time += 100; current = ManualHotspotControl.State.FAILED; callback(1) }
+            }
+            wifiEffect = { enabled, _ ->
+                wifiCurrent = if (enabled) ManualHotspotControl.State.STARTING else ManualHotspotControl.State.STOPPING
+                tick = { wifiCurrent = if (enabled) ManualHotspotControl.State.ON else ManualHotspotControl.State.OFF }
+            }
+        }
+        assertEquals(ManualHotspotControl.Result.TIMED_OUT,
+            ManualHotspotControl(fake).ensureHotspot({ false }, 300))
+        assertEquals(300L, fake.time)
+        assertEquals(2, fake.writes) // Initial start and recovery stop; no start after the budget.
+        assertEquals(2, fake.wifiWrites)
+        assertFalse(ManualHotspotControl.isBusy())
+    }
+
 }

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.network.CarHotspotSettings
+import android.widget.LinearLayout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,23 +25,26 @@ class HotspotProvisioningLogTest {
         CarHotspotSettings.setConfigWrite(app, true)
     }
 
-    @Test fun provisioningAHotspotDoesNotLogItsName() {
+    @Test fun openingConnectionSettingsDoesNotGenerateHotspotCredentials() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
-        DiPlayActivity::class.java.getDeclaredMethod("launchHotspotCredentials")
-            .apply { isAccessible = true }.invoke(activity)
+        AirPlayPersistence.saveWirelessHotspotMode(app, com.shilapi.xcertplay.orchestration.WirelessHotspotMode.MANUAL)
+        activity.setTheme(android.R.style.Theme_Material_NoActionBar)
+        DiPlayActivity::class.java.getDeclaredMethod("wirelessLinkControls", LinearLayout::class.java)
+            .apply { isAccessible = true }.invoke(activity, LinearLayout(activity))
         val ssid = AirPlayPersistence.loadManualHotspotSsid(app)
-        assertTrue(ssid.isNotBlank())
+        assertTrue(ssid.isBlank())
         val lines = ShadowLog.getLogsForTag("DiPlay-Hotspot")
-        assertTrue("provisioning must still leave a log line", lines.any { it.msg.startsWith("provisioned") })
-        lines.forEach { assertFalse("hotspot name reached logcat: ${it.msg}", it.msg.contains(ssid)) }
+        assertTrue(lines.none { it.msg.startsWith("provisioned") })
     }
 
     @Test fun anExistingHotspotIsNotProvisionedOrLogged() {
         AirPlayPersistence.saveManualHotspotSsid(app, "Car hotspot")
         AirPlayPersistence.saveManualHotspotPassphrase(app, "12345678")
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
-        DiPlayActivity::class.java.getDeclaredMethod("launchHotspotCredentials")
-            .apply { isAccessible = true }.invoke(activity)
+        AirPlayPersistence.saveWirelessHotspotMode(app, com.shilapi.xcertplay.orchestration.WirelessHotspotMode.MANUAL)
+        activity.setTheme(android.R.style.Theme_Material_NoActionBar)
+        DiPlayActivity::class.java.getDeclaredMethod("wirelessLinkControls", LinearLayout::class.java)
+            .apply { isAccessible = true }.invoke(activity, LinearLayout(activity))
         assertEquals("Car hotspot", AirPlayPersistence.loadManualHotspotSsid(app))
         assertTrue(ShadowLog.getLogsForTag("DiPlay-Hotspot").none { it.msg.startsWith("provisioned") })
     }

@@ -2568,6 +2568,14 @@ class CarPlayController(
             if (state == false) debugLog("car hotspot: Android reports it off; connecting anyway, as the driver chose")
             pastOffReport = state == false
         }
+        // The Host may predate the car's latest settings. Use one fresh credential snapshot for
+        // this handshake; the manager's ordinary AP read does not read back the password.
+        val carCredentials = if (hotspotMode == WirelessHotspotMode.MANUAL &&
+            Build.VERSION.SDK_INT == Build.VERSION_CODES.P &&
+            com.shilapi.xcertplay.network.CarHotspotSettings.enabled(appContext)) {
+            com.shilapi.xcertplay.network.CarHotspotConfigRead.read(appContext, mayAsk = false,
+                log = ::debugLog).credentials
+        } else null
         val manager: WirelessHotspotManager = when (hotspotMode) {
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog,
                 preferredChannel = config.wifiP2pPreferredChannel)
@@ -2584,12 +2592,12 @@ class CarPlayController(
             )
             WirelessHotspotMode.MANUAL -> ManualHotspotManager(
                 context = appContext,
-                ssid = config.manualHotspotSsid
+                ssid = carCredentials?.ssid ?: config.manualHotspotSsid
                     ?: throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot SSID is not configured"),
-                passphrase = config.manualHotspotPassphrase.orEmpty(),
+                passphrase = carCredentials?.passphrase ?: config.manualHotspotPassphrase.orEmpty(),
                 band = config.manualHotspotBand,
                 channel = config.manualHotspotChannel,
-                security = config.manualHotspotSecurity,
+                security = carCredentials?.security ?: config.manualHotspotSecurity,
                 onDiagnostic = { debugLog("generation=$generation $it") },
                 isCancelled = { isStaleWirelessRun(generation) },
                 preferredInterface = config.manualHotspotInterface,

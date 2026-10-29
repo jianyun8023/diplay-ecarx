@@ -8,6 +8,8 @@ import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.network.ManualHotspotControl
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.MfiTarget
+import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
+import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import java.lang.reflect.Proxy
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -72,6 +74,22 @@ class ManualHotspotHostGateTest {
         (field("airPlayCommandExecutor") as ExecutorService).shutdownNow()
         CarPlayBackgroundSession.clear()
         controllers.close()
+    }
+
+    @Test fun startupRefreshesHotspotCredentialsWithoutReplacingThePreparedTransport() {
+        AirPlayPersistence.saveWirelessEnabled(activity, true)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        AirPlayPersistence.saveManualHotspotSsid(activity, "Refreshed car")
+        AirPlayPersistence.saveManualHotspotPassphrase(activity, "refreshed-password")
+        AirPlayPersistence.saveManualHotspotSecurity(activity, ManualHotspotSecurity.WPA2)
+
+        startHost()
+
+        assertEquals(false, field("wirelessEnabled"))
+        assertEquals(WirelessHotspotMode.WIFI_P2P, field("wirelessHotspotMode"))
+        assertEquals("Refreshed car", field("manualHotspotSsid"))
+        assertEquals("refreshed-password", field("manualHotspotPassphrase"))
+        assertEquals(ManualHotspotSecurity.WPA2, field("manualHotspotSecurity"))
     }
 
     @Test fun hostRejectsDuringManualRequestWithToastThenStartsAfterCancellationReleasesGate() {

@@ -1,0 +1,16 @@
+<resources>
+    <string name="settings_hotspot_reading">正在讀取原車熱點…</string>
+    <string name="settings_hotspot_read_failed">未能讀取原車熱點，請重試或手動填寫連線資訊。</string>
+    <string name="settings_hotspot_modify">修改原車熱點</string>
+    <string name="settings_hotspot_modify_when_off">請先關閉熱點，再修改名稱或密碼。</string>
+    <string name="settings_hotspot_modify_description">儲存到原車熱點，其他裝置可能需要重新連線。修改在下次開啟熱點時生效。</string>
+    <string name="settings_hotspot_manual_description">僅儲存到 DiPlay 供連線使用，不修改原車熱點。</string>
+    <string name="settings_hotspot_save_to_car">儲存到原車</string>
+    <string name="settings_hotspot_more">更多熱點設定</string>
+    <string name="settings_hotspot_checking">正在檢查原車熱點…</string>
+    <string name="settings_hotspot_starting">正在開啟原車熱點…</string>
+    <string name="settings_hotspot_waiting_network">正在等待行動網路，再重試開啟熱點…</string>
+    <string name="settings_mobile_network_ready">行動網路已就緒</string>
+    <string name="settings_mobile_network_waiting">正在等待行動網路</string>
+    <string name="settings_mobile_network_unknown">無法讀取行動網路狀態</string>
+</resources>

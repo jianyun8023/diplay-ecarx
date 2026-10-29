@@ -18,6 +18,13 @@ class CarHotspotConfigReadTest {
     private val logs = mutableListOf<String>()
     private fun log(message: String) { logs += message }
 
+    @Test @Config(sdk = [28]) fun androidNineReadsInTheAppWithoutTheOldUnsupportedVersionGate() {
+        val outcome = CarHotspotConfigRead.read(org.robolectric.RuntimeEnvironment.getApplication(),
+            sdk = 28, mayAsk = false, log = ::log)
+        assertNotEquals(CarHotspotConfigRead.Reason.UNSUPPORTED_SDK, outcome.reason)
+        assertNull(outcome.access)
+    }
+
     private fun reply(ssid: String, passphrase: String, security: Int): String {
         val b64 = { value: String -> Base64.encodeToString(value.toByteArray(), Base64.NO_WRAP) }
         return "ok|${b64(ssid)}|${b64(passphrase)}|$security"
