@@ -1,5 +1,10 @@
 package com.shilapi.xcertplay
 
+import android.net.Uri
+import com.shilapi.xcertplay.hud.EcarxOutputSettings
+import com.shilapi.xcertplay.mediacenter.MediaCenterSessionEngine
+import com.shilapi.xcertplay.mediacenter.EcarxMediaCenterTransport
+import java.util.concurrent.TimeUnit
 import android.content.Context
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -32,14 +37,14 @@ import java.util.concurrent.Executor
 import kotlin.math.roundToInt
 
 /**
- * Steering-wheel and other hardware media buttons for CarPlay.
+ * Coordinates CarPlay media controls, Android metadata and the ECARX MediaCenter session.
  *
  * Android delivers media keys to a media session; some head units pick the session of the
  * audio-focus owner. DiPlay normally holds focus and an active session until the CarPlay session
  * ends, but focus can be disabled on head units that otherwise route physical volume buttons to
  * DiPlay. Keys go to the iPhone as CarPlay media HID presses ([CarPlayMediaButton]).
  */
-internal object CarPlayMediaKeys {
+internal object CarPlayMediaSession {
     private const val TAG = "DiPlay-MediaKeys"
     private const val ACTIONS = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
         PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS
@@ -102,7 +107,7 @@ internal object CarPlayMediaKeys {
         }
         appContext = context.applicationContext
         controller = next
-        CarPlayMediaOutput.begin(context, next)
+        beginMediaCenter(context, next)
         GeelyWheelKeys.start(context)
         next.playbackListener = { playing ->
             onIphonePlaying(next, playing)
@@ -113,7 +118,7 @@ internal object CarPlayMediaKeys {
                     onNowPlayingChanged(next)
                     // The same metadata the car's media session shows is what an ECARX cluster's media card
                     // wants, so it is forwarded from here rather than read a second time off the controller.
-                    CarPlayMediaOutput.publish(update,
+                    publishMediaCenter(update,
                         if (albumTrackChanged(nowPlaying, update)) null else clusterArtworkUris[update.artworkTransferId])
                 }
             }
@@ -177,7 +182,7 @@ internal object CarPlayMediaKeys {
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
                 nowPlaying = update
-                CarPlayMediaOutput.publish(update, clusterArtworkUris[update.artworkTransferId])
+                publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId])
                 if (metadataChanged) ClusterMusicState.publish(update, artwork)
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
@@ -229,7 +234,7 @@ internal object CarPlayMediaKeys {
         while (artworkCache.size > MAX_CACHED_ARTWORK) artworkCache.remove(artworkCache.keys.first())
         if (nowPlaying.artworkTransferId == id) {
             artwork = decoded
-            CarPlayMediaOutput.publish(nowPlaying, clusterArtworkUris[id])
+            publishMediaCenter(nowPlaying, clusterArtworkUris[id])
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
@@ -420,7 +425,7 @@ internal object CarPlayMediaKeys {
 
     private fun releaseLocked() {
         releaseVoiceKeyLocked()
-        CarPlayMediaOutput.end()
+        endMediaCenter()
         focusOwner = null
         artworkOwner = null
         initialAlbumRetry?.let(mainHandler::removeCallbacks)
@@ -438,7 +443,7 @@ internal object CarPlayMediaKeys {
         // Whatever the cluster's media card was showing belongs to a session that just ended. The
         // controller pushes its own cleared frame on teardown, but that goes through the listener
         // this method may itself be clearing, so the blank state is pushed from here as well.
-        CarPlayMediaOutput.publish(nowPlaying)
+        publishMediaCenter(nowPlaying)
         artwork = null
         artworkCache.clear()
         clusterArtworkUris.clear()
@@ -500,10 +505,10 @@ internal object CarPlayMediaKeys {
 
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalMediaKey(index: Int) {
-        if (!CarPlayMediaOutput.isMediaCenterActive()) send(index, "geely-wheel")
+        if (!isMediaCenterActive()) send(index, "geely-wheel")
     }
 
-    internal fun onMediaCenterKey(expected: CarPlayController, index: Int) {
+    private fun onMediaCenterKey(expected: CarPlayController, index: Int) {
         if (synchronized(this) { controller === expected }) send(index, "mediacenter")
     }
 
@@ -517,7 +522,7 @@ internal object CarPlayMediaKeys {
         if (controller !== expected || expected.activeAirPlaySession() !== session || voiceKeySession === session) return
         releaseVoiceKeyLocked()
         val context = appContext ?: return
-        if (!EcarxCapabilities.available(context)) return
+        if (!EcarxCapabilities.detect(context).identified) return
         voiceKeySession = session
         externalSiriKey.reset()
         voiceKeyReceiver = runCatching {
@@ -669,6 +674,72 @@ internal object CarPlayMediaKeys {
     private const val MAX_ARTWORK_DIMENSION = 384
     private const val MAX_ARTWORK_SOURCE_DIMENSION = 8_192
     private const val MAX_CACHED_ARTWORK = 4
+    // Keep MediaCenter lifecycle serialization separate from the Android media-session monitor.
+    private val mediaCenterLock = Any()
+    private data class MediaCenterOwner(val context: Context, val controller: CarPlayController)
+    @Volatile private var mediaCenterOwner: MediaCenterOwner? = null
+    private val mediaCenterMain = Handler(Looper.getMainLooper())
+    private val mediaCenterWorker = Executors.newSingleThreadExecutor { Thread(it, "diplay-mediacenter").apply { isDaemon = true } }
+    private val mediaCenterTimer = Executors.newSingleThreadScheduledExecutor { Thread(it, "diplay-mediacenter-watch").apply { isDaemon = true } }
+    private val mediaCenterEngine = MediaCenterSessionEngine(mediaCenterWorker, { identity, valid ->
+        val entry = identity as MediaCenterOwner
+        EcarxMediaCenterTransport(entry.context, { command -> dispatchMediaCenter(entry, command) }, valid)
+    })
+    private var mediaCenterTicking = false
+
+    private fun beginMediaCenter(context: Context, controller: CarPlayController): Unit = synchronized(mediaCenterLock) {
+        endMediaCenter()
+        val entry = MediaCenterOwner(context.applicationContext, controller)
+        mediaCenterOwner = entry
+        if (!mediaCenterTicking) {
+            mediaCenterTicking = true
+            mediaCenterTimer.scheduleAtFixedRate({ mediaCenterEngine.tick() }, 1, 1, TimeUnit.SECONDS)
+        }
+    }
+
+    private fun endMediaCenter(): Unit = synchronized(mediaCenterLock) {
+        val previous = mediaCenterOwner ?: return@synchronized
+        mediaCenterOwner = null
+        mediaCenterEngine.stop(previous)
+    }
+
+    private fun publishMediaCenter(now: CarPlayNowPlaying, artwork: Uri? = null): Unit = synchronized(mediaCenterLock) {
+        val entry = mediaCenterOwner ?: return@synchronized
+        mediaCenterEngine.update(MediaCenterSessionEngine.Desired(entry, now, artwork) {
+            mediaCenterOwner === entry && EcarxOutputSettings.mediaEnabled(entry.context) &&
+                CarPlayBackgroundSession.active &&
+                CarPlayBackgroundSession.snapshot()?.controller === entry.controller
+        })
+    }
+
+    fun isMediaCenterActive(controller: CarPlayController? = null): Boolean {
+        val entry = mediaCenterOwner ?: return false
+        return (controller == null || entry.controller === controller) &&
+            mediaCenterEngine.ownsMediaKeys(entry)
+    }
+
+    private fun dispatchMediaCenter(entry: MediaCenterOwner, command: Int): Boolean {
+        if (mediaCenterOwner !== entry || !mediaCenterEngine.ownsCallbacks(entry)) return false
+        if (command == EcarxMediaCenterTransport.SELECT_SOURCE && !mediaCenterEngine.canSelect(entry)) return false
+        mediaCenterMain.post {
+            if (mediaCenterOwner !== entry || !mediaCenterEngine.ownsCallbacks(entry)) return@post
+            val index = if (command == EcarxMediaCenterTransport.SELECT_SOURCE) {
+                mediaCenterEngine.select(entry)
+                CarPlayMediaButton.PLAY
+            } else command
+            onMediaCenterKey(entry.controller, index)
+        }
+        return true
+    }
+
+    /** Fixed state only: never a token, device identifier, track title, or Binder object string. */
+    fun mediaCenterDiagnosticReport(): String {
+        val current = mediaCenterOwner
+        val state = mediaCenterEngine.snapshot()
+        return "ECARX MediaCenter session=${if (current == null) "NO_SESSION" else "ACTIVE"} " +
+            "phase=${state.phase} reason=${state.detail} registered=${state.registered} " +
+            "playbackAccepted=${state.accepted} playClaimed=${state.claimed} artworkSupported=${state.artworkSupported} uncertain=${state.uncertain}"
+    }
 }
 
 /**
@@ -698,4 +769,5 @@ internal class CarPlayMediaCallback(
     override fun onPause() = send(CarPlayMediaButton.PAUSE, "pause")
     override fun onSkipToNext() = send(CarPlayMediaButton.NEXT, "next")
     override fun onSkipToPrevious() = send(CarPlayMediaButton.PREVIOUS, "previous")
+
 }

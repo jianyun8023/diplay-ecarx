@@ -36,7 +36,7 @@ class CarPlayMediaFocusDisabledTest {
     }
 
     @After fun cleanup() {
-        controllers.forEach(CarPlayMediaKeys::detach)
+        controllers.forEach(CarPlayMediaSession::detach)
         CarPlayBackgroundSession.clear()
         AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
         shadowOf(Looper.getMainLooper()).idle()
@@ -53,7 +53,7 @@ class CarPlayMediaFocusDisabledTest {
         val controller = mock(CarPlayController::class.java).also(controllers::add)
         val session = start(controller)
 
-        CarPlayMediaKeys.onMediaAudioChanged(true)
+        CarPlayMediaSession.onMediaAudioChanged(true)
         shadowOf(Looper.getMainLooper()).idle()
 
         assertSame(session, currentSession())
@@ -77,7 +77,7 @@ class CarPlayMediaFocusDisabledTest {
         val controller = mock(CarPlayController::class.java).also(controllers::add)
         val session = start(controller)
 
-        CarPlayMediaKeys.detach(controller)
+        CarPlayMediaSession.detach(controller)
         shadowOf(Looper.getMainLooper()).idle()
 
         assertFalse(session.isActive)
@@ -87,19 +87,19 @@ class CarPlayMediaFocusDisabledTest {
 
     private fun start(controller: CarPlayController): MediaSession {
         `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
-        CarPlayMediaKeys.attach(app, controller)
-        CarPlayMediaKeys.onMediaAudioChanged(true)
+        CarPlayMediaSession.attach(app, controller)
+        CarPlayMediaSession.onMediaAudioChanged(true)
         shadowOf(Looper.getMainLooper()).idle()
         assertFocusDisabled()
         return currentSession().also(::assertNotNull)!!
     }
 
     private fun currentSession(): MediaSession? =
-        ReflectionHelpers.getField(CarPlayMediaKeys, "session")
+        ReflectionHelpers.getField(CarPlayMediaSession, "session")
 
     private fun assertFocusDisabled() {
-        assertNull(ReflectionHelpers.getField<Any?>(CarPlayMediaKeys, "focusRequest"))
-        assertFalse(ReflectionHelpers.getField(CarPlayMediaKeys, "focusHeld"))
-        assertNull(ReflectionHelpers.getField<Any?>(CarPlayMediaKeys, "focusOwner"))
+        assertNull(ReflectionHelpers.getField<Any?>(CarPlayMediaSession, "focusRequest"))
+        assertFalse(ReflectionHelpers.getField(CarPlayMediaSession, "focusHeld"))
+        assertNull(ReflectionHelpers.getField<Any?>(CarPlayMediaSession, "focusOwner"))
     }
 }

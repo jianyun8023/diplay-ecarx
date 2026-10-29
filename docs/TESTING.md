@@ -8,6 +8,54 @@ Record the exact candidate APK and each untested setup before a release.
 
 For ECARX hotspot recovery, Siri short-press handling and vehicle regression, use the [current vehicle checklist](CAR_TEST_20261028.md).
 
+## ECARX capability and cluster ownership baseline
+
+The boundary refactor preserves dev `71737833` behavior. The existing vehicle feedback is recorded in
+[the vehicle checklist](CAR_TEST_20261028.md); it is not a new on-car acceptance of this refactor.
+
+- `EcarxCapabilities.detect` reports identity evidence in the existing order: DIM class, ECARX build
+  marker, vendor package, or none. Build/package evidence keeps the existing feature gates and
+  calibrated 1920×720 display profile. It does not prove a DIM API, permission or live service exists.
+  `dimPresent` and `dimMediaPresent` check classes; adapters still resolve actual service handles.
+- `EcarxOutputSettings` only stores values. `NavigationOutputs` is the shared command entry for the
+  settings screen and host. `EcarxHudBridge` owns projection intent, retries and the stored last request;
+  the host owns the window and Surface. The stored projection switch is not an independent preference:
+  both manual and route-driven commands update it, and bridge initialization clears a previous `true`.
+- Keep the first-main-frame gate, create the window before enabling projection, and disable projection
+  before dismissing it. Keep display 1, empty DIM package/class arguments, retry timing and safe-area
+  calibration unchanged. A successful request does not prove a visible instrument panel.
+
+The characterization tests passed before moving the boundaries and must also pass afterwards:
+`EcarxCapabilitiesTest`, `EcarxLaneGuidanceFlowTest`, `EcarxClusterFirstFrameTest` and
+`EcarxClusterSafeAreaFlowTest`. They cover non-ECARX and vendor-only identities, startup reset,
+projection enable/disable, delayed DIM availability, failed release, first-frame gating and physical
+safe-area mapping. The refactor additionally asserts the reported detection evidence.
+
+Run the full checks below, then use the vehicle checklist for actual HUD/panel output, route-end
+cleanup, background/reconnect and wake-up behavior. Audio adaptation is unchanged. Siri request-failure
+and complete call-state coverage remain separate gaps; USB instability is not addressed here.
+
+## Media session coordination
+
+`CarPlayMediaSession` owns Android media controls, metadata/artwork and the MediaCenter lifecycle.
+The former `CarPlayMediaOutput` lifecycle had only one production caller and called back into that
+same session; it is now private coordination within the session. `MediaCenterSessionEngine` and
+`EcarxMediaCenterTransport` retain their state-machine and vendor-communication boundaries.
+
+Keep the MediaCenter lifecycle lock separate from the Android session monitor, the existing worker
+and watchdog threads, main-thread command delivery, owner checks before and after queueing, and
+car-video priority. Wheel input channels and audio behavior are unchanged.
+
+`MediaOutputRoutingTest` has 12 cases, including seven callback-chain cases added and passed before
+the merge. They use the real transport and dispatch path with fake vendor endpoints: commands arrive
+once on main, queued commands are dropped after disconnect/replacement or disabling output, source
+selection claims once and sends one play command, phone refusal is reported without retry, and car
+video retains priority. These checks complement the existing engine, transport, focus, artwork and
+Siri tests; they do not constitute new on-car acceptance.
+
+The 2026-10-29 combined capability/ownership and media-session refactor passed the full command
+below: 2,679 tests passed, one existing test skipped, all three lint tasks and Debug builds passed.
+
 ## Host unit tests
 
 Run the complete unit-test, lint and debug-build command in [AGENTS.md](../AGENTS.md).

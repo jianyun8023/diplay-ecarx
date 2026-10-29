@@ -11,21 +11,18 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Frame
  * reader thread that feeds [onFrame].
  */
 object NavigationOutputs {
-    /** Whether the ECARX DIM path is wired on this head unit. */
+    /** Whether identity detection selected ECARX; actual DIM handles belong to the bridge. */
     @Volatile private var useEcarx = false
 
     private val ecarx = NavigationOutputWorker("diplay-ecarx-output", EcarxHudBridge::clear)
 
     /**
-     * Re-assert the ECARX cluster switches when the app opens, even before a phone connects, so a
-     * head unit that was left with the projection switch on restores it on the next app open.
-     *
-     * This is the call that matters after an ignition cycle: the cluster service dies with the
-     * ignition, and whoever opens DiPlay next re-arms the watch that puts the mirror back.
+     * Initialize the bridge before a phone connects. It clears an old projection request rather
+     * than restoring the platform mirror before the host has a CarPlay window (fix37).
      */
     fun onAppOpened(context: Context) {
         val app = context.applicationContext
-        if (!EcarxOutputSettings.available(app)) return
+        if (!EcarxCapabilities.detect(app).identified) return
         if (EcarxOutputSettings.enabled(app) || EcarxOutputSettings.presentationSwitch(app)) {
             EcarxHudBridge.initialize(app)
         }
@@ -33,7 +30,7 @@ object NavigationOutputs {
 
     fun start(context: Context) {
         val app = context.applicationContext
-        useEcarx = EcarxOutputSettings.available(app)
+        useEcarx = EcarxCapabilities.detect(app).identified
         if (useEcarx) {
             ecarx.start { EcarxHudBridge.initialize(app) }
         }
@@ -48,7 +45,7 @@ object NavigationOutputs {
      */
     fun ecarxChanged(context: Context) {
         val app = context.applicationContext
-        if (!EcarxOutputSettings.available(app)) return
+        if (!EcarxCapabilities.detect(app).identified) return
         useEcarx = true
         EcarxHudBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app)) {
@@ -56,6 +53,17 @@ object NavigationOutputs {
             ecarx.submit(EcarxHudBridge::settingsChanged)
         } else ecarx.clear()
     }
+
+    /**
+     * Shared entry for settings and the host window. The bridge owns the saved request, runtime
+     * intent and retry watch; acceptance does not prove the instrument panel is displaying it.
+     */
+    fun requestPresentation(context: Context, show: Boolean, origin: String = ""): Boolean {
+        EcarxHudBridge.initialize(context)
+        return EcarxHudBridge.applyPresentation(show, origin).ok
+    }
+
+    fun diagnosticReport(context: Context): String = EcarxHudBridge.diagnostics(context)
 
     /**
      * Routes the cluster bridges' own lines into the session report. Called once the session log

@@ -59,18 +59,26 @@ object EcarxCapabilities {
 
     fun classPresent(name: String): Boolean = runCatching { Class.forName(name) }.isSuccess
 
-    /** The DIM interaction entry point — the only class the whole feature depends on. */
+    /** Class presence only; the DIM service may still return no handle until the car wakes. */
     fun dimPresent(): Boolean = classPresent(DIM_INTERACTION)
 
+    fun dimMediaPresent(): Boolean = classPresent(MEDIA_INTERACTION)
+
+    enum class Detection {
+        DIM_INTERFACE, BUILD_MARKER, VENDOR_PACKAGE, NONE;
+
+        val identified: Boolean get() = this != NONE
+    }
+
     /**
-     * Whether this head unit exposes the ECARX DIM interface at all. A `null` from
-     * `DimInteraction.create()` still means the platform has it, so the switch stays visible and
-     * the diagnostics explain the refusal instead of silently hiding the feature.
+     * Identity evidence, in the existing precedence order. Build/package matches keep the ECARX
+     * controls and calibrated display profile enabled; they do not prove any interface is present.
+     * Runtime adapters still resolve their own handles and report refusals.
      */
-    fun available(context: Context): Boolean {
-        if (dimPresent()) return true
-        if (ecarxBuildMarkers.any { it.contains("ecarx", ignoreCase = true) }) return true
-        return ecarxPackages.any { installed(context, it) }
+    fun detect(context: Context): Detection {
+        if (dimPresent()) return Detection.DIM_INTERFACE
+        if (ecarxBuildMarkers.any { it.contains("ecarx", ignoreCase = true) }) return Detection.BUILD_MARKER
+        return if (ecarxPackages.any { installed(context, it) }) Detection.VENDOR_PACKAGE else Detection.NONE
     }
 
     private fun installed(context: Context, pkg: String): Boolean =
@@ -88,6 +96,8 @@ object EcarxCapabilities {
         append(" device=").append(classPresent(DEVICE))
         append(" brand=").append(Build.BRAND)
         append(" product=").append(Build.PRODUCT)
-        append(" available=").append(available(context))
+        val detection = detect(context)
+        append(" available=").append(detection.identified)
+        append(" detection=").append(detection)
     }
 }

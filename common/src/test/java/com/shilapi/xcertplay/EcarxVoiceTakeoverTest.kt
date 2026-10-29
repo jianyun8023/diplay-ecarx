@@ -44,7 +44,7 @@ class EcarxVoiceTakeoverTest {
         shadowOf(app.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xiaoka" })
         `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
         `when`(controller.requestSiri()).thenReturn(true)
-        CarPlayMediaKeys.attach(app, controller)
+        CarPlayMediaSession.attach(app, controller)
         // Higher than DiPlay's old priority of 1000, lower than HY's requested maximum.
         app.registerReceiver(factory, IntentFilter(ACTION).apply {
             priority = 1001
@@ -53,7 +53,7 @@ class EcarxVoiceTakeoverTest {
     }
 
     @After fun cleanup() {
-        CarPlayMediaKeys.detach(controller)
+        CarPlayMediaSession.detach(controller)
         app.unregisterReceiver(factory)
         app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
         CarPlayBackgroundSession.clear()
@@ -61,8 +61,8 @@ class EcarxVoiceTakeoverTest {
     }
 
     @Test fun connectingDoesNotTakeTheFactoryKey() {
-        CarPlayMediaKeys.onSessionActive(controller, phone)
-        assertFalse(CarPlayMediaKeys.ecarxVoiceKeyActive())
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        assertFalse(CarPlayMediaSession.ecarxVoiceKeyActive())
         send(0)
         assertEquals(1, factoryPresses)
         verify(controller, never()).requestSiri()
@@ -70,13 +70,13 @@ class EcarxVoiceTakeoverTest {
 
     @Test fun shortPressIsAbortedAndRequestsSiriOnceAcrossRawCallbacks() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
-        CarPlayMediaKeys.onSessionActive(controller, phone)
-        CarPlayMediaKeys.onSessionActive(controller, phone)
-        assertTrue(CarPlayMediaKeys.ecarxVoiceKeyActive())
-        assertFalse(CarPlayMediaKeys.onExternalSiriKey(200231))
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        assertTrue(CarPlayMediaSession.ecarxVoiceKeyActive())
+        assertFalse(CarPlayMediaSession.onExternalSiriKey(200231))
         send(0)
         send(0)
-        assertFalse(CarPlayMediaKeys.onExternalSiriKey(200231))
+        assertFalse(CarPlayMediaSession.onExternalSiriKey(200231))
         verify(controller, times(1)).requestSiri()
         assertEquals(0, factoryPresses)
         SystemClock.sleep(WheelSiriKey.REPEAT_GAP_MILLIS)
@@ -86,7 +86,7 @@ class EcarxVoiceTakeoverTest {
 
     @Test fun longUnknownMarkedAndCallEventsStayWithTheFactory() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
-        CarPlayMediaKeys.onSessionActive(controller, phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
         send(1)
         send(2)
         send(null)
@@ -99,7 +99,7 @@ class EcarxVoiceTakeoverTest {
 
     @Test fun unorderedShortPressDoesNotOpenTwoAssistants() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
-        CarPlayMediaKeys.onSessionActive(controller, phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
         send(0, ordered = false)
         assertEquals(1, factoryPresses)
         verify(controller, never()).requestSiri()
@@ -108,7 +108,7 @@ class EcarxVoiceTakeoverTest {
 
     @Test fun activityKeyCleanupDoesNotRemoveTheSessionReceiver() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
-        CarPlayMediaKeys.onSessionActive(controller, phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
         val registration = shadowOf(app).registeredReceivers.single {
             it.intentFilter.hasAction(ACTION) && it.broadcastReceiver !== factory
         }
@@ -150,21 +150,21 @@ class EcarxVoiceTakeoverTest {
 
     @Test fun disconnectReleasesAndAnOldSessionCannotReleaseTheReplacement() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
-        CarPlayMediaKeys.onSessionActive(controller, phone)
-        CarPlayMediaKeys.onSessionEnded(phone)
-        assertFalse(CarPlayMediaKeys.ecarxVoiceKeyActive())
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        CarPlayMediaSession.onSessionEnded(phone)
+        assertFalse(CarPlayMediaSession.ecarxVoiceKeyActive())
         send(0)
         assertEquals(1, factoryPresses)
         val replacement = mock(AirPlaySession::class.java)
         `when`(controller.activeAirPlaySession()).thenReturn(replacement)
-        CarPlayMediaKeys.onSessionActive(controller, replacement)
-        CarPlayMediaKeys.onSessionEnded(phone)
+        CarPlayMediaSession.onSessionActive(controller, replacement)
+        CarPlayMediaSession.onSessionEnded(phone)
         send(0)
         verify(controller, times(1)).requestSiri()
-        CarPlayMediaKeys.detach(controller)
+        CarPlayMediaSession.detach(controller)
         send(0)
         assertEquals(2, factoryPresses)
-        assertFalse(CarPlayMediaKeys.ecarxVoiceKeyActive())
+        assertFalse(CarPlayMediaSession.ecarxVoiceKeyActive())
     }
 
     private fun send(type: Int?, marked: Boolean = false, ordered: Boolean = true) {

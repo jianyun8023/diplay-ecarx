@@ -72,7 +72,7 @@ class CarPlayMediaCallbackTest {
     @Test
     fun nowPlayingFieldsBecomeAndroidMediaMetadata() {
         val artwork = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
-        val metadata = CarPlayMediaKeys.androidMetadata(
+        val metadata = CarPlayMediaSession.androidMetadata(
             CarPlayNowPlaying(
                 title = "Dreams",
                 album = "Rumours",
@@ -99,10 +99,10 @@ class CarPlayMediaCallbackTest {
         val previous = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
         val cached = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
 
-        assertSame(previous, CarPlayMediaKeys.nextArtwork(7, emptyMap(), previous))
-        assertSame(cached, CarPlayMediaKeys.nextArtwork(7, mapOf(7 to cached), previous))
-        assertNull(CarPlayMediaKeys.nextArtwork(7, mapOf(7 to null), previous))
-        assertNull(CarPlayMediaKeys.nextArtwork(null, mapOf(7 to cached), previous))
+        assertSame(previous, CarPlayMediaSession.nextArtwork(7, emptyMap(), previous))
+        assertSame(cached, CarPlayMediaSession.nextArtwork(7, mapOf(7 to cached), previous))
+        assertNull(CarPlayMediaSession.nextArtwork(7, mapOf(7 to null), previous))
+        assertNull(CarPlayMediaSession.nextArtwork(null, mapOf(7 to cached), previous))
     }
 
     @Test
@@ -111,21 +111,21 @@ class CarPlayMediaCallbackTest {
         val wide = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
         val square = Bitmap.createBitmap(200, 200, Bitmap.Config.ARGB_8888)
 
-        val padded = CarPlayMediaKeys.squareArtwork(wide)
+        val padded = CarPlayMediaSession.squareArtwork(wide)
 
         assertEquals(384, padded.width)
         assertEquals(384, padded.height)
         assertEquals(Color.TRANSPARENT, padded.getPixel(192, 0))
         assertEquals(Color.RED, padded.getPixel(192, 192))
         assertEquals(Color.TRANSPARENT, padded.getPixel(192, 383))
-        assertSame(square, CarPlayMediaKeys.squareArtwork(square))
+        assertSame(square, CarPlayMediaSession.squareArtwork(square))
     }
 
     @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun smallOrTallArtworkIsPaddedWithoutUpscaling() {
-        val small = CarPlayMediaKeys.squareArtwork(Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888))
-        val tall = CarPlayMediaKeys.squareArtwork(
+        val small = CarPlayMediaSession.squareArtwork(Bitmap.createBitmap(200, 100, Bitmap.Config.ARGB_8888))
+        val tall = CarPlayMediaSession.squareArtwork(
             Bitmap.createBitmap(100, 1000, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) },
         )
 
@@ -139,7 +139,7 @@ class CarPlayMediaCallbackTest {
 
     @Test
     fun thePlaceholderRastersAtArtworkSize() {
-        val placeholder = CarPlayMediaKeys.placeholderArt(RuntimeEnvironment.getApplication())
+        val placeholder = CarPlayMediaSession.placeholderArt(RuntimeEnvironment.getApplication())
 
         assertEquals(384, placeholder?.width)
         assertEquals(384, placeholder?.height)
@@ -156,10 +156,10 @@ class CarPlayMediaCallbackTest {
     @Test
     fun positionAndPlayStateDoNotRepublishMetadata() {
         val song = CarPlayNowPlaying(title = "Song", artist = "Artist", artworkTransferId = 7, elapsedMillis = 1_000, playing = true)
-        assertEquals(false, CarPlayMediaKeys.metadataChanged(song, song.copy(elapsedMillis = 1_450)))
-        assertEquals(false, CarPlayMediaKeys.metadataChanged(song, song.copy(playing = false)))
-        assertEquals(true, CarPlayMediaKeys.metadataChanged(song, song.copy(title = "Next")))
-        assertEquals(true, CarPlayMediaKeys.metadataChanged(song, song.copy(artworkTransferId = 8)))
-        assertEquals(true, CarPlayMediaKeys.metadataChanged(CarPlayNowPlaying(), song))
+        assertEquals(false, CarPlayMediaSession.metadataChanged(song, song.copy(elapsedMillis = 1_450)))
+        assertEquals(false, CarPlayMediaSession.metadataChanged(song, song.copy(playing = false)))
+        assertEquals(true, CarPlayMediaSession.metadataChanged(song, song.copy(title = "Next")))
+        assertEquals(true, CarPlayMediaSession.metadataChanged(song, song.copy(artworkTransferId = 8)))
+        assertEquals(true, CarPlayMediaSession.metadataChanged(CarPlayNowPlaying(), song))
     }
 }

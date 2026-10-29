@@ -2051,7 +2051,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // The ECARX (亿咖通) instrument-cluster output. It serves the turn-by-turn guidance goal, so it
         // shares the Navigation category with the location card.
-        if (EcarxOutputSettings.available(this)) filteredSection(content, SettingsSection.LOCATION,
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) filteredSection(content, SettingsSection.LOCATION,
             getString(R.string.ecarx_navigation), R.drawable.ic_dp_navigation) { card ->
             ecarxNavigationOutputs(card)
         }
@@ -3501,7 +3501,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     // Map zoom only works where the dashboard map card used to show these controls.
     /** The ECARX (亿咖通) steering-wheel key learning, mirroring the reference app's SWKeyActivity. */
     private fun ecarxSwKeyControls(card: LinearLayout) {
-        val ecarx = com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)
+        val ecarx = com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified
         if (!ecarx) return
         val swKey = com.shilapi.xcertplay.airplay.EcarxSwKey
         val prefs = swKey.prefs(this)
@@ -3783,7 +3783,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
      */
     private fun armEcarxSwKeyIntercept() {
         if (ecarxSwKeyHandle != null) return
-        if (!com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)) return
+        if (!com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) return
         ecarxSwKeyHandle = com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.register(applicationContext, object :
             com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.Listener {
             override fun onKeyPressed(keyCode: Int): Boolean {
@@ -3837,7 +3837,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             if (on) confirmClusterMirror(projectionRow) else applyClusterMirror(false)
         }
         // The ECARX MediaCenter switch is independent of navigation.
-        if (EcarxOutputSettings.mediaSupported()) {
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.dimMediaPresent()) {
             toggle(card, getString(R.string.ecarx_media_on_instrument_cluster),
                 getString(R.string.ecarx_media_on_instrument_cluster_description),
                 EcarxOutputSettings.mediaEnabled(this),
@@ -3969,7 +3969,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // is the only thing that says whether the driver, a cancelled dialog or a rebuilt switch did it.
         val origin = clusterMirrorCancelReason ?: if (show) "settings-on" else "settings-off"
         clusterMirrorCancelReason = null
-        if (!EcarxOutputSettings.requestPresentation(this, show, origin)) {
+        if (!NavigationOutputs.requestPresentation(this, show, origin)) {
             toast(getString(R.string.ecarx_cluster_call_rejected))
         }
     }
@@ -4774,10 +4774,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("CarPlay screen: ${CarPlayScreen.report(appContext)}")
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine(ConnectionDiagnostics.report(appContext))
-        appendLine(CarPlayMediaOutput.diagnostics())
+        appendLine(CarPlayMediaSession.mediaCenterDiagnosticReport())
         appendLine("ECARX MediaCenter clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
-        appendLine(CarPlayMediaKeys.diagnosticReport())
-        appendLine(CarPlayMediaKeys.artworkDiagnosticReport())
+        appendLine(CarPlayMediaSession.diagnosticReport())
+        appendLine(CarPlayMediaSession.artworkDiagnosticReport())
         appendLine(runCatching {
             EcarxHicarControl.state(appContext)?.let {
                 "Factory HiCar: visible=true disabled=${it.disabled} canChange=${it.canChange}"

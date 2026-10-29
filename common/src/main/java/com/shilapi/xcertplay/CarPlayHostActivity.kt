@@ -1308,7 +1308,7 @@ open class CarPlayHostActivity : ComponentActivity() {
      * is the standard virtual one that the centre-screen map card and the embedded map service use.
      */
     private fun clusterDisplayConfig(): AirPlayDisplayConfig? {
-        if (com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)) {
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
             // This head unit has a real instrument-cluster panel: display 1, 1920x720, 8:3. The
             // stream is asked for at that geometry and at full scale, so the phone draws the
             // cluster picture itself instead of the platform squeezing the 1920x944 centre screen
@@ -1348,7 +1348,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (CarPlayMediaButton.opensSiri(event.keyCode) &&
-            (activeAirPlaySession == null || CarPlayMediaKeys.ecarxVoiceKeyActive())) {
+            (activeAirPlaySession == null || CarPlayMediaSession.ecarxVoiceKeyActive())) {
             return super.dispatchKeyEvent(event)
         }
         val physicalKey = Triple(event.deviceId, event.keyCode, event.scanCode)
@@ -1487,7 +1487,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     val ctrl = controller
                     val sent = when {
-                        press.isSiri -> CarPlayMediaKeys.onExternalSiriKey(event.keyCode)
+                        press.isSiri -> CarPlayMediaSession.onExternalSiriKey(event.keyCode)
                         press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true
                         press.isMedia -> ctrl?.sendMediaButton(press.mediaIndex!!) == true
                         else -> false
@@ -1539,7 +1539,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun registerEcarxSteeringWheel() {
         val context = applicationContext
         // 1. ROM key interception (the reference app's media.oneOsKey + Input.requestKeysInterception).
-        if (com.shilapi.xcertplay.hud.EcarxCapabilities.available(this)) {
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
             // The ROM's interception API is per-process and a registration outlives the activity
             // that made it, so a stale one from a previous instance would answer the same press too.
             unregisterEcarxSteeringWheel()
@@ -1548,19 +1548,19 @@ open class CarPlayHostActivity : ComponentActivity() {
                 override fun onKeyPressed(keyCode: Int): Boolean {
                     appendLog("SWKey-CH[intercept] t=${System.currentTimeMillis()} key=$keyCode session=${activeAirPlaySession != null}")
                     if (activeAirPlaySession == null || inCall(this@CarPlayHostActivity)) return false
-                    if (CarPlayMediaButton.opensSiri(keyCode) && CarPlayMediaKeys.ecarxVoiceKeyActive()) return false
+                    if (CarPlayMediaButton.opensSiri(keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()) return false
                     runOnUiThread { handleEcarxWheelKey(keyCode) }
                     return true
                 }
                 override fun onKeyReleased(keyCode: Int): Boolean =
                     activeAirPlaySession != null && !inCall(this@CarPlayHostActivity) &&
-                        !(CarPlayMediaButton.opensSiri(keyCode) && CarPlayMediaKeys.ecarxVoiceKeyActive()) &&
+                        !(CarPlayMediaButton.opensSiri(keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()) &&
                         com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
                             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(context), keyCode) != null
             }, "carplay")
             appendLog("SWKey: interception ${ecarxSwKeyHandle?.describe() ?: "unavailable"}")
         }
-        // Voice broadcasts are held by CarPlayMediaKeys for the whole connected session.
+        // Voice broadcasts are held by CarPlayMediaSession for the whole connected session.
         // 3. Who the head unit hands the voice key to, so a CarPlay-time suppression can name it.
         logAssistantCandidates()
         // 4. Private call-key broadcast (ecarx.intent.action.ECARX_KEY_RCALL_EVENT).
@@ -1614,9 +1614,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), keyCode)
         if (press == null) return false
         val ctrl = controller
-        if (press.isMedia && CarPlayMediaOutput.isMediaCenterActive(ctrl)) return false
+        if (press.isMedia && CarPlayMediaSession.isMediaCenterActive(ctrl)) return false
         val sent = when {
-            press.isSiri -> CarPlayMediaKeys.onExternalSiriKey(keyCode)
+            press.isSiri -> CarPlayMediaSession.onExternalSiriKey(keyCode)
             press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true
             press.isMedia -> ctrl?.sendMediaButton(press.mediaIndex!!) == true
             else -> false
@@ -1770,7 +1770,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         // The panel is handed over only after our window exists: `true` with nothing on display 1
         // is exactly the mirror the driver has been complaining about since fix33.
-        val accepted = com.shilapi.xcertplay.hud.EcarxOutputSettings
+        val accepted = com.shilapi.xcertplay.hud.NavigationOutputs
             .requestPresentation(this, true, "cluster stream")
         appendLog(
             "Cluster panel: showing on \"${display.name}\" " +
@@ -1783,7 +1783,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         clusterPresentation = null
         // Detach the panel first so the head unit's own instrument page is what appears, rather
         // than a last frame of ours or the platform mirror left up by a switch nobody turned off.
-        com.shilapi.xcertplay.hud.EcarxOutputSettings.requestPresentation(this, false, "cluster stream")
+        com.shilapi.xcertplay.hud.NavigationOutputs.requestPresentation(this, false, "cluster stream")
         runCatching { presentation.dismiss() }
         appendLog("Cluster panel: dismissed")
     }
@@ -5170,7 +5170,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
                 }
             },
-            onMediaAudioChanged = CarPlayMediaKeys::onMediaAudioChanged,
+            onMediaAudioChanged = CarPlayMediaSession::onMediaAudioChanged,
             callEchoCancellation = AirPlayPersistence.loadCallEchoCancellation(this),
             callVoiceFilter = AirPlayPersistence.loadCallVoiceFilter(this),
             callSpeakerphone = { AirPlayPersistence.loadCallSpeakerphone(this) },
@@ -5243,12 +5243,12 @@ open class CarPlayHostActivity : ComponentActivity() {
                     } else clearIphoneCornerMask()
                     CarPlayBackgroundSession.active = true
                     GeelyWheelKeys.start(applicationContext)
-                    controller?.let { CarPlayMediaKeys.onSessionActive(it, session) }
+                    controller?.let { CarPlayMediaSession.onSessionActive(it, session) }
                     LastConnectionProblem.clear(this@CarPlayHostActivity)
                     showConnectionHelp(null)
                     callPopupSessionReady = true
                     // A reconnect can select a different media-key owner without recreating this activity.
-                    if (com.shilapi.xcertplay.hud.EcarxCapabilities.available(this@CarPlayHostActivity)) registerEcarxSteeringWheel()
+                    if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this@CarPlayHostActivity).identified) registerEcarxSteeringWheel()
                     reconnectAttempts = 0
                     logThemeState(ThemeModeDiagnostics.Source.SESSION_ACTIVE, resources.configuration)
                     syncAirPlayDarkMode(ThemeModeDiagnostics.Source.SESSION_ACTIVE)
@@ -5287,7 +5287,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     // Handed back before the generation checks below, because a restart makes them
                     // fail on purpose — and a restart is exactly when adapter mode must return the
                     // head unit's Bluetooth, or nothing turns it back on until the app is killed.
-                    CarPlayMediaKeys.onSessionEnded(session)
+                    CarPlayMediaSession.onSessionEnded(session)
                     restoreCarBluetooth()
                     mainHandler.removeCallbacks(autoPlayAfterYield)
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
@@ -5469,7 +5469,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // wheel keys reach the iPhone through it. Restore iOS's captured mask when the controller still
         // owns that live session.
         activeAirPlaySession = snapshot.controller.activeAirPlaySession()
-        activeAirPlaySession?.let { CarPlayMediaKeys.onSessionActive(snapshot.controller, it) }
+        activeAirPlaySession?.let { CarPlayMediaSession.onSessionActive(snapshot.controller, it) }
         applyClusterPanel()
         if (blackCornerRadiusDp == CarPlayBlackCornerOverlay.IPHONE_MASK) {
             snapshot.controller.activeIphoneCornerMask()?.let { (session, png, width) ->
@@ -5580,7 +5580,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         controller = next
         resetSidePanel() // a new session starts without the side panel
         updateClusterMapShown()
-        CarPlayMediaKeys.attach(this, next)
+        CarPlayMediaSession.attach(this, next)
         if (airPlayConfig.videoInCar) CarPlayVideo.attach(this, next)
         val display = CarPlaySessionDisplay(
             airPlayConfig.main.widthPixels, airPlayConfig.main.heightPixels,
@@ -6019,7 +6019,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         callPopupSessionReady = false
         val oldController = controller
         val oldSink = sink
-        CarPlayMediaKeys.detach(oldController)
+        CarPlayMediaSession.detach(oldController)
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         controller = null
         oldSink?.let(retiringSinks::add)
@@ -6225,7 +6225,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(applyDisplaySize)
         val oldController = controller
         val oldSink = sink
-        CarPlayMediaKeys.detach(oldController)
+        CarPlayMediaSession.detach(oldController)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         oldSink?.let(retiringSinks::add)

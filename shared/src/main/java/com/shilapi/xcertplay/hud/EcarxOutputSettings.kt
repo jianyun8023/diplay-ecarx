@@ -50,15 +50,6 @@ object EcarxOutputSettings {
      */
     const val PRESENTATION_PACKAGE = ""
 
-    /** Whether this head unit exposes the ECARX DIM interface (and therefore the settings block). */
-    fun available(context: Context): Boolean = EcarxCapabilities.available(context)
-
-    /**
-     * Whether the head unit ships the DIM media interface — present on the target unit, and hidden
-     * from the settings screen where it is not.
-     */
-    fun mediaSupported(): Boolean = EcarxCapabilities.classPresent(EcarxCapabilities.MEDIA_INTERACTION)
-
     /**
      * Whether CarPlay guidance reaches the cluster at all. **On by default**: this build only ships
      * on a head unit whose DIM interface was probed, so an untouched install is expected to work
@@ -81,16 +72,13 @@ object EcarxOutputSettings {
     }
 
     /**
-     * The 仪表投屏 switch: mirrors the **whole centre screen** onto the cluster.
-     *
-     * **Off by default, and it is the only switch here that is a real choice.** It is not how the
-     * arrow or the media card is delivered — both go through the DIM channels — and turning it on
-     * covers exactly the cards this page configures, which is how it was mistaken for "the arrow
-     * stopped working". The settings row asks before it takes effect.
+     * Last requested projection switch, shown by the settings row, not proof of a visible panel.
+     * The bridge writes both manual and route-driven requests and clears it at process startup.
+     * Keep this existing persistence behavior; it is not a separate user preference to restore.
      */
     fun presentationSwitch(context: Context): Boolean = prefs(context).getBoolean(KEY_PRESENTATION, false)
 
-    fun setPresentationSwitch(context: Context, enabled: Boolean) {
+    internal fun setPresentationSwitch(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_PRESENTATION, enabled).commit()) {
             "Could not persist the ECARX instrument-cluster projection setting"
         }
@@ -156,20 +144,6 @@ object EcarxOutputSettings {
 
     /** See [PRESENTATION_PACKAGE]. */
     fun presentationPackage(context: Context): String = PRESENTATION_PACKAGE
-
-    // ---------------------------------------------------------------- live apply
-
-    /**
-     * The settings screen lives in the `common` module, so it cannot reach the `internal`
-     * [EcarxHudBridge] directly. This delegate wires the switch straight to the head unit and
-     * returns whether the platform accepted the call.
-     */
-    fun requestPresentation(context: Context, show: Boolean, origin: String = ""): Boolean {
-        EcarxHudBridge.initialize(context)
-        return EcarxHudBridge.applyPresentation(show, origin).ok
-    }
-
-    fun diagnosticReport(context: Context): String = EcarxHudBridge.diagnostics(context)
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }

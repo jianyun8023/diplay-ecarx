@@ -61,7 +61,7 @@ class EcarxMediaCenterTransportTest {
         fun updateCurrentProgress(token: Token, position: Long) { progress = position }
         fun requestPlay(token: Token): Boolean { claims++; return accepted }
     }
-    private class Platform(val service: Service = Service()) : EcarxMediaCenterTransport.Platform {
+    internal class Platform(val service: Service = Service()) : EcarxMediaCenterTransport.Platform {
         var binds = 0; var unbinds = 0; var denied = false; var nullBinding = false
         var connection: ServiceConnection? = null
         override fun contract(): MediaCenterProbe.Contract {

@@ -26,7 +26,7 @@ import com.shilapi.xcertplay.network.GeelyHeadUnit
  * the iPhone's music, so forwarding the media keys too would double-fire; only the microphone key is
  * registered then, for Siri.
  *
- * On DCY11, CarPlayMediaKeys owns only short voice broadcasts; raw voice callbacks cannot
+ * On DCY11, CarPlayMediaSession owns only short voice broadcasts; raw voice callbacks cannot
  * distinguish the broadcast gesture and must not trigger Siri a second time.
  *
  * Silently does nothing off this head unit ([GeelyHeadUnit.detected]).
@@ -93,7 +93,7 @@ internal object GeelyWheelKeys {
                     Log.i(TAG, "long press key=$keyCode func=$softKeyFunction")
                     // Keep the long-press shortcut alongside the connected-session short press.
                     if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
-                        Log.i(TAG, "Siri requested=${CarPlayMediaKeys.onExternalSiriKey()}")
+                        Log.i(TAG, "Siri requested=${CarPlayMediaSession.onExternalSiriKey()}")
                     }
                 }
                 override fun onDoubleClick(keyCode: Int, softKeyFunction: Int) {}
@@ -141,7 +141,7 @@ internal object GeelyWheelKeys {
 
     private fun forward(keyCode: Int) {
         if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
-            Log.i(TAG, "short press Siri requested=${CarPlayMediaKeys.onExternalSiriKey()}")
+            Log.i(TAG, "short press Siri requested=${CarPlayMediaSession.onExternalSiriKey()}")
             return
         }
         val index = when (keyCode) {
@@ -150,6 +150,6 @@ internal object GeelyWheelKeys {
             GeelyWheelKeyCodes.KEY_PREVIOUS -> CarPlayMediaButton.PREVIOUS
             else -> return
         }
-        CarPlayMediaKeys.onExternalMediaKey(index)
+        CarPlayMediaSession.onExternalMediaKey(index)
     }
 }

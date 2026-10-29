@@ -54,7 +54,7 @@ class EcarxLaneGuidanceFlowTest {
         DimInteraction.reset()
         for (name in listOf("context", "dim", "navi", "protocol", "dimCallback", "naviCallback",
             "lastPushed", "lastArrowChannel", "presentedPackage", "lanes", "lastLanePushed")) set(name, null)
-        for (name in listOf("available", "presentationWanted", "guidanceActive")) set(name, false)
+        for (name in listOf("ecarxDetected", "presentationWanted", "guidanceActive")) set(name, false)
         for (name in listOf("presentationCountdown", "presentationAttempts", "ticksSincePush")) set(name, 0)
         // Only the scheduler is suppressed: tests explicitly run the production tick below.
         set("tickerStarted", true)
@@ -155,6 +155,59 @@ class EcarxLaneGuidanceFlowTest {
         } finally {
             worker.shutdownNow()
         }
+    }
+
+    @Test fun startupClearsTheSavedProjectionRequestWithoutRestoringAMirror() {
+        EcarxOutputSettings.setPresentationSwitch(context, true)
+        NavigationOutputs.onAppOpened(context)
+        assertFalse(EcarxOutputSettings.presentationSwitch(context))
+        repeat(12) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+        assertTrue(panelRequests.isEmpty())
+    }
+
+    @Test fun manualProjectionRequestsKeepTheirStoredStateAndStopRetriesWhenDisabled() {
+        assertTrue(NavigationOutputs.requestPresentation(context, true, "settings-on"))
+        assertTrue(EcarxOutputSettings.presentationSwitch(context))
+        val enabled = calls("setPresentationToDimSwitch").single().payload
+        assertEquals(true, enabled["show"])
+        assertEquals(1, enabled["screenId"])
+        assertEquals("", enabled["packageName"])
+        assertEquals("", enabled["className"])
+        repeat(12) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").size > 1)
+
+        assertTrue(NavigationOutputs.requestPresentation(context, false, "settings-off"))
+        assertFalse(EcarxOutputSettings.presentationSwitch(context))
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+        val stopped = calls("setPresentationToDimSwitch").size
+        repeat(12) { tick() }
+        assertEquals(stopped, calls("setPresentationToDimSwitch").size)
+    }
+
+    @Test fun aDetectedDimInterfaceCanAcceptARequestBeforeTheServiceBecomesReady() {
+        DimInteraction.nullCreate = true
+        assertEquals(EcarxCapabilities.Detection.DIM_INTERFACE, EcarxCapabilities.detect(context))
+        assertTrue(EcarxCapabilities.detect(context).identified)
+        assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster stream"))
+        assertTrue(EcarxOutputSettings.presentationSwitch(context))
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+        assertTrue(NavigationOutputs.diagnosticReport(context).contains("projectionWanted=true"))
+
+        DimInteraction.nullCreate = false
+        repeat(12) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").isNotEmpty())
+        assertEquals(true, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
+    @Test fun aFailedProjectionReleaseStillClearsTheStoredRequestAndRetryIntent() {
+        DimInteraction.nullCreate = true
+        assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster stream"))
+        assertFalse(NavigationOutputs.requestPresentation(context, false, "cluster stream"))
+        assertFalse(EcarxOutputSettings.presentationSwitch(context))
+        DimInteraction.nullCreate = false
+        repeat(12) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
     }
 
     @Test fun laneStateClearsOnEndExpiryAndDisconnectWithoutReviving() {

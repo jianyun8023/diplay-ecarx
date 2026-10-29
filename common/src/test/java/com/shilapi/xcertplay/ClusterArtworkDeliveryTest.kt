@@ -22,13 +22,13 @@ class ClusterArtworkDeliveryTest {
     private val controller = mock(CarPlayController::class.java)
     private val context get() = RuntimeEnvironment.getApplication()
     private fun idle() = shadowOf(Looper.getMainLooper()).idle()
-    private fun call(name: String, vararg args: Any?) = CarPlayMediaKeys.javaClass.declaredMethods
-        .single { it.name == name }.apply { isAccessible = true }.invoke(CarPlayMediaKeys, *args)
-    private fun set(name: String, value: Any?) = ReflectionHelpers.setField(CarPlayMediaKeys, name, value)
-    private fun <T> field(name: String): T = ReflectionHelpers.getField(CarPlayMediaKeys, name)
+    private fun call(name: String, vararg args: Any?) = CarPlayMediaSession.javaClass.declaredMethods
+        .single { it.name == name }.apply { isAccessible = true }.invoke(CarPlayMediaSession, *args)
+    private fun set(name: String, value: Any?) = ReflectionHelpers.setField(CarPlayMediaSession, name, value)
+    private fun <T> field(name: String): T = ReflectionHelpers.getField(CarPlayMediaSession, name)
 
     @After fun clean() {
-        CarPlayMediaKeys.detach(controller)
+        CarPlayMediaSession.detach(controller)
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
         idle()
     }
@@ -78,7 +78,7 @@ class ClusterArtworkDeliveryTest {
         var shown: Bitmap? = null
         val stop = ClusterMusicState.observe { shown = it.artwork }
         assertSame(art, shown)
-        CarPlayMediaKeys.detach(controller); idle()
+        CarPlayMediaSession.detach(controller); idle()
         assertNull(shown)
         stop()
     }

@@ -187,7 +187,7 @@ class WheelKeyService : AccessibilityService() {
             return true
         }
         if (navigationKeys.owns(event.keyCode, event.deviceId, event.downTime)) return navigationKey(event)
-        if (learning == null && CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaKeys.ecarxVoiceKeyActive()) return false
+        if (learning == null && CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()) return false
         val key = WheelKey.of(event)
         refreshEligibility()
         val calling = inCall(this)

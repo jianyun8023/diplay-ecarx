@@ -73,7 +73,7 @@ class SmoothVideoHostLifecycleTest {
         (getField("shuttingDown") as AtomicBoolean).set(true)
         (getField("mainHandler") as Handler).removeCallbacksAndMessages(null)
         AirPlayPersistence.overlaySettingsListener = null
-        (getField("controller") as? CarPlayController)?.let { CarPlayMediaKeys.detach(it) }
+        (getField("controller") as? CarPlayController)?.let { CarPlayMediaSession.detach(it) }
         blockedCodecs.forEach { it.release() }
         (getField("sink") as? AndroidMediaSink)?.close()
         ownedSinks.forEach { it.close() }
@@ -210,7 +210,7 @@ class SmoothVideoHostLifecycleTest {
         } finally {
             (getField(rebuilt, "shuttingDown") as AtomicBoolean).set(true)
             (getField(rebuilt, "mainHandler") as Handler).removeCallbacksAndMessages(null)
-            (getField(rebuilt, "controller") as? CarPlayController)?.let { CarPlayMediaKeys.detach(it) }
+            (getField(rebuilt, "controller") as? CarPlayController)?.let { CarPlayMediaSession.detach(it) }
             (getField(rebuilt, "sink") as? AndroidMediaSink)?.close()
             (getField(rebuilt, "teardownExecutor") as ExecutorService).shutdownNow()
             (getField(rebuilt, "airPlayCommandExecutor") as ExecutorService).shutdownNow()

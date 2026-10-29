@@ -152,7 +152,7 @@ internal object EcarxHudBridge {
     private val lock = Any()
     private val route = RouteGuidanceState()
     private var context: Context? = null
-    private var available = false
+    private var ecarxDetected = false
     private var dim: Any? = null
     private var navi: Any? = null
     private var protocol: Any? = null
@@ -220,13 +220,12 @@ internal object EcarxHudBridge {
         if (context != null) return@synchronized
         val app = appContext.applicationContext
         context = app
-        available = EcarxCapabilities.available(app)
-        if (!available) {
-            report("DIM interface absent, output disabled: ${EcarxCapabilities.describe(app)}")
+        ecarxDetected = EcarxCapabilities.detect(app).identified
+        if (!ecarxDetected) {
+            report("ECARX identity absent, output disabled: ${EcarxCapabilities.describe(app)}")
             return@synchronized
         }
-        // Seed the watch from the saved intent before the first attempt, so a head unit that comes
-        // back with the engine already running restores the cluster without the user touching it.
+        // Read the previous request for the startup reset below, not to restore a mirror.
         presentationWanted = EcarxOutputSettings.presentationSwitch(app)
         reclaimLocked()
         watchDisplaysLocked(app)
@@ -289,7 +288,7 @@ internal object EcarxHudBridge {
      * (Re)resolves the DIM handles. Retried by the ticker while anything is still missing:
      * `DimInteraction.create()` hands back `null` until the cluster service is up, and on a car
      * that is switched on with the engine off — the state every head unit boots in — that is
-     * exactly what happens. Unlike [available], which is a class-presence test and cannot change,
+     * exactly what happens. [ecarxDetected] only selects the adapter from identity evidence;
      * these handles can appear later, so the retry is the point.
      */
     private fun reclaimLocked(): Boolean {
@@ -355,7 +354,7 @@ internal object EcarxHudBridge {
     }
 
     fun onFrame(frame: Iap2Frame) = synchronized(lock) {
-        if (!available) return@synchronized
+        if (!ecarxDetected) return@synchronized
         if (frame.messageId == 0x5204) {
             val parsed = Iap2LaneGuidance.parse(frame.payload) ?: run {
                 return@synchronized
@@ -421,15 +420,14 @@ internal object EcarxHudBridge {
      *    this project no longer publishes anything on that topic.
      *
      * Turning it on records the intent and arms the watch; turning it off releases once. Besides the
-     * settings screen, the one other writer is the panel's owner: at a guidance start it closes the
-     * platform's page and follows with its own window on the same display (fix36, see
-     * [clusterPresentationRequested]), which is the handover the driver used to see as a flash.
+     * settings screen, the other caller is the panel's owner: it creates its window first, then
+     * enables projection (fix37, see [clusterPresentationRequested]). Both callers use this same
+     * saved request and retry state; neither owns a separate projection preference.
      *
      * It does **not** report whether the cluster changed, because nothing can: the platform call is
      * `void`, unchecked, and returns the same thing whether or not the cluster is even powered.
-     * [EcarxResult.ok] here means "the watch owns delivery now"; the switch reports a failure only
-     * when the head unit has no DIM interface at all, which is the one case where retrying is
-     * pointless.
+     * [EcarxResult.ok] when enabling means "the watch owns delivery now", even if a DIM handle is
+     * not ready. Disabling returns the immediate platform result but always clears the request.
      */
     fun applyPresentation(show: Boolean, origin: String = ""): EcarxDimApi.EcarxResult = synchronized(lock) {
         // Who asked. The 18:24 report shows the mirror being turned *off* half a second after the
@@ -447,7 +445,7 @@ internal object EcarxHudBridge {
             resendLocked()
             return result
         }
-        if (!available) return EcarxDimApi.EcarxResult.failed("no DIM interface on this head unit")
+        if (!ecarxDetected) return EcarxDimApi.EcarxResult.failed("ECARX head unit not detected")
         requestPresentationLocked()
         EcarxDimApi.EcarxResult.ok("projection watch armed")
     }
@@ -498,7 +496,7 @@ internal object EcarxHudBridge {
     // ---------------------------------------------------------------- push path
 
     private fun tick() = synchronized(lock) {
-        if (!available) return@synchronized
+        if (!ecarxDetected) return@synchronized
         // The cluster service is not up when the head unit is only on accessory power, so keep
         // asking for the handles as well as for the projection itself.
         if (dim == null || navi == null) reclaimLocked()
@@ -1019,7 +1017,7 @@ internal object EcarxHudBridge {
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
         append(" media=").append(EcarxOutputSettings.mediaEnabled(context))
         synchronized(lock) {
-            append(" wired=").append(available)
+            append(" wired=").append(ecarxDetected)
             append(" dim=").append(dim != null)
             append(" navi=").append(navi != null)
             append(" protocol=").append(protocol != null)

@@ -66,7 +66,7 @@ class ManualHotspotHostGateTest {
         (field("shuttingDown") as AtomicBoolean).set(true)
         (field("mainHandler") as Handler).removeCallbacksAndMessages(null)
         AirPlayPersistence.overlaySettingsListener = null
-        (field("controller") as? CarPlayController)?.let(CarPlayMediaKeys::detach)
+        (field("controller") as? CarPlayController)?.let(CarPlayMediaSession::detach)
         (field("sink") as? AndroidMediaSink)?.let { it.close(); it.awaitVideoReleased(5_000) }
         (field("teardownExecutor") as ExecutorService).shutdownNow()
         (field("airPlayCommandExecutor") as ExecutorService).shutdownNow()
