@@ -1,48 +1,56 @@
 # DiPlay · 领克 01（2021 款）/ 亿咖通 ECARX 适配
 
-[当前适配与验证](#当前适配与验证) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English summary](#english-summary) · [上游原版 README（存档）](docs/UPSTREAM-DIPLAY-README.md) · [更新记录](CHANGELOG.md)
+[当前适配与验证](#当前适配与验证) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English summary](#english-summary) · [更新记录](CHANGELOG.md)
 
-本仓库当前主要适配 **领克 01（2021 款）亿咖通 ECARX 车机**。源于
+本仓库主要适配 **2021 款领克 01 亿咖通 ECARX 车机**，源于
 [jiopia/DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 的领克 05 移植版，
-其通用上游为 [DiPlay 0.2.22](https://github.com/shihabal3amri/DiPlay)。原 fork 的适配记录在下方保留，
-**不等于本仓库当前版本已在所有车型、固件或场景通过验证**。
+通用上游已合并 **DiPlay v0.2.22**。应用沿用本项目版本 **0.2 / versionCode 101**。
 
-当前 Release 候选基于上游 **v0.2.22**，应用版本 **0.2 / 101**；纳入 ECARX 媒体、HUD、HiCar 与热点恢复，见[本轮合并范围](docs/RELEASE-VERIFIED-20261028.md)。新组合尚需实车回归。
+本页对应 **`dev` 开发分支**，已合入 `release` 的热点恢复和已确认功能。新增语音键短按接管仍待实车验证。
 
 ## 当前适配与验证
 
-### 分支与界面语言
+用户报告环境为 **Android 9 / API 28、Qualcomm MSM8996、`dcy11_a1`**。
+应用最低安装要求为 API 24，不等于所有 Android 设备或 ECARX 固件均兼容。
+实车反馈对应当时的测试包，未绑定当前 APK 提交；不能据此把新组合记为完整验收通过。
 
-- **`release`（默认）**：收纳已确认功能；USB 连接手机已独立晋级。
-- **`dev`**：待验证改动与 Debug 测试；麦克风真实音源/统计、车机蓝牙恢复、ACL/重试诊断仍在这里。
-- **`main`**：保留原 fork 基线 `b46ff9be`；旧 main 备份为 `backup/main-before-upstream-reset`。
-- 应用界面仅保留 **English、简体中文、繁體中文**，以及跟随系统；不支持的系统语言回退英文。
-
-### 环境与证据边界
-
-| 项目 | 当前已知信息 |
+| 功能 | 当前状态 |
 | --- | --- |
-| 主要适配目标 | 领克 01，2021 款，ECARX 车机 |
-| 用户测试报告环境 | Android 9 / API 28；Qualcomm MSM8996；板型 `dcy11_a1` |
-| 报告与构建关联 | 该报告未绑定 APK 提交 SHA，不能据此声称当前构建已在该车完整验收 |
-| 应用最低 Android 版本 | Android 7.0 / API 24（源码安装下限，不代表所有 Android 设备均支持车机功能） |
+| 导航、HUD、车道及仪表 | 用户反馈导航/HUD 正常；封面、车道已确认，可视区域“看起来 OK”。重连和新组合继续回归 |
+| 媒体控制 | 用户确认媒体 service 控制可用。统一使用 ECARX MediaCenter，保留 Android MediaSession；不再提供 UNI/DIM/Standard 切换 |
+| 蓝牙媒体让位 | 用户反馈音乐不再走蓝牙；退出恢复和 iPhone 蓝牙关开后的自动重连仍需分别检查 |
+| 车机热点 | 手动开启、应用启动和无线连接共用启动流程；Android 9 明确失败后按 Wi-Fi 实际状态重置，最多恢复重试一次，仍待实车确认 |
+| 原厂 HiCar 开关 | 按实际权限显示并回读状态；它不等于接管原厂语音助手，也不改变麦克风路由 |
+| Siri 采集 | 用户确认原有采集路径正常，当前重点是按键触发；不再提供通信采集方案 B |
+| USB | **最新反馈仍有问题**。早期特定场景“测试 OK”不代表当前 USB 首连、重连和异常路径已全部通过 |
 
-| 功能 | 确认程度 |
-| --- | --- |
-| 仪表封面图片 | 用户实车确认 OK |
-| 导航车道 | 用户实车确认 OK |
-| 仪表可视区域 | 用户反馈“看起来 OK”；不等于全部显示尺寸与重连场景均通过 |
-| USB 连接手机 | 用户确认“测试 OK”，已进入 `release`；此次未说明测试设备、平台或版本，不扩大为所有 USB 异常路径已验收 |
+### DEV 与 Release 的区别
 
-具体来源与范围见 [已确认功能说明](docs/LYNK_01_VERIFIED_BRANCH.md)。
-**仍待解决/确认**：语音键同时唤醒 HiCar、Siri 能否获得有效语音、普通蓝牙 A2DP 抢音乐输出、
-iPhone 设置中蓝牙关开后自动重连，以及 OEM 热点控制。目标是音乐走 CarPlay、蓝牙保留建连，
-不是禁用原生电话；目前不宣称这些问题已修复。
+| 内容 | `dev` | `release` |
+| --- | --- | --- |
+| ECARX 语音键短按接管 | 已实现，待实车；后台保持、去重、断连释放，长按和通话期间放行 | 未合入，保留原方控逻辑 |
+| 按键 SDK 注册/释放修正 | 已合入 | 未合入 |
+| 连接前蓝牙恢复检查及排障报告 | 增强检查；USB、唤醒/重试、媒体及采集统计更完整 | 既有恢复流程与基础报告 |
+| 旧“仅长按打开 Siri”设置 | 已移除 | 仍保留 |
+| 本地录音自检、独立媒体探测面板 | 已清理；保留媒体连接依赖和常规报告 | 不包含 |
+| Siri 通信采集方案 B | 已删除，只保留原采集路径 | 未引入 |
 
-最近一次 USB 晋级的云端软件验证对应 [`285953e7`](https://github.com/jianyun8023/diplay-ecarx/commit/285953e77b7eb6f92da8c6601512623ed162e116)
-（树 `436b917db86d03d8bcedf5c6b353c445e0e1cd0b`）：USB 44 项与既有功能回归 72 项通过，
-三个 lint 无错误、三个 Debug 构建通过。全量仍有 **14 项网络接口环境失败、1 项跳过**；
-失败在纯基线同样出现（云端仅 loopback 接口），不能称全量全绿，更不能替代实车验收。
+`release` 已纳入的核心媒体、导航/HUD、HiCar 和热点恢复也在 `dev` 中。
+`main` 保留原 fork 基线，旧 main 备份为 `backup/main-before-upstream-reset`。
+界面仅提供 **English、简体中文、繁體中文**及跟随系统，不支持的系统语言回退英文。
+
+### 使用与验证
+
+- 使用已有连接方式配置 iPhone；同一时间只运行一个投屏会话。
+- 蓝牙媒体让位与“关闭整机蓝牙”是不同选项，分别测试；不要把旧领克 05 的关闭蓝牙绕行方案当作通用前置。
+- 热点恢复只在明确失败后进行；先看 Wi-Fi 状态，再完成开启→关闭并重试热点一次。恢复可能断开其他无线设备，最终 Wi-Fi 关闭；不修改热点名称和密码。
+- `dev` 语音键测试前关闭 HY 的语音键接管。仅可中断的有序短按广播由 DiPlay 接管，普通广播保留原车处理。
+- 异常时先保存完整报告，再重试；分别记录真实声音、按键响应、原厂开关、手机路由和实际显示。
+
+当前代码 `8dbdf066` 的本机完整检查：2,665 项测试通过、1 项端口条件跳过，三个 lint 和三个 Debug 构建通过。方控设置已复核 1920×1080、正常字体截图。
+软件检查不替代实车验收，也不代表已发布新的签名 APK。
+
+[DEV 待验收说明](docs/LYNK_01_PENDING_VALIDATION.md) · [车机回归清单](docs/CAR_TEST_20261028.md) · [测试说明](docs/TESTING.md) · [已确认功能的历史来源](docs/LYNK_01_VERIFIED_BRANCH.md)
 
 > ### ⚠️ 发布的 APK 不含 MFi 身份
 >
@@ -127,17 +135,18 @@ iPhone 设置中蓝牙关开后自动重连，以及 OEM 热点控制。目标�
 
 ## 安装与升级
 
-1. 车机允许安装第三方 APK（本车是 `test-keys`，可装）。
-2. **换过签名就要先卸载**：`adb uninstall com.shihab.diplay`，或在车机应用管理里卸载。
-   签名不同的 APK 不能覆盖安装，而强停旧版再装会残留 USB 授权状态。
-3. `adb install -r <apk>`，或拷到 U 盘用文件管理器装。
-4. 首次启动建议先看一遍[功能设置](#功能设置哪些必须开哪些按需开哪些不要开)。
+1. 备份现有设置与诊断报告，确认安装包版本、包名和签名来源。
+2. 同包名、同签名使用覆盖安装：`adb install -r <apk>`，或通过车机文件管理器安装。
+3. 签名不同时不能直接覆盖；先保留设置和报告，再处理安装迁移，不把卸载或清数据作为常规重连方法。
+4. 首次启动按界面完成认证、权限和连接配置。source-only 包缺少身份时会停在前置检查，不能用于验证完整 CarPlay 建连。
 
-同一台车机上**只留一个投屏 App**（DiPlay 与 EasyPlay 只能装一个，两者会抢同一批 USB/网络资源）。
+Debug 包名为 `com.shihab.diplay.hudtest`，Release 为 `com.shihab.diplay`；两者设置不自动互通。
+测试时退出其他投屏会话，避免同时使用同一 USB、网络或音频资源。
 
 ## 功能设置：哪些必须开，哪些按需开，哪些不要开
 
-全部集中在 **设置 → 位置 → 「亿咖通导航」** 一张卡片里，三个开关，都是"司机看得见的那三张画面"。
+> 以下设置表保留原 fork 的领克 05 历史说明，尤其旧菜单位置、DIM 媒体和关闭蓝牙的组合不适用于当前版本。
+> 当前设置按连接、显示、音频、导航、车辆、诊断和高级分类；媒体使用 ECARX MediaCenter，导航/HUD 使用独立 DIM 通道。
 
 | 设置项 | 默认 | 建议 | 说明 |
 |---|---|---|---|
@@ -154,11 +163,7 @@ iPhone 设置中蓝牙关开后自动重连，以及 OEM 热点控制。目标�
 
 两个容易踩的坑：
 
-- **语音键被响应两次。** 车机自己的语音助手和本 App 会同时接这一下按键，ROM 拒绝把按键独占交给
-  第三方，侧工具改不了。解法是把车机自带助手停用：
-  ```bash
-  adb shell pm disable-user --user 0 <车机语音助手的包名>
-  ```
+- **语音键重复响应。** `dev` 使用连接期间的短按广播接管；`release` 尚未合入该修复。先保存按键日志确认来源，不按旧说明直接停用系统助手。HiCar 开关只作用于对应原厂应用。
 - **不要同时用车机自带导航。** 车机自己的导航一开始就会去抢仪表那块屏，两套导航同时跑，画面会互相盖。
 
 ## 蓝牙与媒体：为什么必须关掉它
@@ -360,29 +365,19 @@ DIPLAY_AUTH_ASSETS_DIR=/path/to/auth-assets ./gradlew :mobile:assembleRelease
 
 ## English summary
 
-This fork now primarily targets the **2021 Lynk & Co 01 (ECARX)**. The original Lynk & Co 05 adaptation
-and its historical notes are retained above; they are not proof of current validation on the 01.
+This page describes the **`dev` branch** for the **2021 Lynk & Co 01 / ECARX**.
+Both branches include upstream **v0.2.22**, with this fork's **0.2 / versionCode 101** sequence.
+The Lynk & Co 05 notes above are historical, not current installation requirements or acceptance evidence.
 
-- **Branches:** `release` is the default confirmed-feature branch; `dev` contains pending fixes/diagnostics;
-  `main` preserves the original fork baseline. USB has been promoted independently to `release`.
-- **Reported environment:** Android 9 / API 28, Qualcomm MSM8996, board `dcy11_a1`. The supplied report
-  was not tied to an APK commit SHA, so it does not certify the current build on that vehicle.
-- **User-confirmed:** cluster cover artwork and navigation lanes were confirmed in-car. The visible-area
-  editor “looks OK,” not an exhaustive display test. USB was reported as “tested OK,” without identifying
-  the device, platform or version used; do not infer complete vehicle/USB fault-path acceptance.
-- **Still unresolved/unconfirmed:** HiCar waking alongside Siri, usable Siri microphone input, A2DP music
-  taking the output, automatic reconnection after toggling iPhone Bluetooth in Settings, and OEM hotspot control.
-  Microphone diagnostics, head-unit Bluetooth recovery and ACL/retry traces in `dev` do not prove these fixed.
-- **UI languages:** English, Simplified Chinese and Traditional Chinese; system default remains available.
-- **Build:** JDK 25, Gradle wrapper 9.5.0, SDK platform 37.0 and Build Tools 36.0.0 match CI.
-  CI also installs NDK 28.2.13676358; the cloud build used prebuilt native libraries, so NDK installation
-  is not asserted as mandatory for every ordinary build. The app's minimum is API 24, not a guarantee of hardware compatibility.
+- **User feedback:** media-service controls and navigation/HUD work; artwork and lanes were confirmed, and the visible-area editor looked correct. The original Siri capture path was reported working.
+- **Still pending:** USB problems remain in the latest feedback. Hotspot recovery, reconnection and the new Siri key route require vehicle regression on the resulting build.
+- **Branch differences:** `dev` adds connected-session Siri short-press takeover, callback release fixes and richer connection diagnostics. `release` does not yet contain that key takeover. Core ECARX media/HUD, HiCar controls and unified hotspot recovery are included in both.
+- **Removed from dev:** the communication-capture experiment, local microphone self-test, standalone MediaCenter inspection panel and the old long-press-only setting. Standard capture and normal failure reports remain.
+- **Hotspot recovery:** on Android 9, a confirmed failure checks Wi-Fi state, stops the failed hotspot, cycles Wi-Fi on then off and retries the hotspot once. Saved credentials stay unchanged; connected devices may be disconnected.
+- **Build:** JDK 25, Gradle wrapper 9.5.0, SDK platform 37.0 and Build Tools 36.0.0. Minimum Android API 24 is an installation floor, not a compatibility guarantee. See [build instructions](#从源码构建) and [required checks](AGENTS.md).
+- **Languages:** English, Simplified Chinese and Traditional Chinese, including the system-language option.
 
-**Source-only APKs contain no MFi identity.** Without valid, lawfully available authentication prerequisites,
-the app stops at setup/identity checks, before the USB or wireless connection flow. Installation, UI checks,
-system hotspot association and OTG enumeration alone do not validate CarPlay. Do not share credential-bearing APKs.
-
-For evidence levels and the USB promotion scope, see [the release feature record](docs/LYNK_01_VERIFIED_BRANCH.md).
-The cloud check for commit `285953e7` (tree `436b917d`) passed the targeted regressions, lint and Debug builds,
-but the full suite retained 14 baseline network-environment failures and one skip; it was **not all green**
-and is not a substitute for vehicle testing.
+Source-only builds have no bundled MFi identity. Without the existing authentication prerequisites,
+the app stops before CarPlay setup; installing an APK, joining a system hotspot or enumerating USB does not prove a CarPlay connection.
+Preserve settings and reports before changing signatures; do not clear app data as a routine connection fix.
+Software checks and historical vehicle feedback do not certify the current APK on every firmware.
