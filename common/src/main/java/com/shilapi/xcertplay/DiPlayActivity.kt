@@ -1410,6 +1410,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun diagnosticsSettings(content: LinearLayout) {
         settingsPageTitle(content, getString(R.string.diagnostics), getString(R.string.settings_diagnostics_summary))
         renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.DIAGNOSTICS))
+        content.addView(button(getString(R.string.settings_hotspot_probe_title), false, ::openHotspotProbe), matchButton(SETTINGS_BLOCK_GAP_DP, CONTROL_HEIGHT_DP))
         content.addView(button(getString(R.string.sound_output_test), false) { showSoundOutputTest() }, matchButton(10, 60))
     }
 
@@ -1787,7 +1788,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.DIAGNOSTICS,
             getString(R.string.diagnostics), R.drawable.ic_dp_diagnostics) { card ->
-            card.addView(button(getString(R.string.settings_hotspot_probe_title), false, ::openHotspotProbe), matchButton(0, CONTROL_HEIGHT_DP))
             exportButton = button(if (exportInProgress) getString(R.string.saving_report) else getString(R.string.save_diagnostic_report), false) {
                 saveReportToDownloads()
             }.apply { isEnabled = !exportInProgress }
