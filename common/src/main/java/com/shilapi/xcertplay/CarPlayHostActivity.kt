@@ -1346,7 +1346,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (CarPlayMediaButton.opensSiri(event.keyCode) &&
-            (activeAirPlaySession == null || CarPlayMediaSession.ecarxVoiceKeyActive())) {
+            (activeAirPlaySession == null || (CarPlayMediaSession.ecarxVoiceKeyActive() &&
+                !WheelZoomSettings.isSiriKey(this, WheelKey.of(event))))) {
             return super.dispatchKeyEvent(event)
         }
         val physicalKey = Triple(event.deviceId, event.keyCode, event.scanCode)
@@ -1457,7 +1458,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 mainHandler.removeCallbacks(requestDelayedAssignedSiri)
                 mainHandler.postDelayed(requestDelayedAssignedSiri, release.triggerDelayMillis.toLong())
             }
-            return super.dispatchKeyEvent(event)
+            return if (calling) super.dispatchKeyEvent(event) else true
         }
         val assignedAction = if (downOrUp) siriKeyPresses.filter(
             physicalKey, event.action == KeyEvent.ACTION_DOWN, event.repeatCount == 0,
@@ -1478,7 +1479,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // ECARX learnt steering-wheel keys (swKey_*) and the answer/hangup call keys: the reference app
         // routes these to CarPlay media and telephony presses. Learnt keys win over the standard code
         // spaces, and a call key converts only when the reference app's swMediaKeyCallConvert gate is on.
-        if (downOrUp && !inCall(this)) {
+        if (downOrUp && CarPlayMediaSession.managesVehicleKeys() && !inCall(this)) {
             val press = com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
                 com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), event.keyCode)
             if (press != null) {
@@ -1535,6 +1536,10 @@ open class CarPlayHostActivity : ComponentActivity() {
      * On head units without these APIs the calls no-op and the standard key path stays in charge.
      */
     private fun registerEcarxSteeringWheel() {
+        if (!CarPlayMediaSession.managesVehicleKeys()) {
+            unregisterEcarxSteeringWheel()
+            return
+        }
         val context = applicationContext
         // 1. ROM key interception (the reference app's media.oneOsKey + Input.requestKeysInterception).
         if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
@@ -1607,6 +1612,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     /** Dispatches an ECARX wheel key (any of the three code spaces) to CarPlay, consuming it. */
     private fun handleEcarxWheelKey(keyCode: Int): Boolean {
+        if (!CarPlayMediaSession.managesVehicleKeys()) return false
         if (activeAirPlaySession == null || inCall(this)) return false
         val press = com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), keyCode)

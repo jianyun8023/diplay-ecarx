@@ -7,7 +7,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
 
-/** HY's local HTTP image handoff, limited to four covers on IPv4 loopback. */
+/** Local HTTP image handoff, limited to four covers on IPv4 loopback. */
 internal class ClusterArtworkServer : Closeable {
     private val images = LinkedHashMap<String, ByteArray>()
     private val server = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
@@ -66,11 +66,15 @@ internal class ClusterArtworkServer : Closeable {
     }
 
     fun publish(png: ByteArray): String {
-        val path = "/${UUID.randomUUID()}.png"
-        synchronized(images) {
+        val path = synchronized(images) {
+            // Repeated transfers of the same cover must keep the receiver's cache identity.
+            val path = images.entries.firstOrNull { it.value.contentEquals(png) }?.key
+                ?: "/${UUID.randomUUID()}.png"
+            images.remove(path)
             images[path] = png
             published++
             while (images.size > 4) images.remove(images.keys.first())
+            path
         }
         return "http://127.0.0.1:${server.localPort}$path"
     }

@@ -8,6 +8,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ClusterArtworkServerTest {
+    @Test fun identicalContentKeepsItsUrlAndRecentlyUsedCover() {
+        ClusterArtworkServer().use { server ->
+            val cover = byteArrayOf(1, 2, 3)
+            val first = server.publish(cover)
+            repeat(3) { server.publish(byteArrayOf(it.toByte())) }
+            assertEquals(first, server.publish(cover.copyOf()))
+            assertNotEquals(first, server.publish(byteArrayOf(1, 2, 4)))
+            assertArrayEquals(cover, URL(first).openStream().use { it.readBytes() })
+        }
+    }
+
     @Test fun servesExactCoverOnLoopbackAndBoundsRetainedCovers() {
         val server = ClusterArtworkServer()
         val cover = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 1, 2, 3)

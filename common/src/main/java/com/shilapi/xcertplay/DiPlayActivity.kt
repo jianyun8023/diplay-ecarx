@@ -116,6 +116,7 @@ internal enum class SettingsSection {
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
     ADVANCED_MEDIA,
+    MEDIA_OUTPUT,
     EXTERNAL_SIRI,
     CAR_BUTTON,
     AUDIO_ROUTING,
@@ -155,6 +156,7 @@ internal object SettingsInformationArchitecture {
             SettingsSection.EXTERNAL_CONTROLLER,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
+            SettingsSection.MEDIA_OUTPUT,
             SettingsSection.EXTERNAL_SIRI,
             SettingsSection.NAVIGATION_WHEEL,
         ),
@@ -2000,6 +2002,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
         }
         // Opt-in controls that can cost sound or video on some head units.
+        filteredSection(content, SettingsSection.MEDIA_OUTPUT,
+            getString(R.string.settings_media_output_mode), R.drawable.ic_dp_audio) { card ->
+            choice(card, getString(R.string.settings_media_output_mode), listOf(
+                getString(R.string.settings_media_output_android),
+                getString(R.string.settings_media_output_ecarx),
+            ), MediaSessionSettings.mode(this).ordinal, reconnects = false) {
+                MediaSessionSettings.setMode(this, MediaSessionMode.entries[it])
+                markReconnectNeeded()
+            }
+            card.addView(label(getString(R.string.settings_media_output_description), 14, MUTED))
+        }
         filteredSection(content, SettingsSection.EXTERNAL_SIRI,
             getString(R.string.settings_external_siri), R.drawable.ic_dp_controls) { card ->
             toggle(card, getString(R.string.settings_external_siri),

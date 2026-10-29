@@ -14,7 +14,7 @@ import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.network.GeelyHeadUnit
 
 /**
- * Geely/Lynk steering-wheel media keys.
+ * Geely/Lynk steering-wheel media keys, owned only in ECARX media mode.
  *
  * The head unit maps the wheel's keys to vendor key codes and routes them only through its own input
  * stack - no standard Android KeyEvent is produced - so a media session or accessibility service
@@ -47,6 +47,7 @@ internal object GeelyWheelKeys {
     /** Binds while a CarPlay session is active; safe to call repeatedly. */
     @Synchronized
     fun start(context: Context) {
+        if (!CarPlayMediaSession.managesVehicleKeys()) return
         if (!GeelyHeadUnit.detected) return
         appContext = context.applicationContext
         if (bound) return

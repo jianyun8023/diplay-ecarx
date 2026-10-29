@@ -60,6 +60,8 @@ internal class EcarxMediaCenterTransport(
 
     @Volatile private var now = CarPlayNowPlaying()
     @Volatile private var artwork: Uri? = null
+    private var publishedNow: CarPlayNowPlaying? = null
+    private var publishedArtwork: Uri? = null
     private val closed = AtomicBoolean(false)
     private val connectionAlive = AtomicBoolean(false)
     private var bound = false
@@ -123,10 +125,16 @@ internal class EcarxMediaCenterTransport(
         check(registered && connectionAlive.get() && !closed.get() && valid()) { "SESSION_CHANGED" }
         require(realMedia(now)) { "NO_MEDIA" }
         this.now = now; this.artwork = artwork
+        if (publishedNow?.copy(elapsedMillis = now.elapsedMillis) == now && publishedArtwork == artwork) {
+            contract.progress.invoke(service, token, (now.elapsedMillis ?: 0L).coerceAtLeast(0L))
+            return true
+        }
         val queue = contract.mediaList.apply { isAccessible = true }.invoke(null, listOf(media))
         contract.playlist.invoke(service, token, SOURCE, queue)
         val accepted = contract.playback.invoke(service, token, wirePlayback) == true
         contract.progress.invoke(service, token, (now.elapsedMillis ?: 0L).coerceAtLeast(0L))
+        publishedNow = now.takeIf { accepted }
+        publishedArtwork = artwork
         return accepted
     }
 
@@ -138,6 +146,7 @@ internal class EcarxMediaCenterTransport(
     }
 
     override fun clear() {
+        publishedNow = null; publishedArtwork = null
         now = CarPlayNowPlaying(); artwork = null
         if (token == null || service == null || !connectionAlive.get()) return
         contract.playlist.invoke(service, token, SOURCE, emptyList<Any>())

@@ -23,13 +23,11 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
-import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.hud.EcarxCapabilities
 import com.shilapi.xcertplay.hud.EcarxKeyBroadcasts
 import com.shilapi.xcertplay.compat.AudioFocusRequestCompat
-import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.util.concurrent.Executors
@@ -37,13 +35,13 @@ import java.util.concurrent.Executor
 import kotlin.math.roundToInt
 
 /**
- * Coordinates CarPlay media controls, Android metadata and the ECARX MediaCenter session.
+ * Publishes CarPlay through either Android MediaSession or ECARX MediaCenter.
  *
  * Android delivers media keys to a media session; some head units pick the session of the
  * audio-focus owner. When renderer focus is enabled, this session does not request music focus
  * again. Otherwise it holds focus until CarPlay ends, unless the media-key focus compatibility
  * setting disables that request. Keys go to the iPhone as CarPlay media HID presses
- * ([CarPlayMediaButton]); HY display updates do not dispatch controls.
+ * ([CarPlayMediaButton]). Only the selected media-session backend is published.
  */
 internal object CarPlayMediaSession {
     private const val TAG = "DiPlay-MediaKeys"
@@ -77,13 +75,14 @@ internal object CarPlayMediaSession {
     private var nowPlaying = CarPlayNowPlaying()
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
+    private var artworkUri: Uri? = null
+    @Volatile private var outputMode = MediaSessionMode.ANDROID
     private var clusterArtworkServer: ClusterArtworkServer? = null
     private var lastClusterArtworkReport = "Cluster artwork HTTP: not started"
     private var lastArtworkReceived = "none"
     private var lastArtworkDecoded = "none"
     private val clusterArtworkUris = LinkedHashMap<Int, android.net.Uri>()
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
-    private var placeholder: Bitmap? = null
     private var commandAttempts = 0L
     private var commandsSent = 0L
     private var lastCommand = "none"
@@ -103,12 +102,14 @@ internal object CarPlayMediaSession {
     fun attach(context: Context, next: CarPlayController) {
         if (controller !== next) {
             releaseLocked()
+            outputMode = MediaSessionSettings.mode(context)
             externalSiriKey.reset()
             artworkOwner = artworkQueue.newSession()
         }
         appContext = context.applicationContext
         controller = next
-        beginMediaCenter(context, next)
+        if (EcarxCapabilities.detect(context).identified) EnvironmentBroadcastDiagnostics.start(context)
+        if (outputMode == MediaSessionMode.ECARX) beginMediaCenter(context, next)
         GeelyWheelKeys.start(context)
         next.playbackListener = { playing ->
             onIphonePlaying(next, playing)
@@ -119,8 +120,7 @@ internal object CarPlayMediaSession {
                     onNowPlayingChanged(next)
                     // The same metadata the car's media session shows is what an ECARX cluster's media card
                     // wants, so it is forwarded from here rather than read a second time off the controller.
-                    publishMediaCenter(update,
-                        if (albumTrackChanged(nowPlaying, update)) null else clusterArtworkUris[update.artworkTransferId])
+                    publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId], "metadata-received")
                 }
             }
         }
@@ -178,13 +178,13 @@ internal object CarPlayMediaSession {
                         // cancelling it here loses a valid in-flight cover for a reused reference.
                         initialAlbumRecovery = InitialAlbumRecovery()
                     }
-                    artwork = nextArtwork(update.artworkTransferId, artworkCache, artwork)
+                    artwork = artworkCache[update.artworkTransferId]
+                    artworkUri = clusterArtworkUris[update.artworkTransferId]
                 }
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
                 val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
-                val playingChanged = nowPlaying.playing != update.playing
                 nowPlaying = update
-                publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId])
+                publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId], "metadata-applied")
                 if (metadataChanged) ClusterMusicState.publish(update, artwork)
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
@@ -192,9 +192,8 @@ internal object CarPlayMediaSession {
                 // to every media listener, and on one head unit that exhausted memory within
                 // minutes. The position goes in the playback state.
                 if (metadataChanged) {
-                    session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
+                    session?.setMetadata(androidMetadata(update, artwork, artworkUri))
                 }
-                if (metadataChanged || playingChanged) publishHyArtwork()
                 publishPlaybackStateLocked()
             }
         }
@@ -239,19 +238,12 @@ internal object CarPlayMediaSession {
         while (artworkCache.size > MAX_CACHED_ARTWORK) artworkCache.remove(artworkCache.keys.first())
         if (nowPlaying.artworkTransferId == id) {
             artwork = decoded
-            publishMediaCenter(nowPlaying, clusterArtworkUris[id])
+            artworkUri = clusterArtworkUris[id]
+            publishMediaCenter(nowPlaying, clusterArtworkUris[id], "artwork-decoded")
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
-            session?.setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
-            publishHyArtwork()
+            session?.setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
         }
-    }
-
-    private fun publishHyArtwork() {
-        val context = appContext ?: return
-        if (session?.isActive != true) return
-        val uri = clusterArtworkUris[nowPlaying.artworkTransferId] ?: return
-        HyMediaDisplay.publishArtwork(context, nowPlaying, uri)
     }
 
     @Synchronized
@@ -352,7 +344,9 @@ internal object CarPlayMediaSession {
         val context = appContext ?: return
         if (controller == null) return
         mediaAudioActive = active
-        if (active && session == null) start(context) else if (active) regainFocusLocked()
+        if (outputMode == MediaSessionMode.ANDROID) {
+            if (active && session == null) start(context) else if (active) regainFocusLocked()
+        }
         publishPlaybackStateLocked()
     }
 
@@ -389,10 +383,9 @@ internal object CarPlayMediaSession {
         }
         session = MediaSession(context, "DiPlay CarPlay").apply {
             setCallback(callback, mainHandler)
-            setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
+            setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
             isActive = true
         }
-        publishHyArtwork()
         Log.i(TAG, "media keys active focusDisabled=$focusDisabled focusGranted=$granted rendererOwnsFocus=$rendererOwnsFocus")
         WheelKeyLog.note("media keys active focusDisabled=$focusDisabled focusGranted=$granted rendererOwnsFocus=$rendererOwnsFocus")
     }
@@ -439,8 +432,10 @@ internal object CarPlayMediaSession {
     }
 
     private fun releaseLocked() {
+        EnvironmentBroadcastDiagnostics.stop()
         releaseVoiceKeyLocked()
         endMediaCenter()
+        outputMode = MediaSessionMode.ANDROID
         focusOwner = null
         artworkOwner = null
         initialAlbumRetry?.let(mainHandler::removeCallbacks)
@@ -458,8 +453,9 @@ internal object CarPlayMediaSession {
         // Whatever the cluster's media card was showing belongs to a session that just ended. The
         // controller pushes its own cleared frame on teardown, but that goes through the listener
         // this method may itself be clearing, so the blank state is pushed from here as well.
-        publishMediaCenter(nowPlaying)
+        publishMediaCenter(nowPlaying, reason = "clear")
         artwork = null
+        artworkUri = null
         artworkCache.clear()
         clusterArtworkUris.clear()
         clusterArtworkServer?.let {
@@ -520,7 +516,7 @@ internal object CarPlayMediaSession {
 
     /** A steering-wheel media key captured outside the Android key stream (Geely/Lynk). */
     internal fun onExternalMediaKey(index: Int) {
-        if (!isMediaCenterActive()) send(index, "geely-wheel")
+        if (managesVehicleKeys() && !isMediaCenterActive()) send(index, "geely-wheel")
     }
 
     private fun onMediaCenterKey(expected: CarPlayController, index: Int) {
@@ -534,7 +530,7 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     internal fun onSessionActive(expected: CarPlayController, session: AirPlaySession) {
-        if (controller !== expected || expected.activeAirPlaySession() !== session || voiceKeySession === session) return
+        if (!managesVehicleKeys() || controller !== expected || expected.activeAirPlaySession() !== session || voiceKeySession === session) return
         releaseVoiceKeyLocked()
         val context = appContext ?: return
         if (!EcarxCapabilities.detect(context).identified) return
@@ -549,7 +545,10 @@ internal object CarPlayMediaSession {
             }) { ordered ->
                 synchronized(this) {
                     // An unordered broadcast cannot suppress the factory assistant.
-                    val sent = ordered && externalSiriKey.opens(SystemClock.uptimeMillis()) && expected.requestSiri()
+                    val assignedVoice = WheelZoomSettings.siriKey(context) &&
+                        WheelZoomSettings.key(context, WheelZoomSettings.Role.SIRI)?.code
+                            ?.let(CarPlayMediaButton::opensSiri) == true
+                    val sent = !assignedVoice && ordered && externalSiriKey.opens(SystemClock.uptimeMillis()) && expected.requestSiri()
                     WheelKeyLog.note("ECARX voice short press ordered=$ordered sent=$sent")
                 }
             }
@@ -580,6 +579,7 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     internal fun onExternalSiriKey(keyCode: Int = CarPlayMediaButton.ECARX_VOICE_200231): Boolean {
+        if (!managesVehicleKeys()) return false
         val active = controller ?: return false
         if (voiceKeyReceiver != null && CarPlayMediaButton.opensSiri(keyCode)) return false
         if (appContext?.let(::inCall) == true) return false
@@ -594,7 +594,7 @@ internal object CarPlayMediaSession {
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
         previous.copy(elapsedMillis = null, playing = false) != next.copy(elapsedMillis = null, playing = false)
 
-    internal fun androidMetadata(info: CarPlayNowPlaying, artwork: Bitmap? = null): MediaMetadata =
+    internal fun androidMetadata(info: CarPlayNowPlaying, artwork: Bitmap? = null, artworkUri: Uri? = null): MediaMetadata =
         MediaMetadata.Builder().apply {
             info.title?.let {
                 putString(MediaMetadata.METADATA_KEY_TITLE, it)
@@ -611,25 +611,12 @@ internal object CarPlayMediaSession {
                 putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, it)
                 putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON, it)
             }
+            artworkUri?.toString()?.let {
+                putString(MediaMetadata.METADATA_KEY_ART_URI, it)
+                putString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI, it)
+                putString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI, it)
+            }
         }.build()
-
-    // Without art the car draws DiPlay's bright launcher icon instead.
-    private fun shownArtworkLocked(): Bitmap? =
-        artwork ?: placeholder ?: appContext?.let(::placeholderArt)?.also { placeholder = it }
-
-    internal fun placeholderArt(context: Context): Bitmap? = context
-        .getDrawable(R.drawable.art_now_playing_placeholder)
-        ?.toBitmap(MAX_ARTWORK_DIMENSION, MAX_ARTWORK_DIMENSION)
-
-    /**
-     * The art to show once the iPhone names transfer [id]. A pending transfer keeps [current], so the
-     * placeholder does not flash between tracks.
-     */
-    internal fun nextArtwork(id: Int?, cache: Map<Int, Bitmap?>, current: Bitmap?): Bitmap? = when {
-        id == null -> null
-        cache.containsKey(id) -> cache[id]
-        else -> current
-    }
 
     private data class AmbientArtwork(val bitmap: Bitmap, val color: Int?, val png: ByteArray)
 
@@ -691,6 +678,11 @@ internal object CarPlayMediaSession {
     private const val MAX_CACHED_ARTWORK = 4
     // Keep MediaCenter lifecycle serialization separate from the Android media-session monitor.
     private val mediaCenterLock = Any()
+    private var lastMediaPublication: CarPlayNowPlaying? = null
+    private var lastMediaArtwork: Uri? = null
+    private var mediaPublicationCount = 0L
+    private var mediaProgressOnlyCount = 0L
+    private val mediaPublicationEvents = ArrayDeque<String>()
     private data class MediaCenterOwner(val context: Context, val controller: CarPlayController)
     @Volatile private var mediaCenterOwner: MediaCenterOwner? = null
     private val mediaCenterMain = Handler(Looper.getMainLooper())
@@ -706,6 +698,8 @@ internal object CarPlayMediaSession {
         endMediaCenter()
         val entry = MediaCenterOwner(context.applicationContext, controller)
         mediaCenterOwner = entry
+        lastMediaPublication = null
+        lastMediaArtwork = null
         if (!mediaCenterTicking) {
             mediaCenterTicking = true
             mediaCenterTimer.scheduleAtFixedRate({ mediaCenterEngine.tick() }, 1, 1, TimeUnit.SECONDS)
@@ -714,18 +708,43 @@ internal object CarPlayMediaSession {
 
     private fun endMediaCenter(): Unit = synchronized(mediaCenterLock) {
         val previous = mediaCenterOwner ?: return@synchronized
+        val event = "elapsedMs=${SystemClock.elapsedRealtime()} reason=owner-stop artwork=${lastMediaArtwork != null}->false"
+        while (mediaPublicationEvents.size >= 32) mediaPublicationEvents.removeFirst()
+        mediaPublicationEvents.addLast(event)
+        Log.i(TAG, "ECARX media request $event")
         mediaCenterOwner = null
         mediaCenterEngine.stop(previous)
     }
 
-    private fun publishMediaCenter(now: CarPlayNowPlaying, artwork: Uri? = null): Unit = synchronized(mediaCenterLock) {
+    private fun publishMediaCenter(now: CarPlayNowPlaying, artwork: Uri? = null, reason: String = "metadata"): Unit = synchronized(mediaCenterLock) {
         val entry = mediaCenterOwner ?: return@synchronized
+        val previous = lastMediaPublication
+        val trackChanged = previous != null && albumTrackChanged(previous, now)
+        val artworkChanged = artwork != lastMediaArtwork
+        mediaPublicationCount++
+        if (previous != null && !metadataChanged(previous, now) && previous.playing == now.playing &&
+            !artworkChanged && previous.elapsedMillis != now.elapsedMillis) {
+            mediaProgressOnlyCount++
+        }
+        // Requests may coalesce before Binder publication; never log URI contents or track text.
+        if (previous == null || trackChanged || artworkChanged || reason == "clear") {
+            val event = "elapsedMs=${SystemClock.elapsedRealtime()} reason=$reason trackChanged=$trackChanged " +
+                "reference=${now.artworkTransferId ?: -1} artwork=${lastMediaArtwork != null}->${artwork != null} " +
+                "uriChanged=$artworkChanged playing=${now.playing}"
+            while (mediaPublicationEvents.size >= 32) mediaPublicationEvents.removeFirst()
+            mediaPublicationEvents.addLast(event)
+            Log.i(TAG, "ECARX media request $event")
+        }
+        lastMediaPublication = now
+        lastMediaArtwork = artwork
         mediaCenterEngine.update(MediaCenterSessionEngine.Desired(entry, now, artwork) {
-            mediaCenterOwner === entry && EcarxOutputSettings.mediaEnabled(entry.context) &&
+            mediaCenterOwner === entry && outputMode == MediaSessionMode.ECARX && EcarxOutputSettings.mediaEnabled(entry.context) &&
                 CarPlayBackgroundSession.active &&
                 CarPlayBackgroundSession.snapshot()?.controller === entry.controller
         })
     }
+
+    internal fun managesVehicleKeys(): Boolean = outputMode == MediaSessionMode.ECARX
 
     fun isMediaCenterActive(controller: CarPlayController? = null): Boolean {
         val entry = mediaCenterOwner ?: return false
@@ -748,12 +767,15 @@ internal object CarPlayMediaSession {
     }
 
     /** Fixed state only: never a token, device identifier, track title, or Binder object string. */
-    fun mediaCenterDiagnosticReport(): String {
+    fun mediaCenterDiagnosticReport(): String = synchronized(mediaCenterLock) {
         val current = mediaCenterOwner
         val state = mediaCenterEngine.snapshot()
-        return "ECARX MediaCenter session=${if (current == null) "NO_SESSION" else "ACTIVE"} " +
+        "ECARX MediaCenter session=${if (current == null) "NO_SESSION" else "ACTIVE"} " +
             "phase=${state.phase} reason=${state.detail} registered=${state.registered} " +
-            "playbackAccepted=${state.accepted} playClaimed=${state.claimed} artworkSupported=${state.artworkSupported} uncertain=${state.uncertain}"
+            "playbackAccepted=${state.accepted} playClaimed=${state.claimed} artworkSupported=${state.artworkSupported} uncertain=${state.uncertain}\n" +
+            "Media output active=$outputMode saved=${appContext?.let(MediaSessionSettings::mode)}\n" +
+            "ECARX media requests=$mediaPublicationCount progressOnly=$mediaProgressOnlyCount (requests may coalesce)\n" +
+            mediaPublicationEvents.joinToString("\n") + "\n" + EnvironmentBroadcastDiagnostics.report()
     }
 }
 

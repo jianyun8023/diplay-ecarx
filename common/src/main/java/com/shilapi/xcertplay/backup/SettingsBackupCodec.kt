@@ -72,6 +72,7 @@ object SettingsBackupCodec {
         "carplay_picture" to Policy.Allow(PICTURE_KEYS, types = PICTURE_KEYS.associateWith { KeyType.INT }),
         "diplay_car_hotspot" to Policy.Allow(CAR_HOTSPOT_KEYS, types = CAR_HOTSPOT_KEYS.associateWith { KeyType.BOOLEAN }),
         "diplay_external_siri" to Policy.Allow(setOf("enabled"), types = mapOf("enabled" to KeyType.BOOLEAN)),
+        "diplay_media_session" to Policy.Allow(setOf("ecarx"), types = mapOf("ecarx" to KeyType.BOOLEAN)),
         "diplay_hy_compatibility" to Policy.Allow(LEGACY_LAUNCHER_SIRI_KEYS, types = LEGACY_LAUNCHER_SIRI_KEYS.associateWith { KeyType.BOOLEAN }),
     )
 
