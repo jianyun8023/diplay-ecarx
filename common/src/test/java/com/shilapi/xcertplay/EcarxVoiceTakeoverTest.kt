@@ -27,6 +27,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
@@ -86,6 +87,20 @@ class EcarxVoiceTakeoverTest {
         verify(controller, times(2)).requestSiri()
     }
 
+    @Test fun androidMediaModeTakesTheVoiceBroadcastWithoutTakingVehicleMediaKeys() {
+        CarPlayMediaSession.detach(controller)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.attach(app, controller)
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        assertTrue(CarPlayMediaSession.ecarxVoiceKeyActive())
+        assertFalse(CarPlayMediaSession.managesVehicleKeys())
+        assertFalse(CarPlayMediaSession.isMediaCenterActive())
+        send(0)
+        verify(controller).requestSiri()
+        assertEquals(0, factoryPresses)
+    }
+
     @Test fun customVoiceKeyWinsOverTheDefaultReceiverWithoutRequestingTwice() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
         val down = KeyEvent(KeyEvent.ACTION_DOWN, 200231)
@@ -98,6 +113,7 @@ class EcarxVoiceTakeoverTest {
             ReflectionHelpers.setField(host, "activeAirPlaySession", phone)
             assertTrue(host.dispatchKeyEvent(down))
             assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, 200231)))
+            verify(controller, never()).requestSiri()
             send(0)
             verify(controller, times(1)).requestSiri()
             assertEquals(0, factoryPresses)
@@ -109,13 +125,101 @@ class EcarxVoiceTakeoverTest {
         }
     }
 
-    @Test fun assignedVoiceKeyKeepsItsCustomGestureWithoutADefaultSiriRequest() {
+    @Test fun assignedVoiceKeyOpensSiriFromTheBroadcastWithoutAnyKeyEvent() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
         WheelZoomSettings.setSiriKey(app, true)
         WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey(200231, 0, "?"))
         CarPlayMediaSession.onSessionActive(controller, phone)
         send(0)
         assertEquals(0, factoryPresses)
+        verify(controller).requestSiri()
+    }
+
+    @Test fun assignedDoubleVoiceUsesBroadcastsAndIgnoresDuplicateRawKeyPaths() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        WheelZoomSettings.setSiriKey(app, true)
+        WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey.of(KeyEvent(KeyEvent.ACTION_DOWN, 200231)))
+        WheelZoomSettings.setSiriDoublePress(app, true)
+        WheelZoomSettings.setSiriDoublePressIntervalMillis(app, 600)
+        WheelZoomSettings.setSiriTriggerDelayMillis(app, 300)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val serviceController = Robolectric.buildService(WheelKeyService::class.java).create()
+        try {
+            ReflectionHelpers.setField(host, "controller", controller)
+            ReflectionHelpers.setField(host, "activeAirPlaySession", phone)
+            val service = serviceController.get()
+            service.session = { phone }
+            service.requestSiri = { controller.requestSiri() }
+            val receive = service.javaClass.getDeclaredMethod("onKeyEvent", KeyEvent::class.java).apply { isAccessible = true }
+            repeat(2) {
+                for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
+                    val key = KeyEvent(action, 200231)
+                    assertTrue(receive.invoke(service, key) as Boolean)
+                    assertTrue(host.dispatchKeyEvent(key))
+                }
+                send(0)
+                if (it == 0) {
+                    send(0) // A duplicate callback is not the second physical press.
+                    shadowOf(Looper.getMainLooper()).idleFor(250, TimeUnit.MILLISECONDS)
+                }
+                verify(controller, never()).requestSiri()
+            }
+            shadowOf(Looper.getMainLooper()).idleFor(299, TimeUnit.MILLISECONDS)
+            verify(controller, never()).requestSiri()
+            shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.MILLISECONDS)
+            verify(controller, times(1)).requestSiri()
+            assertEquals(0, factoryPresses)
+        } finally {
+            serviceController.destroy()
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()
+            }
+        }
+    }
+
+    @Test fun broadcastDoublePressExpiresAndRequiresTwoFreshPresses() {
+        assignDoubleVoice()
+        send(0)
+        shadowOf(Looper.getMainLooper()).idleFor(601, TimeUnit.MILLISECONDS)
+        send(0)
+        shadowOf(Looper.getMainLooper()).idleFor(250, TimeUnit.MILLISECONDS)
+        verify(controller, never()).requestSiri()
+        send(0)
+        shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+        verify(controller, times(1)).requestSiri()
+        assertEquals(0, factoryPresses)
+    }
+
+    @Test fun disconnectCancelsTheDelayedBroadcastRequest() {
+        assignDoubleVoice()
+        send(0)
+        shadowOf(Looper.getMainLooper()).idleFor(250, TimeUnit.MILLISECONDS)
+        send(0)
+        CarPlayMediaSession.onSessionEnded(phone)
+        shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+        verify(controller, never()).requestSiri()
+        send(0)
+        assertEquals(1, factoryPresses)
+    }
+
+    @Test fun aCallOrChangedAssignmentCancelsTheDelayedBroadcastRequest() {
+        assignDoubleVoice()
+        send(0)
+        shadowOf(Looper.getMainLooper()).idleFor(250, TimeUnit.MILLISECONDS)
+        send(0)
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
+        shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
+        verify(controller, never()).requestSiri()
+        send(0)
+        assertEquals(1, factoryPresses)
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
+        send(0)
+        shadowOf(Looper.getMainLooper()).idleFor(250, TimeUnit.MILLISECONDS)
+        send(0)
+        WheelZoomSettings.setSiriKey(app, false)
+        shadowOf(Looper.getMainLooper()).idleFor(300, TimeUnit.MILLISECONDS)
         verify(controller, never()).requestSiri()
     }
 
@@ -202,6 +306,16 @@ class EcarxVoiceTakeoverTest {
         send(0)
         assertEquals(2, factoryPresses)
         assertFalse(CarPlayMediaSession.ecarxVoiceKeyActive())
+    }
+
+    private fun assignDoubleVoice() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        WheelZoomSettings.setSiriKey(app, true)
+        WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey(200231, 0, "?"))
+        WheelZoomSettings.setSiriDoublePress(app, true)
+        WheelZoomSettings.setSiriDoublePressIntervalMillis(app, 600)
+        WheelZoomSettings.setSiriTriggerDelayMillis(app, 300)
+        CarPlayMediaSession.onSessionActive(controller, phone)
     }
 
     private fun send(type: Int?, marked: Boolean = false, ordered: Boolean = true) {

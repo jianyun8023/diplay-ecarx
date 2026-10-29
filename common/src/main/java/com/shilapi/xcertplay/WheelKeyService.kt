@@ -188,8 +188,9 @@ class WheelKeyService : AccessibilityService() {
         }
         if (navigationKeys.owns(event.keyCode, event.deviceId, event.downTime)) return navigationKey(event)
         val key = WheelKey.of(event)
+        val voiceBroadcast = CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()
         if (learning == null && !WheelZoomSettings.isSiriKey(this, key) &&
-            CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()) return false
+            voiceBroadcast) return false
         refreshEligibility()
         val calling = inCall(this)
         if (calling) clearLearning()
@@ -209,7 +210,7 @@ class WheelKeyService : AccessibilityService() {
             clearDoubleSiri()
         }
         if (role == WheelZoomSettings.Role.SIRI && WheelZoomSettings.siriDoublePress(this) &&
-            learning == null && activeSession != null) {
+            learning == null && activeSession != null && !voiceBroadcast) {
             lastObservedDoubleSiriEvent = WheelKeyEventFingerprint.of(event)
             if (down && event.repeatCount == 0 && pendingDoubleSiri?.physicalKey == physicalKey) {
                 pendingDoubleSiri = null
@@ -275,7 +276,7 @@ class WheelKeyService : AccessibilityService() {
                         done?.invoke(role, key)
                     }
                     WheelZoomKeys.Action.CONSUME
-                } ?: mediaPress(role, calling) ?: siriPress(role, calling, event.eventTime) ?: joystickPress(role, calling)
+                } ?: mediaPress(role, calling) ?: siriPress(role, calling, event.eventTime, voiceBroadcast) ?: joystickPress(role, calling)
             },
         )
         when (action) {
@@ -346,9 +347,9 @@ class WheelKeyService : AccessibilityService() {
     }
 
     // Without a CarPlay session, or in a call, the key keeps the car's own action.
-    private fun siriPress(role: WheelZoomSettings.Role?, calling: Boolean, eventTime: Long): WheelZoomKeys.Action? {
+    private fun siriPress(role: WheelZoomSettings.Role?, calling: Boolean, eventTime: Long, voiceBroadcast: Boolean): WheelZoomKeys.Action? {
         if (role != WheelZoomSettings.Role.SIRI || calling || session() == null) return null
-        if (siriKey.opens(eventTime)) note("Siri key sent=${requestSiri()}")
+        if (!voiceBroadcast && siriKey.opens(eventTime)) note("Siri key sent=${requestSiri()}")
         return WheelZoomKeys.Action.CONSUME
     }
 

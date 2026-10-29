@@ -1403,6 +1403,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val doublePress = WheelZoomSettings.siriDoublePress(this)
         val activeSession = activeAirPlaySession
         val calling = inCall(this)
+        val voiceBroadcast = CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()
         pendingDoubleSiri?.let { pending ->
             if (!doublePress || !WheelZoomSettings.isSiriKey(this, pending.assignedKey) ||
                 activeSession !== pending.session) {
@@ -1411,7 +1412,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 siriKey.reset()
             }
         }
-        if (downOrUp && assignedKey && doublePress && activeSession != null) {
+        if (downOrUp && assignedKey && doublePress && activeSession != null && !voiceBroadcast) {
             var confirmed = false
             var confirmedPair = false
             var doubleAction: WheelSiriKey.DoublePressAction? = null
@@ -1466,7 +1467,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (activeAirPlaySession == null || !assignedKey || inCall(this)) {
                 return@filter WheelZoomKeys.Action.PASS
             }
-            if (siriKey.opens(event.eventTime)) {
+            if (!voiceBroadcast && siriKey.opens(event.eventTime)) {
                 val message = "Siri: assigned key ${event.keyCode} sent=${controller?.requestSiri() == true}"
                 Log.i(WheelKeyService.TAG, message)
                 appendLog(message)
