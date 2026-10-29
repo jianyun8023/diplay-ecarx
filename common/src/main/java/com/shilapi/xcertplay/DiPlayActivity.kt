@@ -2675,7 +2675,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 }
                 render()
                 if (source != null) {
-                    if (result == CarHotspotTethering.Result.READY) connectPreparedWithSource(true, source)
+                    // Unknown AP state is not readiness. Let the controller validate the saved
+                    // credentials and actual interface, as it does without this launcher preflight.
+                    val manualFallback = result == CarHotspotTethering.Result.UNSUPPORTED &&
+                        com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(app) == null
+                    if (result == CarHotspotTethering.Result.READY || manualFallback) connectPreparedWithSource(true, source)
                     else toast(hotspotResultText(result))
                 }
             }
