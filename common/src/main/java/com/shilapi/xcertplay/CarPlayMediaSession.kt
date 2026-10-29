@@ -582,7 +582,7 @@ internal object CarPlayMediaSession {
                 synchronized(this) {
                     // An unordered broadcast cannot suppress the factory assistant.
                     if (!ordered) {
-                        WheelKeyLog.note("ECARX voice short press ordered=false sent=false")
+                        WheelKeyLog.note("ECARX voice short press ordered=false queued=false")
                         return@synchronized
                     }
                     val assignedVoice = WheelZoomSettings.key(context, WheelZoomSettings.Role.SIRI)?.takeIf {
@@ -601,8 +601,8 @@ internal object CarPlayMediaSession {
                                         expected.activeAirPlaySession() !== session || inCall(context) ||
                                         !WheelZoomSettings.isSiriKey(context, assignedVoice) ||
                                         !WheelZoomSettings.siriDoublePress(context)) return@delayed
-                                    val sent = expected.requestSiri()
-                                    WheelKeyLog.note("ECARX voice double press sent=$sent intervalMs=$interval delayMs=$delay")
+                                    val queued = expected.requestSiri()
+                                    WheelKeyLog.note("ECARX voice double press queued=$queued intervalMs=$interval delayMs=$delay")
                                 }
                             }
                             delayedVoiceSiri = request
@@ -612,8 +612,8 @@ internal object CarPlayMediaSession {
                     } else {
                         delayedVoiceSiri?.let(mainHandler::removeCallbacks)
                         delayedVoiceSiri = null
-                        val sent = externalSiriKey.opens(SystemClock.uptimeMillis()) && expected.requestSiri()
-                        WheelKeyLog.note("ECARX voice short press ordered=true sent=$sent")
+                        val queued = externalSiriKey.opens(SystemClock.uptimeMillis()) && expected.requestSiri()
+                        WheelKeyLog.note("ECARX voice short press ordered=true queued=$queued")
                     }
                 }
             }
@@ -647,8 +647,8 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     internal fun onExternalSiriKey(keyCode: Int = CarPlayMediaButton.ECARX_VOICE_200231): Boolean {
-        if (!managesVehicleKeys()) return false
         val active = controller ?: return false
+        if (active.activeAirPlaySession() == null) return false
         if (voiceKeyReceiver != null && CarPlayMediaButton.opensSiri(keyCode)) return false
         if (appContext?.let(::inCall) == true) return false
         // One wheel press can reach both the ECARX callback and the Geely listener.

@@ -19,7 +19,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.*
-import org.robolectric.RobolectricTestRunner
+import org.robolectric.ParameterizedRobolectricTestRunner
 import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -29,10 +29,10 @@ import org.robolectric.util.ReflectionHelpers
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
-@RunWith(RobolectricTestRunner::class)
+@RunWith(ParameterizedRobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
-class EcarxVoiceTakeoverTest {
+internal class EcarxVoiceTakeoverTest(private val mode: MediaSessionMode) {
     private val app get() = RuntimeEnvironment.getApplication()
     private val controller = mock(CarPlayController::class.java)
     private val phone = mock(AirPlaySession::class.java)
@@ -42,7 +42,7 @@ class EcarxVoiceTakeoverTest {
     }
 
     @Before fun setup() {
-        MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
+        MediaSessionSettings.setMode(app, mode)
         shadowOf(app.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xiaoka" })
         `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
         `when`(controller.requestSiri()).thenReturn(true)
@@ -242,7 +242,7 @@ class EcarxVoiceTakeoverTest {
         send(0, ordered = false)
         assertEquals(1, factoryPresses)
         verify(controller, never()).requestSiri()
-        assertTrue(WheelKeyLog.report(false).any { it.contains("ordered=false sent=false") })
+        assertTrue(WheelKeyLog.report(false).any { it.contains("ordered=false queued=false") })
     }
 
     @Test fun activityKeyCleanupDoesNotRemoveTheSessionReceiver() {
@@ -326,5 +326,26 @@ class EcarxVoiceTakeoverTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    companion object { private const val ACTION = "ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT" }
+    @Test fun rawVoiceDoesNotRequestSiriBeforeConnection() {
+        assertFalse(CarPlayMediaSession.onExternalSiriKey())
+        verify(controller, never()).requestSiri()
+    }
+
+    @Test fun rawVoiceFallbackChecksCallStateAndDebouncesInEitherMode() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
+        assertFalse(CarPlayMediaSession.onExternalSiriKey())
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
+        assertTrue(CarPlayMediaSession.onExternalSiriKey())
+        assertFalse(CarPlayMediaSession.onExternalSiriKey())
+        verify(controller, times(1)).requestSiri()
+    }
+
+    companion object {
+        private const val ACTION = "ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT"
+
+        @JvmStatic
+        @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
+        fun modes() = MediaSessionMode.entries.map { arrayOf(it) }
+    }
 }

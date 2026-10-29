@@ -14,7 +14,7 @@ import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.network.GeelyHeadUnit
 
 /**
- * Geely/Lynk steering-wheel media keys, owned only in ECARX media mode.
+ * Geely/Lynk steering-wheel voice key in either mode; media keys only in ECARX media mode.
  *
  * The head unit maps the wheel's keys to vendor key codes and routes them only through its own input
  * stack - no standard Android KeyEvent is produced - so a media session or accessibility service
@@ -47,7 +47,6 @@ internal object GeelyWheelKeys {
     /** Binds while a CarPlay session is active; safe to call repeatedly. */
     @Synchronized
     fun start(context: Context) {
-        if (!CarPlayMediaSession.managesVehicleKeys()) return
         if (!GeelyHeadUnit.detected) return
         appContext = context.applicationContext
         if (bound) return
@@ -94,7 +93,7 @@ internal object GeelyWheelKeys {
                     Log.i(TAG, "long press key=$keyCode func=$softKeyFunction")
                     // Keep the long-press shortcut alongside the connected-session short press.
                     if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
-                        Log.i(TAG, "Siri requested=${CarPlayMediaSession.onExternalSiriKey()}")
+                        Log.i(TAG, "Siri queued=${CarPlayMediaSession.onExternalSiriKey()}")
                     }
                 }
                 override fun onDoubleClick(keyCode: Int, softKeyFunction: Int) {}
@@ -108,7 +107,7 @@ internal object GeelyWheelKeys {
                 // the iPhone's music, so forwarding play/pause and skip over iAP2 as well would
                 // double-fire. Keep only the microphone key then.
                 val bluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(context)
-                val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio)
+                val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio, CarPlayMediaSession.managesVehicleKeys())
                 if (bluetoothAudio) {
                     Log.i(TAG, "car Bluetooth audio on: media keys pass to the head unit, only the Siri key is wired")
                 }
@@ -142,7 +141,7 @@ internal object GeelyWheelKeys {
 
     private fun forward(keyCode: Int) {
         if (keyCode == GeelyWheelKeyCodes.KEY_VOICE_ASSIST) {
-            Log.i(TAG, "short press Siri requested=${CarPlayMediaSession.onExternalSiriKey()}")
+            Log.i(TAG, "short press Siri queued=${CarPlayMediaSession.onExternalSiriKey()}")
             return
         }
         val index = when (keyCode) {

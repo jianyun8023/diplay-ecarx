@@ -21,8 +21,8 @@ internal object GeelyWheelKeyCodes {
      *
      * With CarPlay audio on the car's Bluetooth, the head unit's own AVRCP already drives the
      * iPhone's music, so registering the media keys here too would double-fire play/pause and skip.
-     * Only the microphone key is registered then (long press -> Siri); otherwise all of them are.
+     * Android media mode also subscribes only to voice; its media keys belong to Android MediaSession.
      */
-    fun registeredCodes(bluetoothAudio: Boolean): IntArray =
-        if (bluetoothAudio) SIRI_ONLY else ALL
+    fun registeredCodes(bluetoothAudio: Boolean, ecarxMedia: Boolean): IntArray =
+        if (bluetoothAudio || !ecarxMedia) SIRI_ONLY else ALL
 }

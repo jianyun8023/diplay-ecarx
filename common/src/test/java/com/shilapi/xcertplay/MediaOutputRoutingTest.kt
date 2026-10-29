@@ -208,7 +208,8 @@ class MediaOutputRoutingTest {
             "attempts=${dispatchCounts[1].toLong() + 5} sent=${dispatchCounts[2].toLong() + 4}"))
         assertTrue(CarPlayMediaSession.diagnosticReport().contains("sent=false atEpochMs="))
         `when`(attached.controller.requestSiri()).thenReturn(true)
-        assertFalse(CarPlayMediaSession.onExternalSiriKey())
+        `when`(attached.controller.activeAirPlaySession()).thenReturn(mock(com.shilapi.xcertplay.airplay.AirPlaySession::class.java))
+        assertTrue(CarPlayMediaSession.onExternalSiriKey())
 
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(song("Android track", 7).copy(playing = false, elapsedMillis = 12_000))
         attached.now(song("Android track", 7).copy(playing = false, elapsedMillis = 12_000))
@@ -241,6 +242,7 @@ class MediaOutputRoutingTest {
         CarPlayMediaSession.onExternalMediaKey(CarPlayMediaButton.NEXT)
         verify(attached.controller, never()).sendMediaButton(anyInt())
         `when`(attached.controller.requestSiri()).thenReturn(true)
+        `when`(attached.controller.activeAirPlaySession()).thenReturn(mock(com.shilapi.xcertplay.airplay.AirPlaySession::class.java))
         assertTrue(CarPlayMediaSession.onExternalSiriKey())
         verify(attached.controller).requestSiri()
 

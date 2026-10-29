@@ -12,10 +12,17 @@ import org.junit.Test
  */
 class GeelyWheelKeyCodesTest {
 
+    @Test fun androidMediaOnlySubscribesToVoiceWithEitherAudioRoute() {
+        for (bluetooth in listOf(false, true)) {
+            assertEquals(listOf(GeelyWheelKeyCodes.KEY_VOICE_ASSIST),
+                GeelyWheelKeyCodes.registeredCodes(bluetooth, ecarxMedia = false).toList())
+        }
+    }
+
     @Test fun bluetoothAudioLeavesMediaKeysToTheHeadUnit() {
         assertEquals(
             listOf(GeelyWheelKeyCodes.KEY_VOICE_ASSIST),
-            GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = true).toList(),
+            GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = true, ecarxMedia = true).toList(),
         )
     }
 
@@ -27,7 +34,7 @@ class GeelyWheelKeyCodesTest {
                 GeelyWheelKeyCodes.KEY_PREVIOUS,
                 GeelyWheelKeyCodes.KEY_VOICE_ASSIST,
             ),
-            GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = false).toList(),
+            GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = false, ecarxMedia = true).toList(),
         )
     }
     @Test fun theSiriKeyIsAlwaysWired() {
@@ -35,7 +42,7 @@ class GeelyWheelKeyCodesTest {
             assertTrue(
                 "voice key must be registered when bluetoothAudio=$bluetooth",
                 GeelyWheelKeyCodes.KEY_VOICE_ASSIST in
-                    GeelyWheelKeyCodes.registeredCodes(bluetooth).toList(),
+                    GeelyWheelKeyCodes.registeredCodes(bluetooth, ecarxMedia = true).toList(),
             )
         }
     }
@@ -49,11 +56,11 @@ class GeelyWheelKeyCodesTest {
         mediaKeys.forEach { key ->
             assertFalse(
                 "media key $key must not double-fire over the car's Bluetooth",
-                key in GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = true).toList(),
+                key in GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = true, ecarxMedia = true).toList(),
             )
             assertTrue(
                 "media key $key must reach CarPlay when the car's Bluetooth is not used",
-                key in GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = false).toList(),
+                key in GeelyWheelKeyCodes.registeredCodes(bluetoothAudio = false, ecarxMedia = true).toList(),
             )
         }
     }
