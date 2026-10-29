@@ -55,13 +55,15 @@ class ManualHotspotControl @JvmOverloads internal constructor(
 
     fun ensureHotspot(isCancelled: () -> Boolean, timeoutMillis: Long = 8_000L): Result {
         if (timeoutMillis <= 0) return Result.TIMED_OUT
-        val result = request(true, isCancelled, timeoutMillis)
+        val deadline = platform.now() + timeoutMillis
+        val result = request(true, isCancelled, timeoutMillis, deadline = deadline)
         return if (result == Result.FAILED || (result == Result.TIMED_OUT && observe() == State.FAILED))
-            request(true, isCancelled, minOf(timeoutMillis, 8_000L), recover = true) else result
+            request(true, isCancelled, timeoutMillis, recover = true,
+                deadline = minOf(deadline, platform.now() + 8_000L)) else result
     }
 
     internal fun request(targetEnabled: Boolean, isCancelled: () -> Boolean, timeoutMillis: Long,
-        wifi: Boolean = false, recover: Boolean = false): Result {
+        wifi: Boolean = false, recover: Boolean = false, deadline: Long = platform.now() + timeoutMillis): Result {
         if (!synchronized(connectionGate) { busy.compareAndSet(false, true) }) return Result.BUSY
         var locked = false
         var radio = if (wifi) "radio=wifi " else ""
@@ -69,6 +71,7 @@ class ManualHotspotControl @JvmOverloads internal constructor(
         fun cancelled() = Thread.currentThread().isInterrupted || isCancelled()
         try {
             if (cancelled()) return Result.CANCELLED
+            if (platform.now() >= deadline) return Result.TIMED_OUT
             locked = CarHotspotTethering.startupLock.tryLock()
             if (!locked) return Result.BUSY
             val capability = if (wifi) wifiCapability() else capability()
@@ -84,7 +87,6 @@ class ManualHotspotControl @JvmOverloads internal constructor(
                     Capability.PERMISSION_REQUIRED -> return Result.PERMISSION_REQUIRED
                     Capability.AVAILABLE -> Unit
                 }
-                val deadline = platform.now() + timeoutMillis
                 var state = observeWifi()
                 while (state == State.STARTING || state == State.STOPPING) {
                     if (cancelled()) return Result.CANCELLED
@@ -100,10 +102,10 @@ class ManualHotspotControl @JvmOverloads internal constructor(
                 else listOf(wifi to targetEnabled)
             for ((stepWifi, enabled) in steps) {
                 if (cancelled()) return Result.CANCELLED
+                if (platform.now() >= deadline) return Result.TIMED_OUT
                 radio = if (stepWifi) "radio=wifi " else ""
                 requested = enabled
                 val target = if (enabled) State.ON else State.OFF
-                val deadline = platform.now() + timeoutMillis
                 var initial = if (stepWifi) observeWifi() else observe()
                 while (initial == State.STARTING || initial == State.STOPPING) {
                     if (cancelled()) return Result.CANCELLED
@@ -118,6 +120,7 @@ class ManualHotspotControl @JvmOverloads internal constructor(
                 val stoppingFailedHotspot = recover && !stepWifi && !enabled && initial == State.FAILED
                 if (initial == State.FAILED && !stoppingFailedHotspot && !(recover && !stepWifi && enabled)) return Result.FAILED
                 if (cancelled()) return Result.CANCELLED
+                if (platform.now() >= deadline) return Result.TIMED_OUT
                 val response = AtomicInteger(-1)
                 val callback: (Int) -> Unit = {
                     response.compareAndSet(-1, it)

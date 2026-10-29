@@ -1,0 +1,9 @@
+<resources>
+    <string name="settings_navigation_content">導航音訊模式（實驗性）</string>
+    <string name="settings_navigation_content_standard">標準導航（12/1）</string>
+    <string name="settings_navigation_content_oem">ECARX 導航（12/20）</string>
+    <string name="settings_navigation_content_note">使用自動導航路由，儲存後重新連線 CarPlay 生效。兩種測試語音可在「診斷 → 聲音輸出測試」中比較。</string>
+    <string name="settings_navigation_content_unavailable">目前系統未保留導航內容類型20，已儲存的模式未變更。</string>
+    <string name="settings_navigation_test_oem">播放 ECARX 導航測試語音（12/20）</string>
+    <string name="settings_navigation_test_oem_failed">ECARX 導航試聽失敗，請匯出診斷報告，查看屬性、焦點或輸出錯誤。</string>
+</resources>

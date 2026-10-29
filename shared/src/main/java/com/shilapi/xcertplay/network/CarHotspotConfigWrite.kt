@@ -10,7 +10,7 @@ import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import java.util.concurrent.atomic.AtomicReference
 
-/** The credentials a write should store; the manual hotspot fields stay the single source of truth. */
+/** Credentials for an explicit car-hotspot write; connection settings change only after verification. */
 data class HotspotCredentials(
     val ssid: String,
     val passphrase: String,
@@ -22,9 +22,9 @@ data class HotspotCredentials(
  * Writes the car's saved hotspot configuration before starting it. Android 7.1 writes from the app:
  * the WifiConfiguration class is public, only WifiManager.setWifiApConfiguration is hidden, and its
  * gate is CHANGE_WIFI_STATE alone. Android 11+ writes through the shell helper, because the shell
- * holds NETWORK_SETTINGS on 11-12 and OVERRIDE_WIFI_CONFIG since 13, while 8.0-10 block both the
- * app and the shell with the signature OVERRIDE_WIFI_CONFIG permission. WPA3 hotspots are never
- * downgraded.
+ * holds NETWORK_SETTINGS on 11-12 and OVERRIDE_WIFI_CONFIG since 13. The platform-signed Android 9
+ * vehicle build writes a copy of its saved WPA2 configuration and verifies the complete readback.
+ * WPA3 hotspots are never downgraded.
  */
 object CarHotspotConfigWrite {
     enum class Result(val diagnostic: String) {
@@ -40,7 +40,7 @@ object CarHotspotConfigWrite {
     data class WriteOutcome(val result: Result, val ssid: String? = null)
 
     fun supported(sdk: Int = Build.VERSION.SDK_INT): Boolean =
-        sdk == Build.VERSION_CODES.N_MR1 || sdk >= Build.VERSION_CODES.R
+        sdk == Build.VERSION_CODES.N_MR1 || sdk == 28 || sdk >= Build.VERSION_CODES.R
 
     fun write(
         context: Context,
@@ -62,7 +62,11 @@ object CarHotspotConfigWrite {
             log("car hotspot config: credentials contain a line break")
             return WriteOutcome(Result.SKIPPED)
         }
-        return if (sdk <= Build.VERSION_CODES.N_MR1) writeWithApp(context, credentials, log)
+        if (sdk == 28 && (credentials.ssid.toByteArray(Charsets.UTF_8).size !in 1..32 ||
+            credentials.ssid.any { it == '\u0000' || it == '\n' || it == '\r' } ||
+            credentials.security != ManualHotspotSecurity.WPA2 || credentials.passphrase.length !in 8..63 ||
+            credentials.passphrase.any { it.code !in 32..126 })) return WriteOutcome(Result.SKIPPED)
+        return if (sdk <= Build.VERSION_CODES.N_MR1 || sdk == 28) writeWithApp(context, credentials, sdk, log)
         else writeWithAdb(context, credentials, deadline, isCancelled, log)
     }
 
@@ -73,15 +77,26 @@ object CarHotspotConfigWrite {
         write: (WifiConfiguration) -> Boolean?,
         readBack: () -> WifiConfiguration?,
         log: (String) -> Unit,
+        sdk: Int = Build.VERSION_CODES.N_MR1,
     ): WriteOutcome {
         return try {
             val current = readBack()
+            if (sdk == 28 && (current == null ||
+                !current.allowedKeyManagement.get(WifiConfiguration.KeyMgmt.WPA2_PSK) ||
+                current.allowedKeyManagement.cardinality() != 1)) {
+                log("car hotspot config: the saved WPA2 configuration could not be read")
+                return WriteOutcome(Result.SKIPPED)
+            }
             if (credentials.security == ManualHotspotSecurity.OPEN && isSecured(current)) {
                 log("car hotspot config: an open hotspot does not overwrite the car's password")
                 return WriteOutcome(Result.OPEN_REJECTED)
             }
-            val effective = if (current?.SSID?.isNotBlank() == true) credentials.copy(ssid = current.SSID) else credentials
-            val config = newConfig().apply {
+            val effective = if (sdk != 28 && current?.SSID?.isNotBlank() == true) credentials.copy(ssid = current.SSID) else credentials
+            val config = if (sdk == 28) WifiConfiguration(current!!).apply {
+                // The verified API-28 path changes credentials only; keep the car's radio/security settings.
+                SSID = credentials.ssid
+                preSharedKey = credentials.passphrase
+            } else newConfig().apply {
                 applyTo(this, effective)
                 if (current != null) {
                     // The car keeps everything else about its saved configuration: hidden SSID and band/channel
@@ -96,7 +111,7 @@ object CarHotspotConfigWrite {
                     }
                 }
             }
-            if (write(config) == false) {
+            if (write(config) != true) {
                 log("car hotspot config: the framework rejected the configuration")
                 WriteOutcome(Result.FAILED)
             } else {
@@ -106,7 +121,12 @@ object CarHotspotConfigWrite {
                         log("car hotspot config: no configuration to read back")
                         WriteOutcome(Result.FAILED)
                     }
-                    matches(saved, effective) -> WriteOutcome(Result.WRITTEN, effective.ssid)
+                    matches(saved, effective) && (sdk != 28 ||
+                        saved.allowedKeyManagement == config.allowedKeyManagement && saved.hiddenSSID == config.hiddenSSID &&
+                        listOf("apBand", "apChannel").all { field ->
+                            val member = WifiConfiguration::class.java.getField(field)
+                            member.getInt(saved) == member.getInt(config)
+                        }) -> WriteOutcome(Result.WRITTEN, effective.ssid)
                     else -> {
                         log("car hotspot config: readback does not match the written credentials")
                         WriteOutcome(Result.FAILED)
@@ -114,12 +134,12 @@ object CarHotspotConfigWrite {
                 }
             }
         } catch (error: Exception) {
-            log("car hotspot config: app write failed ${CarHotspotTethering.describe(error)}")
+            log("car hotspot config: app write failed ${error.javaClass.simpleName}")
             WriteOutcome(Result.FAILED)
         }
     }
 
-    private fun writeWithApp(context: Context, credentials: HotspotCredentials, log: (String) -> Unit): WriteOutcome {
+    private fun writeWithApp(context: Context, credentials: HotspotCredentials, sdk: Int, log: (String) -> Unit): WriteOutcome {
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
             ?: return WriteOutcome(Result.FAILED).also { log("car hotspot config: no Wi-Fi manager") }
         val managerType = WifiManager::class.java
@@ -130,7 +150,7 @@ object CarHotspotConfigWrite {
                     .invoke(wifi, config) as? Boolean
             },
             readBack = { managerType.getMethod("getWifiApConfiguration").invoke(wifi) as? WifiConfiguration },
-            log = log)
+            log = log, sdk = sdk)
     }
 
     /** True when the saved configuration is not open, so an open write would strip its password. */

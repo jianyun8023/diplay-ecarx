@@ -89,7 +89,7 @@ object NavigationOutputs {
         EcarxHudBridge.clusterPresentationRequested = owner
     }
 
-    internal fun onFrame(frame: Iap2Frame) {
+    internal fun onFrame(frame: Iap2Frame, source: String = "unspecified") {
         if (frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_UPDATE &&
             frame.messageId != RouteGuidanceState.ROUTE_GUIDANCE_MANEUVER_UPDATE &&
             frame.messageId != 0x5204
@@ -97,7 +97,7 @@ object NavigationOutputs {
             return
         }
         val owned = frame // Iap2Frame is immutable and defensively copies its payload.
-        if (useEcarx) ecarx.submit { EcarxHudBridge.onFrame(owned) }
+        if (useEcarx) ecarx.submit { EcarxHudBridge.onFrame(owned, source) }
     }
 
     /** Best effort while alive; Android does not guarantee callbacks before force-stop. */

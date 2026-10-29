@@ -35,7 +35,7 @@ import com.shilapi.xcertplay.telecom.PhoneAudioRouteSettings
  * and off; while it is on the keys drive CarPlay's main screen as a car's rotary knob would (see
  * [WheelJoystick]). A call always keeps the keys for the call. During a CarPlay call the call key answers on
  * the iPhone, and with a CarPlay session the wheel's voice keys open Siri.
- * With the Siri key setting on, a key the user assigns opens Siri while CarPlay is connected.
+ * An explicitly assigned Siri key opens Siri in either media mode while CarPlay is connected.
  * Every other key passes on unchanged. On
  * the Tang the console's volume sends the same codes as the wheel's, so it zooms and moves too.
  */
@@ -187,8 +187,9 @@ class WheelKeyService : AccessibilityService() {
             return true
         }
         if (navigationKeys.owns(event.keyCode, event.deviceId, event.downTime)) return navigationKey(event)
-        if (learning == null && CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()) return false
         val key = WheelKey.of(event)
+        if (learning == null && !WheelZoomSettings.isSiriKey(this, key) &&
+            CarPlayMediaButton.opensSiri(event.keyCode) && CarPlayMediaSession.ecarxVoiceKeyActive()) return false
         refreshEligibility()
         val calling = inCall(this)
         if (calling) clearLearning()
@@ -200,6 +201,8 @@ class WheelKeyService : AccessibilityService() {
             WheelZoomSettings.anyEnabled(this) -> WheelZoomSettings.roleOf(this, key)
             else -> null
         }
+        if (learning == null && !CarPlayMediaSession.managesVehicleKeys() &&
+            role == WheelZoomSettings.Role.MEDIA_PLAY_PAUSE) return false
         val activeSession = session()
         if (role == WheelZoomSettings.Role.SIRI && WheelZoomSettings.siriDoublePress(this) &&
             activeSession == null) {
@@ -241,9 +244,7 @@ class WheelKeyService : AccessibilityService() {
                 handler.removeCallbacks(requestDelayedSiri)
                 handler.postDelayed(requestDelayedSiri, release.triggerDelayMillis.toLong())
             }
-            // Both presses stay vehicle-owned: the first can open its assistant and the second can
-            // close it. DiPlay only observes the pair and opens Siri after the configured delay.
-            return false
+            return !calling
         }
         val controller = CarPlayBackgroundSession.snapshot()?.controller
         val action = keys.onKey(

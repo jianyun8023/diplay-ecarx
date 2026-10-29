@@ -113,7 +113,7 @@ public object CarBluetoothProfileGuard {
         }.apply()
     }
 
-    fun mediaOnlyEnabled(context: Context): Boolean = preferences(context).getBoolean(KEY_MEDIA_ONLY, false)
+    fun mediaOnlyEnabled(context: Context): Boolean = preferences(context).getBoolean(KEY_MEDIA_ONLY, true)
 
     /** Takes effect on the next session; never changes a running call or CarPlay session. */
     fun saveMediaOnlyEnabled(context: Context, enabled: Boolean) {

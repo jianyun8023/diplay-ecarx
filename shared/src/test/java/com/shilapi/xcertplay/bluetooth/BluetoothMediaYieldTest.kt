@@ -313,8 +313,10 @@ class BluetoothMediaYieldTest {
         assertEquals(0, SinkAdapter.powerChanges)
     }
 
-    @Test fun settingsDefaultOffAndEnablingMediaDisablesOldAdapterOption() {
+    @Test fun settingsDefaultOnAndEnablingMediaDisablesOldAdapterOption() {
         prefs.edit().clear().commit()
+        assertTrue(CarBluetoothProfileGuard.mediaOnlyEnabled(context))
+        CarBluetoothProfileGuard.saveMediaOnlyEnabled(context, false)
         assertFalse(CarBluetoothProfileGuard.mediaOnlyEnabled(context))
         CarBluetoothProfileGuard.saveAdapterEnabled(context, true)
         CarBluetoothProfileGuard.saveMediaOnlyEnabled(context, true)

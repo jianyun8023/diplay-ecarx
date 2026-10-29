@@ -435,6 +435,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var menuSettingsSignature: Int? = null
     // The same for the Wi-Fi details that Save checks, so details the menu left alone are not checked.
     private var menuWirelessNetworkSignature: Int? = null
+    private var menuManualHotspotSettings: List<Any>? = null
     // Opens the menu page that holds a view; set by the menu that is showing.
     private var revealInSettingsMenu: (View) -> Unit = {}
     private var locationReportingSwitch: Switch? = null
@@ -1011,6 +1012,10 @@ open class CarPlayHostActivity : ComponentActivity() {
         existingWifiSsid = AirPlayPersistence.loadExistingWifiSsid(this)
         existingWifiPassphrase = AirPlayPersistence.loadExistingWifiPassphrase(this)
         existingWifiInterface = AirPlayPersistence.loadExistingWifiInterface(this)
+        loadManualHotspotSettings()
+    }
+
+    private fun loadManualHotspotSettings() {
         manualHotspotSsid = AirPlayPersistence.loadManualHotspotSsid(this)
         manualHotspotPassphrase = AirPlayPersistence.loadManualHotspotPassphrase(this)
         manualHotspotBand = AirPlayPersistence.loadManualHotspotBand(this)
@@ -1341,7 +1346,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (CarPlayMediaButton.opensSiri(event.keyCode) &&
-            (activeAirPlaySession == null || CarPlayMediaSession.ecarxVoiceKeyActive())) {
+            (activeAirPlaySession == null || (CarPlayMediaSession.ecarxVoiceKeyActive() &&
+                !WheelZoomSettings.isSiriKey(this, WheelKey.of(event))))) {
             return super.dispatchKeyEvent(event)
         }
         val physicalKey = Triple(event.deviceId, event.keyCode, event.scanCode)
@@ -1452,7 +1458,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 mainHandler.removeCallbacks(requestDelayedAssignedSiri)
                 mainHandler.postDelayed(requestDelayedAssignedSiri, release.triggerDelayMillis.toLong())
             }
-            return super.dispatchKeyEvent(event)
+            return if (calling) super.dispatchKeyEvent(event) else true
         }
         val assignedAction = if (downOrUp) siriKeyPresses.filter(
             physicalKey, event.action == KeyEvent.ACTION_DOWN, event.repeatCount == 0,
@@ -1473,7 +1479,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // ECARX learnt steering-wheel keys (swKey_*) and the answer/hangup call keys: the reference app
         // routes these to CarPlay media and telephony presses. Learnt keys win over the standard code
         // spaces, and a call key converts only when the reference app's swMediaKeyCallConvert gate is on.
-        if (downOrUp && !inCall(this)) {
+        if (downOrUp && CarPlayMediaSession.managesVehicleKeys() && !inCall(this)) {
             val press = com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
                 com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), event.keyCode)
             if (press != null) {
@@ -1530,6 +1536,10 @@ open class CarPlayHostActivity : ComponentActivity() {
      * On head units without these APIs the calls no-op and the standard key path stays in charge.
      */
     private fun registerEcarxSteeringWheel() {
+        if (!CarPlayMediaSession.managesVehicleKeys()) {
+            unregisterEcarxSteeringWheel()
+            return
+        }
         val context = applicationContext
         // 1. ROM key interception (the reference app's media.oneOsKey + Input.requestKeysInterception).
         if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
@@ -1602,6 +1612,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     /** Dispatches an ECARX wheel key (any of the three code spaces) to CarPlay, consuming it. */
     private fun handleEcarxWheelKey(keyCode: Int): Boolean {
+        if (!CarPlayMediaSession.managesVehicleKeys()) return false
         if (activeAirPlaySession == null || inCall(this)) return false
         val press = com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
             com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), keyCode)
@@ -3311,12 +3322,15 @@ open class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveWirelessHotspotMode(this, wirelessHotspotMode)
         AirPlayPersistence.saveExistingWifiCredentials(this, existingWifiSsid, existingWifiPassphrase)
         AirPlayPersistence.saveExistingWifiInterface(this, existingWifiInterface)
-        AirPlayPersistence.saveManualHotspotSsid(this, manualHotspotSsid)
-        AirPlayPersistence.saveManualHotspotPassphrase(this, manualHotspotPassphrase)
-        AirPlayPersistence.saveManualHotspotBand(this, manualHotspotBand)
-        AirPlayPersistence.saveManualHotspotChannel(this, manualHotspotChannel)
-        AirPlayPersistence.saveManualHotspotSecurity(this, manualHotspotSecurity)
-        AirPlayPersistence.saveManualHotspotInterface(this, manualHotspotInterface)
+        // An automatic car read can update these while this menu holds an older snapshot.
+        if (manualHotspotSettings() != menuManualHotspotSettings) {
+            AirPlayPersistence.saveManualHotspotSsid(this, manualHotspotSsid)
+            AirPlayPersistence.saveManualHotspotPassphrase(this, manualHotspotPassphrase)
+            AirPlayPersistence.saveManualHotspotBand(this, manualHotspotBand)
+            AirPlayPersistence.saveManualHotspotChannel(this, manualHotspotChannel)
+            AirPlayPersistence.saveManualHotspotSecurity(this, manualHotspotSecurity)
+            AirPlayPersistence.saveManualHotspotInterface(this, manualHotspotInterface)
+        }
         AirPlayPersistence.saveLocationReportingEnabled(this, locationReportingEnabled)
         AirPlayPersistence.saveAutoStartOnBoot(this, autoStartOnBoot)
         AirPlayPersistence.saveAdvancedAudioChannelMapping(this, advancedAudioChannelMapping)
@@ -3340,6 +3354,11 @@ open class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveMainDisplayDisableSafeArea(this, mainDisplayDisableSafeArea)
         AirPlayPersistence.saveBlackCornerRadiusDp(this, blackCornerRadiusDp)
     }
+
+    private fun manualHotspotSettings(): List<Any> = listOf(
+        manualHotspotSsid, manualHotspotPassphrase, manualHotspotBand, manualHotspotChannel,
+        manualHotspotSecurity, manualHotspotInterface,
+    )
 
     /**
      * The fields [validateManualHotspotSettings] checks and the wireless switch, hashed like
@@ -5094,6 +5113,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             audioFocusAutoYield = AirPlayPersistence.loadAudioFocusAutoYield(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
+            navigationOemContent = AirPlayPersistence.loadNavigationOemContent(this),
             navigationAttenuationDb = AirPlayPersistence.loadNavigationAudioAttenuationDb(this),
             context = this,
             navigationStreamType = navigationStreamType,
@@ -5451,6 +5471,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Settings → Connection can change the target while this screen stays open (#696).
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         runCatching { DiPlayBootstrap.ensure(this, mfiTarget) }
+        loadManualHotspotSettings()
         val config = createRuntimeConfig()
         val effectiveSize = if (isMultiWindowActive() && !AirPlayPersistence.loadAdaptPipResolution(this) &&
             maximumDetectedWidthPixels >= size.width && maximumDetectedHeightPixels >= size.height &&
@@ -6011,6 +6032,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         settingsBaseline = captureSettingsBaseline()
         menuSettingsSignature = menuSettingsSignature()
         menuWirelessNetworkSignature = wirelessNetworkSignature()
+        menuManualHotspotSettings = manualHotspotSettings()
         // Rebuild controls from saved values so a cancelled edit cannot reappear on reopening.
         settingsMenu?.let { previous ->
             val parent = previous.parent as ViewGroup
@@ -6113,6 +6135,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         menuOpen = false
         menuSettingsSignature = null
         menuWirelessNetworkSignature = null
+        menuManualHotspotSettings = null
         settingsMenu?.visibility = View.GONE
         gestureOverlay?.visibility = View.VISIBLE
         settingsGestureHint?.text = settingsGestureHintText()

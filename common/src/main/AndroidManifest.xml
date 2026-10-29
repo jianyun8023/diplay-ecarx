@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Optional, user-authorized startup of the car's own hotspot. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <!-- Optional API-28 hotspot probes; only the platform can grant these signature permissions. -->
+    <uses-permission android:name="android.permission.OVERRIDE_WIFI_CONFIG" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.NETWORK_SETTINGS" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.TETHER_PRIVILEGED" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
     <!-- MediaCenter service authorization is checked at runtime; declaring is not a grant. -->
     <uses-permission android:name="ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION" />
 

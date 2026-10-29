@@ -1,0 +1,4 @@
+<resources>
+    <string name="settings_pause_factory_navigation">導航期間停用原廠導航（實驗性）</string>
+    <string name="settings_pause_factory_navigation_description">CarPlay 儀表導航期間暫時停用原廠導航應用程式，期間無法使用原車導航。導航結束後恢復原狀態；若 DiPlay 異常結束，下次開啟時重試恢復。</string>
+</resources>

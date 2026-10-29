@@ -41,6 +41,7 @@ class EcarxVoiceTakeoverTest {
     }
 
     @Before fun setup() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
         shadowOf(app.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xiaoka" })
         `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
         `when`(controller.requestSiri()).thenReturn(true)
@@ -54,6 +55,7 @@ class EcarxVoiceTakeoverTest {
 
     @After fun cleanup() {
         CarPlayMediaSession.detach(controller)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
         app.unregisterReceiver(factory)
         app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
         CarPlayBackgroundSession.clear()
@@ -82,6 +84,39 @@ class EcarxVoiceTakeoverTest {
         SystemClock.sleep(WheelSiriKey.REPEAT_GAP_MILLIS)
         send(0)
         verify(controller, times(2)).requestSiri()
+    }
+
+    @Test fun customVoiceKeyWinsOverTheDefaultReceiverWithoutRequestingTwice() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        val down = KeyEvent(KeyEvent.ACTION_DOWN, 200231)
+        WheelZoomSettings.setSiriKey(app, true)
+        WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey.of(down))
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        try {
+            ReflectionHelpers.setField(host, "controller", controller)
+            ReflectionHelpers.setField(host, "activeAirPlaySession", phone)
+            assertTrue(host.dispatchKeyEvent(down))
+            assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, 200231)))
+            send(0)
+            verify(controller, times(1)).requestSiri()
+            assertEquals(0, factoryPresses)
+        } finally {
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()
+            }
+        }
+    }
+
+    @Test fun assignedVoiceKeyKeepsItsCustomGestureWithoutADefaultSiriRequest() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        WheelZoomSettings.setSiriKey(app, true)
+        WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey(200231, 0, "?"))
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        send(0)
+        assertEquals(0, factoryPresses)
+        verify(controller, never()).requestSiri()
     }
 
     @Test fun longUnknownMarkedAndCallEventsStayWithTheFactory() {
@@ -115,9 +150,10 @@ class EcarxVoiceTakeoverTest {
         assertSame(app, registration.context.applicationContext)
         assertEquals(Int.MAX_VALUE, registration.intentFilter.priority)
         val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val serviceController = Robolectric.buildService(WheelKeyService::class.java).create()
         try {
             host.javaClass.getDeclaredMethod("unregisterEcarxSteeringWheel").apply { isAccessible = true }.invoke(host)
-            val service = WheelKeyService()
+            val service = serviceController.get()
             val kept = service.javaClass.getDeclaredMethod("onKeyEvent", KeyEvent::class.java)
                 .apply { isAccessible = true }.invoke(service, KeyEvent(KeyEvent.ACTION_DOWN, 200231)) as Boolean
             assertFalse(kept)
@@ -125,6 +161,7 @@ class EcarxVoiceTakeoverTest {
             verify(controller, times(1)).requestSiri()
             assertEquals(0, factoryPresses)
         } finally {
+            serviceController.destroy()
             ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
             for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
                 ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()

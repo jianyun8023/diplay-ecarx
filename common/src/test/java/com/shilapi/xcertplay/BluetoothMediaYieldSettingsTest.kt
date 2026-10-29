@@ -34,7 +34,7 @@ class BluetoothMediaYieldSettingsTest {
         activity.getSharedPreferences("diplay_bt_profile_guard", 0).edit().clear().commit()
         AirPlayPersistence.saveCarBluetoothAudio(activity, false)
         ReflectionHelpers.setField(activity, "page", "settings")
-        ReflectionHelpers.setField(activity, "settingsSectionFilter", setOf(SettingsSection.ADVANCED_MEDIA))
+        ReflectionHelpers.setField(activity, "settingsSectionFilter", setOf(SettingsSection.BLUETOOTH_AUDIO))
     }
 
     @After fun cleanup() {
@@ -53,15 +53,15 @@ class BluetoothMediaYieldSettingsTest {
         it.contentDescription == activity.getString(R.string.settings_bluetooth_media_yield)
     }
 
-    @Test fun realAdvancedSettingDefaultsOffAndSavesWithoutCreatingSession() {
+    @Test fun realAudioSettingDefaultsOnAndSavesWithoutCreatingSession() {
         val control = mediaSwitch(settings())
-        assertFalse(control.isChecked)
+        assertTrue(control.isChecked)
         assertTrue(control.isEnabled)
         (control.parent as View).performClick()
-        assertTrue(CarBluetoothProfileGuard.mediaOnlyEnabled(activity))
+        assertFalse(CarBluetoothProfileGuard.mediaOnlyEnabled(activity))
         assertFalse(CarPlayBackgroundSession.hasSession())
         (control.parent as View).performClick()
-        assertFalse(CarBluetoothProfileGuard.mediaOnlyEnabled(activity))
+        assertTrue(CarBluetoothProfileGuard.mediaOnlyEnabled(activity))
     }
 
     @Test fun bluetoothAudioConflictDisablesControlAndUpdatesWithoutReopeningSettings() {
@@ -70,7 +70,7 @@ class BluetoothMediaYieldSettingsTest {
         val control = mediaSwitch(root)
         assertFalse(control.isEnabled)
         (control.parent as View).performClick()
-        assertFalse(CarBluetoothProfileGuard.mediaOnlyEnabled(activity))
+        assertTrue(CarBluetoothProfileGuard.mediaOnlyEnabled(activity))
         val bluetoothAudio = views(root).filterIsInstance<Switch>().single {
             it.contentDescription == activity.getString(R.string.settings_car_bluetooth_audio)
         }
@@ -85,7 +85,7 @@ class BluetoothMediaYieldSettingsTest {
         val name = "current-head-unit"
         val content = settings()
         val control = mediaSwitch(content)
-        // Capture the production row from the actual Advanced section, without unrelated codecs.
+        // Capture the production row from the actual Audio section, without unrelated codecs.
         val row = control.parent as View
         (row.parent as ViewGroup).removeView(row)
         val root = LinearLayout(activity).apply {

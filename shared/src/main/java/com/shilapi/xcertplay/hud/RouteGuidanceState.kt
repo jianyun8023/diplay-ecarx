@@ -55,9 +55,15 @@ internal class RouteGuidanceState(
     private var remainingMeters: Long? = null
     private var emptyListSinceNs: Long? = null
     private var lastRouteUpdateNs: Long? = null
+    private var endReason = "not-started"
+    var diagnosticInput = "none"
+        private set
 
     fun accept(messageId: Int, payload: ByteArray): RouteGuidanceChange {
-        if (!validTlvs(payload)) return RouteGuidanceChange.NONE
+        if (!validTlvs(payload)) {
+            diagnosticInput = "invalid-tlv bytes=${payload.size}"
+            return RouteGuidanceChange.NONE
+        }
         return when (messageId) {
             ROUTE_GUIDANCE_UPDATE -> parseRouteUpdate(payload)
             ROUTE_GUIDANCE_MANEUVER_UPDATE -> parseManeuverUpdate(payload)
@@ -74,8 +80,9 @@ internal class RouteGuidanceState(
         )
     }
 
-    fun clear(): Boolean {
+    fun clear(reason: String = "clear"): Boolean {
         val wasActive = routeActive
+        endReason = reason
         routeActive = false
         activeIndex = -1
         distanceMeters = 0
@@ -88,6 +95,23 @@ internal class RouteGuidanceState(
         lastRouteUpdateNs = null
         maneuvers.clear()
         return wasActive
+    }
+
+    /** No road names or payloads; sampled only at guidance transitions and report export. */
+    fun diagnosticState(): String {
+        val now = nanoTime()
+        val routeAge = lastRouteUpdateNs?.let { now - it }
+        val emptyAge = emptyListSinceNs?.let { now - it }
+        val reason = when {
+            !routeActive -> endReason
+            activeIndex < 0 -> "missing-index"
+            routeAge == null -> "missing-route-update"
+            routeAge >= staleRouteNs -> "route-stale"
+            emptyAge != null && emptyAge >= emptyListHideNs -> "empty-list-timeout"
+            maneuvers[activeIndex] == null -> "missing-maneuver"
+            else -> "active"
+        }
+        return "reason=$reason routeAgeMs=${routeAge?.div(1_000_000) ?: -1} emptyAgeMs=${emptyAge?.div(1_000_000) ?: -1}"
     }
 
     private fun activeManeuver(): Maneuver? {
@@ -145,10 +169,13 @@ internal class RouteGuidanceState(
             }
         }
 
+        diagnosticInput = "state=${state ?: "absent"} next=${distance ?: "absent"} " +
+            "list=${if (!listPresent) "absent" else firstManeuver?.toString() ?: "empty"}"
+
         // Only NoRouteSet (0) and Arrived (2) end the route. A wireless handoff often sends
         // NoRouteSet while the session is still coming back — keep the overlay instruction then.
         if (state == 0 || state == 2) {
-            return if (clear()) RouteGuidanceChange.CLEAR else RouteGuidanceChange.NONE
+            return if (clear(if (state == 0) "no-route" else "arrived")) RouteGuidanceChange.CLEAR else RouteGuidanceChange.NONE
         }
         // The iPhone briefly sends an empty current list every few seconds and while rerouting. Keep the last
         // maneuver (and the cached 0x5202 details, which are never resent) and hide it only if the list stays
@@ -181,6 +208,7 @@ internal class RouteGuidanceState(
             }
         }
         if (index != null && type != null) maneuvers[index!!] = Maneuver(type!!, drivingSide, afterRoad)
+        diagnosticInput = "index=${index ?: "absent"} type=${type ?: "absent"} side=$drivingSide"
         return if (current() != null) RouteGuidanceChange.GUIDANCE else RouteGuidanceChange.NONE
     }
 

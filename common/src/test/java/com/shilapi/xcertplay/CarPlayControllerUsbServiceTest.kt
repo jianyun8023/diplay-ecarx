@@ -36,7 +36,8 @@ class CarPlayControllerUsbServiceTest {
     private val statuses = mutableListOf<CarPlayStatus>()
 
     @After fun tearDown() {
-        controllers.forEach { it.close(); assertTrue(it.awaitClosed(2_000)) }
+        // Controller teardown itself allows two seconds for its executor to drain.
+        controllers.forEach { it.close(); assertTrue(it.awaitClosed(3_000)) }
         NavigationOutputs.endNow()
     }
 

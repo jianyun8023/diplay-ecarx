@@ -48,6 +48,7 @@ class EcarxMediaCenterTransportTest {
         var sourceList = intArrayOf(); var playlist = emptyList<Media>(); var progress = -1L
         var info: Playback? = null; var client: Client? = null
         var accepted = true; var cleanupAccepted = true; var registerError = false
+        var playlistUpdates = 0; var playbackUpdates = 0
         val token = Token()
         fun registerMusic(wrapper: ClientWrapper): Token {
             registrations++; if (registerError) throw SecurityException("denied")
@@ -56,8 +57,8 @@ class EcarxMediaCenterTransportTest {
         fun unregister(token: Token): Boolean { assertSame(this.token, token); unregistrations++; return cleanupAccepted }
         fun updateMediaSourceTypeList(token: Token, sources: IntArray) { sourceList = sources }
         fun updateCurrentSourceType(token: Token, source: Int) { this.source = source }
-        fun updatePlaylist(token: Token, source: Int, media: List<Media>) { playlist = media }
-        fun updateMusicPlaybackState(token: Token, wrapper: PlaybackWrapper): Boolean { info = wrapper.playback; return accepted }
+        fun updatePlaylist(token: Token, source: Int, media: List<Media>) { playlistUpdates++; playlist = media }
+        fun updateMusicPlaybackState(token: Token, wrapper: PlaybackWrapper): Boolean { playbackUpdates++; info = wrapper.playback; return accepted }
         fun updateCurrentProgress(token: Token, position: Long) { progress = position }
         fun requestPlay(token: Token): Boolean { claims++; return accepted }
     }
@@ -81,6 +82,28 @@ class EcarxMediaCenterTransportTest {
         EcarxMediaCenterTransport(context, command, valid, p)
     private val track = CarPlayNowPlaying(title = "Actual title", artist = "Actual artist", album = "Actual album",
         durationMillis = 120_000, elapsedMillis = 42_000, playing = true)
+
+    @Test fun progressUsesOnlyProgressIpcWhileTrackStateAndArtworkStillPublish() {
+        val p = Platform(); val t = transport(p); t.connect(); t.register(track, null)
+        assertTrue(t.publish(track, null))
+        repeat(10) { assertTrue(t.publish(track.copy(elapsedMillis = it * 1_000L), null)) }
+        assertEquals(1, p.service.playlistUpdates)
+        assertEquals(1, p.service.playbackUpdates)
+        assertEquals(9_000L, p.service.progress)
+        assertTrue(t.publish(track.copy(playing = false), null))
+        assertTrue(t.publish(track.copy(title = "Next"), null))
+        assertTrue(t.publish(track.copy(title = "Next"), Uri.parse("http://127.0.0.1/next.png")))
+        assertEquals(4, p.service.playbackUpdates)
+        p.service.accepted = false
+        assertFalse(t.publish(track, null))
+        assertFalse(t.publish(track.copy(elapsedMillis = 50_000), null))
+        assertEquals(6, p.service.playbackUpdates)
+        t.clear()
+        p.service.accepted = true
+        assertTrue(t.publish(track, null))
+        assertEquals(8, p.service.playbackUpdates)
+        t.unregister(); t.close()
+    }
 
     @Test fun permissionDenialCannotBindOrRegister() {
         val platform = Platform().apply { denied = true }; val t = transport(platform)

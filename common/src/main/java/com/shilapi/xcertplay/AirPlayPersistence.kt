@@ -50,6 +50,8 @@ object AirPlayPersistence {
     private const val KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS = "disable_media_key_audio_focus"
     private const val KEY_MEDIA_AUDIO_CHANNEL = "media_audio_channel"
     private const val KEY_NAVIGATION_AUDIO_CHANNEL = "navigation_audio_channel"
+    private const val KEY_NAVIGATION_OEM_CONTENT = "navigation_oem_content"
+    private const val KEY_NAVIGATION_USAGE_ROUTE_MIGRATED = "navigation_usage_route_migrated"
     private const val KEY_NAVIGATION_AUDIO_ATTENUATION = "navigation_audio_attenuation_db"
     private const val KEY_NAVIGATION_STREAM_TYPE = "navigation_stream_type"
     private const val KEY_WIRELESS_ENABLED = "wireless_enabled"
@@ -219,7 +221,7 @@ object AirPlayPersistence {
 
     fun loadAdvancedAudioChannelMapping(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_ADVANCED_AUDIO_CHANNEL_MAPPING, false)
+            .getBoolean(KEY_ADVANCED_AUDIO_CHANNEL_MAPPING, true)
 
     fun saveAdvancedAudioChannelMapping(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -239,7 +241,7 @@ object AirPlayPersistence {
 
     fun loadAudioFocusEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_AUDIO_FOCUS_ENABLED, false)
+            .getBoolean(KEY_AUDIO_FOCUS_ENABLED, true)
 
     fun saveAudioFocusEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -257,10 +259,10 @@ object AirPlayPersistence {
             .apply()
     }
 
-    /** Opt-in (#946, #545): each navigation prompt requests duckable focus. Applies only while audio focus is on. */
+    /** Each navigation prompt requests duckable focus while audio focus is on. */
     fun loadNavigationPromptAudioFocus(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_NAVIGATION_PROMPT_AUDIO_FOCUS, false)
+            .getBoolean(KEY_NAVIGATION_PROMPT_AUDIO_FOCUS, true)
 
     fun saveNavigationPromptAudioFocus(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -293,14 +295,34 @@ object AirPlayPersistence {
     fun loadNavigationAudioChannel(context: Context): Int {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         // Inherit the legacy value only when the new key is absent; preserve fresh-install and explicit 0 defaults.
-        return prefs.getInt(KEY_NAVIGATION_AUDIO_CHANNEL, prefs.getInt(KEY_NAVIGATION_STREAM_TYPE, 0))
+        val channel = prefs.getInt(KEY_NAVIGATION_AUDIO_CHANNEL, prefs.getInt(KEY_NAVIGATION_STREAM_TYPE, 0))
             .takeIf { it in AUDIO_CHANNELS } ?: 0
+        if (!prefs.getBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, false)) {
+            // Replace the former legacy 13 choice once; 0 uses navigation usage12/content1.
+            val editor = prefs.edit().putBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, true)
+            if (channel == 13) editor.putInt(KEY_NAVIGATION_AUDIO_CHANNEL, 0)
+            editor.apply()
+            return if (channel == 13) 0 else channel
+        }
+        return channel
     }
 
     fun saveNavigationAudioChannel(context: Context, channel: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putInt(KEY_NAVIGATION_AUDIO_CHANNEL, channel.takeIf { it in AUDIO_CHANNELS } ?: 0)
+            .putBoolean(KEY_NAVIGATION_OEM_CONTENT, channel == 0 && loadNavigationOemContent(context))
+            .putBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, true)
             .apply()
+    }
+
+    fun loadNavigationOemContent(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NAVIGATION_OEM_CONTENT, false)
+
+    fun saveNavigationOemContent(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_NAVIGATION_OEM_CONTENT, enabled)
+            .putInt(KEY_NAVIGATION_AUDIO_CHANNEL, 0)
+            .putBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, true).apply()
     }
 
     fun loadNavigationAudioAttenuationDb(context: Context): Int =
@@ -323,6 +345,7 @@ object AirPlayPersistence {
         if (prefs.contains(KEY_NAVIGATION_AUDIO_CHANNEL) || prefs.contains(KEY_NAVIGATION_STREAM_TYPE)) return false
         prefs.edit()
             .putInt(KEY_NAVIGATION_AUDIO_CHANNEL, channel)
+            .putBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, true)
             .apply()
         return true
     }

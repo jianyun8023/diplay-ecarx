@@ -1,0 +1,9 @@
+<resources>
+    <string name="settings_navigation_content">Navigation audio mode (experimental)</string>
+    <string name="settings_navigation_content_standard">Standard navigation (12/1)</string>
+    <string name="settings_navigation_content_oem">ECARX navigation (12/20)</string>
+    <string name="settings_navigation_content_note">Uses automatic navigation routing. Save, then reconnect CarPlay to apply. Compare both speech samples in Diagnostics → Sound output test.</string>
+    <string name="settings_navigation_content_unavailable">This system does not retain navigation content type 20. The saved mode was not changed.</string>
+    <string name="settings_navigation_test_oem">Play ECARX navigation speech sample (12/20)</string>
+    <string name="settings_navigation_test_oem_failed">ECARX navigation test failed. Export the diagnostic report for the attribute, focus or output error.</string>
+</resources>

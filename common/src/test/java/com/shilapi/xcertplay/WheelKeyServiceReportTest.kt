@@ -81,7 +81,7 @@ class WheelKeyServiceReportTest {
         assertTrue(report().first(), report().first().contains(" presses=1 kept=1 leftToHeadUnit=0 "))
     }
 
-    @Test fun aLearnedKeyAndTheSiriKeyAreInTheReport() {
+    @Test fun explicitlyAssignedSiriKeyDispatchesInAndroidMode() {
         var asked = 0
         service.session = { "phone" }
         service.requestSiri = { asked++; true }
@@ -95,6 +95,58 @@ class WheelKeyServiceReportTest {
                 "Siri key sent=true", "key 139/0 device 7 kept"),
             entries(),
         )
+    }
+
+    @Test fun customSiriDoublePressConsumesBothPressesAndRequestsOnlyOnce() {
+        var asked = 0
+        service.session = { "phone" }
+        service.requestSiri = { asked++; true }
+        WheelZoomSettings.setSiriKey(service, true)
+        WheelZoomSettings.assign(service, WheelZoomSettings.Role.SIRI, WheelKey(KeyEvent.KEYCODE_F9, 0, "?"))
+        WheelZoomSettings.setSiriDoublePress(service, true)
+        WheelZoomSettings.setSiriTriggerDelayMillis(service, 0)
+        time = 1_000
+        assertTrue(send(KeyEvent.KEYCODE_F9, KeyEvent.ACTION_DOWN))
+        assertTrue(send(KeyEvent.KEYCODE_F9, KeyEvent.ACTION_UP))
+        assertEquals(0, asked)
+        time = 1_300
+        assertTrue(send(KeyEvent.KEYCODE_F9, KeyEvent.ACTION_DOWN))
+        assertTrue(send(KeyEvent.KEYCODE_F9, KeyEvent.ACTION_DOWN, repeat = 1))
+        assertTrue(send(KeyEvent.KEYCODE_F9, KeyEvent.ACTION_UP))
+        shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(1, asked)
+    }
+
+    @Test fun customMediaKeyStillPassesThroughInAndroidMode() {
+        var sent = 0
+        service.session = { "phone" }
+        service.sendMedia = { sent++; true }
+        WheelZoomSettings.setMediaPlayPause(service, true)
+        assertTrue(WheelKeyService.learn(WheelZoomSettings.Role.MEDIA_PLAY_PAUSE) { _, _ -> })
+        assertTrue(press(KeyEvent.KEYCODE_F9))
+        assertFalse(press(KeyEvent.KEYCODE_F9))
+        assertEquals(0, sent)
+    }
+
+    @Test fun learnedSiriKeyDispatchesInEcarxMode() {
+        val controller = org.mockito.Mockito.mock(com.shilapi.xcertplay.orchestration.CarPlayController::class.java)
+        org.mockito.Mockito.`when`(controller.nowPlayingSnapshot())
+            .thenReturn(com.shilapi.xcertplay.media.CarPlayNowPlaying())
+        MediaSessionSettings.setMode(service, MediaSessionMode.ECARX)
+        CarPlayMediaSession.attach(service, controller)
+        try {
+            var asked = 0
+            service.session = { "phone" }
+            service.requestSiri = { asked++; true }
+            WheelZoomSettings.setSiriKey(service, true)
+            assertTrue(WheelKeyService.learn(WheelZoomSettings.Role.SIRI) { _, _ -> })
+            assertTrue(press(KeyEvent.KEYCODE_F9))
+            assertTrue(press(KeyEvent.KEYCODE_F9))
+            assertEquals(1, asked)
+        } finally {
+            CarPlayMediaSession.detach(controller)
+            MediaSessionSettings.setMode(service, MediaSessionMode.ANDROID)
+        }
     }
 
     @Test fun aVolumeKeySaysWhyNavigationVolumeLeftItToTheHeadUnit() {

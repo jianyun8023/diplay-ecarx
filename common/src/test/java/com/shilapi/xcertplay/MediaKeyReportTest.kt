@@ -26,11 +26,13 @@ class MediaKeyReportTest {
         WheelKeyLog.reset()
     }
 
-    @Test fun aMediaKeyWithoutASessionIsReportedAsNotSent() {
-        CarPlayMediaSession.onExternalMediaKey(CarPlayMediaButton.NEXT)
+    @Test fun aStandardMediaCommandWithoutASessionIsReportedAsNotSent() {
+        val callback = CarPlayMediaSession.javaClass.getDeclaredField("callback").apply { isAccessible = true }
+            .get(CarPlayMediaSession) as android.media.session.MediaSession.Callback
+        callback.onSkipToNext()
         val report = WheelKeyLog.report(bound = false)
         assertTrue(report.toString(), report.any {
-            it.startsWith("Wheel keys: ") && it.endsWith("media key geely-wheel -> CarPlay ${CarPlayMediaButton.NEXT} sent=false")
+            it.startsWith("Wheel keys: ") && it.endsWith("media key next -> CarPlay ${CarPlayMediaButton.NEXT} sent=false")
         })
     }
 }

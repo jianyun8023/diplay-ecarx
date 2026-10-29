@@ -87,6 +87,9 @@ class EcarxLaneGuidanceFlowTest {
     }
 
     @Test fun laneFramesReachTypedDimArrayThroughTheProductionWorkerAndSwitch() {
+        assertTrue(EcarxOutputSettings.laneGuidanceEnabled(context))
+        EcarxOutputSettings.setLaneGuidanceEnabled(context, false)
+        assertFalse(EcarxOutputSettings.laneGuidanceEnabled(context))
         val frame = Iap2Frame(0x5204, hex(
             "00 06 00 00 00 2a 00 06 00 01 00 00" +
                 " 00 15 00 02 00 06 00 00 00 00 00 05 00 01 00 00 06 00 02 ff a6" +
@@ -236,6 +239,61 @@ class EcarxLaneGuidanceFlowTest {
         lane()
         EcarxHudBridge.clear()
         assertNull(calls("updateLaneInfo").last().payload["lanes"])
+    }
+
+    @Test fun distanceDiagnosticsSeparateInputSourcePartialUpdatesAndActualPublication() {
+        NavigationOutputs.start(context)
+        awaitOutputWorker()
+        NavigationOutputs.onFrame(Iap2Messages.buildRaw(0x5202) {
+            u16(1, 7); u8(3, 2); string(4, "private-road")
+        }, "wireless-tunnel")
+        NavigationOutputs.onFrame(Iap2Messages.buildRaw(0x5201) {
+            u8(1, 1); u16List(0x0d, listOf(7)); u32(0x0a, 350)
+        }, "wireless-tunnel")
+        NavigationOutputs.onFrame(Iap2Messages.buildRaw(0x5201) { u32(0x0a, 1) }, "wireless-rfcomm")
+        NavigationOutputs.onFrame(Iap2Messages.buildRaw(0x5201) { u32(7, 9000) }, "wired-usb")
+        awaitOutputWorker()
+        assertTrue(reports.any { it.startsWith("DIM input source=wireless-rfcomm") &&
+            it.contains("state=absent next=1 list=absent") && it.contains("currentNext=1") })
+        assertTrue(reports.any { it.startsWith("DIM input source=wired-usb") &&
+            it.contains("next=absent") && it.contains("currentNext=1") })
+        assertTrue(reports.any { it.startsWith("DIM publish next=350m") })
+        assertTrue(reports.any { it.startsWith("DIM publish next=1m") && it.contains("next=ok") })
+        repeat(5) { tick() }
+        assertTrue(reports.last { it.startsWith("DIM publish") }.contains("force=true first=false"))
+        send(0x5201) { u32(0x0a, 0) }
+        assertTrue(reports.last { it.startsWith("DIM publish") }.startsWith("DIM publish next=0m"))
+        val publications = reports.count { it.startsWith("DIM publish") }
+        EcarxHudBridge.onFrame(Iap2Frame(0x5201, byteArrayOf(0, 1, 2)), "wireless-tunnel")
+        assertTrue(reports.last { it.startsWith("DIM input") }.contains("invalid-tlv"))
+        assertEquals(publications, reports.count { it.startsWith("DIM publish") })
+        send(0x5201) { u8(1, 0) }
+        assertTrue(reports.last { it.startsWith("DIM input") }.contains("state=0"))
+        assertTrue(reports.last { it.startsWith("DIM input") }.contains("change=CLEAR currentNext=none"))
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=no-route"))
+        assertTrue(reports.filter { it.startsWith("DIM input") || it.startsWith("DIM publish") }
+            .none { it.contains("private-road") })
+    }
+
+    @Test fun guidanceDiagnosticsDistinguishTimeoutAndPhoneEndWithoutRoadNames() {
+        initialize(); maneuver(); guidance()
+        send(0x5201) { u16List(0x0d, emptyList()) }
+        nowNs += 3_000_000_000L
+        tick()
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=empty-list-timeout"))
+        assertTrue(route.diagnosticState().contains("emptyAgeMs=3000"))
+        assertFalse(route.diagnosticState().contains("滨海路"))
+
+        guidance()
+        nowNs += 30_000_000_000L
+        tick()
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=route-stale"))
+        guidance()
+        send(0x5201) { u8(1, 0) }
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=no-route"))
+        maneuver(); guidance()
+        send(0x5201) { u8(1, 2) }
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=arrived"))
     }
 
     @Test fun laneWithNoPushedManeuverClearsWithoutSendingNavigationStartOrStop() {

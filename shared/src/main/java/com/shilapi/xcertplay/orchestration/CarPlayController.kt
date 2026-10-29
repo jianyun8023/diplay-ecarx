@@ -870,8 +870,8 @@ class CarPlayController(
     }
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
-    private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
-        NavigationOutputs.onFrame(frame)
+    private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame, source: String) {
+        NavigationOutputs.onFrame(frame, source)
         com.shilapi.xcertplay.glance.CarPlayGlance.onFrame(frame)
         synchronized(playbackStatus) {
             val previousPlaying = playbackStatus.playing
@@ -1646,7 +1646,7 @@ class CarPlayController(
                 keepAliveAfterDeadline = { keepBluetoothControlAlive(generation) },
                 beforeStartSession = { startedHotspot?.validateReady() },
                 onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
-                onIncoming = ::onRouteFrame,
+                onIncoming = { onRouteFrame(it, "wireless-rfcomm") },
                 onProgress = { message ->
                     diagnostics.controlProgress(message)
                     debugLog(message)
@@ -1755,7 +1755,7 @@ class CarPlayController(
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
-                        onIncoming = ::onRouteFrame,
+                        onIncoming = { onRouteFrame(it, "wireless-tunnel") },
                         onProgress = { message -> debugLog("iAP tunnel $message") },
                     )
                     if (closed || generation != wirelessGeneration.get()) return@execute
@@ -2467,7 +2467,7 @@ class CarPlayController(
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
                 vehicleStatusProvider = vehicleStatusProvider,
-                onIncoming = ::onRouteFrame,
+                onIncoming = { onRouteFrame(it, "wired-usb") },
                 onProgress = { message ->
                     if (message == Iap2WiredControlClient.START_SESSION_AGAIN_PROGRESS) {
                         startWatchdog.startSessionSentAgain()
@@ -2578,6 +2578,14 @@ class CarPlayController(
             if (state == false) debugLog("car hotspot: Android reports it off; connecting anyway, as the driver chose")
             pastOffReport = state == false
         }
+        // The Host may predate the car's latest settings. Use one fresh credential snapshot for
+        // this handshake; the manager's ordinary AP read does not read back the password.
+        val carCredentials = if (hotspotMode == WirelessHotspotMode.MANUAL &&
+            Build.VERSION.SDK_INT == Build.VERSION_CODES.P &&
+            com.shilapi.xcertplay.network.CarHotspotSettings.enabled(appContext)) {
+            com.shilapi.xcertplay.network.CarHotspotConfigRead.read(appContext, mayAsk = false,
+                log = ::debugLog).credentials
+        } else null
         val manager: WirelessHotspotManager = when (hotspotMode) {
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog,
                 preferredChannel = config.wifiP2pPreferredChannel)
@@ -2594,12 +2602,12 @@ class CarPlayController(
             )
             WirelessHotspotMode.MANUAL -> ManualHotspotManager(
                 context = appContext,
-                ssid = config.manualHotspotSsid
+                ssid = carCredentials?.ssid ?: config.manualHotspotSsid
                     ?: throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot SSID is not configured"),
-                passphrase = config.manualHotspotPassphrase.orEmpty(),
+                passphrase = carCredentials?.passphrase ?: config.manualHotspotPassphrase.orEmpty(),
                 band = config.manualHotspotBand,
                 channel = config.manualHotspotChannel,
-                security = config.manualHotspotSecurity,
+                security = carCredentials?.security ?: config.manualHotspotSecurity,
                 onDiagnostic = { debugLog("generation=$generation $it") },
                 isCancelled = { isStaleWirelessRun(generation) },
                 preferredInterface = config.manualHotspotInterface,

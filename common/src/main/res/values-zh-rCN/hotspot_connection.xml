@@ -1,0 +1,16 @@
+<resources>
+    <string name="settings_hotspot_reading">正在读取原车热点…</string>
+    <string name="settings_hotspot_read_failed">未能读取原车热点，请重试或手动填写连接信息。</string>
+    <string name="settings_hotspot_modify">修改原车热点</string>
+    <string name="settings_hotspot_modify_when_off">请先关闭热点，再修改名称或密码。</string>
+    <string name="settings_hotspot_modify_description">保存到原车热点，其他设备可能需要重新连接。修改在下次开启热点时生效。</string>
+    <string name="settings_hotspot_manual_description">仅保存到 DiPlay 供连接使用，不修改原车热点。</string>
+    <string name="settings_hotspot_save_to_car">保存到原车</string>
+    <string name="settings_hotspot_more">更多热点设置</string>
+    <string name="settings_hotspot_checking">正在检查原车热点…</string>
+    <string name="settings_hotspot_starting">正在开启原车热点…</string>
+    <string name="settings_hotspot_waiting_network">正在等待移动网络，再重试开启热点…</string>
+    <string name="settings_mobile_network_ready">移动网络已就绪</string>
+    <string name="settings_mobile_network_waiting">正在等待移动网络</string>
+    <string name="settings_mobile_network_unknown">无法读取移动网络状态</string>
+</resources>

@@ -1,0 +1,9 @@
+<resources>
+    <string name="settings_navigation_content">导航音频模式（实验性）</string>
+    <string name="settings_navigation_content_standard">标准导航（12/1）</string>
+    <string name="settings_navigation_content_oem">ECARX 导航（12/20）</string>
+    <string name="settings_navigation_content_note">使用自动导航路由，保存后重新连接 CarPlay 生效。两种测试语音可在“诊断 → 声音输出测试”中对比。</string>
+    <string name="settings_navigation_content_unavailable">当前系统未保留导航内容类型20，已保存的模式未改变。</string>
+    <string name="settings_navigation_test_oem">播放 ECARX 导航测试语音（12/20）</string>
+    <string name="settings_navigation_test_oem_failed">ECARX 导航试听失败，请导出诊断报告，查看属性、焦点或输出错误。</string>
+</resources>

@@ -15,6 +15,29 @@ import kotlin.concurrent.thread
 class AndroidMediaSinkDetachTest {
     private val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 1)
 
+    @Test fun reapplyingTheSameMapSurfaceKeepsItsDecoder() {
+        val surface = Surface(SurfaceTexture(0))
+        val replacement = Surface(SurfaceTexture(0))
+        val sink = AndroidMediaSink(surface = null)
+        val field = AndroidMediaSink::class.java.getDeclaredField("mirrorDecoders").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val mirrors = field.get(sink) as Map<Pair<Int, String>, Any>
+        try {
+            sink.setMirrorSurface(111, "launcher:1", surface)
+            sink.onVideoFrame(111, predicted)
+            val original = checkNotNull(mirrors[111 to "launcher:1"])
+            sink.setMirrorSurface(111, "launcher:1", surface)
+            assertSame("adopting a session reapplies its unchanged surface", original, mirrors[111 to "launcher:1"])
+            sink.setMirrorSurface(111, "launcher:1", replacement)
+            sink.onVideoFrame(111, predicted)
+            assertNotSame(original, mirrors[111 to "launcher:1"])
+            sink.setMirrorSurface(111, "launcher:1", null)
+            assertFalse(mirrors.containsKey(111 to "launcher:1"))
+        } finally {
+            sink.close()
+        }
+    }
+
     @Test fun aDetachIsConfirmedWhileFramesAreQueued() {
         val surface = Surface(SurfaceTexture(0))
         val sink = AndroidMediaSink(surface = surface, videoPacingDelayMillis = 90)
