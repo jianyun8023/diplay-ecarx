@@ -43,6 +43,9 @@ internal class MediaCenterSessionEngine(
         if (changed) queue()
     }
     fun snapshot(): Status = status
+    /** A stopped owner may still have queued IPC or a late registration token. */
+    fun cleanForOtherBackend(): Boolean = desired == null && !scheduled.get() && !dirty.get() &&
+        transport == null && registeredOwner == null && operationAt == 0L && !status.uncertain
     fun canSelect(owner: Any): Boolean = ownsCallbacks(owner) && operation == "NONE"
     fun select(owner: Any) { if (canSelect(owner)) { selectionOwner = owner; queue() } }
     fun ownsMediaKeys(owner: Any): Boolean = ownsCallbacks(owner) && status.claimed

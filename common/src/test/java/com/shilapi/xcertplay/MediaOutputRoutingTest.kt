@@ -54,6 +54,9 @@ class MediaOutputRoutingTest {
     private var savedMode = MediaSessionMode.ANDROID
     private var claim = true
     private var accepted = true
+    private var registerAction: () -> Unit = {}
+    private var unregisterResult = true
+    private var unregisterAction: () -> Unit = {}
     private var callbackPlatform: Platform? = null
 
     @Before fun setup() {
@@ -66,7 +69,7 @@ class MediaOutputRoutingTest {
         CarPlayBackgroundSession.clear()
         savedTicking = field(CarPlayMediaSession, "mediaCenterTicking").getBoolean(CarPlayMediaSession)
         field(CarPlayMediaSession, "mediaCenterTicking").setBoolean(CarPlayMediaSession, true)
-        savedEngine = listOf("worker", "factory", "desired", "status", "registeredOwner", "callbackOwner",
+        savedEngine = listOf("clock", "worker", "factory", "desired", "status", "registeredOwner", "callbackOwner",
             "operationAt", "operation", "operationOwner", "transport", "currentOwner", "failedOwner", "timedOutOwner",
             "uncertainOwner", "last", "lastArtwork", "selectionOwner").associateWith { field(engine, it).get(engine) }
         savedScheduled = (field(engine, "scheduled").get(engine) as AtomicBoolean).get()
@@ -489,6 +492,155 @@ class MediaOutputRoutingTest {
         assertTrue(shadowOf(app).broadcastIntents.none { it.action == "com.hyphp.hywebview.HyMediaReceiver" })
     }
 
+    @Test fun androidWaitsForQueuedCleanupAndRetainsTheNewestFrame() {
+        val vendor = attach("ECARX")
+        val transport = ecarx.single()
+        val queued = ArrayDeque<Runnable>()
+        field(engine, "worker").set(engine, Executor { queued.addLast(it) })
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.detach(vendor.controller)
+        val android = attach("First Android frame")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(transport.registered)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertTrue(CarPlayMediaSession.diagnosticReport().contains("WAITING_ECARX_CLEANUP"))
+        val latest = song("Latest Android frame")
+        `when`(android.controller.nowPlayingSnapshot()).thenReturn(latest)
+        android.now(latest)
+        shadowOf(Looper.getMainLooper()).idle()
+        while (queued.isNotEmpty()) queued.removeFirst().run()
+        assertFalse(transport.registered)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        val standard = field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession
+        assertTrue(standard.isActive)
+        // Robolectric does not retain MediaController metadata; start() reads this retained snapshot.
+        assertEquals(latest, field(CarPlayMediaSession, "nowPlaying").get(CarPlayMediaSession))
+    }
+
+    @Test fun rejectedCleanupBlocksAndroidAcrossFurtherConnections() {
+        val vendor = attach("ECARX")
+        unregisterResult = false
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.detach(vendor.controller)
+        val android = attach("Android")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertTrue(CarPlayMediaSession.diagnosticReport().contains("BLOCKED_ECARX_RESTART_REQUIRED"))
+        assertFalse(androidActivationRetryPending())
+        assertTrue(ecarx.single().registered)
+        CarPlayMediaSession.detach(android.controller)
+        attach("Android retry")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertTrue(CarPlayMediaSession.mediaCenterDiagnosticReport().contains("RESTART_REQUIRED"))
+        assertFalse(androidActivationRetryPending())
+        assertEquals(1, ecarx.size)
+    }
+
+    @Test fun blockedCleanupAndTimeoutCannotActivateAndroidUntilUnregisterConfirms() {
+        val vendor = attach("ECARX")
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var worker: Thread? = null
+        var now = 1L
+        field(engine, "clock").set(engine, { now })
+        unregisterAction = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+        field(engine, "worker").set(engine, Executor { task ->
+            worker = Thread(task, "test-blocked-media-cleanup").also { it.start() }
+        })
+        try {
+            CarPlayMediaSession.detach(vendor.controller)
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+            attach("Android after blocked cleanup")
+            CarPlayMediaSession.onMediaAudioChanged(true)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+            now = 10_000L
+            tickEngine()
+            shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+            assertTrue(CarPlayMediaSession.diagnosticReport().contains("BLOCKED_ECARX_CLEANUP_UNCERTAIN"))
+            assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        } finally {
+            release.countDown()
+            worker?.join(5_000)
+            assertFalse("cleanup worker must finish", worker?.isAlive == true)
+            unregisterAction = {}
+            field(engine, "worker").set(engine, Executor { it.run() })
+        }
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertFalse(ecarx.single().registered)
+        assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
+    }
+
+    @Test fun oldAndroidRetryCannotActivateAfterSwitchBackToEcarx() {
+        val vendor = attach("ECARX")
+        val queued = ArrayDeque<Runnable>()
+        field(engine, "worker").set(engine, Executor { queued.addLast(it) })
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.detach(vendor.controller)
+        val android = attach("Android pending")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
+        CarPlayMediaSession.detach(android.controller)
+        val next = attach("New ECARX")
+        while (queued.isNotEmpty()) queued.removeFirst().run()
+        shadowOf(Looper.getMainLooper()).idleFor(2, TimeUnit.SECONDS)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertTrue(CarPlayMediaSession.isMediaCenterActive(next.controller))
+    }
+
+    @Test fun emptyEcarxConnectionDoesNotPermanentlyBlockAndroid() {
+        val empty = mock(CarPlayController::class.java).also(controllers::add)
+        `when`(empty.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
+        CarPlayMediaSession.attach(app, empty)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(ecarx.isEmpty())
+        CarPlayMediaSession.detach(empty)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        attach("First real media")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
+    }
+
+    @Test fun lateRegistrationTokenMustBeCleanedBeforeAndroidCanActivate() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        var worker: Thread? = null
+        registerAction = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) }
+        field(engine, "worker").set(engine, Executor { task ->
+            worker = Thread(task, "test-late-media-token").also { it.start() }
+        })
+        try {
+            val vendor = attach("Registering ECARX")
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            CarPlayMediaSession.detach(vendor.controller)
+            MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+            attach("Android waiting for late token")
+            CarPlayMediaSession.onMediaAudioChanged(true)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+            assertTrue(CarPlayMediaSession.diagnosticReport().contains("WAITING_ECARX_CLEANUP"))
+        } finally {
+            release.countDown()
+            worker?.join(5_000)
+            assertFalse("registration worker must finish", worker?.isAlive == true)
+            registerAction = {}
+            field(engine, "worker").set(engine, Executor { it.run() })
+        }
+        val transport = ecarx.single()
+        assertEquals(1, transport.unregisterCalls)
+        assertFalse(transport.registered)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
+    }
+
     private data class Attached(val controller: CarPlayController,
         val now: (CarPlayNowPlaying) -> Unit, val cover: (Int, ByteArray) -> Unit)
     private fun attach(title: String, artwork: Int? = null): Attached {
@@ -516,6 +668,11 @@ class MediaOutputRoutingTest {
         return try { java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray() }
         finally { bitmap.recycle() }
     }
+    private fun androidActivationRetryPending(): Boolean {
+        val handler = field(CarPlayMediaSession, "mainHandler").get(CarPlayMediaSession) as android.os.Handler
+        val retry = field(CarPlayMediaSession, "retryAndroidActivation").get(CarPlayMediaSession) as Runnable
+        return handler.hasCallbacks(retry)
+    }
     private fun tickEngine() { (engine as com.shilapi.xcertplay.mediacenter.MediaCenterSessionEngine).tick() }
     private fun song(title: String, artwork: Int? = null) = CarPlayNowPlaying(title = title, artworkTransferId = artwork, durationMillis = 90_000, playing = true)
     private fun singleton(name: String): Any = Class.forName(name).getField("INSTANCE").get(null)
@@ -526,11 +683,15 @@ class MediaOutputRoutingTest {
         val frames = mutableListOf<Pair<CarPlayNowPlaying, Uri?>>()
         var unregisterCalls = 0
         override fun connect() = Unit
-        override fun register(now: CarPlayNowPlaying, artwork: Uri?) { registered = true }
+        override fun register(now: CarPlayNowPlaying, artwork: Uri?) { registerAction(); registered = true }
         override fun requestPlay() = claim
         override fun publish(now: CarPlayNowPlaying, artwork: Uri?): Boolean { frames += now to artwork; return accepted }
         override fun clear() = Unit
-        override fun unregister(): Boolean { unregisterCalls++; registered = false; return true }
+        override fun unregister(): Boolean {
+            unregisterCalls++; unregisterAction()
+            if (unregisterResult) registered = false
+            return unregisterResult
+        }
         override fun close() = Unit
     }
 }

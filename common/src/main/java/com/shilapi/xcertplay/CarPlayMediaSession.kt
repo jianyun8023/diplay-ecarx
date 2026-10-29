@@ -72,6 +72,15 @@ internal object CarPlayMediaSession {
     private var transientFocusInterrupted = false
     private var appContext: Context? = null
     private var mediaAudioActive = false
+    private var androidActivation = "IDLE"
+    // A single outstanding main-loop retry, never a Binder wait. Teardown cancels it.
+    private val retryAndroidActivation = Runnable {
+        synchronized(this) {
+            if (controller != null && outputMode == MediaSessionMode.ANDROID && mediaAudioActive && session == null) {
+                updateLocked(true)
+            }
+        }
+    }
     private var nowPlaying = CarPlayNowPlaying()
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
@@ -91,7 +100,7 @@ internal object CarPlayMediaSession {
     @Synchronized
     fun diagnosticReport(): String =
         "Android media session: controllerAttached=${controller != null} created=${session != null} " +
-            "active=${session?.isActive == true} mediaAudioActive=$mediaAudioActive focusHeld=$focusHeld " +
+            "active=${session?.isActive == true} activation=$androidActivation mediaAudioActive=$mediaAudioActive focusHeld=$focusHeld " +
             "transientFocusInterrupted=$transientFocusInterrupted titlePresent=${!nowPlaying.title.isNullOrBlank()} " +
             "artistPresent=${!nowPlaying.artist.isNullOrBlank()} artworkDecoded=${artwork != null} " +
             "iphonePlaying=${nowPlaying.playing} elapsedMs=${nowPlaying.elapsedMillis} durationMs=${nowPlaying.durationMillis}\n" +
@@ -344,8 +353,26 @@ internal object CarPlayMediaSession {
         val context = appContext ?: return
         if (controller == null) return
         mediaAudioActive = active
+        mainHandler.removeCallbacks(retryAndroidActivation)
         if (outputMode == MediaSessionMode.ANDROID) {
-            if (active && session == null) start(context) else if (active) regainFocusLocked()
+            if (active && session == null) {
+                if (mediaCenterEngine.cleanForOtherBackend()) {
+                    start(context)
+                    androidActivation = "ACTIVE"
+                } else {
+                    val cleanup = mediaCenterEngine.snapshot()
+                    val restartRequired = cleanup.uncertain && cleanup.phase == "CLEANUP_UNCERTAIN"
+                    androidActivation = when {
+                        restartRequired -> "BLOCKED_ECARX_RESTART_REQUIRED"
+                        cleanup.uncertain -> "BLOCKED_ECARX_CLEANUP_UNCERTAIN"
+                        else -> "WAITING_ECARX_CLEANUP"
+                    }
+                    // A timed-out IPC can still return a token that must be cleaned. A completed,
+                    // rejected cleanup cannot heal itself: retain the block without polling forever.
+                    if (!restartRequired) mainHandler.postDelayed(retryAndroidActivation, 1_000L)
+                }
+            } else if (active) regainFocusLocked()
+            else if (session == null) androidActivation = "IDLE"
         }
         publishPlaybackStateLocked()
     }
@@ -432,6 +459,8 @@ internal object CarPlayMediaSession {
     }
 
     private fun releaseLocked() {
+        mainHandler.removeCallbacks(retryAndroidActivation)
+        androidActivation = "IDLE"
         EnvironmentBroadcastDiagnostics.stop()
         releaseVoiceKeyLocked()
         endMediaCenter()
