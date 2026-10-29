@@ -458,6 +458,7 @@ class AndroidMediaSink(
             if (videoClosed) return
             val id = type to key
             synchronized(mirrorLock) {
+                if (surface != null && mirrorSurfaces[id] === surface) return
                 mirrorDecoders.remove(id)?.close()
                 if (surface == null) {
                     mirrorSurfaces.remove(id)
