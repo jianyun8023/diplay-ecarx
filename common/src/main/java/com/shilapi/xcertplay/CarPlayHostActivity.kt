@@ -1377,6 +1377,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (activeAirPlaySession == null || inCall(this) ||
                 !WheelZoomSettings.isMediaPlayPauseKey(this, WheelKey.of(event))) {
                 WheelZoomKeys.Action.PASS
+            } else if (CarPlayMediaButton.forKeyCode(event.keyCode) != null &&
+                CarPlayMediaSession.isMediaCenterActive(controller)) {
+                WheelZoomKeys.Action.CONSUME
             } else {
                 val sent = controller?.sendMediaButton(CarPlayMediaButton.PLAY_PAUSE) == true
                 appendLog("Media: assigned wheel key ${event.keyCode} -> CarPlay play/pause sent=$sent")
@@ -1484,6 +1487,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             val press = com.shilapi.xcertplay.airplay.EcarxSwKey.resolve(
                 com.shilapi.xcertplay.airplay.EcarxSwKey.prefs(this), event.keyCode)
             if (press != null) {
+                if (press.isMedia && CarPlayMediaSession.isMediaCenterActive(controller)) return true
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     val ctrl = controller
                     val sent = when {
@@ -1507,6 +1511,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             inCall = inCall(this),
         )
         if (downOrUp && mediaPress != null) {
+            if (CarPlayMediaSession.isMediaCenterActive(controller)) return true
             // A media button is a tap, and the wheel sends each tap as an instant down/up pair: send
             // once, on the press. The release is swallowed rather than passed on, or the car's own
             // player would receive an unpaired key.

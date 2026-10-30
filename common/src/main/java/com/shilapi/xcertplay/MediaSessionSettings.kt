@@ -2,6 +2,8 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 
+// Keep the stored boolean and enum order: ANDROID delegates vehicle media to HY; ECARX is direct.
+// Both publish a standard Android session, and the choice takes effect at the next connection.
 internal enum class MediaSessionMode { ANDROID, ECARX }
 
 internal object MediaSessionSettings {

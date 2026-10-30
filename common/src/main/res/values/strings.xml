@@ -950,8 +950,8 @@
     <string name="settings_hotspot_probe_rejected">Request rejected or input invalid.</string>
     <string name="settings_hotspot_probe_denied">Permission denied.</string>
     <string name="settings_hotspot_probe_unsupported">API or configuration unsupported.</string>
-    <string name="settings_media_output_mode">Media session mode</string>
-    <string name="settings_media_output_android">Standard Android</string>
-    <string name="settings_media_output_ecarx">ECARX</string>
-    <string name="settings_media_output_description">Android mode publishes only Android MediaSession. ECARX mode publishes only ECARX MediaCenter and manages vehicle media keys. Custom Siri keys work in either mode. Applies at the next CarPlay connection.</string>
+    <string name="settings_media_output_mode">Vehicle media owner</string>
+    <string name="settings_media_output_android">HY proxy</string>
+    <string name="settings_media_output_ecarx">DiPlay direct</string>
+    <string name="settings_media_output_description">Both modes provide Android media information and controls for launchers. DiPlay direct publishes to ECARX; HY proxy lets HY publish and receive cover updates. Disable HY media proxying when using DiPlay direct. Custom Siri keys work in both modes. Applies at the next CarPlay connection.</string>
 </resources>

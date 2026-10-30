@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
@@ -9,6 +10,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Looper
 import android.view.Surface
+import android.view.KeyEvent
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.hud.EcarxOutputSettings
 import com.shilapi.xcertplay.media.AndroidMediaSink
@@ -30,6 +32,7 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito.*
 import org.mockito.ArgumentCaptor
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -51,6 +54,7 @@ class MediaOutputRoutingTest {
     private var savedDirty = false
     private var savedMaster = true
     private var savedFocus = false
+    private var savedRendererFocus = true
     private var savedMode = MediaSessionMode.ANDROID
     private var claim = true
     private var accepted = true
@@ -62,6 +66,7 @@ class MediaOutputRoutingTest {
     @Before fun setup() {
         savedMaster = EcarxOutputSettings.mediaEnabled(app)
         savedFocus = AirPlayPersistence.loadDisableMediaKeyAudioFocus(app)
+        savedRendererFocus = AirPlayPersistence.loadAudioFocusEnabled(app)
         savedMode = MediaSessionSettings.mode(app)
         MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
         EcarxOutputSettings.setMediaEnabled(app, true)
@@ -102,6 +107,7 @@ class MediaOutputRoutingTest {
             field(CarPlayMediaSession, "mediaCenterTicking").setBoolean(CarPlayMediaSession, savedTicking)
             EcarxOutputSettings.setMediaEnabled(app, savedMaster)
             AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, savedFocus)
+            AirPlayPersistence.saveAudioFocusEnabled(app, savedRendererFocus)
             MediaSessionSettings.setMode(app, savedMode)
         }
     }
@@ -403,7 +409,7 @@ class MediaOutputRoutingTest {
 
     @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    fun outputModesAreExclusiveAndSwitchOnlyOnReconnect() {
+    fun bothModesPublishStandardSessionsButOnlyDirectModeOwnsEcarx() {
         MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
         val android = attach("Android", 7)
         CarPlayMediaSession.onMediaAudioChanged(true)
@@ -425,20 +431,49 @@ class MediaOutputRoutingTest {
         assertTrue(CarPlayMediaSession.mediaCenterDiagnosticReport().contains("active=ANDROID saved=ECARX"))
         CarPlayMediaSession.detach(android.controller)
         assertFalse(standard.isActive)
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
+        AirPlayPersistence.saveAudioFocusEnabled(app, false)
         val vendor = attach("ECARX", 7)
         CarPlayMediaSession.onMediaAudioChanged(true)
         shadowOf(Looper.getMainLooper()).idle()
+        val directSession = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
+        field(CarPlayMediaSession, "session").set(CarPlayMediaSession, directSession)
+        val hyBeforeDirect = hyUpdates().size
         vendor.cover(7, png()); awaitArtwork()
-        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertEquals(hyBeforeDirect, hyUpdates().size)
+        assertTrue(directSession.isActive)
+        val metadata = ArgumentCaptor.forClass(MediaMetadata::class.java)
+        verify(directSession).setMetadata(metadata.capture())
+        assertEquals("ECARX", metadata.value.getString(MediaMetadata.METADATA_KEY_TITLE))
+        assertNotNull(metadata.value.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART))
+        assertEquals(ecarx.single().frames.last().second, metadata.value.description.iconUri)
         assertTrue(CarPlayMediaSession.managesVehicleKeys())
         assertTrue(CarPlayMediaSession.isMediaCenterActive(vendor.controller))
+        val directCallback = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+        callback.onPlay() // Old Android controller must not reach either connection.
+        verify(vendor.controller, never()).sendMediaButton(anyInt())
+        directCallback.onPlay(); directCallback.onPause(); directCallback.onSkipToNext(); directCallback.onSkipToPrevious()
+        verify(vendor.controller).sendMediaButton(CarPlayMediaButton.PLAY)
+        verify(vendor.controller).sendMediaButton(CarPlayMediaButton.PAUSE)
+        verify(vendor.controller).sendMediaButton(CarPlayMediaButton.NEXT)
+        verify(vendor.controller).sendMediaButton(CarPlayMediaButton.PREVIOUS)
+        clearInvocations(vendor.controller)
+        val button = Intent(Intent.ACTION_MEDIA_BUTTON).putExtra(
+            Intent.EXTRA_KEY_EVENT,
+            KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT),
+        )
+        assertTrue(directCallback.onMediaButtonEvent(button))
+        CarPlayMediaSession.onExternalMediaKey(CarPlayMediaButton.NEXT)
+        verify(vendor.controller, never()).sendMediaButton(anyInt())
+        assertNull(field(CarPlayMediaSession, "focusRequest").get(CarPlayMediaSession))
         val transport = ecarx.single()
         MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
         vendor.now(song("ECARX", 7)); shadowOf(Looper.getMainLooper()).idle()
         assertTrue(transport.registered)
-        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
         CarPlayMediaSession.detach(vendor.controller)
         assertEquals(1, transport.unregisterCalls)
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, true)
         val again = attach("Android again", 7)
         CarPlayMediaSession.onMediaAudioChanged(true)
         shadowOf(Looper.getMainLooper()).idle()
@@ -446,7 +481,7 @@ class MediaOutputRoutingTest {
         assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
         assertEquals(1, ecarx.size)
         assertFalse(transport.registered)
-        assertTrue(shadowOf(app).broadcastIntents.none { it.action == "com.hyphp.hywebview.HyMediaReceiver" })
+        assertEquals(hyBeforeDirect + 1, hyUpdates().size)
     }
 
     @Test
@@ -491,7 +526,7 @@ class MediaOutputRoutingTest {
         attached.cover(99, png(Color.GREEN)); awaitArtwork()
         verify(session, never()).setMetadata(any())
         assertTrue(ecarx.isEmpty())
-        assertTrue(shadowOf(app).broadcastIntents.none { it.action == "com.hyphp.hywebview.HyMediaReceiver" })
+        assertEquals("Second", hyUpdates().last().getStringExtra("getTrackName"))
     }
 
     @Test fun androidWaitsForQueuedCleanupAndRetainsTheNewestFrame() {
@@ -641,6 +676,211 @@ class MediaOutputRoutingTest {
         assertFalse(transport.registered)
         shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
         assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hyGetsTheNewSameSizeCoverWithoutChangingStandardMetadataOrControls() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        val attached = attach("First", 7)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        val session = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
+        field(CarPlayMediaSession, "session").set(CarPlayMediaSession, session)
+        val published = ArgumentCaptor.forClass(MediaMetadata::class.java)
+        attached.cover(7, png(Color.RED)); awaitArtwork()
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        val oldArt = published.value.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)!!
+        val updates = { shadowOf(app).broadcastIntents.filter { it.action == "com.hyphp.hywebview.HyMediaReceiver" } }
+        assertEquals(1, updates().size)
+
+        // HY polls duration and rowBytes, not bitmap content. New title arrives before its cover.
+        val next = song("Second", 8)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
+        attached.now(next); shadowOf(Looper.getMainLooper()).idle()
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        assertEquals("Second", published.value.getString(MediaMetadata.METADATA_KEY_TITLE))
+        assertNull(published.value.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON))
+        assertEquals(1, updates().size) // Do not label the previous cover as the new one for HY.
+
+        attached.cover(8, png(Color.BLUE)); awaitArtwork()
+        verify(session, atLeastOnce()).setMetadata(published.capture())
+        val standard = published.value
+        val newArt = standard.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)!!
+        assertEquals(oldArt.rowBytes, newArt.rowBytes)
+        assertEquals(Color.BLUE, newArt.getPixel(0, 0))
+        assertSame(newArt, standard.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART))
+        assertEquals(90_000L, standard.getLong(MediaMetadata.METADATA_KEY_DURATION))
+        assertEquals("Second", standard.getString(MediaMetadata.METADATA_KEY_TITLE))
+        assertEquals(2, updates().size)
+        val update = updates().last()
+        assertEquals("com.hyphp.hywebview", update.`package`)
+        assertEquals("dashboard", update.getStringExtra("method"))
+        assertEquals("Second", update.getStringExtra("getTrackName"))
+        assertEquals("90000", update.getStringExtra("getDuration"))
+        assertEquals("1", update.getStringExtra("playState"))
+        assertEquals(app.packageName, update.getStringExtra("pkgName"))
+        val image = java.net.URL(update.getStringExtra("getArtwork")).openStream().use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        }!!
+        assertEquals(Color.BLUE, image.getPixel(0, 0))
+
+        // Another track with the same duration/size and a reused artwork reference must refresh too.
+        val third = next.copy(title = "Third")
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(third)
+        attached.now(third); shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(8, png(Color.GREEN)); awaitArtwork()
+        val latest = updates().last()
+        assertEquals("Third", latest.getStringExtra("getTrackName"))
+        assertNotEquals(update.getStringExtra("getArtwork"), latest.getStringExtra("getArtwork"))
+        val latestImage = java.net.URL(latest.getStringExtra("getArtwork")).openStream().use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        }!!
+        assertEquals(Color.GREEN, latestImage.getPixel(0, 0))
+        assertTrue(ecarx.isEmpty())
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        verify(attached.controller, never()).requestSiri()
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hyCachedCoverWaitsForAnActiveSessionAndIgnoresProgressAndStaleArtwork() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        val attached = attach("Cached", 7)
+        val updates = { shadowOf(app).broadcastIntents.filter { it.action == "com.hyphp.hywebview.HyMediaReceiver" } }
+        attached.cover(7, png()); awaitArtwork()
+        assertTrue(updates().isEmpty())
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, updates().size)
+        val next = song("Cached", 7).copy(elapsedMillis = 2_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
+        attached.now(next); shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(99, png()); awaitArtwork()
+        attached.cover(7, byteArrayOf(1, 2, 3)); awaitArtwork()
+        assertEquals(1, updates().size)
+        CarPlayMediaSession.detach(attached.controller)
+        attached.cover(7, png()); awaitArtwork()
+        attached.now(song("Stale", 7)); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, updates().size)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun hyCoverBeforeMetadataAndRapidSwitchesUseOnlyTheCurrentSnapshot() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        val attached = attach("First", 7)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(8, png(Color.BLUE)); awaitArtwork()
+        assertTrue(hyUpdates().isEmpty())
+        val second = song("Second", 8)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(second)
+        attached.now(second); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("Second", hyUpdates().single().getStringExtra("getTrackName"))
+        val uri = hyUpdates().single().getStringExtra("getArtwork")
+
+        val paused = second.copy(playing = false, elapsedMillis = 2_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(paused)
+        attached.now(paused); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(2, hyUpdates().size)
+        assertEquals("0", hyUpdates().last().getStringExtra("playState"))
+        assertEquals(uri, hyUpdates().last().getStringExtra("getArtwork"))
+        val resumed = paused.copy(playing = true)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(resumed)
+        attached.now(resumed); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(3, hyUpdates().size)
+        val progress = resumed.copy(elapsedMillis = 3_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(progress)
+        attached.now(progress); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(3, hyUpdates().size)
+
+        // The decode finishes before the main-loop metadata callback; the retained song wins.
+        val third = song("Third", 9)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(third)
+        attached.cover(8, png(Color.RED)); awaitArtwork()
+        assertEquals(3, hyUpdates().size)
+        attached.now(third)
+        val fourth = song("Fourth", 10)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(fourth)
+        attached.now(fourth)
+        attached.cover(9, png(Color.RED)); awaitArtwork()
+        assertEquals(3, hyUpdates().size)
+        attached.cover(10, png(Color.GREEN)); awaitArtwork()
+        assertEquals(4, hyUpdates().size)
+        assertEquals("Fourth", hyUpdates().last().getStringExtra("getTrackName"))
+        val bitmap = java.net.URL(hyUpdates().last().getStringExtra("getArtwork")).openStream().use {
+            android.graphics.BitmapFactory.decodeStream(it)
+        }!!
+        assertEquals(Color.GREEN, bitmap.getPixel(0, 0))
+        CarPlayMediaSession.detach(attached.controller)
+        val replacement = attach("Replacement", 10)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(10, png(Color.RED)); awaitArtwork()
+        attached.now(fourth); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(4, hyUpdates().size)
+        replacement.cover(10, png(Color.BLUE)); awaitArtwork()
+        assertEquals("Replacement", hyUpdates().last().getStringExtra("getTrackName"))
+    }
+
+    @Test fun releasedStandardCallbackCannotControlReattachedSameController() {
+        val attached = attach("Same controller")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        val oldCallback = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+        CarPlayMediaSession.detach(attached.controller)
+        CarPlayMediaSession.attach(app, attached.controller)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        oldCallback.onPlay(); oldCallback.onPause(); oldCallback.onSkipToNext()
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        val current = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+        current.onSkipToNext()
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.NEXT)
+    }
+
+    @Test fun claimedEcarxKeyDoesNotAlsoForwardThroughRawAccessibilityOrStandardSession() {
+        val attached = attach("Wheel")
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val service = Robolectric.buildService(WheelKeyService::class.java).create().get()
+        try {
+            field(host, "controller").set(host, attached.controller)
+            field(host, "activeAirPlaySession").set(host, mock(com.shilapi.xcertplay.airplay.AirPlaySession::class.java))
+            service.session = { attached.controller }
+            service.sendMedia = { attached.controller.sendMediaButton(it) }
+            WheelZoomSettings.setMediaPlayPause(app, true)
+            assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_NEXT)))
+            val down = KeyEvent(KeyEvent.ACTION_DOWN, CarPlayMediaButton.ECARX_OFFSET + KeyEvent.KEYCODE_MEDIA_NEXT)
+            WheelZoomSettings.assign(app, WheelZoomSettings.Role.MEDIA_PLAY_PAUSE, WheelKey.of(down))
+            assertTrue(host.dispatchKeyEvent(down))
+            val onKey = service.javaClass.getDeclaredMethod("onKeyEvent", KeyEvent::class.java).apply { isAccessible = true }
+            assertEquals(true, onKey.invoke(service, down))
+            val callback = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+            assertTrue(callback.onMediaButtonEvent(Intent(Intent.ACTION_MEDIA_BUTTON).putExtra(Intent.EXTRA_KEY_EVENT, down)))
+            CarPlayMediaSession.onExternalMediaKey(CarPlayMediaButton.NEXT)
+            verify(attached.controller, never()).sendMediaButton(anyInt())
+            val dispatch = CarPlayMediaSession.javaClass.declaredMethods.single { it.name == "dispatchMediaCenter" }
+                .apply { isAccessible = true }
+            assertEquals(true, dispatch.invoke(CarPlayMediaSession,
+                field(CarPlayMediaSession, "mediaCenterOwner").get(CarPlayMediaSession), CarPlayMediaButton.NEXT))
+            shadowOf(Looper.getMainLooper()).idle()
+            verify(attached.controller, times(1)).sendMediaButton(CarPlayMediaButton.NEXT)
+            callback.onPause()
+            verify(attached.controller).sendMediaButton(CarPlayMediaButton.PAUSE)
+        } finally {
+            service.onDestroy()
+            (field(host, "mainHandler").get(host) as android.os.Handler).removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                (field(host, name).get(host) as java.util.concurrent.ExecutorService).shutdownNow()
+            }
+        }
+    }
+
+    private fun hyUpdates() = shadowOf(app).broadcastIntents.filter {
+        it.action == "com.hyphp.hywebview.HyMediaReceiver"
     }
 
     private data class Attached(val controller: CarPlayController,

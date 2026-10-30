@@ -908,8 +908,8 @@
     <string name="settings_hotspot_probe_rejected">請求被拒絕或輸入不合法。</string>
     <string name="settings_hotspot_probe_denied">介面拒絕存取，權限不足。</string>
     <string name="settings_hotspot_probe_unsupported">介面或配置不受支援。</string>
-    <string name="settings_media_output_mode">媒體工作階段模式</string>
-    <string name="settings_media_output_android">標準 Android</string>
-    <string name="settings_media_output_ecarx">億咖通</string>
-    <string name="settings_media_output_description">Android 模式只發布 Android MediaSession；億咖通模式只發布 ECARX MediaCenter，並管理車輛媒體按鍵。自訂 Siri 按鍵在兩種模式下皆可用。下次連接 CarPlay 生效。</string>
+    <string name="settings_media_output_mode">車機媒體接管方</string>
+    <string name="settings_media_output_android">HY 代理</string>
+    <string name="settings_media_output_ecarx">DiPlay 直接接管</string>
+    <string name="settings_media_output_description">兩種模式都向 Android 桌面提供媒體資訊與控制。DiPlay 直接發布到億咖通；HY 代理模式由 HY 發布，並接收封面補發。直接接管時需關閉 HY 的媒體代理。自訂 Siri 按鍵均可用。下次連接 CarPlay 生效。</string>
 </resources>

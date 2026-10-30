@@ -204,6 +204,8 @@ class WheelKeyService : AccessibilityService() {
         }
         if (learning == null && !CarPlayMediaSession.managesVehicleKeys() &&
             role == WheelZoomSettings.Role.MEDIA_PLAY_PAUSE) return false
+        if (learning == null && role == WheelZoomSettings.Role.MEDIA_PLAY_PAUSE &&
+            CarPlayMediaButton.forKeyCode(event.keyCode) != null && CarPlayMediaSession.isMediaCenterActive()) return true
         val activeSession = session()
         if (role == WheelZoomSettings.Role.SIRI && WheelZoomSettings.siriDoublePress(this) &&
             activeSession == null) {

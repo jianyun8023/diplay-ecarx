@@ -35,13 +35,13 @@ import java.util.concurrent.Executor
 import kotlin.math.roundToInt
 
 /**
- * Publishes CarPlay through either Android MediaSession or ECARX MediaCenter.
+ * Publishes Android MediaSession in both modes, with either DiPlay or HY owning ECARX output.
  *
  * Android delivers media keys to a media session; some head units pick the session of the
  * audio-focus owner. When renderer focus is enabled, this session does not request music focus
  * again. Otherwise it holds focus until CarPlay ends, unless the media-key focus compatibility
  * setting disables that request. Keys go to the iPhone as CarPlay media HID presses
- * ([CarPlayMediaButton]). Only the selected media-session backend is published.
+ * ([CarPlayMediaButton]). The extra Android session in direct ECARX mode never requests focus.
  */
 internal object CarPlayMediaSession {
     private const val TAG = "DiPlay-MediaKeys"
@@ -85,6 +85,7 @@ internal object CarPlayMediaSession {
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
     private var artworkUri: Uri? = null
+    private var lastHyPublication: Pair<CarPlayNowPlaying, Uri>? = null
     @Volatile private var outputMode = MediaSessionMode.ANDROID
     private var clusterArtworkServer: ClusterArtworkServer? = null
     private var lastClusterArtworkReport = "Cluster artwork HTTP: not started"
@@ -204,6 +205,7 @@ internal object CarPlayMediaSession {
                     session?.setMetadata(androidMetadata(update, artwork, artworkUri))
                 }
                 publishPlaybackStateLocked()
+                publishHyArtworkLocked()
             }
         }
     }
@@ -252,6 +254,7 @@ internal object CarPlayMediaSession {
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
+            publishHyArtworkLocked()
         }
     }
 
@@ -354,33 +357,35 @@ internal object CarPlayMediaSession {
         if (controller == null) return
         mediaAudioActive = active
         mainHandler.removeCallbacks(retryAndroidActivation)
-        if (outputMode == MediaSessionMode.ANDROID) {
-            if (active && session == null) {
-                if (mediaCenterEngine.cleanForOtherBackend()) {
-                    start(context)
-                    androidActivation = "ACTIVE"
-                } else {
-                    val cleanup = mediaCenterEngine.snapshot()
-                    val restartRequired = cleanup.uncertain && cleanup.phase == "CLEANUP_UNCERTAIN"
-                    androidActivation = when {
-                        restartRequired -> "BLOCKED_ECARX_RESTART_REQUIRED"
-                        cleanup.uncertain -> "BLOCKED_ECARX_CLEANUP_UNCERTAIN"
-                        else -> "WAITING_ECARX_CLEANUP"
-                    }
-                    // A timed-out IPC can still return a token that must be cleaned. A completed,
-                    // rejected cleanup cannot heal itself: retain the block without polling forever.
-                    if (!restartRequired) mainHandler.postDelayed(retryAndroidActivation, 1_000L)
+        if (active && session == null) {
+            // HY may immediately relay an active session to ECARX. Confirm the old owner is
+            // released before enabling that relay; direct mode intentionally publishes both.
+            if (outputMode == MediaSessionMode.ECARX || mediaCenterEngine.cleanForOtherBackend()) {
+                start(context)
+                androidActivation = "ACTIVE"
+            } else {
+                val cleanup = mediaCenterEngine.snapshot()
+                val restartRequired = cleanup.uncertain && cleanup.phase == "CLEANUP_UNCERTAIN"
+                androidActivation = when {
+                    restartRequired -> "BLOCKED_ECARX_RESTART_REQUIRED"
+                    cleanup.uncertain -> "BLOCKED_ECARX_CLEANUP_UNCERTAIN"
+                    else -> "WAITING_ECARX_CLEANUP"
                 }
-            } else if (active) regainFocusLocked()
-            else if (session == null) androidActivation = "IDLE"
-        }
+                // A timed-out IPC can still return a token that must be cleaned. A completed,
+                // rejected cleanup cannot heal itself: retain the block without polling forever.
+                if (!restartRequired) mainHandler.postDelayed(retryAndroidActivation, 1_000L)
+            }
+        } else if (active) regainFocusLocked()
+        else if (session == null) androidActivation = "IDLE"
         publishPlaybackStateLocked()
+        publishHyArtworkLocked()
     }
 
     private fun start(context: Context) {
         val expectedController = controller ?: return
         val rendererOwnsFocus = AirPlayPersistence.loadAudioFocusEnabled(context)
-        val focusDisabled = rendererOwnsFocus || AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
+        val focusDisabled = outputMode == MediaSessionMode.ECARX || rendererOwnsFocus ||
+            AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
         transientFocusInterrupted = false
         val granted = if (focusDisabled) {
             // Some OEMs route physical volume buttons to the focus owner. Keep an active
@@ -408,7 +413,17 @@ internal object CarPlayMediaSession {
                 if (it) forwardGrantedFocusLocked()
             }
         }
-        session = MediaSession(context, "DiPlay CarPlay").apply {
+        val currentSession = MediaSession(context, "DiPlay CarPlay")
+        val expectedOwner = artworkOwner
+        callback = CarPlayMediaCallback(
+            notUsed = ::notUsed,
+            hardwareKeysEnabled = { !isMediaCenterActive(expectedController) },
+        ) { index, source ->
+            synchronized(this) {
+                if (controller === expectedController && artworkOwner === expectedOwner && session != null) send(index, source)
+            }
+        }
+        session = currentSession.apply {
             setCallback(callback, mainHandler)
             setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
             isActive = true
@@ -477,6 +492,8 @@ internal object CarPlayMediaSession {
             it.release()
         }
         session = null
+        callback = null
+        lastHyPublication = null
         mediaAudioActive = false
         nowPlaying = CarPlayNowPlaying()
         // Whatever the cluster's media card was showing belongs to a session that just ended. The
@@ -518,6 +535,19 @@ internal object CarPlayMediaSession {
                 )
                 .build(),
         )
+    }
+
+    private fun publishHyArtworkLocked() {
+        if (outputMode != MediaSessionMode.ANDROID || session?.isActive != true) return
+        val retained = controller?.nowPlayingSnapshot() ?: return
+        // A decode may reach the main loop before the queued metadata for the next song.
+        if (metadataChanged(nowPlaying, retained) || nowPlaying.playing != retained.playing) return
+        val context = appContext ?: return
+        val uri = artworkUri ?: return
+        val publication = nowPlaying.copy(elapsedMillis = null) to uri
+        if (lastHyPublication == publication) return
+        lastHyPublication = publication
+        HyMediaDisplay.publishArtwork(context, nowPlaying, uri)
     }
 
     private fun send(index: Int, source: String) {
@@ -656,7 +686,7 @@ internal object CarPlayMediaSession {
         return runCatching { active.requestSiri() }.getOrDefault(false)
     }
 
-    private val callback = CarPlayMediaCallback(notUsed = ::notUsed, send = ::send)
+    private var callback: CarPlayMediaCallback? = null
 
     /** Whether [next] changes what the media session's metadata shows; position and play state do not. */
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
@@ -855,6 +885,7 @@ internal object CarPlayMediaSession {
  */
 internal class CarPlayMediaCallback(
     private val notUsed: (source: String) -> Unit = {},
+    private val hardwareKeysEnabled: () -> Boolean = { true },
     private val send: (index: Int, source: String) -> Unit,
 ) : MediaSession.Callback() {
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
@@ -866,7 +897,7 @@ internal class CarPlayMediaCallback(
             if (press) notUsed(KeyEvent.keyCodeToString(event.keyCode))
             return super.onMediaButtonEvent(mediaButtonIntent)
         }
-        if (press) send(index, KeyEvent.keyCodeToString(event.keyCode))
+        if (press && hardwareKeysEnabled()) send(index, KeyEvent.keyCodeToString(event.keyCode))
         return true
     }
 
