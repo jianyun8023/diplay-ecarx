@@ -4017,6 +4017,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.setPauseFactoryNavigation(this, it)
             NavigationOutputs.ecarxChanged(this)
         }
+        toggle(card, getString(R.string.settings_ecarx_cluster_mirror_main),
+            getString(R.string.settings_ecarx_cluster_mirror_main_description),
+            AirPlayPersistence.loadClusterMirrorMain(this)) {
+            AirPlayPersistence.saveClusterMirrorMain(this, it)
+            markReconnectNeeded()
+        }
         toggle(card, getString(R.string.center_map_follows_dashboard),
             getString(R.string.center_map_follows_dashboard_description),
             AirPlayPersistence.loadCenterMapOverlay(this) && AirPlayPersistence.loadCenterMapFollowsDashboard(this)) { on ->

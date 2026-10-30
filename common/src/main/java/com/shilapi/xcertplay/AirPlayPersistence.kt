@@ -97,6 +97,7 @@ object AirPlayPersistence {
     private const val KEY_LAUNCHER_BUBBLE_SIZE = "launcher_bubble_size"
     private const val KEY_CLUSTER_MAP_SCALE = "cluster_map_scale_percent"
     private const val KEY_CLUSTER_CONTENT = "cluster_content"
+    private const val KEY_CLUSTER_MIRROR_MAIN = "cluster_mirror_main"
     private const val KEY_CLUSTER_MARKER_X = "cluster_marker_horizontal_step"
     private const val KEY_CLUSTER_MARKER_Y = "cluster_marker_vertical_step"
     private const val KEY_CLUSTER_SMALL_WINDOW_MODE = "cluster_small_window_mode"
@@ -977,6 +978,13 @@ object AirPlayPersistence {
 
     fun saveAdaptPipResolution(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ADAPT_PIP_RESOLUTION, enabled).apply()
+    }
+
+    fun loadClusterMirrorMain(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MIRROR_MAIN, false)
+
+    fun saveClusterMirrorMain(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CLUSTER_MIRROR_MAIN, enabled).apply()
     }
 
     fun loadClusterContent(context: Context): CarPlayClusterDisplay.Content =

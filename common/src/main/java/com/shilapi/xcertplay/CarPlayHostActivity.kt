@@ -459,9 +459,9 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var externalActivityInProgress = false
     private var sink: AndroidMediaSink? = null
     private var controller: CarPlayController? = null
-    /** The window that shows CarPlay's instrument-cluster stream on display 1, while a route runs. */
+    /** The window that shows the selected CarPlay output on display 1 while a route runs. */
     private var clusterPresentation: EcarxClusterPresentation? = null
-    /** The surface that window gave the media sink as stream 111, so a new sink can be re-pointed at it. */
+    /** The panel surface, retained so a replacement sink can reattach it. */
     private var clusterSurface: Surface? = null
     /** Written by the DIM worker thread, read on the main thread after a post; see [onClusterPanelRequested]. */
     @Volatile private var clusterPanelWanted = false
@@ -1304,9 +1304,14 @@ open class CarPlayHostActivity : ComponentActivity() {
      * display 1 at the panel's own 1920x720, because the panel is a real second display and the
      * app draws the cluster picture on it (see [showClusterPanel]). Everywhere else the only stream
      * is the standard virtual one that the centre-screen map card and the embedded map service use.
+     * Main-picture mirroring declares no cluster display, so iOS keeps navigation on the main screen.
      */
     private fun clusterDisplayConfig(): AirPlayDisplayConfig? {
         if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
+            if (AirPlayPersistence.loadClusterMirrorMain(this)) {
+                appendLog("Cluster: mirroring main stream 110; independent altScreen disabled")
+                return null
+            }
             // This head unit has a real instrument-cluster panel: display 1, 1920x720, 8:3. The
             // stream is asked for at that geometry and at full scale, so the phone draws the
             // cluster picture itself instead of the platform squeezing the 1920x944 centre screen
@@ -1712,8 +1717,13 @@ open class CarPlayHostActivity : ComponentActivity() {
      */
     private fun showClusterPanel() {
         if (isDestroyed || shuttingDown.get() || activeAirPlaySession?.hasRenderedMainFrame != true) return
-        clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
-        if (clusterPresentation != null) return
+        clusterSurface?.let(::attachClusterOutput)
+        val size = sessionDisplay?.takeIf { it.clusterMirrorsMain }?.let { it.width to it.height }
+            ?: (CLUSTER_PANEL_WIDTH to CLUSTER_PANEL_HEIGHT)
+        clusterPresentation?.let {
+            it.setVideoSize(size.first, size.second)
+            return
+        }
         val manager = getSystemService(DisplayManager::class.java)
         val display = manager?.getDisplay(CLUSTER_PANEL_DISPLAY_ID)
         if (display == null) {
@@ -1721,6 +1731,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             return
         }
         val presentation = EcarxClusterPresentation(this, display, this::onClusterSurface)
+        presentation.setVideoSize(size.first, size.second)
         clusterPresentation = presentation
         try {
             presentation.show()
@@ -1737,7 +1748,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             .requestPresentation(this, true, "cluster stream")
         appendLog(
             "Cluster panel: showing on \"${display.name}\" " +
-                "${display.mode.physicalWidth}x${display.mode.physicalHeight} projection=$accepted",
+                "${display.mode.physicalWidth}x${display.mode.physicalHeight} projection=$accepted " +
+                "source=${if (sessionDisplay?.clusterMirrorsMain == true) "main mirror" else "independent map"}",
         )
     }
 
@@ -1751,19 +1763,30 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog("Cluster panel: dismissed")
     }
 
-    /**
-     * The panel's window came up or went away. Stream 111's only surface is this one — the centre
-     * screen is never pointed at it (see [attachSurface]) — so a surface that is gone is cleared
-     * rather than left pointing at a dead window.
-     */
+    /** The main decoder keeps its own surface; the panel uses a separate mirror decoder. */
+    private fun attachClusterOutput(surface: Surface) {
+        if (sessionDisplay?.clusterMirrorsMain == true) {
+            sink?.setMirrorSurface(SCREEN_TYPE_MAIN, "ecarx-cluster", surface)
+        } else {
+            sink?.setSurface(SCREEN_TYPE_ALT, surface)
+        }
+    }
+
+    private fun detachClusterOutput(surface: Surface) {
+        if (sessionDisplay?.clusterMirrorsMain == true) {
+            sink?.setMirrorSurface(SCREEN_TYPE_MAIN, "ecarx-cluster", null)
+        } else {
+            sink?.clearSurface(SCREEN_TYPE_ALT, surface)
+        }
+    }
+
     private fun onClusterSurface(surface: Surface?) {
         val previous = clusterSurface
         if (previous === surface) return
+        if (previous != null) detachClusterOutput(previous)
         clusterSurface = surface
-        val media = sink ?: return
-        if (previous != null) media.clearSurface(SCREEN_TYPE_ALT, previous)
         if (surface != null && activeAirPlaySession?.hasRenderedMainFrame == true) {
-            media.setSurface(SCREEN_TYPE_ALT, surface)
+            attachClusterOutput(surface)
         }
     }
 
@@ -5200,7 +5223,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeAirPlaySession = session
-                    if (!session.hasRenderedMainFrame) clusterSurface?.let { sink?.clearSurface(SCREEN_TYPE_ALT, it) }
+                    if (!session.hasRenderedMainFrame) clusterSurface?.let(::detachClusterOutput)
                     val pending = pendingIphoneCornerMask
                     if (pending?.first === session) {
                         installIphoneCornerMask(session, pending.second.first, pending.second.second)
@@ -5257,7 +5280,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
-                    clusterSurface?.let { sink?.clearSurface(SCREEN_TYPE_ALT, it) }
+                    clusterSurface?.let(::detachClusterOutput)
                     clearIphoneCornerMask()
                     CarPlayBackgroundSession.active = false
                     GeelyWheelKeys.stop()
@@ -5514,6 +5537,8 @@ open class CarPlayHostActivity : ComponentActivity() {
                 "location=${config.locationReportingEnabled} " +
                 "mfi=${config.mfiTarget}",
         )
+        // The replacement sink must wait for its own session's first frame, not the retired one's.
+        activeAirPlaySession = null
         val renderer = createMediaSink(
             videoWidth = airPlayConfig.main.widthPixels,
             videoHeight = airPlayConfig.main.heightPixels,
@@ -5552,6 +5577,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             displayRotation(), hideTopBar, hideBottomBar, effectiveSize.width, effectiveSize.height,
             viewAreas = pendingViewAreas,
             statusBarShown = statusBarShown(),
+            clusterMirrorsMain = airPlayConfig.cluster == null &&
+                com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified,
         )
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
@@ -6361,11 +6388,9 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private fun attachSurface(surface: Surface) {
         sink?.setSurface(SCREEN_TYPE_MAIN, surface)
-        // Stream 111 is the instrument-cluster stream, and its only surface is the panel's own
-        // window ([onClusterSurface]). Pointing it at the centre screen as well — which this used
-        // to do — would draw the cluster picture on top of CarPlay as soon as the panel streams.
+        // Keep the primary surface on 110. The panel gets 111 or a separate copy of 110.
         if (activeAirPlaySession?.hasRenderedMainFrame == true) {
-            clusterSurface?.let { sink?.setSurface(SCREEN_TYPE_ALT, it) }
+            clusterSurface?.let(::attachClusterOutput)
         }
     }
 
@@ -6855,6 +6880,8 @@ internal data class CarPlaySessionDisplay(
     val viewAreas: CarPlayViewAreas? = null,
     /** Whether the status bar was on screen when the session started, or null when unknown. */
     val statusBarShown: Boolean? = null,
+    /** Negotiated mode, retained across Activity recreation until the next connection. */
+    val clusterMirrorsMain: Boolean = false,
 )
 
 /**

@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Switch
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
@@ -75,6 +76,26 @@ class EcarxClusterSafeAreaFlowTest {
         assertEquals(SafeAreaRect(672, 115, 1229, 540), editor().currentRectForSource())
         assertNull(AirPlayPersistence.loadClusterSafeAreaRect(settings))
         assertEquals(defaultInsets, config().cluster!!.safeArea)
+    }
+
+    @Test fun mirrorSettingWaitsForReconnectAndRemovesTheIndependentDisplayDeclaration() {
+        val owner = backgroundSession()
+        val current = config()
+        assertFalse(AirPlayPersistence.loadClusterMirrorMain(settings))
+        val toggle = views(navigationSettings()).filterIsInstance<Switch>().single {
+            it.contentDescription.toString() == settings.getString(R.string.settings_ecarx_cluster_mirror_main)
+        }
+        toggle.isChecked = true
+        assertTrue(AirPlayPersistence.loadClusterMirrorMain(settings))
+        assertTrue(PendingReconnect.isPending(owner))
+        assertNotNull(current.cluster)
+        verifyNoInteractions(owner)
+        val next = config()
+        assertNull(next.cluster)
+        val displays = AirPlayInfoPlist.build(next)["displays"] as List<*>
+        assertEquals(listOf(110), displays.map { (it as Map<*, *>)["type"] })
+        toggle.isChecked = false
+        assertNotNull(config().cluster)
     }
 
     @Test fun draggingThenCancellingKeepsTheSavedMappingAndSessionUntouched() {

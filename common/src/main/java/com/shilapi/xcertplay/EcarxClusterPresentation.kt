@@ -3,9 +3,11 @@ package com.shilapi.xcertplay
 import android.app.Presentation
 import android.content.Context
 import android.os.Bundle
+import android.graphics.Color
 import android.view.Display
 import android.view.Surface
 import android.view.ViewGroup
+import android.widget.FrameLayout
 
 /**
  * The instrument cluster as what it actually is on this head unit: a second Android display.
@@ -23,10 +25,11 @@ import android.view.ViewGroup
  * attempt to influence the mirror from the outside failed; a public presentation display accepts a
  * window from any process that can hold one, and this app is signed with the platform key.
  *
- * What goes in that window is CarPlay's own instrument-cluster stream (type 111), sized by
+ * By default the window shows CarPlay's instrument-cluster stream (type 111), sized by
  * [com.shilapi.xcertplay.airplay.CarPlayClusterDisplay] to the panel's native 8:3 — not a scaled
  * copy of the 1920x944 centre screen, which is what the platform's mirror paints there and why the
- * picture looked wrong: 944 → 720 is a 24 % squeeze.
+ * picture looked wrong: 944 → 720 is a 24 % squeeze. Optional main-picture mirroring uses a
+ * separate decoder for type 110 and fits its negotiated dimensions inside this black window.
  *
  * The presentation owns no lifecycle of its own. The host decides when a route is running (that is
  * `EcarxHudBridge.clusterPresentationRequested`) and calls `show()` / `dismiss()`; this class only
@@ -39,6 +42,13 @@ internal class EcarxClusterPresentation(
 ) : Presentation(context, display) {
 
     private var texture: ClusterVideoTexture? = null
+    private var videoSize = 1920 to 720
+
+    fun setVideoSize(width: Int, height: Int) {
+        if (videoSize.first == width && videoSize.second == height) return
+        videoSize = width to height
+        texture?.setVideoSize(width, height)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +56,11 @@ internal class EcarxClusterPresentation(
         // empty lambda at this call site would add a class to the dex for no behaviour at all.
         val view = ClusterVideoTexture(context, onSurface = onSurface)
         texture = view
-        setContentView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        view.setVideoSize(videoSize.first, videoSize.second)
+        setContentView(FrameLayout(context).apply {
+            setBackgroundColor(Color.BLACK)
+            addView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        })
     }
 
     override fun onStop() {
