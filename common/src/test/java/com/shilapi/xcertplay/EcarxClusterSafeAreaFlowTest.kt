@@ -78,24 +78,16 @@ class EcarxClusterSafeAreaFlowTest {
         assertEquals(defaultInsets, config().cluster!!.safeArea)
     }
 
-    @Test fun mirrorSettingWaitsForReconnectAndRemovesTheIndependentDisplayDeclaration() {
-        val owner = backgroundSession()
-        val current = config()
-        assertFalse(AirPlayPersistence.loadClusterMirrorMain(settings))
-        val toggle = views(navigationSettings()).filterIsInstance<Switch>().single {
-            it.contentDescription.toString() == settings.getString(R.string.settings_ecarx_cluster_mirror_main)
-        }
-        toggle.isChecked = true
-        assertTrue(AirPlayPersistence.loadClusterMirrorMain(settings))
-        assertTrue(PendingReconnect.isPending(owner))
-        assertNotNull(current.cluster)
-        verifyNoInteractions(owner)
-        val next = config()
-        assertNull(next.cluster)
-        val displays = AirPlayInfoPlist.build(next)["displays"] as List<*>
-        assertEquals(listOf(110), displays.map { (it as Map<*, *>)["type"] })
-        toggle.isChecked = false
-        assertNotNull(config().cluster)
+    @Test fun legacyMirrorPreferenceCannotDisableTheIndependentDisplay() {
+        settings.getSharedPreferences("xcertplay_airplay", 0).edit()
+            .putBoolean("cluster_mirror_main", true).commit()
+        val controls = views(navigationSettings()).filterIsInstance<Switch>().toList()
+        assertTrue(controls.any {
+            it.contentDescription.toString() == settings.getString(R.string.ecarx_instrument_cluster_projection)
+        })
+        assertFalse(controls.any { it.contentDescription.toString().contains("Mirror CarPlay to the cluster") })
+        val displays = AirPlayInfoPlist.build(config())["displays"] as List<*>
+        assertEquals(listOf(110, 111), displays.map { (it as Map<*, *>)["type"] })
     }
 
     @Test fun draggingThenCancellingKeepsTheSavedMappingAndSessionUntouched() {

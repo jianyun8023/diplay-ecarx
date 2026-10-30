@@ -1,10 +1,16 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
+import android.content.ComponentName
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.os.Looper
 import com.ecarx.xui.adaptapi.diminteraction.DimInteraction
 import com.ecarx.xui.adaptapi.diminteraction.FixtureLog
+import com.ecarx.xui.adaptapi.diminteraction.NaviFixture
+import com.ecarx.xui.adaptapi.diminteraction.INaviInteraction
 import com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder
 import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
@@ -24,6 +30,33 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 class EcarxLaneGuidanceFlowTest {
+    class NaviWithStatus : NaviFixture() {
+        fun notifyNavigationStatus(status: Int) = FixtureLog.capture("notifyNavigationStatus", "status", status)
+    }
+    class NaviCheckingFactory(val context: Context) : NaviFixture() {
+        override fun updateNavigationInfo(info: INaviInteraction.INavigationInfo) {
+            assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+                context.packageManager.getApplicationEnabledSetting(EcarxFactoryNavigationControl.PACKAGE_NAME))
+            super.updateNavigationInfo(info)
+        }
+    }
+
+    private fun installFactoryNavigation() {
+        val name = EcarxFactoryNavigationControl.PACKAGE_NAME
+        shadowOf(context.packageManager).installPackage(PackageInfo().apply {
+            packageName = name
+            applicationInfo = ApplicationInfo().apply { packageName = name; enabled = true }
+        })
+        shadowOf(context).grantPermissions(EcarxHicarControl.PERMISSION)
+    }
+
+    private fun assertFactoryRestored() {
+        val name = EcarxFactoryNavigationControl.PACKAGE_NAME
+        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+            context.packageManager.getApplicationEnabledSetting(name))
+        assertEquals(ComponentName(name, "$name.service.NaviService"), shadowOf(context).nextStartedService.component)
+        assertTrue(EcarxFactoryNavigationControl.status(context).contains("owned=false"))
+    }
     private val context get() = RuntimeEnvironment.getApplication()
     private val reports = CopyOnWriteArrayList<String>()
     private val panelRequests = CopyOnWriteArrayList<Boolean>()
@@ -64,6 +97,7 @@ class EcarxLaneGuidanceFlowTest {
         originalClock = clock.get(route)
         clock.set(route, { nowNs })
         context.getSharedPreferences("diplay_ecarx_outputs_v2", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("diplay_factory_navigation_control", Context.MODE_PRIVATE).edit().clear().commit()
         EcarxOutputSettings.setMediaEnabled(context, false)
         NavigationOutputs.setClusterPanelOwner { panelRequests += it }
         EcarxHudBridge.attachReport { reports += it }
@@ -296,6 +330,65 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=arrived"))
     }
 
+    @Test fun quietRouteKeepsItsPanelAndFactoryOwnershipOnlyWhileCurrentSessionIsLive() {
+        installFactoryNavigation()
+        var sessionActive = true
+        NavigationOutputs.start(context)
+        NavigationOutputs.onSessionActive { sessionActive }
+        awaitOutputWorker()
+        maneuver(); guidance()
+        nowNs += 90_000_000_000L
+        repeat(5) { tick() }
+        assertTrue(EcarxHudBridge.isActive())
+        assertTrue(panelRequests.last())
+        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+            context.packageManager.getApplicationEnabledSetting(EcarxFactoryNavigationControl.PACKAGE_NAME))
+        assertTrue(route.diagnosticState().contains("reason=active"))
+        assertTrue(route.diagnosticState().contains("sessionActive=true"))
+        assertFalse(reports.any { it.startsWith("DIM guidance ended") })
+
+        sessionActive = false
+        tick()
+        assertFalse(EcarxHudBridge.isActive())
+        assertFalse(panelRequests.last())
+        assertFactoryRestored()
+        assertTrue(reports.last { it.startsWith("DIM guidance ended") }.contains("reason=route-stale"))
+    }
+
+    @Test fun liveSessionStillClearsOnExplicitEndEmptyRouteAndOutputStop() {
+        installFactoryNavigation()
+        NavigationOutputs.start(context)
+        NavigationOutputs.onSessionActive { true }
+        awaitOutputWorker()
+        for (end in listOf("no-route", "arrived", "empty-list-timeout", "disconnect")) {
+            maneuver(); guidance()
+            nowNs += 31_000_000_000L
+            tick()
+            assertTrue(EcarxHudBridge.isActive())
+            when (end) {
+                "no-route" -> send(0x5201) { u8(1, 0) }
+                "arrived" -> send(0x5201) { u8(1, 2) }
+                "empty-list-timeout" -> {
+                    send(0x5201) { u16List(0x0d, emptyList()) }
+                    nowNs += 3_000_000_000L
+                    tick()
+                }
+                else -> {
+                    NavigationOutputs.endNow()
+                    awaitOutputWorker()
+                }
+            }
+            assertFalse(end, EcarxHudBridge.isActive())
+            assertFalse(end, panelRequests.last())
+            assertFactoryRestored()
+        }
+        // A cleared output owner cannot retain a later route, even if its old session probe was true.
+        maneuver(); guidance()
+        nowNs += 30_000_000_000L
+        tick()
+        assertFalse(EcarxHudBridge.isActive())
+    }
+
     @Test fun identicalRoutesRestartAfterNoRouteArrivalAndDisconnect() {
         initialize()
         repeat(3) { cycle ->
@@ -334,6 +427,103 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(calls("setPresentationToDimSwitch").isEmpty())
         assertEquals(3, reports.count { it.startsWith("DIM lifecycle start status=1 aggregate=ok notify=ok") })
         assertEquals(3, reports.count { it.startsWith("DIM lifecycle stop status=0 aggregate=ok notify=ok") })
+        assertEquals(6, reports.count { it.startsWith("DIM lifecycle") && it.contains("method not found") })
+    }
+
+    @Test fun optionalHyStatusFollowsAggregateBeforeLifecycleAndDoesNotRepeatOnKeepalive() {
+        initialize()
+        set("navi", NaviWithStatus())
+        maneuver(); guidance()
+        assertTrue(names().indexOf("updateNavigationInfo") < names().indexOf("notifyNavigationStatus"))
+        assertTrue(names().indexOf("notifyNavigationStatus") < names().indexOf("notifyTurnByTurnStarted"))
+        repeat(10) { tick() }
+        guidance(distance = 300)
+        assertEquals(listOf(1), calls("notifyNavigationStatus").map { it.payload["status"] })
+        send(0x5201) { u8(1, 0) }
+        assertTrue(names().lastIndexOf("updateNavigationInfo") < names().lastIndexOf("notifyNavigationStatus"))
+        assertTrue(names().lastIndexOf("notifyNavigationStatus") < names().lastIndexOf("notifyTurnByTurnStopped"))
+        maneuver(); guidance()
+        assertEquals(listOf(1, 0, 1), calls("notifyNavigationStatus").map { it.payload["status"] })
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+    }
+
+    @Test fun internalTakeoverDisablesBeforePublishingAndRestoresAcrossAllExitPaths() {
+        installFactoryNavigation(); initialize()
+        set("navi", NaviCheckingFactory(context))
+        repeat(5) { cycle ->
+            maneuver(); guidance()
+            assertTrue(EcarxFactoryNavigationControl.status(context).contains("owned=true"))
+            when (cycle) {
+                0 -> send(0x5201) { u8(1, 0) }
+                1 -> send(0x5201) { u8(1, 2) }
+                2 -> EcarxHudBridge.clear()
+                3 -> { nowNs += 30_000_000_000L; tick() }
+                else -> {
+                    EcarxOutputSettings.setEnabled(context, false)
+                    NavigationOutputs.ecarxChanged(context)
+                    awaitOutputWorker()
+                }
+            }
+            assertFalse(EcarxHudBridge.isActive())
+            assertFactoryRestored()
+            repeat(5) { tick() }
+            assertNull(shadowOf(context).nextStartedService)
+        }
+    }
+
+    @Test fun firstAndOngoingAggregateFailuresRestoreFactoryService() {
+        installFactoryNavigation(); initialize()
+        set("navi", NaviCheckingFactory(context))
+        maneuver()
+        FixtureLog.failOnce("updateNavigationInfo")
+        guidance()
+        assertFalse(EcarxHudBridge.isActive())
+        assertFactoryRestored()
+        guidance()
+        assertTrue(EcarxHudBridge.isActive())
+        FixtureLog.failOnce("updateNavigationInfo")
+        guidance(distance = 200)
+        assertFalse(EcarxHudBridge.isActive())
+        assertFactoryRestored()
+        assertTrue(reports.any { it.contains("reason=aggregate-failed") })
+    }
+
+    @Test fun freshBridgeRecoversPersistedOwnershipBeforeAnyNewRoute() {
+        installFactoryNavigation()
+        EcarxFactoryNavigationControl.acquire(context)
+        initialize()
+        assertFactoryRestored()
+        assertFalse(EcarxHudBridge.isActive())
+        assertTrue(calls("updateNavigationInfo").isEmpty())
+    }
+
+    @Test fun failedPanelCleanupOnTimeoutStillRestoresFactoryService() {
+        installFactoryNavigation(); initialize()
+        maneuver(); guidance()
+        NavigationOutputs.setClusterPanelOwner { if (!it) error("panel cleanup failed") }
+        nowNs += 30_000_000_000L
+        tick()
+        assertFalse(EcarxHudBridge.isActive())
+        assertFactoryRestored()
+        tick()
+        assertNull(shadowOf(context).nextStartedService)
+    }
+
+    @Test fun rejectedOptionalHyStatusDoesNotBlockGuidanceOrCleanup() {
+        initialize()
+        val target = NaviWithStatus()
+        set("navi", target)
+        FixtureLog.failOn("notifyNavigationStatus")
+        maneuver(); guidance()
+        assertTrue(EcarxHudBridge.isActive())
+        assertTrue(target.ongoingNavigationActive)
+        assertEquals(1, calls("notifyTurnByTurnStarted").size)
+        EcarxHudBridge.clear()
+        assertFalse(target.ongoingNavigationActive)
+        assertEquals(1, calls("notifyTurnByTurnStopped").size)
+        assertEquals(listOf(true, false), panelRequests)
+        assertEquals(2, reports.count { it.startsWith("DIM lifecycle") &&
+            it.contains("navigationStatus=failed") && it.contains("threw") })
     }
 
     @Test fun unchangedRouteExpiresAtExistingDeadlineAndFreshInputRestartsIt() {

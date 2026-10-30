@@ -28,8 +28,7 @@ import android.widget.FrameLayout
  * By default the window shows CarPlay's instrument-cluster stream (type 111), sized by
  * [com.shilapi.xcertplay.airplay.CarPlayClusterDisplay] to the panel's native 8:3 — not a scaled
  * copy of the 1920x944 centre screen, which is what the platform's mirror paints there and why the
- * picture looked wrong: 944 → 720 is a 24 % squeeze. Optional main-picture mirroring uses a
- * separate decoder for type 110 and fits its negotiated dimensions inside this black window.
+ * picture looked wrong: 944 → 720 is a 24 % squeeze.
  *
  * The presentation owns no lifecycle of its own. The host decides when a route is running (that is
  * `EcarxHudBridge.clusterPresentationRequested`) and calls `show()` / `dismiss()`; this class only

@@ -4011,18 +4011,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.setEnabled(this, it)
             NavigationOutputs.ecarxChanged(this)
         }
-        toggle(card, getString(R.string.settings_pause_factory_navigation),
-            getString(R.string.settings_pause_factory_navigation_description),
-            EcarxOutputSettings.pauseFactoryNavigation(this)) {
-            EcarxOutputSettings.setPauseFactoryNavigation(this, it)
-            NavigationOutputs.ecarxChanged(this)
-        }
-        toggle(card, getString(R.string.settings_ecarx_cluster_mirror_main),
-            getString(R.string.settings_ecarx_cluster_mirror_main_description),
-            AirPlayPersistence.loadClusterMirrorMain(this)) {
-            AirPlayPersistence.saveClusterMirrorMain(this, it)
-            markReconnectNeeded()
-        }
         toggle(card, getString(R.string.center_map_follows_dashboard),
             getString(R.string.center_map_follows_dashboard_description),
             AirPlayPersistence.loadCenterMapOverlay(this) && AirPlayPersistence.loadCenterMapFollowsDashboard(this)) { on ->
@@ -5001,6 +4989,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine(CarPlayMediaSession.mediaCenterDiagnosticReport())
         appendLine("ECARX MediaCenter clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
         appendLine(CarPlayMediaSession.diagnosticReport())
+        appendLine(SystemMediaSessionDiagnostics.report(appContext))
         appendLine(CarPlayMediaSession.artworkDiagnosticReport())
         appendLine(AudioDiagnosticSnapshot.report(appContext))
         appendLine(runCatching {

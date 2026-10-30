@@ -286,6 +286,10 @@ class CarPlayVpnService : VpnService() {
                         pairings = current.pairings,
                         mfi = current.mfi,
                         listener = object : AirPlaySessionListener by current.listener {
+                            override fun onSessionConnecting(session: AirPlaySession) {
+                                if (current.listenerIdentity == null || !internalPeer) current.listener.onSessionConnecting(session)
+                            }
+
                             override fun onSessionActive(session: AirPlaySession) {
                                 if (current.listenerIdentity == null || !internalPeer) current.listener.onSessionActive(session)
                             }

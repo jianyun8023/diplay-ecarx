@@ -13,6 +13,7 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 object NavigationOutputs {
     /** Whether identity detection selected ECARX; actual DIM handles belong to the bridge. */
     @Volatile private var useEcarx = false
+    @Volatile private var currentSession: (() -> Boolean)? = null
 
     private val ecarx = NavigationOutputWorker("diplay-ecarx-output", EcarxHudBridge::clear)
 
@@ -32,7 +33,10 @@ object NavigationOutputs {
         val app = context.applicationContext
         useEcarx = EcarxCapabilities.detect(app).identified
         if (useEcarx) {
-            ecarx.start { EcarxHudBridge.initialize(app) }
+            ecarx.start {
+                EcarxHudBridge.initialize(app)
+                EcarxHudBridge.setCurrentSession(currentSession)
+            }
         }
     }
 
@@ -49,7 +53,10 @@ object NavigationOutputs {
         useEcarx = true
         EcarxHudBridge.initialize(app)
         if (EcarxOutputSettings.enabled(app)) {
-            ecarx.start { EcarxHudBridge.initialize(app) }
+            ecarx.start {
+                EcarxHudBridge.initialize(app)
+                EcarxHudBridge.setCurrentSession(currentSession)
+            }
             ecarx.submit(EcarxHudBridge::settingsChanged)
         } else ecarx.clear()
     }
@@ -100,8 +107,15 @@ object NavigationOutputs {
         if (useEcarx) ecarx.submit { EcarxHudBridge.onFrame(owned, source) }
     }
 
+    /** Route-update silence is not a disconnect; the transport owns this liveness check. */
+    internal fun onSessionActive(isCurrent: () -> Boolean) {
+        currentSession = isCurrent
+        if (useEcarx) ecarx.submit { EcarxHudBridge.setCurrentSession(isCurrent) }
+    }
+
     /** Best effort while alive; Android does not guarantee callbacks before force-stop. */
     fun endNow() {
+        currentSession = null
         ecarx.clear()
     }
 }

@@ -8,8 +8,8 @@ Run the CI command from `.github/workflows/android.yml` before you report a chan
 
 ```sh
 ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
-  :mobile:lintDebug :home:lintDebug :maphost:lintDebug \
-  :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug
+  :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug \
+  :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
 ```
 
 Set `ANDROID_HOME` or `local.properties` if Gradle cannot find the SDK.

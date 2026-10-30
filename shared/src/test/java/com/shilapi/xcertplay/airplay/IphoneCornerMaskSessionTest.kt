@@ -12,7 +12,8 @@ import org.robolectric.annotation.Config
 class IphoneCornerMaskSessionTest {
     private val sample = ByteArray(96) { it.toByte() }
 
-    private fun session(native: Boolean, received: MutableList<Pair<ByteArray, Int>>): AirPlaySession =
+    private fun session(native: Boolean, received: MutableList<Pair<ByteArray, Int>>,
+        connecting: (AirPlaySession) -> Unit = {}): AirPlaySession =
         AirPlaySession(
             socket = Socket(),
             config = AirPlayConfig("test", "02:00:00:00:00:02", "02:00:00:00:00:01", "366.0",
@@ -20,6 +21,7 @@ class IphoneCornerMaskSessionTest {
                     useIphoneCornerMask = native)),
             identity = AirPlayIdentity.generate(), pairings = PairingStore(), mfi = null,
             listener = object : AirPlaySessionListener {
+                override fun onSessionConnecting(session: AirPlaySession) = connecting(session)
                 override fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {
                     received += png to displayWidth
                 }
@@ -52,6 +54,20 @@ class IphoneCornerMaskSessionTest {
                 } else assertTrue(seen.isEmpty())
             } finally { session.close() }
         }
+    }
+
+    @Test fun firstNonStreamSetupReportsConnectingOnce() {
+        val seen = mutableListOf<AirPlaySession>()
+        val session = session(false, mutableListOf()) { seen += it }
+        try {
+            handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
+            assertTrue(seen.isEmpty())
+            handle(session, "SETUP", emptyMap())
+            assertEquals(listOf(session), seen)
+            handle(session, "SETUP", emptyMap())
+            handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
+            assertEquals(listOf(session), seen)
+        } finally { session.close() }
     }
 
     @Test fun receivesRuntimeMaskUpdateAndIgnoresMalformedOrOversizedData() {

@@ -1,7 +1,9 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 
 /** Owns only the temporary pause of the fixed factory navigation package. */
 object EcarxFactoryNavigationControl {
@@ -11,7 +13,6 @@ object EcarxFactoryNavigationControl {
     @Synchronized
     @Suppress("DEPRECATION")
     fun acquire(context: Context): String {
-        if (!EcarxOutputSettings.pauseFactoryNavigation(context)) return "factoryNavigation acquire=opt-out"
         return runCatching {
             val manager = context.packageManager
             val info = manager.getApplicationInfo(PACKAGE_NAME, PackageManager.MATCH_DISABLED_COMPONENTS)
@@ -53,9 +54,14 @@ object EcarxFactoryNavigationControl {
                 manager.setApplicationEnabledSetting(PACKAGE_NAME, original, 0)
             val actual = manager.getApplicationEnabledSetting(PACKAGE_NAME)
             if (actual != original) return "factoryNavigation release=unconfirmed owned=true setting=$actual original=$original"
+            // Enabling the package does not restart NaviService; HY explicitly starts it on handback.
+            val intent = Intent().setClassName(PACKAGE_NAME, "ecarx.naviservice.service.NaviService")
+            val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+                else context.startService(intent)
+            if (started == null) return "factoryNavigation release=service-not-found owned=true setting=$actual"
             if (!store.edit().remove("owned").remove("original").commit())
                 return "factoryNavigation release=persist-failed setting=$actual"
-            "factoryNavigation release=restored owned=false setting=$actual"
+            "factoryNavigation release=restored owned=false setting=$actual serviceStart=requested"
         }.getOrElse { "factoryNavigation release=failed error=${it.javaClass.simpleName}" }
     }
 

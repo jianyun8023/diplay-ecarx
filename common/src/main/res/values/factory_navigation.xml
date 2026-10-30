@@ -1,4 +1,0 @@
-<resources>
-    <string name="settings_pause_factory_navigation">Pause factory navigation during CarPlay guidance (experimental)</string>
-    <string name="settings_pause_factory_navigation_description">Temporarily disables the factory navigation app while CarPlay guidance uses the cluster. Factory navigation is unavailable during this time. Restores its previous state when guidance ends; after an app exit, restoration is retried when DiPlay next opens.</string>
-</resources>

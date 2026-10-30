@@ -46,19 +46,27 @@ class MediaCenterSessionEngineTest {
             MediaCenterSessionEngine.Desired(owner, CarPlayNowPlaying(title = "real track", playing = playing, sourceApp = source), null, valid)
         fun update(value: MediaCenterSessionEngine.Desired?) { engine.update(value); queue.drain() }
     }
-    @Test fun noOwnerOrEmptyMediaNeverConnects() {
+    @Test fun invalidOwnerNeverConnects() {
         val f = Fixture(); val owner = f.fake("a")
         f.update(null)
-        f.update(MediaCenterSessionEngine.Desired(owner, CarPlayNowPlaying(), null) { true })
         f.update(f.frame(owner, valid = { false }))
         assertTrue(f.events.isEmpty())
     }
-    @Test fun pausedRealMediaRegistersWithoutClaimingOrSuppressingDirectKeys() {
+    @Test fun pausedRealMediaClaimsSourceOnceWithoutPlayingPhone() {
         val f = Fixture(); val a = f.fake("a")
         f.update(f.frame(a, false))
         assertTrue(f.instances.getValue(a).registered)
-        assertEquals(0, f.instances.getValue(a).claims)
-        assertFalse(f.engine.ownsMediaKeys(a))
+        assertEquals(1, f.instances.getValue(a).claims)
+        assertTrue(f.engine.ownsMediaKeys(a))
+    }
+    @Test fun connectedWithoutSongClaimsAndPublishesPausedOnce() {
+        val f = Fixture(); val a = f.fake("a")
+        f.update(MediaCenterSessionEngine.Desired(a, CarPlayNowPlaying(), null) { true })
+        assertEquals(1, f.instances.getValue(a).claims)
+        assertEquals(1, f.instances.getValue(a).publishes)
+        assertTrue(f.engine.ownsCallbacks(a))
+        f.engine.tick(); f.queue.drain()
+        assertEquals(1, f.instances.getValue(a).claims)
     }
     @Test fun repeatedFramesAndTicksNeverReclaimPlayingSource() {
         val f = Fixture(); val a = f.fake("a")

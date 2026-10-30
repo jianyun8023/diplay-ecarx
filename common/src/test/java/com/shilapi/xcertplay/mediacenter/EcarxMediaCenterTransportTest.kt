@@ -131,10 +131,16 @@ class EcarxMediaCenterTransportTest {
         assertTrue(p.service.playlist.isEmpty()); assertEquals(0L, p.service.progress)
         assertTrue(t.unregister()); t.close(); assertEquals(1, p.unbinds)
     }
-    @Test fun emptyMetadataCannotRegisterAPlaceholder() {
+    @Test fun emptyMetadataRegistersPausedSourceWithoutPlaceholderTrack() {
         val p = Platform(); val t = transport(p); t.connect()
-        try { t.register(CarPlayNowPlaying(playing = true), null); fail() } catch (_: IllegalArgumentException) { }
-        assertEquals(0, p.service.registrations); t.close()
+        t.register(CarPlayNowPlaying(), null)
+        assertTrue(t.publish(CarPlayNowPlaying(), null))
+        assertEquals(1, p.service.registrations)
+        assertEquals(0, p.service.info!!.getPlaybackStatus())
+        assertTrue(p.service.playlist.isEmpty())
+        assertTrue(p.service.client!!.getPlaylist(6).isEmpty())
+        assertEquals(0, p.service.claims)
+        t.unregister(); t.close()
     }
     @Test fun callbacksUseCurrentOwnerAndDoNotReplayOldCommands() {
         val p = Platform(); var valid = true; val calls = mutableListOf<Int>()

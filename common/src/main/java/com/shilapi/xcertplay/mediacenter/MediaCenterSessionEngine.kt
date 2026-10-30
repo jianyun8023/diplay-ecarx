@@ -50,7 +50,7 @@ internal class MediaCenterSessionEngine(
     fun select(owner: Any) { if (canSelect(owner)) { selectionOwner = owner; queue() } }
     fun ownsMediaKeys(owner: Any): Boolean = ownsCallbacks(owner) && status.claimed
     fun ownsCallbacks(owner: Any): Boolean = callbackOwner === owner && desired?.let {
-        it.owner === owner && hasMedia(it.now) && runCatching(it.valid).getOrDefault(false)
+        it.owner === owner && runCatching(it.valid).getOrDefault(false)
     } == true && !status.uncertain && transport?.connected == true
 
     /** Called by one process-wide timer, not by creating a new timer per frame or session. */
@@ -80,7 +80,7 @@ internal class MediaCenterSessionEngine(
         }
     }
 
-    private fun usable(value: Desired?): Boolean = value != null && hasMedia(value.now) &&
+    private fun usable(value: Desired?): Boolean = value != null &&
         runCatching(value.valid).getOrDefault(false)
 
     private fun reconcile() {
@@ -142,7 +142,8 @@ internal class MediaCenterSessionEngine(
             val previous = last
             val selected = selectionOwner === frame.owner
             selectionOwner = null
-            val acquire = selected || (frame.now.playing && (previous == null || !previous.playing || previous.sourceApp != frame.now.sourceApp))
+            val acquire = previous == null || selected ||
+                (frame.now.playing && (!previous.playing || previous.sourceApp != frame.now.sourceApp))
             if (acquire) {
                 phase("REQUEST_PLAY")
                 val claimed = transport!!.requestPlay()
@@ -207,10 +208,5 @@ internal class MediaCenterSessionEngine(
     }
     private fun finishOperation() = synchronized(operationLock) { operationAt = 0L; operation = "NONE"; operationOwner = null }
 
-    companion object {
-        private const val TIMEOUT_MILLIS = 8_000L
-        fun hasMedia(now: CarPlayNowPlaying): Boolean =
-            !now.title.isNullOrBlank() || !now.artist.isNullOrBlank() || !now.album.isNullOrBlank() ||
-                now.artworkTransferId != null || (now.durationMillis ?: 0L) > 0L
-    }
+    companion object { private const val TIMEOUT_MILLIS = 8_000L }
 }

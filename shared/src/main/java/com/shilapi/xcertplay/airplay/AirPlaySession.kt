@@ -27,6 +27,7 @@ data class AirPlayDeviceInfo(
 /** Session lifecycle and command callbacks for the driver/UI layer. */
 interface AirPlaySessionListener {
     fun onTcpAccepted(event: AirPlayTcpAccepted) {}
+    fun onSessionConnecting(session: AirPlaySession) {}
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
@@ -108,6 +109,7 @@ class AirPlaySession(
     private val closed = AtomicBoolean(false)
     internal val isClosed: Boolean get() = closed.get()
     private val notified = AtomicBoolean(false)
+    private var connectingReported = false
     private var eventServer: ServerSocket? = null
     private var eventSocket: Socket? = null
     private var eventCipher: ControlCipher? = null
@@ -700,6 +702,10 @@ class AirPlaySession(
         val videoDelivery = videoPlaybackAvailability.setFeatureEnabled(videoPlaybackEnabled)
         debugLog("airplay video playback negotiated=$videoPlaybackEnabled availability=$videoDelivery")
         response["enabledFeatures"] = features
+        if (!connectingReported) {
+            connectingReported = true
+            listener.onSessionConnecting(this)
+        }
         return RtspMessage.Response(
             headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
             body = BplistCodec.encode(response),

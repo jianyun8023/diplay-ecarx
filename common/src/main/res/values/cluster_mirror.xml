@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="settings_ecarx_cluster_mirror_main">Mirror CarPlay to the cluster (experimental)</string>
-    <string name="settings_ecarx_cluster_mirror_main_description">During navigation, copy the entire CarPlay picture to the cluster without stretching. Both screens follow the same app. Independent cluster maps, their visible-area setting and desktop map copies are unavailable in this mode. Takes effect after reconnecting.</string>
-</resources>

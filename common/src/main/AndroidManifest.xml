@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.OVERRIDE_WIFI_CONFIG" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.NETWORK_SETTINGS" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.TETHER_PRIVILEGED" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
+    <!-- Optional Android 9 diagnostic read of system media-session ordering; signature grant only. -->
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" android:maxSdkVersion="28" tools:ignore="ProtectedPermissions" />
     <!-- MediaCenter service authorization is checked at runtime; declaring is not a grant. -->
     <uses-permission android:name="ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION" />
 
@@ -80,6 +82,18 @@
         </activity>
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
             android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
+
+        <activity
+            android:name="com.shilapi.xcertplay.SiriActionActivity"
+            android:exported="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="${applicationId}.action.SIRI" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name="com.shilapi.xcertplay.CarPlayHostActivity"

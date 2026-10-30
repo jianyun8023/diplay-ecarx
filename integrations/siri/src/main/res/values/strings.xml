@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name" translatable="false">DiPlay Siri</string>
+    <string name="diplay_update_required">Install or update DiPlay to use Siri.</string>
+</resources>

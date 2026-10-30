@@ -19,7 +19,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.*
-import org.robolectric.ParameterizedRobolectricTestRunner
+import org.robolectric.RobolectricTestRunner
 import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -29,10 +29,10 @@ import org.robolectric.util.ReflectionHelpers
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
-@RunWith(ParameterizedRobolectricTestRunner::class)
+@RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.PAUSED)
-internal class EcarxVoiceTakeoverTest(private val mode: MediaSessionMode) {
+internal class EcarxVoiceTakeoverTest {
     private val app get() = RuntimeEnvironment.getApplication()
     private val controller = mock(CarPlayController::class.java)
     private val phone = mock(AirPlaySession::class.java)
@@ -42,7 +42,7 @@ internal class EcarxVoiceTakeoverTest(private val mode: MediaSessionMode) {
     }
 
     @Before fun setup() {
-        MediaSessionSettings.setMode(app, mode)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
         shadowOf(app.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xiaoka" })
         `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
         `when`(controller.requestSiri()).thenReturn(true)
@@ -87,18 +87,110 @@ internal class EcarxVoiceTakeoverTest(private val mode: MediaSessionMode) {
         verify(controller, times(2)).requestSiri()
     }
 
-    @Test fun androidMediaModeTakesTheVoiceBroadcastWithoutTakingVehicleMediaKeys() {
+    @Test fun androidMediaLeavesVoiceBroadcastsAndRawKeysToHyButAcceptsExplicitSiriAction() {
         CarPlayMediaSession.detach(controller)
         MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
         CarPlayMediaSession.attach(app, controller)
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
         CarPlayMediaSession.onSessionActive(controller, phone)
-        assertTrue(CarPlayMediaSession.ecarxVoiceKeyActive())
+        assertFalse(CarPlayMediaSession.ecarxVoiceKeyActive())
         assertFalse(CarPlayMediaSession.managesVehicleKeys())
         assertFalse(CarPlayMediaSession.isMediaCenterActive())
+        assertTrue(ReflectionHelpers.getField<android.media.session.MediaSession>(CarPlayMediaSession, "session").isActive)
         send(0)
+        send(0)
+        assertFalse(CarPlayMediaSession.onExternalSiriKey())
+        verify(controller, never()).requestSiri()
+        assertEquals(2, factoryPresses)
+        assertTrue(CarPlayMediaSession.requestSiriFromAction())
+        assertFalse(CarPlayMediaSession.requestSiriFromAction())
+        verify(controller, times(1)).requestSiri()
+    }
+
+    @Test fun physicalSiriPolicyUsesTheActiveModeUntilReconnect() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        assertTrue(CarPlayMediaSession.shouldHandleSiriKey(app))
+        assertTrue(CarPlayMediaSession.ecarxVoiceKeyActive())
+        CarPlayMediaSession.detach(controller)
+        CarPlayMediaSession.attach(app, controller)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
+        assertFalse(CarPlayMediaSession.shouldHandleSiriKey(app))
+        assertFalse(CarPlayMediaSession.ecarxVoiceKeyActive())
+    }
+
+    @Test fun androidMediaDoesNotKeepFactoryOrAssignedSiriKeysInTheHostOrAccessibilityService() {
+        CarPlayMediaSession.detach(controller)
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.attach(app, controller)
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val serviceController = Robolectric.buildService(WheelKeyService::class.java).create()
+        try {
+            host.window.decorView
+            ReflectionHelpers.setField(host, "controller", controller)
+            ReflectionHelpers.setField(host, "activeAirPlaySession", phone)
+            val service = serviceController.get()
+            service.session = { phone }
+            service.requestSiri = { controller.requestSiri() }
+            val receive = service.javaClass.getDeclaredMethod("onKeyEvent", KeyEvent::class.java).apply { isAccessible = true }
+            WheelZoomSettings.setSiriKey(app, true)
+            for (code in listOf(200231, KeyEvent.KEYCODE_VOICE_ASSIST, KeyEvent.KEYCODE_F9)) {
+                WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey.of(KeyEvent(KeyEvent.ACTION_DOWN, code)))
+                for (double in listOf(false, true)) {
+                    WheelZoomSettings.setSiriDoublePress(app, double)
+                    for (action in listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP)) {
+                        val event = KeyEvent(action, code)
+                        assertFalse(receive.invoke(service, event) as Boolean)
+                        assertFalse(host.dispatchKeyEvent(event))
+                    }
+                }
+            }
+            shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+            verify(controller, never()).requestSiri()
+        } finally {
+            serviceController.destroy()
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()
+            }
+        }
+    }
+
+    @Test fun genericAndroidHeadUnitsKeepRawAndAssignedSiriHandling() {
+        CarPlayMediaSession.detach(controller)
+        shadowOf(app.packageManager).removePackage("com.ecarx.xiaoka")
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.attach(app, controller)
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        assertTrue(CarPlayMediaSession.shouldHandleSiriKey(app))
+        assertTrue(CarPlayMediaSession.onExternalSiriKey())
+        for (bluetooth in listOf(false, true)) {
+            assertEquals(listOf(GeelyWheelKeyCodes.KEY_VOICE_ASSIST),
+                GeelyWheelKeyCodes.registeredCodes(bluetooth, CarPlayMediaSession.managesVehicleKeys()).toList())
+        }
         verify(controller).requestSiri()
-        assertEquals(0, factoryPresses)
+        clearInvocations(controller)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        try {
+            host.window.decorView
+            ReflectionHelpers.setField(host, "controller", controller)
+            ReflectionHelpers.setField(host, "activeAirPlaySession", phone)
+            WheelZoomSettings.setSiriKey(app, true)
+            WheelZoomSettings.assign(app, WheelZoomSettings.Role.SIRI, WheelKey.of(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F9)))
+            assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F9)))
+            assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F9)))
+            verify(controller).requestSiri()
+        } finally {
+            ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
+            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
+                ReflectionHelpers.getField<ExecutorService>(host, name).shutdownNow()
+            }
+        }
     }
 
     @Test fun customVoiceKeyWinsOverTheDefaultReceiverWithoutRequestingTwice() {
@@ -331,7 +423,7 @@ internal class EcarxVoiceTakeoverTest(private val mode: MediaSessionMode) {
         verify(controller, never()).requestSiri()
     }
 
-    @Test fun rawVoiceFallbackChecksCallStateAndDebouncesInEitherMode() {
+    @Test fun rawVoiceFallbackChecksCallStateAndDebouncesInDirectMode() {
         `when`(controller.activeAirPlaySession()).thenReturn(phone)
         app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
         assertFalse(CarPlayMediaSession.onExternalSiriKey())
@@ -341,11 +433,30 @@ internal class EcarxVoiceTakeoverTest(private val mode: MediaSessionMode) {
         verify(controller, times(1)).requestSiri()
     }
 
+    @Test fun explicitSiriHandoffWorksWithRegisteredVoiceReceiverAndDebouncesRepeats() {
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        assertTrue(CarPlayMediaSession.ecarxVoiceKeyActive())
+        assertFalse(CarPlayMediaSession.onExternalSiriKey())
+        assertTrue(CarPlayMediaSession.requestSiriFromAction())
+        assertFalse(CarPlayMediaSession.requestSiriFromAction())
+        verify(controller, times(1)).requestSiri()
+    }
+
+    @Test fun explicitSiriHandoffRequiresAnExistingSessionAndNoCall() {
+        assertFalse(CarPlayMediaSession.requestSiriFromAction())
+        `when`(controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(controller, phone)
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
+        assertFalse(CarPlayMediaSession.requestSiriFromAction())
+        verify(controller, never()).requestSiri()
+        app.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
+        assertTrue(CarPlayMediaSession.requestSiriFromAction())
+        verify(controller, times(1)).requestSiri()
+    }
+
     companion object {
         private const val ACTION = "ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT"
 
-        @JvmStatic
-        @ParameterizedRobolectricTestRunner.Parameters(name = "{0}")
-        fun modes() = MediaSessionMode.entries.map { arrayOf(it) }
     }
 }

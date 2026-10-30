@@ -20,7 +20,7 @@ internal class NavigationOutputWorker(name: String, private val clearOutput: () 
     @Synchronized fun submit(action: () -> Unit) {
         if (!accepting) return
         try {
-            executor.execute { runCatching(action) }
+            executor.execute { runCatching(action).onFailure { clear() } }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Incremental protocol frames cannot safely be dropped individually. Stop this output
             // until the next session, and clear after any in-flight vendor call returns.

@@ -37,7 +37,6 @@ object EcarxOutputSettings {
     private const val KEY_PRESENTATION = "dim_presentation_switch"
     private const val KEY_MEDIA = "dim_media_enabled"
     private const val KEY_LANE_GUIDANCE = "dim_lane_guidance_enabled"
-    private const val KEY_PAUSE_FACTORY_NAVIGATION = "pause_factory_navigation"
 
     /**
      * The two string arguments of `DimInteraction.setPresentationToDimSwitch(int,String,String,boolean)`.
@@ -65,14 +64,6 @@ object EcarxOutputSettings {
     }
 
     fun laneGuidanceEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_LANE_GUIDANCE, true)
-
-    fun pauseFactoryNavigation(context: Context): Boolean = prefs(context).getBoolean(KEY_PAUSE_FACTORY_NAVIGATION, false)
-
-    fun setPauseFactoryNavigation(context: Context, enabled: Boolean) {
-        check(prefs(context).edit().putBoolean(KEY_PAUSE_FACTORY_NAVIGATION, enabled).commit()) {
-            "Could not persist the factory navigation setting"
-        }
-    }
 
     fun setLaneGuidanceEnabled(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_LANE_GUIDANCE, enabled).commit()) {

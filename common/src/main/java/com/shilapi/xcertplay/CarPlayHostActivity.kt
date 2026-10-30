@@ -76,6 +76,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -660,7 +661,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private val requestDelayedAssignedSiri = Runnable {
         val pending = delayedDoubleSiri
         delayedDoubleSiri = null
-        if (pending == null || !WheelZoomSettings.siriDoublePress(this) ||
+        if (pending == null || !CarPlayMediaSession.shouldHandleSiriKey(this) || !WheelZoomSettings.siriDoublePress(this) ||
             !WheelZoomSettings.isSiriKey(this, pending.assignedKey) ||
             activeAirPlaySession !== pending.session || inCall(this)) return@Runnable
         val sent = controller?.requestSiri() == true
@@ -1304,14 +1305,9 @@ open class CarPlayHostActivity : ComponentActivity() {
      * display 1 at the panel's own 1920x720, because the panel is a real second display and the
      * app draws the cluster picture on it (see [showClusterPanel]). Everywhere else the only stream
      * is the standard virtual one that the centre-screen map card and the embedded map service use.
-     * Main-picture mirroring declares no cluster display, so iOS keeps navigation on the main screen.
      */
     private fun clusterDisplayConfig(): AirPlayDisplayConfig? {
         if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
-            if (AirPlayPersistence.loadClusterMirrorMain(this)) {
-                appendLog("Cluster: mirroring main stream 110; independent altScreen disabled")
-                return null
-            }
             // This head unit has a real instrument-cluster panel: display 1, 1920x720, 8:3. The
             // stream is asked for at that geometry and at full scale, so the phone draws the
             // cluster picture itself instead of the platform squeezing the 1920x944 centre screen
@@ -1350,6 +1346,10 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     // Hardware navigation belongs to the iPhone-rendered CarPlay UI, not Android View focus.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if ((CarPlayMediaButton.opensSiri(event.keyCode) || WheelZoomSettings.isSiriKey(this, WheelKey.of(event))) &&
+            !CarPlayMediaSession.shouldHandleSiriKey(this)) {
+            return super.dispatchKeyEvent(event)
+        }
         if (CarPlayMediaButton.opensSiri(event.keyCode) &&
             (activeAirPlaySession == null || (CarPlayMediaSession.ecarxVoiceKeyActive() &&
                 !WheelZoomSettings.isSiriKey(this, WheelKey.of(event))))) {
@@ -1666,6 +1666,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         closePicturePanel()
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
         logThemeState(ThemeModeDiagnostics.Source.STOP, resources.configuration)
+        appendLog("Cluster lifecycle: host stopped sessionActive=${activeAirPlaySession != null && controller?.activeAirPlaySession() === activeAirPlaySession} " +
+            "panelWanted=$clusterPanelWanted presentationShowing=${clusterPresentation?.isShowing == true} " +
+            "clusterSurfaceValid=${clusterSurface?.isValid == true}")
         mainHandler.removeCallbacks(pollConfiguration)
         super.onStop()
         centerMap.onHostStopped(schedule = !isFinishing && !isChangingConfigurations)
@@ -1716,10 +1719,13 @@ open class CarPlayHostActivity : ComponentActivity() {
      * takes to come up.
      */
     private fun showClusterPanel() {
-        if (isDestroyed || shuttingDown.get() || activeAirPlaySession?.hasRenderedMainFrame != true) return
+        if (isDestroyed || shuttingDown.get() || activeAirPlaySession?.hasRenderedMainFrame != true) {
+            appendLog("Cluster panel: show deferred destroyed=$isDestroyed shuttingDown=${shuttingDown.get()} " +
+                "mainFirstFrame=${activeAirPlaySession?.hasRenderedMainFrame == true} panelWanted=$clusterPanelWanted")
+            return
+        }
         clusterSurface?.let(::attachClusterOutput)
-        val size = sessionDisplay?.takeIf { it.clusterMirrorsMain }?.let { it.width to it.height }
-            ?: (CLUSTER_PANEL_WIDTH to CLUSTER_PANEL_HEIGHT)
+        val size = CLUSTER_PANEL_WIDTH to CLUSTER_PANEL_HEIGHT
         clusterPresentation?.let {
             it.setVideoSize(size.first, size.second)
             return
@@ -1749,7 +1755,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog(
             "Cluster panel: showing on \"${display.name}\" " +
                 "${display.mode.physicalWidth}x${display.mode.physicalHeight} projection=$accepted " +
-                "source=${if (sessionDisplay?.clusterMirrorsMain == true) "main mirror" else "independent map"}",
+                "source=independent map",
         )
     }
 
@@ -1763,26 +1769,22 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog("Cluster panel: dismissed")
     }
 
-    /** The main decoder keeps its own surface; the panel uses a separate mirror decoder. */
+    /** The main decoder keeps its own surface; the panel uses the independent cluster stream. */
     private fun attachClusterOutput(surface: Surface) {
-        if (sessionDisplay?.clusterMirrorsMain == true) {
-            sink?.setMirrorSurface(SCREEN_TYPE_MAIN, "ecarx-cluster", surface)
-        } else {
-            sink?.setSurface(SCREEN_TYPE_ALT, surface)
-        }
+        sink?.setSurface(SCREEN_TYPE_ALT, surface)
     }
 
     private fun detachClusterOutput(surface: Surface) {
-        if (sessionDisplay?.clusterMirrorsMain == true) {
-            sink?.setMirrorSurface(SCREEN_TYPE_MAIN, "ecarx-cluster", null)
-        } else {
-            sink?.clearSurface(SCREEN_TYPE_ALT, surface)
-        }
+        sink?.clearSurface(SCREEN_TYPE_ALT, surface)
     }
 
     private fun onClusterSurface(surface: Surface?) {
         val previous = clusterSurface
         if (previous === surface) return
+        if (surface == null) {
+            appendLog("Cluster surface: detached sessionActive=${activeAirPlaySession != null && controller?.activeAirPlaySession() === activeAirPlaySession} " +
+                "panelWanted=$clusterPanelWanted presentationShowing=${clusterPresentation?.isShowing == true}")
+        }
         if (previous != null) detachClusterOutput(previous)
         clusterSurface = surface
         if (surface != null && activeAirPlaySession?.hasRenderedMainFrame == true) {
@@ -1819,6 +1821,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             super.onDestroy()
             return
         }
+        appendLog("Cluster lifecycle: host destroyed sessionActive=${activeAirPlaySession != null && controller?.activeAirPlaySession() === activeAirPlaySession} " +
+            "panelWanted=$clusterPanelWanted presentationShowing=${clusterPresentation?.isShowing == true} " +
+            "clusterSurfaceValid=${clusterSurface?.isValid == true}")
         CarPlayScreen.destroyed(this)
         runCatching { unregisterReceiver(bluetoothOnReceiver) }
         mainHandler.removeCallbacks(hideTemporarySystemBars)
@@ -5206,6 +5211,14 @@ open class CarPlayHostActivity : ComponentActivity() {
         object : AirPlaySessionListener {
             private val diagnosticLog = sessionLog
 
+            override fun onSessionConnecting(session: AirPlaySession) {
+                runOnUiThread {
+                    if (controllerGeneration == restartGeneration && !shuttingDown.get() && activeAirPlaySession == null) {
+                        controller?.let { CarPlayMediaSession.onSessionConnecting(it, session) }
+                    }
+                }
+            }
+
             override fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || shuttingDown.get() ||
@@ -5577,8 +5590,6 @@ open class CarPlayHostActivity : ComponentActivity() {
             displayRotation(), hideTopBar, hideBottomBar, effectiveSize.width, effectiveSize.height,
             viewAreas = pendingViewAreas,
             statusBarShown = statusBarShown(),
-            clusterMirrorsMain = airPlayConfig.cluster == null &&
-                com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified,
         )
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
@@ -6077,6 +6088,12 @@ open class CarPlayHostActivity : ComponentActivity() {
         menuOpen = true
         gestureOverlay?.visibility = View.GONE
         settingsMenu?.visibility = View.VISIBLE
+        appendLog("Settings menu opened video=${if (fallbackVideoView != null) "surface" else "texture"}")
+        settingsMenu?.doOnPreDraw { menu ->
+            val panel = (menu as ViewGroup).getChildAt(0)
+            appendLog("Settings menu draw size=${menu.width}x${menu.height} " +
+                "panel=${panel.left},${panel.top},${panel.width}x${panel.height}")
+        }
         safeAreaEditor?.visibility = View.GONE
         updateSafeAreaSummary()
         updateResolutionMenu()
@@ -6439,8 +6456,8 @@ open class CarPlayHostActivity : ComponentActivity() {
                 ) {
                     gestureTracking = false
                     if (deltaY > 0) {
-                        gestureSequenceActive = false
-                        openSettingsMenu()
+                        // Keep swallowing this gesture until the posted menu replaces the touch layer.
+                        mainHandler.post { if (!isFinishing && !isDestroyed) openSettingsMenu() }
                     } else {
                         // Keep swallowing remaining finger-up events. Forwarding a release
                         // without its matching press creates phantom taps inside CarPlay.
@@ -6880,8 +6897,6 @@ internal data class CarPlaySessionDisplay(
     val viewAreas: CarPlayViewAreas? = null,
     /** Whether the status bar was on screen when the session started, or null when unknown. */
     val statusBarShown: Boolean? = null,
-    /** Negotiated mode, retained across Activity recreation until the next connection. */
-    val clusterMirrorsMain: Boolean = false,
 )
 
 /**

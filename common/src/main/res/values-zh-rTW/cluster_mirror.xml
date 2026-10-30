@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="settings_ecarx_cluster_mirror_main">儀表複製中控 CarPlay（實驗性）</string>
-    <string name="settings_ecarx_cluster_mirror_main_description">導航時將完整 CarPlay 畫面等比例複製到儀表，兩螢幕跟隨同一應用程式。此模式不使用獨立儀表地圖、其可見區域設定及桌面地圖副本。重新連線後生效。</string>
-</resources>

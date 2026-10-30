@@ -50,8 +50,8 @@ import java.lang.reflect.Proxy
  *        getHighwayExitInfo() / getRoadCameraInfo() / getServiceAreaInfo()
  * ```
  *
- * Not in the contract, because it does not exist on the target head unit:
- *  * `INaviInteraction.notifyNavigationStatus(int)` — absent (probe printed "未找到重载").
+ * Optional across firmware versions:
+ *  * `INaviInteraction.notifyNavigationStatus(int)` — used by HY, absent from the recovered 1.1.17 SDK.
  *  * `ecarx.dimprotocol.DIMProtocolManager` — the class is not in the system image at all, so
  *    [setNaviMode] can only ever fail there, so it is never offered.
  *
@@ -370,8 +370,9 @@ internal object EcarxDimApi {
 
     fun notifyTurnByTurnStopped(navi: Any): EcarxResult = call0(navi, "notifyTurnByTurnStopped")
 
-    // There is deliberately no `notifyNavigationStatus` here: the real device's INaviInteraction
-    // does not declare it (probe v2 printed "未找到 notifyNavigationStatus / 1 个参数的重载").
+    /** HY sends 1 after active aggregate data and 0 after idle; older SDKs lack this optional call. */
+    fun notifyNavigationStatus(navi: Any, status: Int): EcarxResult =
+        callInt(navi, "notifyNavigationStatus", status)
 
     /**
      * `DimInteraction.getShowPresentationOption()` — the only read-back the probe turned up.

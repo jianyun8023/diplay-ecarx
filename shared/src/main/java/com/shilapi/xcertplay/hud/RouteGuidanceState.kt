@@ -41,6 +41,8 @@ internal class RouteGuidanceState(
      * Arrived (2) still ends the route. The overlay's own stale window retires a truly ended one.
      */
     private val keepAcrossNoRoute: Boolean = false,
+    /** ECARX retains a quiet route only while its output owner confirms the current live session. */
+    private val liveSession: () -> Boolean = { false },
 ) {
     private data class Maneuver(val type: Int, val drivingSide: Int, val afterRoad: String)
 
@@ -102,22 +104,23 @@ internal class RouteGuidanceState(
         val now = nanoTime()
         val routeAge = lastRouteUpdateNs?.let { now - it }
         val emptyAge = emptyListSinceNs?.let { now - it }
+        val sessionActive = liveSession()
         val reason = when {
             !routeActive -> endReason
             activeIndex < 0 -> "missing-index"
             routeAge == null -> "missing-route-update"
-            routeAge >= staleRouteNs -> "route-stale"
+            routeAge >= staleRouteNs && !sessionActive -> "route-stale"
             emptyAge != null && emptyAge >= emptyListHideNs -> "empty-list-timeout"
             maneuvers[activeIndex] == null -> "missing-maneuver"
             else -> "active"
         }
-        return "reason=$reason routeAgeMs=${routeAge?.div(1_000_000) ?: -1} emptyAgeMs=${emptyAge?.div(1_000_000) ?: -1}"
+        return "reason=$reason routeAgeMs=${routeAge?.div(1_000_000) ?: -1} emptyAgeMs=${emptyAge?.div(1_000_000) ?: -1} sessionActive=$sessionActive"
     }
 
     private fun activeManeuver(): Maneuver? {
         if (!routeActive || activeIndex < 0) return null
         val updated = lastRouteUpdateNs ?: return null
-        if (nanoTime() - updated >= staleRouteNs) return null
+        if (nanoTime() - updated >= staleRouteNs && !liveSession()) return null
         val emptySince = emptyListSinceNs
         if (emptySince != null && nanoTime() - emptySince >= emptyListHideNs) return null
         return maneuvers[activeIndex]

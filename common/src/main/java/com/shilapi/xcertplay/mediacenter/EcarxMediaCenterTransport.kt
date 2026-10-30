@@ -103,7 +103,6 @@ internal class EcarxMediaCenterTransport(
 
     override fun register(now: CarPlayNowPlaying, artwork: Uri?) {
         check(valid() && !closed.get() && connectionAlive.get()) { "SESSION_CHANGED" }
-        require(realMedia(now)) { "NO_MEDIA" }
         check(token == null)
         this.now = now; this.artwork = artwork
         val types = contract.types
@@ -123,13 +122,13 @@ internal class EcarxMediaCenterTransport(
 
     override fun publish(now: CarPlayNowPlaying, artwork: Uri?): Boolean {
         check(registered && connectionAlive.get() && !closed.get() && valid()) { "SESSION_CHANGED" }
-        require(realMedia(now)) { "NO_MEDIA" }
         this.now = now; this.artwork = artwork
         if (publishedNow?.copy(elapsedMillis = now.elapsedMillis) == now && publishedArtwork == artwork) {
             contract.progress.invoke(service, token, (now.elapsedMillis ?: 0L).coerceAtLeast(0L))
             return true
         }
-        val queue = contract.mediaList.apply { isAccessible = true }.invoke(null, listOf(media))
+        val queue = contract.mediaList.apply { isAccessible = true }.invoke(null,
+            if (realMedia(now)) listOf(media) else emptyList<Any>())
         contract.playlist.invoke(service, token, SOURCE, queue)
         val accepted = contract.playback.invoke(service, token, wirePlayback) == true
         contract.progress.invoke(service, token, (now.elapsedMillis ?: 0L).coerceAtLeast(0L))
@@ -172,7 +171,7 @@ internal class EcarxMediaCenterTransport(
         connection = null
     }
 
-    private fun available(): Boolean = !closed.get() && connectionAlive.get() && valid() && realMedia(now)
+    private fun available(): Boolean = !closed.get() && connectionAlive.get() && valid()
     private fun clientValue(method: Method, args: Array<out Any?>?): Any? {
         if (!available()) return if (method.name == "getCurrentSourceType") numeric(method.returnType, -1) else defaultValue(method.returnType)
         return when (method.name) {
@@ -180,7 +179,7 @@ internal class EcarxMediaCenterTransport(
             "getCurrentSourceType" -> numeric(method.returnType, SOURCE.toLong())
             "getMediaSourceTypeList" -> intArrayOf(SOURCE)
             "getMusicPlaybackInfo" -> playback
-            "getPlaylist" -> if ((args?.firstOrNull() as? Number)?.toInt() == SOURCE) listOf(media) else emptyList<Any>()
+            "getPlaylist" -> if ((args?.firstOrNull() as? Number)?.toInt() == SOURCE && realMedia(now)) listOf(media) else emptyList<Any>()
             "onNext" -> command(CarPlayMediaButton.NEXT)
             "onPrevious" -> command(CarPlayMediaButton.PREVIOUS)
             "onPlay" -> command(CarPlayMediaButton.PLAY)

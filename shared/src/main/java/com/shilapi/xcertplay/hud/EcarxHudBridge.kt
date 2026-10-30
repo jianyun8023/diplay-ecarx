@@ -151,7 +151,8 @@ internal object EcarxHudBridge {
     private const val PRESENTATION_SLOW_SECONDS = 10
 
     private val lock = Any()
-    private val route = RouteGuidanceState()
+    private var currentSession: (() -> Boolean)? = null
+    private val route = RouteGuidanceState(liveSession = { currentSession?.invoke() == true })
     private var context: Context? = null
     private var ecarxDetected = false
     private var dim: Any? = null
@@ -227,6 +228,7 @@ internal object EcarxHudBridge {
             report("ECARX identity absent, output disabled: ${EcarxCapabilities.describe(app)}")
             return@synchronized
         }
+        report("factory navigation startup ${EcarxFactoryNavigationControl.release(app)}")
         // Read the previous request for the startup reset below, not to restore a mirror.
         presentationWanted = EcarxOutputSettings.presentationSwitch(app)
         reclaimLocked()
@@ -391,7 +393,12 @@ internal object EcarxHudBridge {
         }
     }
 
+    fun setCurrentSession(isCurrent: (() -> Boolean)?) = synchronized(lock) {
+        currentSession = isCurrent
+    }
+
     fun clear() = synchronized(lock) {
+        currentSession = null
         route.clear() // Stop the keepalive from restoring guidance after cleanup.
         if (lastPushed != null) endLocked("reason=clear-or-session-stop") else {
             clearLanesLocked()
@@ -401,11 +408,6 @@ internal object EcarxHudBridge {
 
     fun settingsChanged() = synchronized(lock) {
         val app = context ?: return@synchronized
-        if (!EcarxOutputSettings.pauseFactoryNavigation(app)) {
-            report("factory navigation ${EcarxFactoryNavigationControl.release(app)}")
-        } else if (lastPushed != null) {
-            report("factory navigation ${EcarxFactoryNavigationControl.acquire(app)}")
-        }
         if (!EcarxOutputSettings.laneGuidanceEnabled(app)) lanes = null
         pushLaneLocked(false)
     }
@@ -511,18 +513,20 @@ internal object EcarxHudBridge {
 
     private fun tick() = synchronized(lock) {
         if (!ecarxDetected) return@synchronized
-        // The cluster service is not up when the head unit is only on accessory power, so keep
-        // asking for the handles as well as for the projection itself.
-        if (dim == null || navi == null) reclaimLocked()
-        watchProjectionLocked()
-        // Guidance can expire without a frame (a list that stays empty), so check every second.
-        if (route.current() == null && (lastPushed != null || lanes != null || lastLanePushed != null)) {
-            if (lastPushed != null) endLocked(route.diagnosticState()) else clearLanesLocked()
-        }
-        else if (++ticksSincePush >= KEEPALIVE_TICKS) {
-            pushLocked(force = true)
-            pushLaneLocked(true)
-        }
+        runCatching {
+            // The cluster service is not up when the head unit is only on accessory power, so keep
+            // asking for the handles as well as for the projection itself.
+            if (dim == null || navi == null) reclaimLocked()
+            watchProjectionLocked()
+            // Guidance can expire without a frame (a list that stays empty), so check every second.
+            if (route.current() == null && (lastPushed != null || lanes != null || lastLanePushed != null)) {
+                if (lastPushed != null) endLocked(route.diagnosticState()) else clearLanesLocked()
+            }
+            else if (++ticksSincePush >= KEEPALIVE_TICKS) {
+                pushLocked(force = true)
+                pushLaneLocked(true)
+            }
+        }.onFailure { runCatching { clear() } }
     }
 
     /**
@@ -573,12 +577,15 @@ internal object EcarxHudBridge {
         if (!result.ok) {
             report("updateNavigationInfo failed next=${maneuver.distanceMeters}m: ${result.reason}")
             if (firstFrame) report("factory navigation ${EcarxFactoryNavigationControl.release(app)}")
+            else endLocked("reason=aggregate-failed")
             return
         }
         if (firstFrame) {
+            val status = EcarxDimApi.notifyNavigationStatus(naviRef, NAVI_STATUS_ACTIVE)
             val started = EcarxDimApi.notifyTurnByTurnStarted(naviRef)
             report("DIM lifecycle start status=$NAVI_STATUS_ACTIVE aggregate=${outcome(result)} " +
-                "notify=${outcome(started)} detail=${started.reason}")
+                "notify=${outcome(started)} detail=${started.reason} " +
+                "navigationStatus=${outcome(status)} statusDetail=${status.reason}")
         }
         // The `void` notification above has never been confirmed to reach the service. Publish the
         // event the service itself would have published, so the cluster is told a navigation exists
@@ -709,51 +716,56 @@ internal object EcarxHudBridge {
     }
 
     private fun endLocked(reason: String) {
-        lastGuidanceEnd = "$reason elapsedMs=${SystemClock.elapsedRealtime()}"
-        lanes = null
-        val naviRef = navi
-        if (naviRef != null) {
-            // The recovered SDK's Stop only clears lanes/exits; idle resets its cached active state for the next start.
-            val idle = EcarxDimApi.updateNavigationInfo(naviRef, EcarxDimApi.Guidance(
-                status = NAVI_STATUS_IDLE,
-                distanceToNextMeters = 0,
-                distanceToDestinationMeters = 0,
-                etaEpochSeconds = 0,
-            ))
-            val stopped = EcarxDimApi.notifyTurnByTurnStopped(naviRef)
-            report("DIM lifecycle stop status=$NAVI_STATUS_IDLE aggregate=${outcome(idle)} " +
-                "notify=${outcome(stopped)} aggregateDetail=${idle.reason} notifyDetail=${stopped.reason}")
-            if (context?.let(EcarxOutputSettings::naviCardEvent) == true) {
-                EcarxProjectionChannel.setNavigationOngoing(false, "")
+        try {
+            lastGuidanceEnd = "$reason elapsedMs=${SystemClock.elapsedRealtime()}"
+            lanes = null
+            val naviRef = navi
+            if (naviRef != null) {
+                // The recovered SDK's Stop only clears lanes/exits; idle resets its cached active state for the next start.
+                val idle = EcarxDimApi.updateNavigationInfo(naviRef, EcarxDimApi.Guidance(
+                    status = NAVI_STATUS_IDLE,
+                    distanceToNextMeters = 0,
+                    distanceToDestinationMeters = 0,
+                    etaEpochSeconds = 0,
+                ))
+                val status = EcarxDimApi.notifyNavigationStatus(naviRef, NAVI_STATUS_IDLE)
+                val stopped = EcarxDimApi.notifyTurnByTurnStopped(naviRef)
+                report("DIM lifecycle stop status=$NAVI_STATUS_IDLE aggregate=${outcome(idle)} " +
+                    "notify=${outcome(stopped)} aggregateDetail=${idle.reason} notifyDetail=${stopped.reason} " +
+                    "navigationStatus=${outcome(status)} statusDetail=${status.reason}")
+                if (context?.let(EcarxOutputSettings::naviCardEvent) == true) {
+                    EcarxProjectionChannel.setNavigationOngoing(false, "")
+                }
+                if (context?.let(EcarxOutputSettings::turnArrowExperimental) == true) {
+                    // Clear through the same family that drew it: the id the stock app reserves for
+                    // "nothing to show" first, then an empty drawing for a head unit whose only
+                    // overload is the string one. Whichever overload this head unit lacks just refuses.
+                    EcarxDimApi.updateTurnByTurnArrow(naviRef, EcarxArrowCode.NO_ARROW)
+                    EcarxDimApi.updateTurnByTurnArrow(naviRef, "")
+                }
+                EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, 0)
+                EcarxDimApi.updateNextGuidancePointName(naviRef, "")
+                clearLanesLocked(force = true)
             }
-            if (context?.let(EcarxOutputSettings::turnArrowExperimental) == true) {
-                // Clear through the same family that drew it: the id the stock app reserves for
-                // "nothing to show" first, then an empty drawing for a head unit whose only
-                // overload is the string one. Whichever overload this head unit lacks just refuses.
-                EcarxDimApi.updateTurnByTurnArrow(naviRef, EcarxArrowCode.NO_ARROW)
-                EcarxDimApi.updateTurnByTurnArrow(naviRef, "")
+            lastPushed = null
+            lastArrowChannel = null
+            ticksSincePush = 0
+            // Hand the cluster's navigation card back. Only after the clear calls above, so the card is
+            // blank before it is re-pointed at whatever the head unit wanted to show.
+            val app = context
+            if (guidanceActive && app != null && EcarxOutputSettings.navigationProjection(app)) {
+                EcarxProjectionChannel.setNavigationProjection(false)
             }
-            EcarxDimApi.updateDistanceToNextGuidancePoint(naviRef, 0)
-            EcarxDimApi.updateNextGuidancePointName(naviRef, "")
-            clearLanesLocked(force = true)
+            if (guidanceActive) {
+                guidanceActive = false
+                report("DIM guidance ended $lastGuidanceEnd")
+                // Hand the panel back: the presentation stops requesting the cluster stream, so the
+                // head unit's own instrument page returns instead of a frozen last map frame.
+                clusterPresentationRequested?.invoke(false)
+            }
+        } finally {
+            context?.let { report("factory navigation ${EcarxFactoryNavigationControl.release(it)}") }
         }
-        lastPushed = null
-        lastArrowChannel = null
-        ticksSincePush = 0
-        // Hand the cluster's navigation card back. Only after the clear calls above, so the card is
-        // blank before it is re-pointed at whatever the head unit wanted to show.
-        val app = context
-        if (guidanceActive && app != null && EcarxOutputSettings.navigationProjection(app)) {
-            EcarxProjectionChannel.setNavigationProjection(false)
-        }
-        if (guidanceActive) {
-            guidanceActive = false
-            report("DIM guidance ended $lastGuidanceEnd")
-            // Hand the panel back: the presentation stops requesting the cluster stream, so the
-            // head unit's own instrument page returns instead of a frozen last map frame.
-            clusterPresentationRequested?.invoke(false)
-        }
-        context?.let { report("factory navigation ${EcarxFactoryNavigationControl.release(it)}") }
     }
 
     /**

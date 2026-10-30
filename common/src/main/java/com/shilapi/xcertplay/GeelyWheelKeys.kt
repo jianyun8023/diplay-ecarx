@@ -14,7 +14,7 @@ import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.network.GeelyHeadUnit
 
 /**
- * Geely/Lynk steering-wheel voice key in either mode; media keys only in ECARX media mode.
+ * Geely/Lynk steering-wheel voice keys except in ECARX/HY mode; media keys only in direct ECARX mode.
  *
  * The head unit maps the wheel's keys to vendor key codes and routes them only through its own input
  * stack - no standard Android KeyEvent is produced - so a media session or accessibility service
@@ -47,6 +47,10 @@ internal object GeelyWheelKeys {
     /** Binds while a CarPlay session is active; safe to call repeatedly. */
     @Synchronized
     fun start(context: Context) {
+        if (!CarPlayMediaSession.shouldHandleSiriKey(context)) {
+            stop()
+            return
+        }
         if (!GeelyHeadUnit.detected) return
         appContext = context.applicationContext
         if (bound) return
@@ -81,6 +85,12 @@ internal object GeelyWheelKeys {
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val context = appContext ?: return
+            if (!CarPlayMediaSession.shouldHandleSiriKey(context)) {
+                stop()
+                return
+            }
+            val bluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(context)
+            val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio, CarPlayMediaSession.managesVehicleKeys())
             val input = IInputManager.Stub.asInterface(service)
             val registered = object : IInputListener.Stub() {
                 override fun onKeyCodeEvent(keyCode: Int, event: Int, softKeyFunction: Int) {}
@@ -106,8 +116,6 @@ internal object GeelyWheelKeys {
                 // With CarPlay audio on the car's Bluetooth, the head unit's own AVRCP already drives
                 // the iPhone's music, so forwarding play/pause and skip over iAP2 as well would
                 // double-fire. Keep only the microphone key then.
-                val bluetoothAudio = AirPlayPersistence.loadCarBluetoothAudio(context)
-                val codes = GeelyWheelKeyCodes.registeredCodes(bluetoothAudio, CarPlayMediaSession.managesVehicleKeys())
                 if (bluetoothAudio) {
                     Log.i(TAG, "car Bluetooth audio on: media keys pass to the head unit, only the Siri key is wired")
                 }

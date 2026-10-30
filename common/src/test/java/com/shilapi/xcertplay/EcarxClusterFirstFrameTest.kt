@@ -73,32 +73,6 @@ class EcarxClusterFirstFrameTest {
         assertNull(ReflectionHelpers.getField<EcarxClusterPresentation?>(host, "clusterPresentation"))
     }
 
-    @Test fun mirrorUsesASeparateMainDecoderAndKeepsTheNegotiatedModeUntilReconnect() {
-        ReflectionHelpers.setField(host, "sink", sink)
-        ReflectionHelpers.setField(host, "activeAirPlaySession", session)
-        ReflectionHelpers.setField(host, "sessionDisplay",
-            CarPlaySessionDisplay(1920, 944, 0, false, false, 1920, 944, clusterMirrorsMain = true))
-        invoke("onClusterSurface", Surface::class.java, surface)
-        verifyNoInteractions(sink)
-        // Changing a saved setting cannot reinterpret a still-running main-only session.
-        AirPlayPersistence.saveClusterMirrorMain(host, false)
-        `when`(session.hasRenderedMainFrame).thenReturn(true)
-        val main = mock(Surface::class.java)
-        invoke("attachSurface", Surface::class.java, main)
-        verify(sink).setSurface(110, main)
-        verify(sink).setMirrorSurface(110, "ecarx-cluster", surface)
-        verify(sink, never()).setSurface(111, surface)
-        clearInvocations(sink)
-        val replacement = mock(Surface::class.java)
-        invoke("onClusterSurface", Surface::class.java, replacement)
-        val order = inOrder(sink)
-        order.verify(sink).setMirrorSurface(110, "ecarx-cluster", null)
-        order.verify(sink).setMirrorSurface(110, "ecarx-cluster", replacement)
-        invoke("onClusterSurface", Surface::class.java, null)
-        verify(sink, times(2)).setMirrorSurface(110, "ecarx-cluster", null)
-        verify(sink, never()).clearSurface(110, main)
-    }
-
     private fun invoke(name: String) = host.javaClass.getDeclaredMethod(name)
         .apply { isAccessible = true }.invoke(host)
     private fun invoke(name: String, type: Class<*>, value: Any?) = host.javaClass.getDeclaredMethod(name, type)

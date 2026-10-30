@@ -35,7 +35,7 @@ import com.shilapi.xcertplay.telecom.PhoneAudioRouteSettings
  * and off; while it is on the keys drive CarPlay's main screen as a car's rotary knob would (see
  * [WheelJoystick]). A call always keeps the keys for the call. During a CarPlay call the call key answers on
  * the iPhone, and with a CarPlay session the wheel's voice keys open Siri.
- * An explicitly assigned Siri key opens Siri in either media mode while CarPlay is connected.
+ * HY owns Siri keys on ECARX head units in Android media mode; other head units retain their assignments.
  * Every other key passes on unchanged. On
  * the Tang the console's volume sends the same codes as the wheel's, so it zooms and moves too.
  */
@@ -55,7 +55,7 @@ class WheelKeyService : AccessibilityService() {
     private val requestDelayedSiri = Runnable {
         val pending = delayedDoubleSiri
         delayedDoubleSiri = null
-        if (running !== this || pending == null || session() !== pending.session ||
+        if (running !== this || pending == null || !CarPlayMediaSession.shouldHandleSiriKey(this) || session() !== pending.session ||
             !WheelZoomSettings.siriDoublePress(this) ||
             !WheelZoomSettings.isSiriKey(this, pending.assignedKey) || inCall(this)) return@Runnable
         note("Siri double key sent=${requestSiri()} intervalMs=${pending.intervalMillis} " +
@@ -175,6 +175,9 @@ class WheelKeyService : AccessibilityService() {
 
     private fun handleKey(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return false
+        if (learning == null &&
+            (CarPlayMediaButton.opensSiri(event.keyCode) || WheelZoomSettings.isSiriKey(this, WheelKey.of(event))) &&
+            !CarPlayMediaSession.shouldHandleSiriKey(this)) return false
         val down = event.action == KeyEvent.ACTION_DOWN
         val physicalKey = PhysicalWheelKey(event.deviceId, event.keyCode, event.scanCode)
         if (keys.hasConsumedPress(physicalKey)) {

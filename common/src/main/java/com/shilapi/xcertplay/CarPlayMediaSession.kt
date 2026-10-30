@@ -42,6 +42,7 @@ import kotlin.math.roundToInt
  * again. Otherwise it holds focus until CarPlay ends, unless the media-key focus compatibility
  * setting disables that request. Keys go to the iPhone as CarPlay media HID presses
  * ([CarPlayMediaButton]). The extra Android session in direct ECARX mode never requests focus.
+ * A real CarPlay connection prepares media keys before music starts; focus waits for media audio.
  */
 internal object CarPlayMediaSession {
     private const val TAG = "DiPlay-MediaKeys"
@@ -63,6 +64,8 @@ internal object CarPlayMediaSession {
     private var initialAlbumRecovery = InitialAlbumRecovery()
     private var initialAlbumRetry: Runnable? = null
     private var controller: CarPlayController? = null
+    private var activePhoneSession: AirPlaySession? = null
+    private var connectingPhoneSession: AirPlaySession? = null
     private var session: MediaSession? = null
     private var focusRequest: AudioFocusRequestCompat? = null
     private var focusOwner: Any? = null
@@ -76,8 +79,9 @@ internal object CarPlayMediaSession {
     // A single outstanding main-loop retry, never a Binder wait. Teardown cancels it.
     private val retryAndroidActivation = Runnable {
         synchronized(this) {
-            if (controller != null && outputMode == MediaSessionMode.ANDROID && mediaAudioActive && session == null) {
-                updateLocked(true)
+            if (controller != null && outputMode == MediaSessionMode.ANDROID &&
+                (mediaAudioActive || activePhoneSession != null || connectingPhoneSession != null) && session == null) {
+                updateLocked(mediaAudioActive)
             }
         }
     }
@@ -101,7 +105,8 @@ internal object CarPlayMediaSession {
     @Synchronized
     fun diagnosticReport(): String =
         "Android media session: controllerAttached=${controller != null} created=${session != null} " +
-            "active=${session?.isActive == true} activation=$androidActivation mediaAudioActive=$mediaAudioActive focusHeld=$focusHeld " +
+            "active=${session?.isActive == true} activation=$androidActivation connecting=${connectingPhoneSession != null} " +
+            "mediaAudioActive=$mediaAudioActive focusHeld=$focusHeld " +
             "transientFocusInterrupted=$transientFocusInterrupted titlePresent=${!nowPlaying.title.isNullOrBlank()} " +
             "artistPresent=${!nowPlaying.artist.isNullOrBlank()} artworkDecoded=${artwork != null} " +
             "iphonePlaying=${nowPlaying.playing} elapsedMs=${nowPlaying.elapsedMillis} durationMs=${nowPlaying.durationMillis}\n" +
@@ -110,8 +115,8 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
-        if (controller !== next) {
-            releaseLocked()
+        if (controller !== next) releaseLocked()
+        if (controller !== next || artworkOwner == null) {
             outputMode = MediaSessionSettings.mode(context)
             externalSiriKey.reset()
             artworkOwner = artworkQueue.newSession()
@@ -154,14 +159,15 @@ internal object CarPlayMediaSession {
 
     /** Called when CarPlay music starts or stops; may run on any thread. */
     fun onMediaAudioChanged(active: Boolean) {
-        mainHandler.post { synchronized(this) { updateLocked(active) } }
+        val owner = synchronized(this) { artworkOwner } ?: return
+        mainHandler.post { synchronized(this) { if (artworkOwner === owner) updateLocked(active) } }
     }
 
     /** The iPhone started or stopped playing; may run on any thread. */
     private fun onIphonePlaying(expected: CarPlayController, playing: Boolean) {
         if (playing) mainHandler.post {
             synchronized(this) {
-                if (controller === expected) regainFocusLocked(onIphonePlaybackResume = true)
+                if (controller === expected && mediaAudioActive) regainFocusLocked(onIphonePlaybackResume = true)
             }
         }
     }
@@ -357,7 +363,7 @@ internal object CarPlayMediaSession {
         if (controller == null) return
         mediaAudioActive = active
         mainHandler.removeCallbacks(retryAndroidActivation)
-        if (active && session == null) {
+        if ((active || activePhoneSession != null || connectingPhoneSession != null) && session == null) {
             // HY may immediately relay an active session to ECARX. Confirm the old owner is
             // released before enabling that relay; direct mode intentionally publishes both.
             if (outputMode == MediaSessionMode.ECARX || mediaCenterEngine.cleanForOtherBackend()) {
@@ -375,8 +381,8 @@ internal object CarPlayMediaSession {
                 // rejected cleanup cannot heal itself: retain the block without polling forever.
                 if (!restartRequired) mainHandler.postDelayed(retryAndroidActivation, 1_000L)
             }
-        } else if (active) regainFocusLocked()
-        else if (session == null) androidActivation = "IDLE"
+        } else if (session == null) androidActivation = "IDLE"
+        if (active) regainFocusLocked()
         publishPlaybackStateLocked()
         publishHyArtworkLocked()
     }
@@ -387,17 +393,15 @@ internal object CarPlayMediaSession {
         val focusDisabled = outputMode == MediaSessionMode.ECARX || rendererOwnsFocus ||
             AirPlayPersistence.loadDisableMediaKeyAudioFocus(context)
         transientFocusInterrupted = false
-        val granted = if (focusDisabled) {
+        focusHeld = false
+        if (focusDisabled) {
             // Some OEMs route physical volume buttons to the focus owner. Keep an active
             // MediaSession without permanent focus so those buttons remain vehicle-owned.
             focusOwner = null
             focusRequest = null
-            focusHeld = false
-            false
         } else {
             val owner = Any().also { focusOwner = it }
             focusEventRevision = 0L
-            val audio = context.getSystemService(AudioManager::class.java)
             val request = AudioFocusRequestCompat(
                 AudioManager.AUDIOFOCUS_GAIN,
                 AudioAttributes.Builder()
@@ -408,10 +412,6 @@ internal object CarPlayMediaSession {
                 mainHandler,
             )
             focusRequest = request
-            (audio?.let(request::request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED).also {
-                focusHeld = it
-                if (it) forwardGrantedFocusLocked()
-            }
         }
         val currentSession = MediaSession(context, "DiPlay CarPlay")
         val expectedOwner = artworkOwner
@@ -420,7 +420,8 @@ internal object CarPlayMediaSession {
             hardwareKeysEnabled = { !isMediaCenterActive(expectedController) },
         ) { index, source ->
             synchronized(this) {
-                if (controller === expectedController && artworkOwner === expectedOwner && session != null) send(index, source)
+                if (controller === expectedController && artworkOwner === expectedOwner &&
+                    connectingPhoneSession == null && session != null) send(index, source)
             }
         }
         session = currentSession.apply {
@@ -428,8 +429,8 @@ internal object CarPlayMediaSession {
             setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
             isActive = true
         }
-        Log.i(TAG, "media keys active focusDisabled=$focusDisabled focusGranted=$granted rendererOwnsFocus=$rendererOwnsFocus")
-        WheelKeyLog.note("media keys active focusDisabled=$focusDisabled focusGranted=$granted rendererOwnsFocus=$rendererOwnsFocus")
+        Log.i(TAG, "media keys active focusDisabled=$focusDisabled rendererOwnsFocus=$rendererOwnsFocus")
+        WheelKeyLog.note("media keys active focusDisabled=$focusDisabled rendererOwnsFocus=$rendererOwnsFocus")
     }
 
     private fun forwardGrantedFocusLocked() {
@@ -476,6 +477,8 @@ internal object CarPlayMediaSession {
     private fun releaseLocked() {
         mainHandler.removeCallbacks(retryAndroidActivation)
         androidActivation = "IDLE"
+        activePhoneSession = null
+        connectingPhoneSession = null
         EnvironmentBroadcastDiagnostics.stop()
         releaseVoiceKeyLocked()
         endMediaCenter()
@@ -517,6 +520,7 @@ internal object CarPlayMediaSession {
     }
 
     private fun publishPlaybackStateLocked() {
+        val connecting = outputMode == MediaSessionMode.ANDROID && connectingPhoneSession != null && activePhoneSession == null
         val playing = if (nowPlaying.elapsedMillis != null || nowPlaying.title != null) {
             nowPlaying.playing
         } else {
@@ -526,7 +530,7 @@ internal object CarPlayMediaSession {
             PlaybackState.Builder()
                 .setActions(ACTIONS)
                 .setState(
-                    if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+                    if (connecting) PlaybackState.STATE_CONNECTING else if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
                     nowPlaying.elapsedMillis ?: PlaybackState.PLAYBACK_POSITION_UNKNOWN,
                     if (playing) 1f else 0f,
                     // The iPhone sends elapsed time only on play, pause or seek, so Android must
@@ -589,11 +593,30 @@ internal object CarPlayMediaSession {
     private var delayedVoiceSiri: Runnable? = null
 
     @Synchronized
-    internal fun onSessionActive(expected: CarPlayController, session: AirPlaySession) {
-        if (controller !== expected || expected.activeAirPlaySession() !== session || voiceKeySession === session) return
-        releaseVoiceKeyLocked()
+    internal fun onSessionConnecting(expected: CarPlayController, candidate: AirPlaySession) {
+        if (controller !== expected || outputMode != MediaSessionMode.ANDROID || activePhoneSession != null) return
         val context = appContext ?: return
-        if (!EcarxCapabilities.detect(context).identified) return
+        if (artworkOwner == null) attach(context, expected)
+        connectingPhoneSession = candidate
+        updateLocked(false)
+    }
+
+    @Synchronized
+    internal fun onSessionActive(expected: CarPlayController, session: AirPlaySession) {
+        if (controller !== expected || expected.activeAirPlaySession() !== session) return
+        val context = appContext ?: return
+        connectingPhoneSession = null
+        if (activePhoneSession !== session) {
+            if (activePhoneSession != null) releaseLocked()
+            // A controller may reconnect without being attached to the activity again.
+            if (artworkOwner == null) attach(context, expected)
+            activePhoneSession = session
+        }
+        updateLocked(mediaAudioActive)
+        if (outputMode == MediaSessionMode.ECARX) publishMediaCenter(nowPlaying, artworkUri, "session-active")
+        if (voiceKeySession === session) return
+        releaseVoiceKeyLocked()
+        if (!managesVehicleKeys() || !EcarxCapabilities.detect(context).identified) return
         voiceKeySession = session
         externalSiriKey.reset()
         voiceKeyReceiver = runCatching {
@@ -656,7 +679,8 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     internal fun onSessionEnded(session: AirPlaySession) {
-        if (voiceKeySession === session) releaseVoiceKeyLocked()
+        if (activePhoneSession === session || connectingPhoneSession === session) releaseLocked()
+        else if (voiceKeySession === session) releaseVoiceKeyLocked()
     }
 
     @Synchronized
@@ -677,9 +701,16 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     internal fun onExternalSiriKey(keyCode: Int = CarPlayMediaButton.ECARX_VOICE_200231): Boolean {
+        if (appContext?.let(::shouldHandleSiriKey) != true) return false
+        if (voiceKeyReceiver != null && CarPlayMediaButton.opensSiri(keyCode)) return false
+        return requestSiriFromAction()
+    }
+
+    /** An explicit HY handoff remains valid when DiPlay also listens for the physical voice key. */
+    @Synchronized
+    internal fun requestSiriFromAction(): Boolean {
         val active = controller ?: return false
         if (active.activeAirPlaySession() == null) return false
-        if (voiceKeyReceiver != null && CarPlayMediaButton.opensSiri(keyCode)) return false
         if (appContext?.let(::inCall) == true) return false
         // One wheel press can reach both the ECARX callback and the Geely listener.
         if (!externalSiriKey.opens(android.os.SystemClock.uptimeMillis())) return false
@@ -844,6 +875,9 @@ internal object CarPlayMediaSession {
 
     internal fun managesVehicleKeys(): Boolean = outputMode == MediaSessionMode.ECARX
 
+    internal fun shouldHandleSiriKey(context: Context): Boolean =
+        outputMode != MediaSessionMode.ANDROID || !EcarxCapabilities.detect(context).identified
+
     fun isMediaCenterActive(controller: CarPlayController? = null): Boolean {
         val entry = mediaCenterOwner ?: return false
         return (controller == null || entry.controller === controller) &&
@@ -855,11 +889,9 @@ internal object CarPlayMediaSession {
         if (command == EcarxMediaCenterTransport.SELECT_SOURCE && !mediaCenterEngine.canSelect(entry)) return false
         mediaCenterMain.post {
             if (mediaCenterOwner !== entry || !mediaCenterEngine.ownsCallbacks(entry)) return@post
-            val index = if (command == EcarxMediaCenterTransport.SELECT_SOURCE) {
+            if (command == EcarxMediaCenterTransport.SELECT_SOURCE) {
                 mediaCenterEngine.select(entry)
-                CarPlayMediaButton.PLAY
-            } else command
-            onMediaCenterKey(entry.controller, index)
+            } else onMediaCenterKey(entry.controller, command)
         }
         return true
     }

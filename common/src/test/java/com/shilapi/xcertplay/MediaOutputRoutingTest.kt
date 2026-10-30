@@ -6,12 +6,14 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.media.MediaMetadata
+import android.media.AudioManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Looper
 import android.view.Surface
 import android.view.KeyEvent
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
+import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.hud.EcarxOutputSettings
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
@@ -232,6 +234,149 @@ class MediaOutputRoutingTest {
         assertTrue(CarPlayMediaSession.diagnosticReport().contains("controllerAttached=false created=false active=false"))
     }
 
+    @Test fun connectedIdlePhoneAcceptsStandardPlayWithoutMusicOrAudioFocus() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
+        AirPlayPersistence.saveAudioFocusEnabled(app, false)
+        val attached = attach(null)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        val phone = activate(attached)
+        val standard = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
+        field(CarPlayMediaSession, "session").set(CarPlayMediaSession, standard)
+        CarPlayMediaSession.onSessionActive(attached.controller, phone)
+        val state = ArgumentCaptor.forClass(PlaybackState::class.java)
+        verify(standard).setPlaybackState(state.capture())
+        assertTrue(standard.isActive)
+        assertEquals(PlaybackState.STATE_PAUSED, state.value.state)
+        assertEquals(CarPlayNowPlaying(), field(CarPlayMediaSession, "nowPlaying").get(CarPlayMediaSession))
+        assertTrue(ecarx.isEmpty())
+        val audio = shadowOf(app.getSystemService(AudioManager::class.java))
+        assertNull(audio.lastAudioFocusRequest)
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        val callback = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+        callback.onPlay()
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.PLAY)
+        assertNull(audio.lastAudioFocusRequest)
+
+        // A metadata play transition can precede audio: it must not steal radio focus yet.
+        CarPlayMediaSession.javaClass.getDeclaredMethod("onIphonePlaying", CarPlayController::class.java,
+            Boolean::class.javaPrimitiveType).apply { isAccessible = true }.invoke(CarPlayMediaSession, attached.controller, true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(audio.lastAudioFocusRequest)
+        CarPlayMediaSession.onMediaAudioChanged(true)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNotNull(audio.lastAudioFocusRequest)
+    }
+
+    @Test fun realSetupPublishesConnectingThenConnectedPausedWithoutPlay() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        val attached = attach(null)
+        val phone = mock(AirPlaySession::class.java)
+        CarPlayMediaSession.onSessionConnecting(attached.controller, phone)
+        val connectingSession = field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession
+        val session = spy(connectingSession)
+        field(CarPlayMediaSession, "session").set(CarPlayMediaSession, session)
+        CarPlayMediaSession.onMediaAudioChanged(false)
+        shadowOf(Looper.getMainLooper()).idle()
+        val states = ArgumentCaptor.forClass(PlaybackState::class.java)
+        verify(session).setPlaybackState(states.capture())
+        assertEquals(PlaybackState.STATE_CONNECTING, states.value.state)
+        val callback = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+        callback.onPlay()
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        `when`(attached.controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(attached.controller, phone)
+        verify(session, times(2)).setPlaybackState(states.capture())
+        assertEquals(PlaybackState.STATE_PAUSED, states.value.state)
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+    }
+
+    @Test fun failedSetupReleasesPendingAndroidSession() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        val attached = attach(null)
+        val candidate = mock(AirPlaySession::class.java)
+        CarPlayMediaSession.onSessionConnecting(attached.controller, candidate)
+        val session = field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession
+        CarPlayMediaSession.onSessionEnded(candidate)
+        assertFalse(session.isActive)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertNull(field(CarPlayMediaSession, "connectingPhoneSession").get(CarPlayMediaSession))
+    }
+
+    @Test fun idleDisconnectReleasesSessionAndSameControllerReconnectRejectsOldEventsAndCallbacks() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        val attached = attach(null)
+        val firstPhone = activate(attached)
+        val first = field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession
+        val oldCallback = field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback
+        CarPlayMediaSession.onMediaAudioChanged(true) // Queued before the real disconnect.
+        CarPlayMediaSession.onSessionEnded(firstPhone)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(first.isActive)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertSame(attached.controller, field(CarPlayMediaSession, "controller").get(CarPlayMediaSession))
+        val secondPhone = activate(attached)
+        val second = field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession
+        assertNotSame(first, second)
+        CarPlayMediaSession.onSessionEnded(firstPhone)
+        oldCallback.onPlay()
+        assertTrue(second.isActive)
+        assertSame(secondPhone, field(CarPlayMediaSession, "activePhoneSession").get(CarPlayMediaSession))
+        verify(attached.controller, never()).sendMediaButton(anyInt())
+        (field(CarPlayMediaSession, "callback").get(CarPlayMediaSession) as MediaSession.Callback).onPlay()
+        verify(attached.controller).sendMediaButton(CarPlayMediaButton.PLAY)
+
+        val replacement = activate(attached)
+        val third = field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession
+        assertFalse(second.isActive)
+        CarPlayMediaSession.onSessionEnded(secondPhone)
+        assertTrue(third.isActive)
+        assertSame(replacement, field(CarPlayMediaSession, "activePhoneSession").get(CarPlayMediaSession))
+        CarPlayMediaSession.onSessionEnded(replacement)
+        assertFalse(third.isActive)
+    }
+
+    @Test fun idleAndroidConnectionRetriesPendingEcarxCleanupWithoutInventingPlaybackOrFocus() {
+        val vendor = attach("ECARX")
+        val transport = ecarx.single()
+        val queued = ArrayDeque<Runnable>()
+        field(engine, "worker").set(engine, Executor { queued.addLast(it) })
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.detach(vendor.controller)
+        AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, false)
+        AirPlayPersistence.saveAudioFocusEnabled(app, false)
+        val android = attach(null)
+        activate(android)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        assertTrue(androidActivationRetryPending())
+        assertTrue(CarPlayMediaSession.diagnosticReport().contains("WAITING_ECARX_CLEANUP"))
+        while (queued.isNotEmpty()) queued.removeFirst().run()
+        assertFalse(transport.registered)
+        shadowOf(Looper.getMainLooper()).idleFor(1, TimeUnit.SECONDS)
+        assertTrue((field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession).isActive)
+        assertTrue(CarPlayMediaSession.diagnosticReport().contains("mediaAudioActive=false focusHeld=false"))
+        assertEquals(CarPlayNowPlaying(), field(CarPlayMediaSession, "nowPlaying").get(CarPlayMediaSession))
+        assertNull(shadowOf(app.getSystemService(AudioManager::class.java)).lastAudioFocusRequest)
+        verify(android.controller, never()).sendMediaButton(anyInt())
+    }
+
+    @Test fun disconnectedIdlePhoneCancelsPendingAndroidActivation() {
+        val vendor = attach("ECARX")
+        val queued = ArrayDeque<Runnable>()
+        field(engine, "worker").set(engine, Executor { queued.addLast(it) })
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
+        CarPlayMediaSession.detach(vendor.controller)
+        val android = attach(null)
+        val phone = activate(android)
+        assertTrue(androidActivationRetryPending())
+        CarPlayMediaSession.onSessionEnded(phone)
+        assertFalse(androidActivationRetryPending())
+        while (queued.isNotEmpty()) queued.removeFirst().run()
+        shadowOf(Looper.getMainLooper()).idleFor(2, TimeUnit.SECONDS)
+        assertNull(field(CarPlayMediaSession, "session").get(CarPlayMediaSession))
+        verify(android.controller, never()).sendMediaButton(anyInt())
+    }
+
     @Test fun externalMediaKeysWaitForAcceptedClaimButSiriRemainsAvailable() {
         claim = false
         val attached = attach("Playing")
@@ -350,7 +495,7 @@ class MediaOutputRoutingTest {
         verify(replacement.controller).sendMediaButton(CarPlayMediaButton.PREVIOUS)
     }
 
-    @Test fun sourceSelectionClaimsOnceAndSendsOnePlayCommand() {
+    @Test fun sourceSelectionClaimsOnceWithoutStartingPhonePlayback() {
         val platform = Platform().also { callbackPlatform = it }
         val attached = attach("Select source")
         val client = checkNotNull(platform.service.client)
@@ -362,8 +507,7 @@ class MediaOutputRoutingTest {
         tickEngine()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(claims + 1, platform.service.claims)
-        verify(attached.controller).sendMediaButton(CarPlayMediaButton.PLAY)
-        verify(attached.controller, times(1)).sendMediaButton(anyInt())
+        verify(attached.controller, never()).sendMediaButton(anyInt())
     }
 
     @Test fun acceptedVendorCallbackReportsPhoneFailureWithoutRetrying() {
@@ -885,9 +1029,9 @@ class MediaOutputRoutingTest {
 
     private data class Attached(val controller: CarPlayController,
         val now: (CarPlayNowPlaying) -> Unit, val cover: (Int, ByteArray) -> Unit)
-    private fun attach(title: String, artwork: Int? = null): Attached {
+    private fun attach(title: String?, artwork: Int? = null): Attached {
         val controller = mock(CarPlayController::class.java).also(controllers::add)
-        `when`(controller.nowPlayingSnapshot()).thenReturn(song(title, artwork))
+        `when`(controller.nowPlayingSnapshot()).thenReturn(if (title == null) CarPlayNowPlaying() else song(title, artwork))
         var now: ((CarPlayNowPlaying) -> Unit)? = null
         var cover: ((Int, ByteArray) -> Unit)? = null
         doAnswer { now = it.getArgument(0); null }.`when`(controller).nowPlayingListener = any()
@@ -898,6 +1042,13 @@ class MediaOutputRoutingTest {
         CarPlayMediaSession.attach(app, controller)
         shadowOf(Looper.getMainLooper()).idle()
         return Attached(controller, checkNotNull(now), checkNotNull(cover))
+    }
+    private fun activate(attached: Attached): AirPlaySession {
+        val phone = mock(AirPlaySession::class.java)
+        `when`(attached.controller.activeAirPlaySession()).thenReturn(phone)
+        CarPlayMediaSession.onSessionActive(attached.controller, phone)
+        shadowOf(Looper.getMainLooper()).idle()
+        return phone
     }
     private fun awaitArtwork() {
         val queue = field(CarPlayMediaSession, "artworkQueue").get(CarPlayMediaSession) as NowPlayingArtworkQueue<*>

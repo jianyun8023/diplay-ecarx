@@ -67,4 +67,28 @@ class NavigationOutputWorkerTest {
             assertEquals(0, frames.get())
         } finally { release.countDown(); worker.clear() }
     }
+
+    @Test fun `unexpected output failure clears ownership and discards queued guidance`() {
+        val initialized = CountDownLatch(1)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val cleared = CountDownLatch(1)
+        val frames = AtomicInteger()
+        val worker = NavigationOutputWorker("test-failure") { if (initialized.count == 0L) cleared.countDown() }
+        worker.start { initialized.countDown() }
+        await(initialized)
+        try {
+            worker.submit { entered.countDown(); release.await(3, TimeUnit.SECONDS); error("output failed") }
+            await(entered)
+            worker.submit { frames.incrementAndGet() }
+            release.countDown()
+            await(cleared)
+            worker.submit { frames.incrementAndGet() }
+            assertEquals(0, frames.get())
+            val resumed = CountDownLatch(1)
+            worker.start {}
+            worker.submit { resumed.countDown() }
+            await(resumed)
+        } finally { release.countDown(); worker.clear() }
+    }
 }

@@ -358,6 +358,9 @@ class CarPlayController(
             currentCornerMask = SessionCornerMask(session, png.copyOf(), displayWidth)
             uiListener?.onCornerMask(session, png, displayWidth)
         }
+        override fun onSessionConnecting(session: AirPlaySession) {
+            if (!closed && !session.isClosed && activeSession == null) uiListener?.onSessionConnecting(session)
+        }
         override fun onSessionActive(session: AirPlaySession) {
             wiredSessionActive = true
             wiredStartWatchdog?.sessionActive()
@@ -373,6 +376,7 @@ class CarPlayController(
                 }
             }
             activeSession = session
+            NavigationOutputs.onSessionActive { !closed && activeSession === session && !session.isClosed }
             if (replacement) restoreDashboardContent(session)
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
@@ -1800,6 +1804,10 @@ class CarPlayController(
                 if (isStaleWirelessRun(generation)) return
                 watchdog.terminate()
                 sessionListener.onTransportError(message)
+            }
+
+            override fun onSessionConnecting(session: AirPlaySession) {
+                if (!isStaleWirelessRun(generation)) sessionListener.onSessionConnecting(session)
             }
 
             override fun onSessionActive(session: AirPlaySession) {
