@@ -223,7 +223,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         hostName = "lynkco-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
         hostMac = DiPlayBootstrap.deviceId(airPlayIdentity).split(":").map { it.toInt(16).toByte() }.toByteArray(),
         wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),
-        transport = if (wirelessEnabled) CarPlayTransport.WIRELESS else CarPlayTransport.WIRED,
+        transport = if (useWirelessTransport) CarPlayTransport.WIRELESS else CarPlayTransport.WIRED,
         wirelessHotspotMode = wirelessHotspotMode,
         wifiP2pPreferredChannel = AirPlayPersistence.loadWifiP2pPreferredChannel(this),
         manualHotspotSsid = manualHotspotSsid,
@@ -552,6 +552,55 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var microphoneAvailable = false
     private var microphonePermissionResolved = false
     private var wirelessEnabled = false
+    private val useWirelessTransport: Boolean get() = wirelessEnabled && !CarPlayBackgroundSession.usbTakeover
+    private var usbReenumerating = false
+    private val usbConnectionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val device = androidx.core.content.IntentCompat.getParcelableExtra(
+                intent, UsbManager.EXTRA_DEVICE, UsbDevice::class.java) ?: return
+            if (device.vendorId != IphoneUsbMatcher.APPLE_VENDOR_ID) return
+            if (intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
+                scheduleUsbWirelessFallback()
+            } else if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+                mainHandler.removeCallbacks(usbWirelessFallback)
+                appendLog("USB fallback cancelled: iPhone enumerated")
+            }
+        }
+    }
+    private val usbWirelessFallback = Runnable {
+        if (!CarPlayBackgroundSession.usbTakeover || isDestroyed || shuttingDown.get()) return@Runnable
+        val present = (getSystemService(USB_SERVICE) as UsbManager).deviceList.values
+            .any { it.vendorId == IphoneUsbMatcher.APPLE_VENDOR_ID }
+        if (present) {
+            appendLog("USB fallback skipped: iPhone still enumerated")
+            return@Runnable
+        }
+        CarPlayBackgroundSession.usbTakeover = false
+        usbReenumerating = false
+        val savedWireless = AirPlayPersistence.loadWirelessEnabled(this)
+        appendLog("USB detached: wireless preference=$savedWireless; restoring transport")
+        startupRetryStopped = false
+        usbPairingStoppedGeneration = null
+        failurePendingAfterMenu = null
+        startupRetryBudget.disconnected()
+        if (menuOpen) {
+            recoveryPendingAfterMenu = true
+            return@Runnable
+        }
+        wirelessEnabled = savedWireless
+        if (!wirelessEnabled) return@Runnable
+        if (controller != null) restartCarPlay("USB detached; restoring wireless")
+        requestStartupPrerequisites()
+    }
+
+    private fun scheduleUsbWirelessFallback() {
+        if (!CarPlayBackgroundSession.usbTakeover) return
+        mainHandler.removeCallbacks(usbWirelessFallback)
+        // Switching USB configuration detaches the old node before the iPhone returns.
+        val delayMillis = if (usbReenumerating) 10_000L else 2_000L
+        appendLog("USB fallback pending delayMs=$delayMillis reenumerating=$usbReenumerating")
+        mainHandler.postDelayed(usbWirelessFallback, delayMillis)
+    }
     private var mfiTarget = MfiTarget.LOCAL
     private var mfiI2cPath = AirPlayPersistence.DEFAULT_MFI_I2C_PATH
     private var remoteMfiServer = ""
@@ -893,8 +942,14 @@ open class CarPlayHostActivity : ComponentActivity() {
         NavigationWidgetUpdater.attach(applicationContext)
         centerMap.attach()
         languagePreferenceAtCreate = AppLocale.preference(this)
-        if (isIphoneUsbAttachment(intent)) {
-            AirPlayPersistence.saveWirelessEnabled(this, false)
+        if (isIphoneUsbAttachment(intent)) CarPlayBackgroundSession.usbTakeover = true
+        val usbEvents = IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED).apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbConnectionReceiver, usbEvents, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(usbConnectionReceiver, usbEvents)
         }
         if (runCatching { DiPlayBootstrap.ensure(this, AirPlayPersistence.loadMfiTarget(this)) }.isFailure) {
             OwnScreenStart.start(this, Intent(this, DiPlayActivity::class.java), ::appendLog)
@@ -932,7 +987,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         registerEcarxSteeringWheel()
         appendLog(
             "Host started; MFI target=${mfiTargetLabel(mfiTarget)}; " +
-                "transport=${if (wirelessEnabled) "wireless" else "wired"}; " +
+                "transport=${if (useWirelessTransport) "wireless" else "wired"}; " +
                 "task=$taskId (${if (this is SameTaskCarPlayHostActivity) "DiPlay's task" else "own task"})",
         )
         val reusedBackgroundSession = adoptBackgroundSession()
@@ -998,7 +1053,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (blackCornerRadiusDp != CarPlayBlackCornerOverlay.IPHONE_MASK) clearIphoneCornerMask()
         locationPermissionAvailable = hasFineLocationPermission()
         loadConnectionSettings()
-        wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+        wirelessPermissionsReady = !useWirelessTransport || hasRequiredWirelessPermissions()
     }
 
     /**
@@ -1035,7 +1090,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             requestLocationPermission()
             return
         }
-        if (wirelessEnabled) {
+        if (useWirelessTransport) {
             requestWirelessPermissions()
         } else if (!requestWiredPermissions()) {
             requestVpnConsent()
@@ -1139,7 +1194,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (granted && !awaitingVpnConsent && !vpnReady) {
                     vpnReady = true
                     maybeStartCarPlay()
-                } else if (!granted && !awaitingVpnConsent && !wirelessEnabled) {
+                } else if (!granted && !awaitingVpnConsent && !useWirelessTransport) {
                     setStatus(VpnPreConsent.stage(access))
                     connectionInstructionsView?.visibility = View.GONE
                     connectionHelpView?.apply {
@@ -1179,7 +1234,7 @@ open class CarPlayHostActivity : ComponentActivity() {
      * brings the driver back here, where the start goes on.
      */
     private fun showMissingWirelessPermission() {
-        if (wirelessPermissionsReady || !wirelessEnabled) {
+        if (wirelessPermissionsReady || !useWirelessTransport) {
             wirelessPermissionsRefused = false
             return
         }
@@ -1194,10 +1249,12 @@ open class CarPlayHostActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (isIphoneUsbAttachment(intent)) {
-            if (wirelessEnabled) {
+            mainHandler.removeCallbacks(usbWirelessFallback)
+            val switching = useWirelessTransport
+            CarPlayBackgroundSession.usbTakeover = true
+            appendLog("USB takeover: preserving wireless preference=$wirelessEnabled")
+            if (switching) {
                 if (menuOpen) cancelSettingsEdits()
-                AirPlayPersistence.saveWirelessEnabled(this, false)
-                wirelessEnabled = false
                 wirelessPermissionsReady = true
                 if (controller != null) {
                     restartCarPlay("switching to USB")
@@ -1266,11 +1323,12 @@ open class CarPlayHostActivity : ComponentActivity() {
         // The settings screen returns here with FLAG_ACTIVITY_REORDER_TO_FRONT, so this screen is
         // resumed, not recreated: refresh what that screen can change before it is used again.
         if (!menuOpen) loadConnectionSettings()
+        scheduleUsbWirelessFallback()
         locationPermissionAvailable = hasFineLocationPermission()
         if (locationReportingEnabled && !locationPermissionAvailable && !menuOpen) {
             requestLocationPermission()
         }
-        wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+        wirelessPermissionsReady = !useWirelessTransport || hasRequiredWirelessPermissions()
         showMissingWirelessPermission()
         advancedAudioChannelMapping =
             advancedAudioChannelMappingSupported &&
@@ -1720,6 +1778,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog("Cluster lifecycle: host destroyed ${CarPlayBackgroundSession.clusterDiagnostics(controller)}")
         CarPlayScreen.destroyed(this)
         runCatching { unregisterReceiver(bluetoothOnReceiver) }
+        runCatching { unregisterReceiver(usbConnectionReceiver) }
+        mainHandler.removeCallbacks(usbWirelessFallback)
         mainHandler.removeCallbacks(hideTemporarySystemBars)
         mainHandler.removeCallbacks(settingsMenuWatchdog)
         dropHeldTouch()
@@ -4499,7 +4559,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun updateHotspotStatus(status: CarPlayStatus) {
-        if (!wirelessEnabled) return
+        if (!useWirelessTransport) return
         when (status) {
             CarPlayStatus.StartingHotspot -> CarPlayBackgroundSession.hotspotReady = null
             is CarPlayStatus.HotspotReady -> CarPlayBackgroundSession.hotspotReady = status
@@ -4531,7 +4591,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun updateHotspotStatusBlock() {
-        if (!wirelessEnabled) {
+        if (!useWirelessTransport) {
             hotspotStatusView?.text = getString(R.string.wireless_hotspot_off)
             return
         }
@@ -5068,7 +5128,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
-            mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this, wireless = wirelessEnabled),
+            mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this, wireless = useWirelessTransport),
             onAudioDiagnostic = { message ->
                 if (message.startsWith("Microphone: ")) {
                     AsyncDiagnosticLog.append(diagnosticLog, message)
@@ -5100,7 +5160,11 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun yieldCarBluetooth() {
         val sessionId = System.identityHashCode(activeAirPlaySession)
         val targetLog = sessionLog
-        CarBluetoothProfileGuard.yieldForSession(this, DiPlayPreferences.phoneAddress(this),
+        val peerAddress = activeAirPlaySession?.deviceBtMac?.takeIf { it.isNotBlank() }
+        logPlaybackRecovery("BT yield target source=active-session peerKnown=${peerAddress != null} " +
+            "matchesSavedPhone=${peerAddress?.equals(DiPlayPreferences.phoneAddress(this), ignoreCase = true)} " +
+            "transport=${if (useWirelessTransport) "wireless" else "usb"}", sessionId, targetLog)
+        CarBluetoothProfileGuard.yieldForSession(this, peerAddress,
             mediaAudioAllowed = !AirPlayPersistence.loadCarBluetoothAudio(this)) { message ->
             val observedNs = System.nanoTime()
             mainHandler.post { logPlaybackRecovery(message, sessionId, targetLog, observedNs) }
@@ -5299,6 +5363,16 @@ open class CarPlayHostActivity : ComponentActivity() {
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = report@{ status ->
         if (controllerGeneration != restartGeneration || usbPairingStoppedGeneration == controllerGeneration) return@report
+        if (status is CarPlayStatus.WaitingForReenumeration) {
+            usbReenumerating = true
+            scheduleUsbWirelessFallback()
+        } else if (status is CarPlayStatus.RunningControl) {
+            usbReenumerating = false
+            mainHandler.removeCallbacks(usbWirelessFallback)
+        } else if (status is CarPlayStatus.Failed) {
+            usbReenumerating = false
+            scheduleUsbWirelessFallback()
+        }
         if (status is CarPlayStatus.RunningControl || status is CarPlayStatus.RunningWireless) {
             controlRunningCount++
             lossSinceControlRunning = false
@@ -5899,7 +5973,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             return
         }
         val size = activeDisplaySize ?: return
-        val transportReady = if (wirelessEnabled) wirelessPermissionsReady else vpnReady
+        val transportReady = if (useWirelessTransport) wirelessPermissionsReady else vpnReady
         val locationReady = !locationReportingEnabled || locationPermissionAvailable
         if (
             !transportReady ||
@@ -6252,7 +6326,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         if (failure != null && (failure.startupFailure != null || failure.usbPairingFailure != null) && !reconnect) {
             createStatusReporter(restartGeneration)(failure)
-        } else if (failure?.wifiResetRequired == true && (!reconnect || wirelessEnabled)) {
+        } else if (failure?.wifiResetRequired == true && (!reconnect || useWirelessTransport)) {
             createStatusReporter(restartGeneration)(failure)
         } else if (handshakeResetInProgress) {
             startAfterHandshakeReset = true
@@ -6650,7 +6724,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun connectionInstructions(status: CarPlayStatus?): String = getString(when {
         status is CarPlayStatus.IphoneNotListed ->
             if (status.nonHubDeviceListed) R.string.connection_help_usb_device_not_iphone else R.string.connection_help_no_usb_device
-        wirelessEnabled -> R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow
+        useWirelessTransport -> R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow
         else -> R.string.use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an
     })
 
@@ -6658,7 +6732,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         connectionInstructionsView?.visibility = if (failure == null) View.VISIBLE else View.GONE
         connectionHelpView?.apply {
             visibility = if (failure == null) View.GONE else View.VISIBLE
-            if (failure != null) text = getString(ConnectionFailureGuidance.message(failure, wirelessEnabled, wirelessHotspotMode))
+            if (failure != null) text = getString(ConnectionFailureGuidance.message(failure, useWirelessTransport, wirelessHotspotMode))
         }
     }
 
@@ -6852,7 +6926,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.WaitingForIphoneTrust -> res.getString(R.string.usb_trust_waiting)
         CarPlayStatus.ConnectingControl -> res.getString(R.string.connecting_iap2_control)
         CarPlayStatus.AttachingNetwork ->
-            if (wirelessEnabled) res.getString(R.string.starting_airplay_service) else res.getString(R.string.status_attaching_ncm)
+            if (useWirelessTransport) res.getString(R.string.starting_airplay_service) else res.getString(R.string.status_attaching_ncm)
         CarPlayStatus.RunningControl -> res.getString(R.string.carplay_control_running)
         CarPlayStatus.ControlEnded -> res.getString(R.string.carplay_control_window_ended)
         is CarPlayStatus.Failed -> usbPairingFailure?.let {
@@ -6964,6 +7038,8 @@ internal fun statusBarHiddenByAnotherWindow(display: CarPlaySessionDisplay, widt
 
 /** Process-local hand-off for keeping the CarPlay session alive while no Activity is visible. */
 internal object CarPlayBackgroundSession {
+    /** USB temporarily takes over; the saved wireless preference belongs to the driver. */
+    @Volatile var usbTakeover = false
     @Volatile var active = false
     @Volatile var callPopupReady = false
     /** The running session's hotspot: a host that adopts the session never saw its HotspotReady. */
@@ -7054,7 +7130,7 @@ internal object CarPlayBackgroundSession {
         clusterOutput = null
         controller = null
         sink = null
-        if (!keepOwner) { stopAction = null; owner = null }
+        if (!keepOwner) { stopAction = null; owner = null; usbTakeover = false }
         active = false
         callPopupReady = false
         hotspotReady = null
