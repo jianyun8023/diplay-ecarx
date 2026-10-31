@@ -596,6 +596,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private val nightModeController by lazy {
         CarPlayNightModeController(
             light = AndroidAmbientLight(this),
+            vehicle = com.shilapi.xcertplay.hud.EcarxVehicleDayNight(applicationContext),
             scheduler = MainThreadNightModeScheduler(),
             initialNight = darkMode,
             onNightChanged = { night ->

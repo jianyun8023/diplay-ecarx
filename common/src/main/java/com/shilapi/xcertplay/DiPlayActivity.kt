@@ -1355,6 +1355,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         getString(when (mode) {
             CarPlayNightMode.SYSTEM -> R.string.carplay_night_system
             CarPlayNightMode.AMBIENT -> R.string.carplay_night_ambient
+            CarPlayNightMode.VEHICLE -> R.string.carplay_night_vehicle
             CarPlayNightMode.DAY -> R.string.carplay_night_day
             CarPlayNightMode.NIGHT -> R.string.carplay_night_night
             CarPlayNightMode.SCHEDULE -> R.string.carplay_night_schedule
@@ -1878,6 +1879,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             val ambientControls = column().apply {
                 visibility = if (nightMode == CarPlayNightMode.AMBIENT) View.VISIBLE else View.GONE
             }
+            val vehicleControls = column().apply {
+                visibility = if (nightMode == CarPlayNightMode.VEHICLE) View.VISIBLE else View.GONE
+            }
             val scheduleControls = column().apply {
                 visibility = if (nightMode == CarPlayNightMode.SCHEDULE) View.VISIBLE else View.GONE
             }
@@ -1890,6 +1894,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             ) { index ->
                 AirPlayPersistence.saveCarPlayNightMode(this, nightModes[index])
                 ambientControls.visibility = if (nightModes[index] == CarPlayNightMode.AMBIENT) View.VISIBLE else View.GONE
+                vehicleControls.visibility = if (nightModes[index] == CarPlayNightMode.VEHICLE) View.VISIBLE else View.GONE
                 scheduleControls.visibility = if (nightModes[index] == CarPlayNightMode.SCHEDULE) View.VISIBLE else View.GONE
                 handler.post(::checkForAppearanceChange)
             }
@@ -1906,6 +1911,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 0..60, 2, R.string.ambient_delay_summary, { AirPlayPersistence.loadAmbientDelaySeconds(this) },
                 save = { AirPlayPersistence.saveAmbientDelaySeconds(this, it) })
             card.addView(ambientControls)
+            vehicleControls.addView(label(getString(R.string.carplay_night_vehicle_hint), 14, MUTED).apply {
+                setPadding(0, 0, 0, dp(18))
+            })
+            card.addView(vehicleControls)
             scheduleControls.addView(label(getString(R.string.carplay_night_schedule_hint), 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))
             })
