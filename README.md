@@ -15,11 +15,11 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 | 音乐走 CarPlay、保留蓝牙电话 | **设置 → 音频 → 蓝牙音频**，开启「CarPlay 期间停用蓝牙媒体」，关闭「通过车辆蓝牙播放 CarPlay 音频」 |
 | 无线连接 | 在连接设置中选择车机热点、Wi-Fi Direct 或已有 Wi-Fi，按提示完成配置 |
 | 开机自动连接 | **设置 → 连接 → 自动连接**，开启「车机启动后打开」和「打开 DiPlay 时连接」 |
-| 自定义方向盘按键 | **设置 → 车辆 → 方向盘按键**，开启按键服务并学习需要的按键 |
+| 方向盘语音键叫 Siri | 无需设置：CarPlay 连上后短按即生效。**自定义按键本版未适配，请保持默认** |
 
 **使用 HY 时，请关闭 HY 的方控接管。**
 
-**DEV 的 Siri 短按功能**：连接后自动生效，无需额外开关。该功能仍在实车验证中。
+**方向盘语音键**：CarPlay 连上后自动接管**短按**，不需要开关、不需要学习；断开即解绑。生效需要同时满足：车机被识别为领克/吉利、媒体接管方为 ECARX、当前不在通话中。用 HY（媒体接管方 = Android）时按键交给 HY。自定义按键学习本版未适配。
 
 只显示导航提示和歌曲信息时，保持「整屏镜像到仪表」关闭。设置修改后，按界面提示重新连接。
 
@@ -44,11 +44,11 @@ Where each feature is enabled, what it needs first, and how to tell it works: [f
 | Music through CarPlay, keep Bluetooth calls | **Settings → Audio → Bluetooth audio**: enable “Pause Bluetooth media for CarPlay” and disable “CarPlay audio over the car's Bluetooth” |
 | Wireless connection | Choose the car hotspot, Wi-Fi Direct or existing Wi-Fi in connection setup, then follow the prompts |
 | Automatic connection at startup | **Settings → Connection → Automatic connection**: enable “Open after the car starts” and “Connect when DiPlay opens” |
-| Custom steering-wheel controls | **Settings → Vehicle → Wheel keys**: enable the key service and learn the buttons you need |
+| Siri from the wheel | No setup: short-press works once CarPlay is connected. **Custom key learning is not supported in this version — leave it alone** |
 
 **If you use HY, disable its steering-wheel control takeover.**
 
-**Siri in DEV:** short-press voice-button activation works automatically while connected. Vehicle testing is still in progress.
+**Wheel voice key:** while CarPlay is connected DiPlay takes over the **short press** automatically — no switch, no learning; it unbinds when the session ends. It requires all of: the head unit identified as Lynk/Geely, media owner set to ECARX, and no call in progress. With HY (media owner = Android) the key goes to HY. Custom key learning is not supported in this version.
 
 Keep “Mirror the full screen to the instrument cluster” off when you only want navigation and song information. After changing settings, reconnect when prompted.
 
