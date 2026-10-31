@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay.hud
 
 import android.content.Context
-import android.content.ComponentName
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
@@ -30,19 +29,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 class EcarxLaneGuidanceFlowTest {
+    private companion object { const val FACTORY_PACKAGE = "ecarx.naviservice" }
+
     class NaviWithStatus : NaviFixture() {
         fun notifyNavigationStatus(status: Int) = FixtureLog.capture("notifyNavigationStatus", "status", status)
     }
+    /** Proves guidance never disables the factory package (which also hosts its desktop widgets). */
     class NaviCheckingFactory(val context: Context) : NaviFixture() {
         override fun updateNavigationInfo(info: INaviInteraction.INavigationInfo) {
-            assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
-                context.packageManager.getApplicationEnabledSetting(EcarxFactoryNavigationControl.PACKAGE_NAME))
+            assertNotEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+                context.packageManager.getApplicationEnabledSetting(FACTORY_PACKAGE))
             super.updateNavigationInfo(info)
         }
     }
 
     private fun installFactoryNavigation() {
-        val name = EcarxFactoryNavigationControl.PACKAGE_NAME
+        val name = FACTORY_PACKAGE
         shadowOf(context.packageManager).installPackage(PackageInfo().apply {
             packageName = name
             applicationInfo = ApplicationInfo().apply { packageName = name; enabled = true }
@@ -50,12 +52,10 @@ class EcarxLaneGuidanceFlowTest {
         shadowOf(context).grantPermissions(EcarxHicarControl.PERMISSION)
     }
 
+    /** The factory package must never be left disabled; its desktop widgets depend on it. */
     private fun assertFactoryRestored() {
-        val name = EcarxFactoryNavigationControl.PACKAGE_NAME
-        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
-            context.packageManager.getApplicationEnabledSetting(name))
-        assertEquals(ComponentName(name, "$name.service.NaviService"), shadowOf(context).nextStartedService.component)
-        assertTrue(EcarxFactoryNavigationControl.status(context).contains("owned=false"))
+        assertNotEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+            context.packageManager.getApplicationEnabledSetting(FACTORY_PACKAGE))
     }
     private val context get() = RuntimeEnvironment.getApplication()
     private val reports = CopyOnWriteArrayList<String>()
@@ -341,8 +341,8 @@ class EcarxLaneGuidanceFlowTest {
         repeat(5) { tick() }
         assertTrue(EcarxHudBridge.isActive())
         assertTrue(panelRequests.last())
-        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
-            context.packageManager.getApplicationEnabledSetting(EcarxFactoryNavigationControl.PACKAGE_NAME))
+        assertNotEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
+            context.packageManager.getApplicationEnabledSetting(FACTORY_PACKAGE))
         assertTrue(route.diagnosticState().contains("reason=active"))
         assertTrue(route.diagnosticState().contains("sessionActive=true"))
         assertFalse(reports.any { it.startsWith("DIM guidance ended") })
@@ -447,12 +447,13 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(calls("setPresentationToDimSwitch").isEmpty())
     }
 
-    @Test fun internalTakeoverDisablesBeforePublishingAndRestoresAcrossAllExitPaths() {
+    @Test fun guidanceNeverDisablesFactoryNavigationAcrossAllExitPaths() {
         installFactoryNavigation(); initialize()
+        // UpdateNavigationInfo itself asserts the factory package is never DISABLED_USER.
         set("navi", NaviCheckingFactory(context))
         repeat(5) { cycle ->
             maneuver(); guidance()
-            assertTrue(EcarxFactoryNavigationControl.status(context).contains("owned=true"))
+            assertTrue(EcarxHudBridge.isActive())
             when (cycle) {
                 0 -> send(0x5201) { u8(1, 0) }
                 1 -> send(0x5201) { u8(1, 2) }
@@ -467,11 +468,10 @@ class EcarxLaneGuidanceFlowTest {
             assertFalse(EcarxHudBridge.isActive())
             assertFactoryRestored()
             repeat(5) { tick() }
-            assertNull(shadowOf(context).nextStartedService)
         }
     }
 
-    @Test fun firstAndOngoingAggregateFailuresRestoreFactoryService() {
+    @Test fun firstAndOngoingAggregateFailuresStopGuidance() {
         installFactoryNavigation(); initialize()
         set("navi", NaviCheckingFactory(context))
         maneuver()
@@ -488,16 +488,7 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(reports.any { it.contains("reason=aggregate-failed") })
     }
 
-    @Test fun freshBridgeRecoversPersistedOwnershipBeforeAnyNewRoute() {
-        installFactoryNavigation()
-        EcarxFactoryNavigationControl.acquire(context)
-        initialize()
-        assertFactoryRestored()
-        assertFalse(EcarxHudBridge.isActive())
-        assertTrue(calls("updateNavigationInfo").isEmpty())
-    }
-
-    @Test fun failedPanelCleanupOnTimeoutStillRestoresFactoryService() {
+    @Test fun failedPanelCleanupOnTimeoutStillStopsGuidance() {
         installFactoryNavigation(); initialize()
         maneuver(); guidance()
         NavigationOutputs.setClusterPanelOwner { if (!it) error("panel cleanup failed") }
