@@ -32,6 +32,7 @@ class CarPlayMediaFocusDisabledTest {
     private val controllers = mutableListOf<CarPlayController>()
 
     @Before fun disableMediaKeyFocus() {
+        MediaSessionSettings.setMode(app, MediaSessionMode.ANDROID)
         AirPlayPersistence.saveDisableMediaKeyAudioFocus(app, true)
     }
 

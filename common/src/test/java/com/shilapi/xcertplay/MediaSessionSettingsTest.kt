@@ -12,10 +12,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class MediaSessionSettingsTest {
-    @Test fun modeDefaultsToAndroidAndIsIncludedInBackup() {
+    @Test fun modeDefaultsToEcarxAndIsIncludedInBackup() {
         val app = RuntimeEnvironment.getApplication()
         app.getSharedPreferences("diplay_media_session", 0).edit().clear().commit()
-        assertEquals(MediaSessionMode.ANDROID, MediaSessionSettings.mode(app))
+        assertEquals(MediaSessionMode.ECARX, MediaSessionSettings.mode(app))
         MediaSessionSettings.setMode(app, MediaSessionMode.ECARX)
         assertEquals(MediaSessionMode.ECARX, MediaSessionSettings.mode(app))
         val backup = JSONObject(String(SettingsBackupCodec.export(app, "test")))
