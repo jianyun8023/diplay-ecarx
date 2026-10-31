@@ -10,8 +10,12 @@
 | HY 代理 | 发布 | HY 读取标准会话后代理；DiPlay 不注册、不申请播放归属 | 当前匹配封面就绪后定向发送 |
 
 沿用 `diplay_media_session/ecarx` 偏好：原“亿咖通”（true / ECARX）对应“DiPlay 直接接管”；
-原“标准安卓”（false / ANDROID，也是默认值）对应“HY 代理”。没有新增选项或改变旧值。
-没有 HY 时，后者仍可作为纯标准 Android 会话使用。修改下次连接生效，设置仍提示重新连接。
+原“标准安卓”（false / ANDROID）对应“HY 代理”。没有新增选项或改变旧值。
+
+**默认值是“DiPlay 直接接管”（true）**：`d19750f6` 把 `MediaSessionSettings.mode()` 的缺省从
+ANDROID 改成 ECARX，本文早先写的“ANDROID 也是默认值”已不成立。老用户的选择不受影响，
+只有从未设置过的机器会拿到新默认。
+没有 HY 时，“HY 代理”仍可作为纯标准 Android 会话使用。修改下次连接生效，设置仍提示重新连接。
 已有 `EcarxOutputSettings.mediaEnabled` 继续约束 DiPlay 的直接输出。
 
 ## 会话、焦点与按键
@@ -27,8 +31,16 @@ ECARX 已取得媒体控制权时，Geely、ECARX 备用广播、前台 raw KeyE
 标准 transport controls 在两种模式下始终可用。没有添加按时间猜测重复事件的防抖。
 标准回调捕获连接归属，断连后的旧回调不能控制新连接，即使复用同一 controller 对象。
 
-Siri 接管继续独立于媒体接管方；原有短按广播、自定义单双击和通话保护保持不变。
+**Siri 接管不再独立于媒体接管方**（`c8f087ac` 之后）：两条语音键通道都以“直接接管”为前提——
+`GeelyWheelKeys.start()` 走 `shouldHandleSiriKey()`，ECARX 广播通道走 `managesVehicleKeys()`，
+两者在 `outputMode == ANDROID` 时都为假。因此在 HY 代理模式下 DiPlay **不接管语音键**，
+按键由 HY 处理；HY 要把它转发成 Siri，需要在 HY 的按键选择器里把该键指向 `:siribridge`
+启动器（它只发 `com.shihab.diplay.action.SIRI`，不会把 DiPlay 界面带到前台）。
+`requestSiriFromAction()` 本身不检查接管方，所以这条转发链在两种模式下都可用。
 不恢复“打开应用唤醒 Siri”，也不调整导航、声音路由或声道配置。
+
+> 待修：设置里 `settings_media_output_description` 仍写着“自定义 Siri 按键均可用”，与上述行为不符，
+> 且自定义按键本版未适配。改文案前不要以那句为准。
 
 切换到 HY 代理前，仍等待旧 ECARX 注册释放确认，避免 HY 一读取新 active session 就争用媒体源。
 迟到的注册 token 必须清理；超时或清理结果不确定时保留阻塞及诊断，拒绝清理需要重启进程。
