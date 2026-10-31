@@ -246,10 +246,28 @@ class EcarxLaneGuidanceFlowTest {
         tick()
         assertTrue(EcarxOutputSettings.presentationReleasePending(context))
         DimInteraction.failPresentation = false
-        tick()
+        repeat(2) { tick() }
         assertFalse(EcarxOutputSettings.presentationReleasePending(context))
         repeat(12) { tick() }
         assertEquals(listOf(false, false), calls("setPresentationToDimSwitch").map { it.payload["show"] })
+    }
+
+    @Test fun startupFailuresBackOffAndDiagnosticsIdentifyTheResidue() {
+        EcarxOutputSettings.setPresentationReleasePending(context, true)
+        DimInteraction.failPresentation = true
+        initialize()
+        repeat(60) { tick() }
+        assertEquals(30, calls("setPresentationToDimSwitch").size)
+        repeat(20) { tick() }
+        assertEquals(32, calls("setPresentationToDimSwitch").size)
+        val diagnostic = NavigationOutputs.diagnosticReport(context)
+        assertTrue(diagnostic.contains("releasePending=true"))
+        assertTrue(diagnostic.contains("startupReleaseOrigin=pending"))
+        assertEquals(2, reports.count { it.startsWith("startup projection release call origin=pending") })
+        DimInteraction.failPresentation = false
+        repeat(10) { tick() }
+        assertFalse(EcarxOutputSettings.presentationReleasePending(context))
+        assertTrue(NavigationOutputs.diagnosticReport(context).contains("releasePending=false"))
     }
 
     @Test fun currentManualAndRouteRequestsSupersedeStartupReleaseEvenAfterReopeningTheApp() {
