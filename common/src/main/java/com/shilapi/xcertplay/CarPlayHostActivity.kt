@@ -421,6 +421,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var picturePanelGeneration = 0
     private var gestureOverlay: View? = null
     private var settingsMenu: View? = null
+    /** When the menu was flagged open; a just-opened menu has no measured size yet. */
+    private var menuOpenedAt = 0L
     private var settingsMenuCategoryKey = "connection"
     private var settingsMenuContentScroll: ScrollView? = null
     private var mfiTargetGroup: RadioGroup? = null
@@ -1827,6 +1829,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         CarPlayScreen.destroyed(this)
         runCatching { unregisterReceiver(bluetoothOnReceiver) }
         mainHandler.removeCallbacks(hideTemporarySystemBars)
+        mainHandler.removeCallbacks(settingsMenuWatchdog)
         dropHeldTouch()
         discardLastPicture()
         if (pictureCopyThreadStarted) pictureCopyThread.quitSafely()
@@ -5721,6 +5724,15 @@ open class CarPlayHostActivity : ComponentActivity() {
             )
             maybeStartCarPlay()
         } else if (display != null && !layoutChanged &&
+            isSystemBarHeightChange(size, display)) {
+            // The system bars only moved the window edge. Keep the negotiated canvas and let the
+            // view fit it, instead of tearing the session down for a bar that will hide again.
+            val message = "Display changed ${previous.width}x${previous.height} -> ${size.width}x${size.height} " +
+                "by system bars; keeping CarPlay session canvas=${display.width}x${display.height}"
+            appendLog(message)
+            Log.i(TAG, message)
+            videoView?.let { updateVideoLayout(it.width, it.height) }
+        } else if (display != null && !layoutChanged &&
             statusBarHiddenByAnotherWindow(display, size.width, size.height, statusBarShown())) {
             val message = "Display changed ${previous.width}x${previous.height} -> ${size.width}x${size.height} " +
                 "while another window hides the status bar; keeping CarPlay session canvas=${display.width}x${display.height}"
@@ -5810,6 +5822,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (display.hideTopBar != hideTopBar || display.hideBottomBar != hideBottomBar) return true
         if (newSize != null && newSize.width > 0 && newSize.height > 0 &&
             display.windowWidth > 0 && display.windowHeight > 0) {
+            // The head unit's system bars take window height. Showing or hiding them moves the
+            // window between 1080 / 944 / 880 on this head unit, which is not a layout change.
+            if (isSystemBarHeightChange(newSize, display)) return false
             // The negotiated canvas may be square to support screen rotation; compare the
             // actual startup window instead, or every return to a landscape window looks like PiP.
             val baseAspect = display.windowWidth.toDouble() / display.windowHeight
@@ -5820,6 +5835,34 @@ open class CarPlayHostActivity : ComponentActivity() {
             }
         }
         return false
+    }
+
+    /**
+     * True when the only difference between [newSize] and the window the session was negotiated
+     * for is the height the system bars occupy. Those bars flip between visible and hidden when
+     * CarPlay goes to the background or when the temporary bars timer fires, and rebuilding the
+     * session for them is what shows up as the picture shrinking once per switch.
+     */
+    private fun isSystemBarHeightChange(newSize: DisplaySize, display: CarPlaySessionDisplay): Boolean {
+        if (display.windowWidth <= 0 || display.windowHeight <= 0) return false
+        if (newSize.width != display.windowWidth) return false
+        val allowance = systemBarHeightAllowancePx()
+        if (allowance <= 0) return false
+        val delta = kotlin.math.abs(newSize.height - display.windowHeight)
+        return delta in 1..allowance
+    }
+
+    /** Height the status bar and navigation bar can take together, in pixels. */
+    private fun systemBarHeightAllowancePx(): Int {
+        var total = 0
+        for (name in arrayOf("status_bar_height", "navigation_bar_height")) {
+            val id = resources.getIdentifier(name, "dimen", "android")
+            if (id > 0) total += resources.getDimensionPixelSize(id)
+        }
+        // Some head units do not publish these dimens; the bars still take a slice of the screen,
+        // so fall back to a bound that covers them instead of treating every change as a layout.
+        if (total <= 0) total = (resources.displayMetrics.heightPixels * 0.25f).toInt()
+        return total
     }
 
 
@@ -6068,6 +6111,34 @@ open class CarPlayHostActivity : ComponentActivity() {
         owner.awaitVideoReleased(sinkReleaseWaitMillis)
     }
 
+    /**
+     * A menu flagged open while its view cannot be seen swallows every touch. The view can lose
+     * its parent, stay behind the video surface, or never finish being added, and nothing clears
+     * the flag afterwards. Reclaim it rather than leaving the driver with a dead screen.
+     */
+    private val settingsMenuWatchdog = Runnable {
+        if (menuOpen && !settingsMenuShown()) closeSettingsMenuWithoutView("watchdog")
+    }
+
+    private fun settingsMenuShown(): Boolean {
+        val menu = settingsMenu ?: return false
+        return menu.visibility == View.VISIBLE && menu.isAttachedToWindow &&
+            menu.width > 0 && menu.height > 0
+    }
+
+    private fun armSettingsMenuWatchdog() {
+        mainHandler.removeCallbacks(settingsMenuWatchdog)
+        mainHandler.postDelayed(settingsMenuWatchdog, SETTINGS_MENU_VISIBLE_GRACE_MILLIS)
+    }
+
+    private fun closeSettingsMenuWithoutView(trigger: String) {
+        val message = "Settings menu open without a visible view ($trigger); " +
+            "closing it to restore touch"
+        Log.w(TAG, message)
+        appendLog(message)
+        finishSettingsMenu("menu had no view", reconnect = false)
+    }
+
     private fun openSettingsMenu() {
         cancelTemporarySystemBars()
         if (menuOpen) return
@@ -6098,6 +6169,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         updateSafeAreaSummary()
         updateResolutionMenu()
         updateDebugOverlays()
+        menuOpenedAt = SystemClock.uptimeMillis()
+        armSettingsMenuWatchdog()
     }
 
     private fun openPicturePanel() {
@@ -6183,6 +6256,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun finishSettingsMenu(prefix: String, reconnect: Boolean) {
         if (!menuOpen) return
         menuOpen = false
+        mainHandler.removeCallbacks(settingsMenuWatchdog)
         menuSettingsSignature = null
         menuWirelessNetworkSignature = null
         menuManualHotspotSettings = null
@@ -6412,7 +6486,16 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {
-        if (menuOpen) return true
+        if (menuOpen) {
+            if (settingsMenuShown()) return true
+            // A menu that was just flagged open has no measured size until it is laid out, and the
+            // three-finger swipe finishes well inside that window. Only reclaim the flag once the
+            // grace period has passed, or a normal swipe would close its own menu instantly.
+            if (SystemClock.uptimeMillis() - menuOpenedAt < SETTINGS_MENU_VISIBLE_GRACE_MILLIS) return true
+            // The flag without a view swallows every touch, which the driver reads as a frozen
+            // screen: the settings panel never appears and nothing else answers either.
+            closeSettingsMenuWithoutView("touch")
+        }
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -6819,6 +6902,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         const val PICTURE_COPY_WAIT_MILLIS = 150L
         /** How long the side panel tab's pill (and the panel's grip) shows when it appears or is tapped. */
         const val SIDE_PANEL_TAB_HINT_MILLIS = 10_000L
+        /** Grace period for the settings menu to reach the screen before the watchdog reclaims it. */
+        const val SETTINGS_MENU_VISIBLE_GRACE_MILLIS = 1_500L
         const val TAG = "xcertplay-usb"
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
