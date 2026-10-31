@@ -583,6 +583,8 @@
     <string name="hotspot_control_unsupported">目前韌體不支援自動開啟熱點，請在車機設定中開啟。</string>
     <string name="hotspot_control_timeout">等待車機熱點開啟超時，請在車機設定中開啟。</string>
     <string name="hotspot_control_failed">車機熱點開啟失敗，請在車機設定中開啟。</string>
+    <string name="wireless_carplay_unavailable">這台 iPhone 表示它目前無法使用無線 CarPlay</string>
+    <string name="wireless_transport_not_started">這台 iPhone 沒有開始建立無線 CarPlay</string>
     <string name="location_reporting_reconnects">變更此設定會重新連線進行中的 CarPlay。</string>
     <string name="diagnostic_report_saved_in_app">由於公開儲存位置無法使用，報告已私密儲存到 DiPlay。您可以在此分享或檢視報告。不會自動傳送任何內容。</string>
     <string name="diagnostic_report_saved_to_path">報告已儲存到：\n%1$s\n\n您也可以在此分享或檢視報告。不會自動傳送任何內容。</string>
@@ -810,6 +812,8 @@
     <string name="connection_help_general">請重新連線。若仍失敗，請返回 DiPlay，在「設定 → 診斷」中儲存報告。</string>
     <string name="connection_help_wifi_direct">保持車機的 Wi-Fi 與藍牙開啟，iPhone 解鎖並放在附近，再重試。若仍失敗，請在 iPhone 的「設定 → 一般 → CarPlay」中忘記這輛車，再重新連線。</string>
     <string name="connection_help_existing_wifi">請確認車機和 iPhone 連線的是同一個 Wi-Fi 網路，且網路名稱和密碼與 DiPlay 設定相同，再重試。</string>
+    <string name="connection_help_wireless_carplay_unavailable">iPhone 已透過藍牙完成認證，但明確回覆本車無法使用無線 CarPlay。請在 iPhone 上確認 Wi-Fi 已開啟且未加入其他網路；再到「設定 → 一般 → CarPlay 車載」中刪除本車記錄，重新配對後先進行一次無線連線。</string>
+    <string name="connection_help_wireless_transport_not_started">iPhone 已透過藍牙完成認證，但一直沒有要求無線連線。請解鎖 iPhone、確認 Wi-Fi 已開啟並放在附近，然後重試；若仍失敗，請在「設定 → 一般 → CarPlay 車載」中刪除本車記錄後重新配對。</string>
     <string name="settings_report_on_phone">在手機上取得報告</string>
     <string name="settings_report_on_phone_hint">用手機相機掃碼，在瀏覽器中開啟此頁面，然後選擇「下載報告」。下載完成前請保持此畫面開啟。</string>
     <string name="settings_mfi_target_description">只有車機上插著 CH341 認證轉接器時才選擇 USB/CH341。沒有轉接器時請選擇「本機離線」。下次連線時生效。</string>

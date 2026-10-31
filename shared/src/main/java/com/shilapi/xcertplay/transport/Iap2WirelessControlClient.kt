@@ -33,6 +33,11 @@ class Iap2WirelessControlClient(
         // Evaluated only in the authenticated control loop when its original deadline expires.
         // The caller must prove that the current CarPlay session is usable before keeping it alive.
         keepAliveAfterDeadline: () -> Boolean = { false },
+        // How long an authenticated iPhone may take to ask for the Wi-Fi transport. A phone that
+        // answers WirelessCarPlayUpdate available=false never does, and without this the bootstrap
+        // keeps polling for the whole control-loop budget while the screen says it is connecting.
+        // Disabled by default: the runtime tunnel loop starts after the transport already exists.
+        transportWaitMillis: Long = NO_TRANSPORT_WAIT_MILLIS,
         onProgress: (String) -> Unit = {},
     ): Iap2WirelessControlResult {
         require(identification.wireless != null) {
@@ -40,6 +45,9 @@ class Iap2WirelessControlClient(
         }
         require(timeoutMillis == NO_TIMEOUT_MILLIS || timeoutMillis in 1..MAX_TIMEOUT_MILLIS) {
             "timeoutMillis must be in 1..$MAX_TIMEOUT_MILLIS or NO_TIMEOUT_MILLIS"
+        }
+        require(transportWaitMillis == NO_TRANSPORT_WAIT_MILLIS || transportWaitMillis in 1..MAX_TIMEOUT_MILLIS) {
+            "transportWaitMillis must be in 1..$MAX_TIMEOUT_MILLIS or NO_TRANSPORT_WAIT_MILLIS"
         }
 
         val deadline = WirelessControlDeadline(timeoutMillis)
@@ -74,6 +82,10 @@ class Iap2WirelessControlClient(
         var postTransportWiFiConfigurationsSent = 0
         var transportNotificationSeen = false
         var wirelessCarPlayAvailableSeen = false
+        // The iPhone itself said wireless CarPlay is unavailable for this car (0x4E0D payload 0).
+        // That is an answer, not a delay: keep it for the report and to pick the failure message.
+        var wirelessUnavailableReported = false
+        val transportWait = WirelessTransportWait(transportWaitMillis)
         val location = Iap2LocationReporter(locationProvider, onProgress)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
@@ -89,11 +101,37 @@ class Iap2WirelessControlClient(
                         transportNotificationSeen,
                         postTransportWiFiConfigurationsSent,
                         wirelessCarPlayAvailableSeen,
+                        wirelessUnavailableReported,
+                    )
+                }
+                // The iPhone authenticated but never asked for the Wi-Fi transport. Polling longer
+                // cannot change its mind, so end the attempt and let the caller name the reason.
+                if (transportWait.expired(carPlayStartSessionsSent, transportNotificationSeen)) {
+                    onProgress(
+                        "iap2 no wireless transport after ${transportWaitMillis}ms: " +
+                            "stage=$stage wirelessCarPlayAvailable=$wirelessCarPlayAvailableSeen " +
+                            "reportedUnavailable=$wirelessUnavailableReported " +
+                            "wifiConfigs=$wifiConfigurationsSent",
+                    )
+                    return Iap2WirelessControlResult(
+                        Iap2WirelessControlTerminal.NO_WIRELESS_TRANSPORT,
+                        stage,
+                        forwardedFrames,
+                        wifiConfigurationsSent,
+                        carPlayStartSessionsSent,
+                        transportNotificationSeen,
+                        postTransportWiFiConfigurationsSent,
+                        wirelessCarPlayAvailableSeen,
+                        wirelessUnavailableReported,
                     )
                 }
                 location.tick(::sendControl)
                 vehicleStatus.tick(::sendControl)
-                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining))
+                val pollTimeout = transportWait.boundPollTimeout(
+                    vehicleStatus.pollTimeout(location.pollTimeout(remaining)),
+                    carPlayStartSessionsSent,
+                    transportNotificationSeen,
+                )
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
                     if (session.isClosed) {
@@ -173,7 +211,7 @@ class Iap2WirelessControlClient(
 
                     WIRELESS_CARPLAY_UPDATE -> {
                         val available = Iap2WirelessMessages.wirelessCarPlayAvailability(incoming)
-                        if (available) wirelessCarPlayAvailableSeen = true
+                        if (available) wirelessCarPlayAvailableSeen = true else wirelessUnavailableReported = true
                         onProgress("iap2 rx=0x4e0d wireless-carplay-update available=$available")
                     }
 
@@ -238,6 +276,7 @@ class Iap2WirelessControlClient(
         private const val WIRELESS_CARPLAY_UPDATE = 0x4e0d
         private const val DEVICE_TRANSPORT_IDENTIFIER_NOTIFICATION = 0x4e0e
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
+        const val NO_TRANSPORT_WAIT_MILLIS = Long.MAX_VALUE
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val MAX_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
         private const val MAX_PRE_TRANSPORT_WIFI_CONFIGURATION_SENDS = 5
@@ -344,7 +383,13 @@ enum class Iap2WirelessControlStage {
     POST_TRANSPORT_WIFI_CONFIG_SENT,
 }
 
-enum class Iap2WirelessControlTerminal { CHANNEL_CLOSED, TIMED_OUT }
+enum class Iap2WirelessControlTerminal {
+    CHANNEL_CLOSED,
+    TIMED_OUT,
+
+    /** The iPhone never asked for the Wi-Fi transport, so no wireless session can start. */
+    NO_WIRELESS_TRANSPORT,
+}
 
 /** End state of the control loop only; it is not evidence of a live Wi-Fi or AirPlay session. */
 data class Iap2WirelessControlResult(
@@ -356,6 +401,8 @@ data class Iap2WirelessControlResult(
     val transportNotificationSeen: Boolean,
     val postTransportWiFiConfigurationsSent: Int,
     val wirelessCarPlayAvailableSeen: Boolean,
+    /** The iPhone answered 0x4E0D with "unavailable"; it will not start wireless CarPlay. */
+    val wirelessUnavailableReported: Boolean = false,
 )
 
 /** 仅在 StartSession 发送成功后产生，不通过日志驱动超时。 */
@@ -368,6 +415,44 @@ internal fun sendStartSession(
 ) {
     send(Iap2WirelessControlClient.carPlayStartSession(endpoint))
     onSent(Iap2StartSessionSent(System.nanoTime()))
+}
+
+/**
+ * How long an authenticated iPhone may take to ask for the Wi-Fi transport.
+ *
+ * An iPhone that will start wireless CarPlay asks within about a second. One that answered
+ * WirelessCarPlayUpdate with "unavailable" never asks at all, and waiting out the whole control-loop
+ * budget only leaves the screen saying it is connecting.
+ */
+internal class WirelessTransportWait(
+    private val waitMillis: Long,
+    private val nowNanos: () -> Long = System::nanoTime,
+) {
+    private val startedNanos = nowNanos()
+    private val enabled = waitMillis != Iap2WirelessControlClient.NO_TRANSPORT_WAIT_MILLIS
+
+    fun expired(startRequestsSent: Int, transportNotified: Boolean): Boolean {
+        if (!enabled) return false
+        // Either one is already progress past this wait, whatever happens next.
+        if (startRequestsSent > 0 || transportNotified) return false
+        return nowNanos() - startedNanos >= waitMillis * NANOS_PER_MILLISECOND
+    }
+
+    /**
+     * The control loop blocks in `recv` for as long as the deadline allows — up to five minutes —
+     * so the wait has to shorten that poll or it is only noticed after the phone finally speaks.
+     */
+    fun boundPollTimeout(requestedMillis: Long, startRequestsSent: Int, transportNotified: Boolean): Long {
+        if (!enabled || startRequestsSent > 0 || transportNotified) return requestedMillis
+        val remainingNanos = waitMillis * NANOS_PER_MILLISECOND - (nowNanos() - startedNanos)
+        if (remainingNanos <= 0L) return 1L
+        val remainingMillis = (remainingNanos + NANOS_PER_MILLISECOND - 1L) / NANOS_PER_MILLISECOND
+        return minOf(requestedMillis, remainingMillis)
+    }
+
+    private companion object {
+        const val NANOS_PER_MILLISECOND = 1_000_000L
+    }
 }
 
 /** A bounded bring-up deadline that a proven live session can extend for ongoing control updates. */

@@ -29,6 +29,10 @@ internal object ConnectionFailureGuidance {
             ConnectionFailureCause.HOTSPOT_INTERFACE_NOT_FOUND -> return R.string.connection_help_hotspot_interface_not_found
             ConnectionFailureCause.CAR_HOTSPOT_START_TIMED_OUT,
             ConnectionFailureCause.CAR_HOTSPOT_START_FAILED -> return R.string.connection_help_hotspot
+            ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE ->
+                return R.string.connection_help_wireless_carplay_unavailable
+            ConnectionFailureCause.WIRELESS_TRANSPORT_NOT_STARTED ->
+                return R.string.connection_help_wireless_transport_not_started
             null -> Unit
         }
         when (failure.startupFailure) {
@@ -82,6 +86,8 @@ internal object ConnectionFailureGuidance {
         ConnectionFailureCause.HOTSPOT_INTERFACE_NOT_FOUND -> R.string.hotspot_interface_not_found
         ConnectionFailureCause.CAR_HOTSPOT_START_TIMED_OUT -> R.string.hotspot_control_timeout
         ConnectionFailureCause.CAR_HOTSPOT_START_FAILED -> R.string.hotspot_control_failed
+        ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE -> R.string.wireless_carplay_unavailable
+        ConnectionFailureCause.WIRELESS_TRANSPORT_NOT_STARTED -> R.string.wireless_transport_not_started
     }
 
     /** The network the iPhone joins: the car hotspot, a Wi-Fi Direct group, or a shared Wi-Fi. */

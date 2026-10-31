@@ -3061,7 +3061,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             minHeight = dp(52)
             style(DiPlayButtonKind.SECONDARY, overlayPalette, overlay = true)
             setOnClickListener {
-                leaveSettingsMenu { showDiPlayHome("settings") }
+                // Opening settings mid-handshake is not a cancel: the driver changes a setting and
+                // expects the attempt to resume with it afterwards.
+                leaveSettingsMenu { showDiPlayHome("settings", cancelIfNotConnected = false) }
             }
         }
         content.addView(
@@ -5337,6 +5339,13 @@ open class CarPlayHostActivity : ComponentActivity() {
                 startupRetryButton?.visibility = View.VISIBLE
             } else if (status.wifiResetRequired) {
                 wifiRecoveryButton?.visibility = View.VISIBLE
+            } else if (status.knownCause == ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE) {
+                // The iPhone answered for itself: repeating the same handshake cannot change its mind
+                // until the driver acts on the phone. Say so once and wait for a manual retry.
+                startupRetryStopped = true
+                reconnectScheduled = false
+                wifiRecoveryButton?.visibility = View.GONE
+                startupRetryButton?.visibility = View.VISIBLE
             } else {
                 wifiRecoveryButton?.visibility = View.GONE
                 if (status.startupFailure != null) {
@@ -6047,10 +6056,20 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun showDiPlayHome(page: String = "home") {
+    private fun showDiPlayHome(page: String = "home", cancelIfNotConnected: Boolean = true) {
         releaseCarPlayTouches()
         OwnScreenStart.start(this, Intent(this, DiPlayActivity::class.java)
             .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT), ::appendLog)
+        // A handshake that never produced a CarPlay picture has nothing worth keeping alive. Leaving
+        // it running kept the controller owned by no visible screen, and the next attempt adopted
+        // that same dead handshake instead of starting a new one: choosing another iPhone then looked
+        // like it was stuck at the same stage forever.
+        if (cancelIfNotConnected && activeAirPlaySession == null && !shuttingDown.get() &&
+            CarPlayBackgroundSession.isOwner(this)
+        ) {
+            appendLog("Left the connection screen before the first CarPlay picture; cancelling the attempt")
+            CarPlayBackgroundSession.stop { mainHandler.post { if (!isDestroyed) finish() } }
+        }
     }
 
     /** Keep a timed-out sink visible to surface teardown until its codecs have actually been released. */

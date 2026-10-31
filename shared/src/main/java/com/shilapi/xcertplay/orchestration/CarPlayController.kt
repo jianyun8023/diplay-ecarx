@@ -1687,6 +1687,7 @@ class CarPlayController(
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 keepAliveAfterDeadline = { keepBluetoothControlAlive(generation) },
+                transportWaitMillis = WIRELESS_TRANSPORT_WAIT_MILLIS,
                 beforeStartSession = { startedHotspot?.validateReady() },
                 onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
                 onIncoming = { onRouteFrame(it, "wireless-rfcomm") },
@@ -1717,6 +1718,16 @@ class CarPlayController(
                             sessionActive = activeSession != null,
                         )
                         if (!handoffInProgress) {
+                            // The link can die before the transport wait expires — the iPhone drops
+                            // it a few seconds after answering "unavailable". That answer still names
+                            // the reason better than a link error does.
+                            if (result.wirelessUnavailableReported) {
+                                throw ConnectionFailureException(
+                                    ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE,
+                                    "The iPhone reported that this car cannot use wireless CarPlay, then " +
+                                        "closed the Bluetooth iAP2 link at state=${result.stage}",
+                                )
+                            }
                             throw IOException(
                                 "Wireless CarPlay control channel closed before tunnel iAP2 ready",
                             )
@@ -1731,6 +1742,29 @@ class CarPlayController(
                     if (!wirelessActiveReported.get()) {
                         onStatus(CarPlayStatus.ControlEnded)
                     }
+                Iap2WirelessControlTerminal.NO_WIRELESS_TRANSPORT -> {
+                    // The iPhone authenticated over Bluetooth and then never asked for the Wi-Fi
+                    // transport. Naming the reason beats waiting out the five-minute control budget:
+                    // the screen just says it is connecting, and the driver has nothing to act on.
+                    debugLog(
+                        "wireless CarPlay never started: iap2State=${result.stage} " +
+                            "wirelessCarPlayAvailable=${result.wirelessCarPlayAvailableSeen} " +
+                            "reportedUnavailable=${result.wirelessUnavailableReported} " +
+                            "wifiConfigs=${result.wifiConfigurationsSent} " +
+                            "carPlayStartSessions=${result.carPlayStartSessionsSent}",
+                    )
+                    throw ConnectionFailureException(
+                        if (result.wirelessUnavailableReported) {
+                            ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE
+                        } else {
+                            ConnectionFailureCause.WIRELESS_TRANSPORT_NOT_STARTED
+                        },
+                        "The iPhone authenticated but did not start the wireless CarPlay transport " +
+                            "(wirelessCarPlayAvailable=${result.wirelessCarPlayAvailableSeen}, " +
+                            "reportedUnavailable=${result.wirelessUnavailableReported}, " +
+                            "iap2State=${result.stage})",
+                    )
+                }
             }
         } catch (error: Throwable) {
             if (isStaleWirelessRun(generation)) {
@@ -1807,6 +1841,8 @@ class CarPlayController(
                             onStatus(CarPlayStatus.ControlEnded)
                         Iap2WirelessControlTerminal.CHANNEL_CLOSED ->
                             onStatus(CarPlayStatus.Failed("Wireless iAP2 tunnel closed"))
+                        // The tunnel only exists once the transport is up, so this cannot happen here.
+                        Iap2WirelessControlTerminal.NO_WIRELESS_TRANSPORT -> Unit
                     }
                 } catch (error: Throwable) {
                     if (!closed && generation == wirelessGeneration.get()) {
@@ -3409,6 +3445,10 @@ class CarPlayController(
         private const val WIRELESS_PREFS = "diplay_wireless"
         private const val HOTSPOT_FAMILY_PREFERENCE_KEY = "hotspot_address_family"
         private const val CONTROL_LOOP_TIMEOUT_MILLIS = 5 * 60_000L
+        // An iPhone that will start wireless CarPlay asks for the transport within about a second
+        // (0.6 s and 3 s in measured runs). A minute leaves room for a slow Wi-Fi association while
+        // still ending the attempt long before the control-loop budget runs out.
+        private const val WIRELESS_TRANSPORT_WAIT_MILLIS = 60_000L
         private const val LOCATION_CONTROL_LOOP_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
         private const val PERMISSION_POLL_INTERVAL_MILLIS = 500L
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
