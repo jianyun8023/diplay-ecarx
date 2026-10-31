@@ -3,6 +3,8 @@ package com.shilapi.xcertplay.hud
 import java.net.Socket
 import java.util.HashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Keeps the DIM service's live guidance distance on CarPlay's value.
@@ -31,7 +33,7 @@ internal object EcarxDimDistanceGuard {
 
     private val lock = Any()
     private val sink = EcarxReportSink(TAG)
-    private val worker = Executors.newSingleThreadExecutor { runnable ->
+    private val worker = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "diplay-nav-guard-pub").apply { isDaemon = true }
     }
 
@@ -44,6 +46,8 @@ internal object EcarxDimDistanceGuard {
     private var publisherReason = "not attempted"
     private var packetId = 0
     private val lastCorrectionAt = HashMap<String, Long>()
+    private val pending = HashMap<String, ScheduledFuture<*>>()
+    private var generation = 0L
 
     fun attachReport(sink: (String) -> Unit) = this.sink.attach(sink)
 
@@ -62,6 +66,11 @@ internal object EcarxDimDistanceGuard {
     /** Guidance ended: stop correcting and release both sockets so the guard is idle on the road. */
     fun stopGuarding() = synchronized(lock) {
         active = false
+        generation++
+        pending.values.forEach { it.cancel(false) }
+        pending.clear()
+        lastCorrectionAt.clear()
+        sink.line("nav guard stopped; pending corrections cancelled generation=$generation")
         turnNext = null
         destinationDistance = null
         runCatching { subscriber?.close() }
@@ -111,51 +120,67 @@ internal object EcarxDimDistanceGuard {
             }
             if (isActive()) sleepQuietly(GUARD_RECONNECT_MS)
         }
-        synchronized(lock) { reader = null }
+        synchronized(lock) { reader = null; if (active) startLocked() }
     }
 
-    private fun onMessage(topic: String, payload: String) {
+    private fun onMessage(topic: String, payload: String) = synchronized(lock) {
+        if (!active) return
+        val desired = desiredFor(topic) ?: return
+        if (payload == desired) {
+            pending.remove(topic)?.cancel(false)
+            return
+        }
+        if (pending.containsKey(topic)) return
         val now = System.nanoTime() / 1_000_000L
-        val desired = synchronized(lock) {
-            if (!active) return
-            val want = desiredFor(topic) ?: return
-            if (!shouldCorrect(want, payload, now, lastCorrectionAt[topic] ?: 0L)) return
-            lastCorrectionAt[topic] = now
-            want
-        }
-        publishCorrection(topic, desired)
+        val last = lastCorrectionAt[topic] ?: 0L
+        val delay = if (shouldCorrect(desired, payload, now, last)) 0L
+            else (GUARD_MIN_CORRECTION_MS - (now - last)).coerceAtLeast(0L)
+        val expectedGeneration = generation
+        pending[topic] = worker.schedule({
+            synchronized(lock) {
+                if (!active || generation != expectedGeneration) return@schedule
+                pending.remove(topic)
+                if (desiredFor(topic) == null) return@schedule
+                lastCorrectionAt[topic] = System.nanoTime() / 1_000_000L
+            }
+            val outcome = publishRaw(topic, expectedGeneration)
+            sink.line("nav guard corrected $topic -> $outcome generation=$expectedGeneration")
+        }, delay, TimeUnit.MILLISECONDS)
+        sink.line("nav guard correction queued delayMs=$delay topic=$topic generation=$expectedGeneration")
     }
 
-    private fun publishCorrection(topic: String, fallback: String) {
-        worker.execute {
-            val current = synchronized(lock) { if (active) desiredFor(topic) else null } ?: fallback
-            val outcome = publishRaw(topic, current)
-            sink.line("nav guard corrected $topic -> $outcome")
-        }
-    }
-
-    private fun publishRaw(topic: String, payload: String): String {
+    private fun publishRaw(topic: String, expectedGeneration: Long): String {
         var last = "no attempt"
         repeat(2) {
-            val connection = synchronized(lock) { publisher } ?: connectPublisher() ?: return publisherReason
+            val connection = synchronized(lock) {
+                if (!active || generation != expectedGeneration) return "cancelled"
+                publisher
+            } ?: connectPublisher(expectedGeneration) ?: return publisherReason
+            // A queued correction follows the latest guidance, never a captured old distance.
+            val payload = synchronized(lock) {
+                if (!active || generation != expectedGeneration) return "cancelled"
+                desiredFor(topic)
+            } ?: return "cancelled"
             last = EcarxMqtt.publish(connection, nextPacketId(), topic, payload)
             if (last == "ok") return "ok"
             synchronized(lock) {
-                runCatching { publisher?.close() }
-                publisher = null
+                if (publisher === connection) publisher = null
+                runCatching { connection.close() }
             }
         }
         return last
     }
 
-    private fun connectPublisher(): Socket? {
+    private fun connectPublisher(expectedGeneration: Long): Socket? {
         val connection = EcarxMqtt.connect(PUBLISHER_CLIENT_ID)
-        if (connection == null) {
-            publisherReason = "connect failed"
-            return null
+        synchronized(lock) {
+            if (!active || generation != expectedGeneration) {
+                runCatching { connection?.close() }
+                return null
+            }
+            publisherReason = if (connection == null) "connect failed" else "ok"
+            publisher = connection
         }
-        synchronized(lock) { publisher = connection }
-        publisherReason = "ok"
         return connection
     }
 
