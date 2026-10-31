@@ -335,6 +335,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     // The full-window viewport stays independent of the letterboxed SurfaceView dimensions.
     private var videoView: View? = null
+    private var hostContentRoot: FrameLayout? = null
     private var blackCornerOverlay: CarPlayBlackCornerOverlay? = null
     private var pendingIphoneCornerMask: Pair<AirPlaySession, Pair<ByteArray, Int>>? = null
     private var iphoneCornerMaskDecodeGeneration = 0
@@ -1870,6 +1871,25 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private fun buildContentView(): View {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        hostContentRoot = root
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            if (usesStableHostInsets()) {
+                val safe = carPlayHostContentInsets(insets, hideTopBar, hideBottomBar)
+                if (view.paddingLeft != safe.left || view.paddingTop != safe.top ||
+                    view.paddingRight != safe.right || view.paddingBottom != safe.bottom) {
+                    view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                    appendLog("Host stable content insets=${safe.left},${safe.top},${safe.right},${safe.bottom}")
+                }
+                connectionPanel?.setPadding(0, 0, 0, 0)
+                // All children share this safe coordinate space; the preparation panel must not
+                // subtract the very same bars a second time.
+                WindowInsetsCompat.CONSUMED
+            } else {
+                if (view.paddingLeft != 0 || view.paddingTop != 0 ||
+                    view.paddingRight != 0 || view.paddingBottom != 0) view.setPadding(0, 0, 0, 0)
+                insets
+            }
+        }
         val video = TextureView(this).apply {
             isOpaque = false
             surfaceTextureListener = textureListener
@@ -5895,11 +5915,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             val bounds = CarPlaySurfaceBounds.from(content)
             if (fallbackVideoBounds != bounds) {
                 fallbackVideoBounds = bounds
-                fallback.layoutParams = FrameLayout.LayoutParams(bounds.width, bounds.height,
-                    Gravity.TOP or Gravity.LEFT).apply {
-                    leftMargin = bounds.left
-                    topMargin = bounds.top
-                }
+                (view as? CarPlaySurfaceViewport)?.updateContent()
             }
         } else {
             (view as? TextureView)?.setTransform(Matrix().apply {
@@ -5907,8 +5923,19 @@ open class CarPlayHostActivity : ComponentActivity() {
                 postTranslate(content.left, content.top)
             })
         }
-        if (sidePanelShown) placeSidePanel(viewWidth, viewHeight)
-        placeSidePanelTab(viewWidth, viewHeight)
+        // The surface viewport calls this during its layout to keep the overlay in sync. Side-panel
+        // placement changes LayoutParams, so do that after traversal rather than request another pass.
+        if (view.isInLayout) {
+            view.post {
+                if (!isDestroyed && videoView === view) {
+                    if (sidePanelShown) placeSidePanel(view.width, view.height)
+                    placeSidePanelTab(view.width, view.height)
+                }
+            }
+        } else {
+            if (sidePanelShown) placeSidePanel(viewWidth, viewHeight)
+            placeSidePanelTab(viewWidth, viewHeight)
+        }
     }
 
     private fun recordDetectedMaximum(size: DisplaySize) {
@@ -6375,7 +6402,16 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun useFallbackVideoSurface(texture: TextureView, unsafeDecoder: String?) {
         val root = texture.parent as? FrameLayout ?: return
         val index = root.indexOfChild(texture)
-        val viewport = FrameLayout(this).apply { clipChildren = true }
+        var previousWidth = 0
+        var previousHeight = 0
+        val viewport = CarPlaySurfaceViewport(this, ::contentRect) { width, height ->
+            updateVideoLayout(width, height)
+            if (width != previousWidth || height != previousHeight) {
+                previousWidth = width
+                previousHeight = height
+                scheduleDisplaySize(width, height)
+            }
+        }.apply { clipChildren = true }
         val surfaceView = SurfaceView(this)
         pictureBinding?.close()
         pictureBinding = null
@@ -6389,14 +6425,6 @@ open class CarPlayHostActivity : ComponentActivity() {
         fallbackVideoView = surfaceView
         surfaceView.holder.addCallback(fallbackSurfaceCallback)
         viewport.addView(surfaceView, FrameLayout.LayoutParams(-1, -1))
-        viewport.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-            val width = right - left
-            val height = bottom - top
-            updateVideoLayout(width, height)
-            if (width != oldRight - oldLeft || height != oldBottom - oldTop) {
-                scheduleDisplaySize(width, height)
-            }
-        }
         root.addView(viewport, index, texture.layoutParams)
         appendLog(if (smoothVideo) {
             "Using SurfaceView video output: smooth video, frames shown at the iPhone's frame time + a delay " +
@@ -6453,7 +6481,6 @@ open class CarPlayHostActivity : ComponentActivity() {
             pictureHold = it
             viewport.addView(it)
         }
-        (surfaceView.layoutParams as? FrameLayout.LayoutParams)?.let { hold.layoutParams = FrameLayout.LayoutParams(it) }
         hold.animate().cancel()
         hold.setImageBitmap(picture)
         hold.alpha = 1f
@@ -6796,6 +6823,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    private fun usesStableHostInsets(): Boolean =
+        !harmanFullscreenEnabled && !isMultiWindowActive() && (!hideTopBar || !hideBottomBar)
+
     private fun applyFullscreenMode() {
         val multiWindow = isMultiWindowActive()
         if (harmanFullscreenEnabled) {
@@ -6803,6 +6833,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             // The OEM-specific bit must be written last: the standard insets controller does not preserve it.
             HarmanFullscreenCompat.apply(window)
             harmanFullscreenApplied = true
+            hostContentRoot?.let(ViewCompat::requestApplyInsets)
             return
         }
         if (harmanFullscreenApplied) {
@@ -6811,7 +6842,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         val hideTop = hideTopBar && !multiWindow
         val hideBottom = hideBottomBar && !multiWindow
-        WindowCompat.setDecorFitsSystemWindows(window, !(hideTop && hideBottom))
+        // Keep the outer window stable while OEM windows temporarily change bar visibility. This
+        // lays out behind the bars; it does NOT hide them. The root reserves the requested bar insets.
+        WindowCompat.setDecorFitsSystemWindows(window, !usesStableHostInsets() && !(hideTop && hideBottom))
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         val peek = temporarySystemBarsVisible && !multiWindow && !harmanFullscreenEnabled
         if (hideTop && !peek) {
@@ -6826,6 +6859,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        hostContentRoot?.let(ViewCompat::requestApplyInsets)
     }
 
     /** Temporary reveal without persisting bar visibility or changing AirPlay's negotiated size. */
