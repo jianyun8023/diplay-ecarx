@@ -30,8 +30,8 @@ import android.widget.FrameLayout
  * copy of the 1920x944 centre screen, which is what the platform's mirror paints there and why the
  * picture looked wrong: 944 → 720 is a 24 % squeeze.
  *
- * The presentation owns no lifecycle of its own. The host decides when a route is running (that is
- * `EcarxHudBridge.clusterPresentationRequested`) and calls `show()` / `dismiss()`; this class only
+ * The presentation owns no lifecycle of its own. [EcarxClusterSession] retains it across Activity
+ * recreation and decides when the route/session allows `show()` / `dismiss()`; this class only
  * hands the decoder a surface and takes it away again before the window goes down.
  */
 internal class EcarxClusterPresentation(

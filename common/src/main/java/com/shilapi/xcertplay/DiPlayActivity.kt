@@ -4990,6 +4990,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("ECARX MediaCenter clusterMediaEnabled=${com.shilapi.xcertplay.hud.EcarxOutputSettings.mediaEnabled(appContext)}")
         appendLine(CarPlayMediaSession.diagnosticReport())
         appendLine(SystemMediaSessionDiagnostics.report(appContext))
+        appendLine("Cluster output: " + CarPlayBackgroundSession.clusterDiagnostics(CarPlayBackgroundSession.snapshot()?.controller))
         appendLine(CarPlayMediaSession.artworkDiagnosticReport())
         appendLine(AudioDiagnosticSnapshot.report(appContext))
         appendLine(runCatching {
@@ -5021,6 +5022,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         appendLine(WheelKeyService.report(appContext))
         WheelKeyLog.report(WheelKeyService.connected()).forEach { appendLine(it) }
+        appendLine(com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.diagnosticReport())
         appendLine()
         appendLine(UpdateAvailability.report(appContext, System.currentTimeMillis()))
         appendLine()

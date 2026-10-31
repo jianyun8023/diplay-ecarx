@@ -13,6 +13,50 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class CarPlayControllerFirstFrameTest {
+    @Test fun sessionOwnedOutputReceivesWiredAndWirelessFramesWithoutTheHostListener() {
+        for (wireless in listOf(false, true)) {
+            val controller = controller(mutableListOf())
+            val active = session()
+            val stale = session()
+            var updates = 0
+            // Register before a current output exists, then replace it exactly as a session does.
+            controller.setClusterOutputStateListener {}
+            val old: () -> Unit = {}
+            controller.setClusterOutputStateListener(old)
+            controller.setClusterOutputStateListener { updates++ }
+            controller.clearClusterOutputStateListener(old)
+            updates = 0
+            controller.attachUi(object : AirPlaySessionListener {}, {})
+            controller.javaClass.getDeclaredField("activeSession").apply { isAccessible = true }.set(controller, active)
+            val listener = if (wireless) {
+                controller.javaClass.getDeclaredField("phase").apply {
+                    isAccessible = true
+                    set(controller, type.enumConstants.single { (it as Enum<*>).name == "WIRELESS" })
+                }
+                val watchdog = FirstTcpWatchdog(AirPlayListenerIdentity(0), { _, _ -> {} }, {})
+                controller.javaClass.getDeclaredMethod("wirelessSessionListener", Int::class.javaPrimitiveType, FirstTcpWatchdog::class.java)
+                    .apply { isAccessible = true }.invoke(controller, 0, watchdog) as AirPlaySessionListener
+            } else controller.javaClass.getDeclaredField("sessionListener")
+                .apply { isAccessible = true }.get(controller) as AirPlaySessionListener
+            try {
+                listener.onVideoFrameRendered(stale)
+                assertEquals(0, updates)
+                listener.onVideoFrameRendered(active)
+                assertEquals(1, updates)
+                listener.onVideoFrameRendered(active)
+                assertEquals("Output only needs the first rendered main frame", 1, updates)
+                listener.onSessionEnded(stale)
+                assertEquals(1, updates)
+                listener.onSessionEnded(active)
+                assertEquals(2, updates)
+                assertNull(controller.activeAirPlaySession())
+            } finally {
+                stale.close(); active.close(); controller.close()
+                assertTrue(controller.awaitClosed(2_000))
+            }
+        }
+    }
+
     @Test fun wiredMainFrameReachesTheHostButRetiredSessionsDoNot() {
         val frames = mutableListOf<AirPlaySession>()
         val controller = controller(frames)

@@ -1,6 +1,10 @@
 package com.shilapi.xcertplay.hud
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.util.Log
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
@@ -24,6 +28,20 @@ import java.lang.reflect.Proxy
  */
 object EcarxSwKeyIntercept {
     private const val TAG = "DiPlay-Ecarx-SwKey"
+    private const val READY = "com.ecarx.input.action.ACTION_INPUT_KEY_SERVICE_READY"
+    private val activeLabels = linkedMapOf<String, Int>()
+    private var recentLabel = "none"
+    private var initialAttempts = 0L
+    private var readyAttempts = 0L
+    private var initialResult = "none"
+    private var readyResult = "none"
+    private var receiverResult = "none"
+    private var acceptedKeys: IntArray? = null
+    private var downCount = 0L
+    private var upCount = 0L
+    private var lastKey = "none"
+    private var lastAction = "none"
+    private var lastEpochMs = 0L
 
     /** The nine wheel keys the reference app intercepts (media.oneOsKey, media.smali:22626). */
     private val oneOsKey: IntArray = intArrayOf(
@@ -48,7 +66,7 @@ object EcarxSwKeyIntercept {
 
     /** A single wheel key press (or release) surfaced by the platform callback. */
     interface Listener {
-        /** A wheel key went down; [keyCode] is in the ECARX 200000-offset space. Return true to consume. */
+        /** [keyCode] uses ECARX codes; the platform may ignore the callback's Boolean result. */
         fun onKeyPressed(keyCode: Int): Boolean
         fun onKeyReleased(keyCode: Int): Boolean
     }
@@ -63,59 +81,124 @@ object EcarxSwKeyIntercept {
      * press, and the log has to say which one did.
      */
     fun register(context: Context, listener: Listener, label: String = "app"): Handle? {
-        val input = createInput(context) ?: return null
-        val callbackClass = callbackClass() ?: return null
-        val callbackHandler = CallbackHandler(listener)
-        val proxy = Proxy.newProxyInstance(
-            callbackClass.classLoader,
-            arrayOf(callbackClass),
-            callbackHandler,
-        )
-        val registered = runCatching {
-            val method = lookup(input, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass))
-                ?: return null
-            method.invoke(input, oneOsKey, proxy) as? IntArray
-        }.getOrElse {
-            Log.i(TAG, "requestKeysInterception failed: ${describe(it)}")
+        val inputClass = runCatching { Class.forName("com.ecarx.xui.adaptapi.input.Input") }.getOrNull()
+        val callbackClass = callbackClass()
+        if (inputClass == null || callbackClass == null) {
+            synchronized(this) {
+                recentLabel = label
+                initialAttempts++
+                initialResult = "api-unavailable"
+                acceptedKeys = null
+            }
             return null
         }
-        // The DCY11 SDK returns registered keys; its dispatcher ignores callback Boolean results.
-        val handle = Handle(input, proxy, callbackClass, label, registered, oneOsKey.size) { inputObj, callbackObj ->
-            callbackHandler.active = false
-            runCatching {
-                val abandon = lookup(inputObj, "abandonKeysInterception", arrayOf(callbackClass))
-                if (abandon != null) abandon.invoke(inputObj, callbackObj)
-                else {
-                    val release = lookup(inputObj, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
-                        ?: return@runCatching false
-                    release.invoke(inputObj, oneOsKey, callbackObj)
-                }
-                true
-            }.getOrDefault(false)
-        }
-        Log.i(TAG, "interception $label ${handle.describe()}")
-        return handle
+        return Handle(context.applicationContext, listener, inputClass, callbackClass, label).also { it.start() }
     }
 
     /** A held interception registration; [release] hands the keys back to the platform. */
     class Handle internal constructor(
-        private val input: Any,
-        private val callback: Any,
+        private val app: Context,
+        private var listener: Listener?,
+        private val inputClass: Class<*>,
         private val callbackClass: Class<*>,
         val label: String,
-        /** Keys registered by the DCY11 SDK, or null when the SDK returns no key list. */
-        val registered: IntArray?,
-        private val keyCount: Int,
-        private val release: (Any, Any) -> Boolean,
     ) {
+        private var live = true
+        private var receiverRegistered = false
+        private var input: Any? = null
+        private var callback: Any? = null
+        private var callbackHandler: CallbackHandler? = null
+        private var state = "waiting"
+        /** SDK whitelist answer; it does not prove events are delivered or exclusively owned. */
+        var registered: IntArray? = null
+            private set
+        private val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == READY) rebind(ready = true)
+            }
+        }
+
+        internal fun start() {
+            synchronized(EcarxSwKeyIntercept) {
+                recentLabel = label
+                activeLabels[label] = (activeLabels[label] ?: 0) + 1
+            }
+            receiverRegistered = runCatching {
+                if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, IntentFilter(READY), Context.RECEIVER_EXPORTED)
+                else app.registerReceiver(receiver, IntentFilter(READY))
+            }.onFailure { Log.i(TAG, "READY receiver failed: ${describe(it)}") }.isSuccess
+            synchronized(EcarxSwKeyIntercept) { receiverResult = if (receiverRegistered) "registered" else "register-failed" }
+            rebind(ready = false)
+        }
+
+        @Synchronized private fun rebind(ready: Boolean) {
+            if (!live) return
+            val oldInput = input
+            val oldCallback = callback
+            callbackHandler?.deactivate()
+            input = null; callback = null; callbackHandler = null; registered = null
+            if (oldInput != null && oldCallback != null) abandon(oldInput, oldCallback)
+            val fresh = runCatching { inputClass.getMethod("create", Context::class.java).invoke(null, app) }.getOrNull()
+            val current = listener
+            val method = fresh?.let { lookup(it, "requestKeysInterception", arrayOf(IntArray::class.java, callbackClass)) }
+            val result = when {
+                fresh == null -> "create-failed"
+                current == null -> "released"
+                method == null -> "request-unavailable"
+                else -> {
+                    val handler = CallbackHandler(current, label)
+                    val proxy = Proxy.newProxyInstance(callbackClass.classLoader, arrayOf(callbackClass), handler)
+                    val answer = runCatching { method.invoke(fresh, oneOsKey, proxy) as? IntArray }
+                    if (answer.isSuccess) {
+                        input = fresh; callback = proxy; callbackHandler = handler
+                        registered = answer.getOrNull()?.copyOf()
+                        "registered"
+                    } else {
+                        handler.deactivate()
+                        abandon(fresh, proxy)
+                        "request-failed:${answer.exceptionOrNull()!!.javaClass.simpleName}"
+                    }
+                }
+            }
+            state = result
+            synchronized(EcarxSwKeyIntercept) {
+                recentLabel = label
+                if (ready) { readyAttempts++; readyResult = result }
+                else { initialAttempts++; initialResult = result }
+                acceptedKeys = registered?.copyOf()
+            }
+            Log.i(TAG, "interception $label trigger=${if (ready) "READY" else "initial"} ${describe()} result=$result")
+        }
+
         fun release() {
-            runCatching { release(input, callback) }
+            synchronized(this) {
+                if (!live) return
+                live = false
+                callbackHandler?.deactivate()
+                listener = null
+                val oldInput = input
+                val oldCallback = callback
+                input = null; callback = null; callbackHandler = null
+                if (receiverRegistered) {
+                    receiverRegistered = false
+                    runCatching { app.unregisterReceiver(receiver) }
+                        .onFailure { Log.i(TAG, "READY receiver unregister failed: ${describe(it)}") }
+                }
+                if (oldInput != null && oldCallback != null) abandon(oldInput, oldCallback)
+                state = "released"
+                synchronized(EcarxSwKeyIntercept) {
+                    recentLabel = label
+                    val remaining = (activeLabels[label] ?: 1) - 1
+                    if (remaining > 0) activeLabels[label] = remaining else activeLabels.remove(label)
+                    receiverResult = "released"
+                }
+            }
         }
 
         /** One log line: which key set went out and what the ROM answered, each key named. */
         fun describe(): String {
-            val registeredKeys = registered ?: return "keys=$keyCount registered=unknown"
-            if (registeredKeys.isEmpty()) return "keys=$keyCount registered=none"
+            val registeredKeys = registered ?: return "keys=${oneOsKey.size} registered=unknown state=$state"
+            if (registeredKeys.isEmpty()) return "keys=${oneOsKey.size} registered=none state=$state"
             val answer = StringBuilder("registered=")
             var named = 0
             for (key in registeredKeys) {
@@ -123,8 +206,27 @@ object EcarxSwKeyIntercept {
                 answer.append(nameFor(key))
                 named += 1
             }
-            return "keys=$keyCount $answer"
+            return "keys=${oneOsKey.size} $answer state=$state"
         }
+
+        private fun abandon(input: Any, callback: Any) {
+            runCatching {
+                val abandon = lookup(input, "abandonKeysInterception", arrayOf(callbackClass))
+                if (abandon != null) abandon.invoke(input, callback)
+                else lookup(input, "releaseKeysInterception", arrayOf(IntArray::class.java, callbackClass))
+                    ?.invoke(input, oneOsKey, callback)
+            }.onFailure { Log.i(TAG, "abandonKeysInterception failed: ${describe(it)}") }
+        }
+    }
+
+    @Synchronized fun diagnosticReport(): String {
+        val active = if (activeLabels.isEmpty()) "none" else activeLabels.entries.joinToString("|") { "${it.key}:${it.value}" }
+        val accepted = acceptedKeys?.joinToString("|") { nameFor(it) } ?: "unknown"
+        return "ECARX Input activeHandles=$active recent=$recentLabel lastReceiverResult=$receiverResult " +
+            "initialAttempts=$initialAttempts initialResult=$initialResult READYAttempts=$readyAttempts READYResult=$readyResult " +
+            "requested=${oneOsKey.joinToString("|") { nameFor(it) }} lastSDKAccepted=$accepted " +
+            "received=${downCount + upCount} DOWN=$downCount UP=$upCount lastKey=$lastKey lastAction=$lastAction lastEpochMs=$lastEpochMs; " +
+            "counts are process-lifetime; SDKAccepted is whitelist only, not exclusive delivery; received=0 cannot establish HY interception"
     }
 
     /** The name of [keyCode] when it is one of [oneOsKey]; the number itself otherwise. */
@@ -139,17 +241,6 @@ object EcarxSwKeyIntercept {
 
     // ---------------------------------------------------------------- plumbing
 
-    private fun createInput(context: Context): Any? {
-        val inputClass = runCatching { Class.forName("com.ecarx.xui.adaptapi.input.Input") }.getOrNull()
-            ?: return null
-        return runCatching {
-            inputClass.getMethod("create", Context::class.java).invoke(null, context)
-        }.getOrElse {
-            Log.i(TAG, "Input.create failed: ${describe(it)}")
-            null
-        }
-    }
-
     private fun callbackClass(): Class<*>? =
         runCatching { Class.forName("com.ecarx.xui.adaptapi.input.IKeyCallback") }.getOrNull()
 
@@ -163,11 +254,34 @@ object EcarxSwKeyIntercept {
         return "${cause.javaClass.simpleName}: ${cause.message}"
     }
 
-    private class CallbackHandler(private val listener: Listener) : InvocationHandler {
-        @Volatile var active = true
+    @Synchronized private fun received(label: String, keyCode: Int, action: String) {
+        recentLabel = label
+        if (action == "DOWN") downCount++ else upCount++
+        lastKey = nameFor(keyCode)
+        lastAction = action
+        lastEpochMs = System.currentTimeMillis()
+    }
+
+    private class CallbackHandler(@Volatile private var listener: Listener?, private val label: String) : InvocationHandler {
+        @Volatile private var active = true
+        fun deactivate() { active = false; listener = null }
         override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
-            "onKeyPressed" -> active && listener.onKeyPressed((args?.firstOrNull() as? Int) ?: -1)
-            "onKeyReleased" -> active && listener.onKeyReleased((args?.firstOrNull() as? Int) ?: -1)
+            "onKeyPressed" -> {
+                val target = listener
+                if (!active || target == null) false else {
+                    val key = (args?.firstOrNull() as? Int) ?: -1
+                    received(label, key, "DOWN")
+                    target.onKeyPressed(key)
+                }
+            }
+            "onKeyReleased" -> {
+                val target = listener
+                if (!active || target == null) false else {
+                    val key = (args?.firstOrNull() as? Int) ?: -1
+                    received(label, key, "UP")
+                    target.onKeyReleased(key)
+                }
+            }
             "toString" -> "EcarxSwKeyCallback"
             "hashCode" -> System.identityHashCode(proxy)
             "equals" -> proxy === args?.firstOrNull()

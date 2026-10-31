@@ -334,6 +334,19 @@ class CarPlayController(
     /** The live session for a host adopting the running cluster stream. */
     fun activeAirPlaySession(): AirPlaySession? = activeSession?.takeIf { !closed && !it.isClosed }
 
+    @Volatile private var clusterOutputStateListener: (() -> Unit)? = null
+    private var clusterRenderedSession: AirPlaySession? = null
+
+    /** Session-owned output must receive events even while no Activity is attached. */
+    fun setClusterOutputStateListener(listener: (() -> Unit)?) {
+        clusterOutputStateListener = listener
+        listener?.invoke()
+    }
+
+    fun clearClusterOutputStateListener(expected: () -> Unit) {
+        if (clusterOutputStateListener === expected) clusterOutputStateListener = null
+    }
+
     /** The video session can outlive its Activity; the new host must be able to replay the mask. */
     fun activeIphoneCornerMask(): Triple<AirPlaySession, ByteArray, Int>? {
         val current = currentCornerMask ?: return null
@@ -348,6 +361,10 @@ class CarPlayController(
 
         override fun onVideoFrameRendered(session: AirPlaySession) {
             if (!closed && !session.isClosed && activeSession === session) {
+                if (clusterRenderedSession !== session) {
+                    clusterRenderedSession = session
+                    clusterOutputStateListener?.invoke()
+                }
                 uiListener?.onVideoFrameRendered(session)
             }
         }
@@ -377,6 +394,7 @@ class CarPlayController(
             }
             activeSession = session
             NavigationOutputs.onSessionActive { !closed && activeSession === session && !session.isClosed }
+            clusterOutputStateListener?.invoke()
             if (replacement) restoreDashboardContent(session)
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
@@ -389,6 +407,8 @@ class CarPlayController(
             if (currentCornerMask?.session === session) currentCornerMask = null
             if (activeSession === session) {
                 activeSession = null
+                clusterRenderedSession = null
+                clusterOutputStateListener?.invoke()
                 NavigationOutputs.endNow()
                 synchronized(albumReplayLock) { initialArtworkReplay = null }
                 com.shilapi.xcertplay.glance.CarPlayGlance.setConnected(false)
@@ -727,6 +747,8 @@ class CarPlayController(
             wirelessGeneration.incrementAndGet()
             dashboardMapOutputVisible = false
         }
+        clusterRenderedSession = null
+        clusterOutputStateListener?.invoke()
         firstTcpWatchdog?.terminate()
         wiredStartWatchdog?.terminate()
         CarBluetoothProfileGuard.restore(appContext) { debugLog(it) }
@@ -1838,7 +1860,10 @@ class CarPlayController(
                         true
                     }
                 }
-                if (firstFrame) uiListener?.onVideoFrameRendered(session)
+                if (firstFrame) {
+                    clusterOutputStateListener?.invoke()
+                    uiListener?.onVideoFrameRendered(session)
+                }
             }
 
             override fun onDebugLog(message: String) {

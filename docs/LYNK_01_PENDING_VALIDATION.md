@@ -10,13 +10,29 @@
 - 用户已实车确认独立 `DiPlay Siri` 应用在 HY“打开应用”路径下可唤起 Siri。
 - 用户新增反馈：未开 CarPlay 悬浮窗时，切后台后仪表投屏消失；路线更新后可能恢复。需分别验证页面销毁与路线数据超时，不能将日志中的明确 `no-route` 当作超时证据。
 - 本轮媒体接管：HY 模式在真实首次 SETUP 发布 CONNECTING、连接完成恢复真实播放状态；ECARX 模式允许连接后空媒体注册并申请媒体源，选源不再发送 iPhone PLAY。其他正在播放的 Android 会话仍可能排在 HY 列表前面，需实车验证。
-- ECARX 输出持有当前真实连接时不再因 30 秒无路线更新而清理；明确结束、空路线列表超时、断连及异常仍清理。33 项导航定向测试通过；Android 9 单轮 Home 实验中，主 SurfaceView 销毁后副屏 111 仍可见，未复现实车后台消失。新增后台窗口/表面日志，未改窗口类型或窗口所有权。
+- ECARX 输出持有当前真实连接时不再因 30 秒无路线更新而清理；明确结束、空路线列表超时、断连及异常仍清理。此前 Android 9 单轮 Home 实验中，主 SurfaceView 销毁后副屏 111 仍可见，未复现普通 STOP 直接隐藏副屏。
+- 仪表窗口现归后台会话持有：Activity 销毁不再撤掉活会话的 111 Surface/Presentation；页面重建沿用同一 owner/window。首帧、连接和断连事件独立于 Activity 的 UI listener。有线/无线首帧、旧窗口迟到回调、页面销毁/采用、路线结束和显示移除等共 50 项定向回归通过；实车关闭悬浮窗后 Home/页面销毁仍需验收。
 - 用户曾确认媒体 service 控制、导航/HUD 正常；10 月 30 日新增导航结束后再次启动偶发无响应的反馈，见下文。历史依据见[已确认功能说明](LYNK_01_VERIFIED_BRANCH.md)。
 - 用户确认原有 Siri 采集路径正常，当前重点是语音键触发。只保留原采集路径，通信采集实验及本地录音自检已移除。
 - ECARX 连接期间语音键短按接管、重复触发抑制、后台保持与断连释放仍需实车验证。
 - USB 最新测试仍有问题；早期特定场景通过不能扩大为当前完整 USB 验收。
 - 热点失败后的 Wi-Fi 状态恢复、重试一次及自动/手动共用流程，需要覆盖 Wi-Fi 初始 ON/OFF 和取消、权限、超时情况。
 - iPhone 蓝牙关开后的自动重连仍需验证；车机蓝牙恢复检查不能证明手机端行为已解决。
+
+## 2026-10-30 仪表窗口会话归属
+
+`CarPlayBackgroundSession` 在 controller/sink 组合存活期间持有唯一 `EcarxClusterSession`；
+Host 创建和采用后台会话只绑定它，销毁页面不解除。该 owner 使用 applicationContext 创建标准
+Presentation，在 display1 绘制独立 stream111；主页面只绑定110，不强制开启中控悬浮窗。
+Controller 通过独立状态订阅通知有线/无线主首帧、当前会话变化和关闭，`attachUi` 不替换该订阅。
+真实路线与当前会话首帧都满足才显示；结束/断连/重启/显示移除清理窗口及精确匹配的111 Surface。
+同 controller/sink 采用保持窗口，旧 owner 的 Surface/dismiss/清订阅回调不能清掉替代 owner。
+
+Android9 单轮系统 fixture 证明 applicationContext 下的生产 Presentation 在原 Activity 已 finish/destroy 后
+仍保留有效111 Surface和可复制的画面，dismiss 时释放；未建立真实 iPhone 连接，画面存活不等于已证明
+实车持续新帧。没有改变窗口类型、增加设置或服务，也没有扩展测试矩阵。
+采用新页面时更新报告 sink；旧页面关闭日志至下一次采用之间的 owner 事件仍进入 logcat，
+这段事件不能保证出现在旧导出日志中。导出报告补充当前会话 owner/window/surface 实时状态。
 
 ## 2026-10-30 导航再次启动调查
 

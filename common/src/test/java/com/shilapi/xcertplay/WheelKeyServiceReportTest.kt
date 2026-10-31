@@ -233,6 +233,7 @@ class WheelKeyServiceReportTest {
         assertTrue(lines[serviceLine + 1], lines[serviceLine + 1].startsWith("Wheel keys since DiPlay started: presses=1 "))
         assertTrue(lines[serviceLine + 2], lines[serviceLine + 2].endsWith("  wheel key service connected"))
         assertTrue(lines[serviceLine + 3], lines[serviceLine + 3].endsWith("  key 137/0 device 7 left to the head unit"))
-        assertEquals("", lines[serviceLine + 4])
+        assertTrue(lines[serviceLine + 4], lines[serviceLine + 4].startsWith("ECARX Input "))
+        assertEquals("", lines[serviceLine + 5])
     }
 }

@@ -193,12 +193,19 @@ internal object EcarxHudBridge {
      * Called with `true` when a route starts and `false` when it ends, for the owner that draws the
      * cluster itself — the CarPlay instrument-cluster stream (display 1, `EcarxClusterPresentation`).
      *
-     * A plain `var` and not a listener interface: the only consumer is the host activity, and one
-     * slot cannot accumulate a second registration. It is assigned with a **method reference**, never
-     * a lambda: a lambda here would shift every following `$$ExternalSyntheticLambda` index in this
-     * file and turn a one-line change into an unattributable class diff.
+     * One retained session owns this slot. Registration replays the route intent under the same
+     * lock as route transitions, and identity-checked removal cannot unregister a newer session.
      */
-    var clusterPresentationRequested: ((Boolean) -> Unit)? = null
+    private var clusterPresentationRequested: ((Boolean) -> Unit)? = null
+
+    fun setClusterPanelOwner(owner: ((Boolean) -> Unit)?) = synchronized(lock) {
+        clusterPresentationRequested = owner
+        owner?.invoke(guidanceActive)
+    }
+
+    fun clearClusterPanelOwner(expected: (Boolean) -> Unit) = synchronized(lock) {
+        if (clusterPresentationRequested === expected) clusterPresentationRequested = null
+    }
 
     /**
      * A screen appearing or disappearing is the closest thing to "the car was just started" that a
