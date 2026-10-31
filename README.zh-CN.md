@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
 
-DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话，目前主要适配 **2021 款领克 01**。
+DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话。适配**亿咖通车机 753 版本**（领克高通 820A 平台），当前在 **2021 款领克 01** 上验证；同平台的 753 车机理论上通用。
 
 每个功能的开启位置、前提条件、怎么确认生效，见 [功能与使用说明](docs/FEATURES.zh-CN.md)。
 
