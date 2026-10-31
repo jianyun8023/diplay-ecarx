@@ -60,14 +60,17 @@ class CarPlayHostVideoSurfaceTest {
         assertSame(overlay, root.getChildAt(1))
         assertEquals(24, overlay.radiusDp)
         assertSame(fallback, viewport.getChildAt(0))
+        viewport.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(942, View.MeasureSpec.EXACTLY))
         viewport.layout(0, 0, 1920, 942)
         val content = CarPlayVideoLayout.fit(1920, 990, 1920, 942)
         val bounds = CarPlaySurfaceBounds.from(content)
-        val params = fallback.layoutParams as FrameLayout.LayoutParams
-        assertEquals(bounds.width, params.width)
-        assertEquals(bounds.height, params.height)
-        assertEquals(bounds.left, params.leftMargin)
-        assertEquals(bounds.top, params.topMargin)
+        assertEquals(bounds.width, fallback.width)
+        assertEquals(bounds.height, fallback.height)
+        assertEquals(bounds.left, fallback.left)
+        assertEquals(bounds.top, fallback.top)
+        assertEquals(-1, fallback.layoutParams.width) // No LayoutParams rewrite during traversal.
+        assertFalse(viewport.isLayoutRequested)
         assertEquals(1920, viewport.width)
         assertEquals(942, viewport.height)
         assertNull(field(activity, "pictureBinding"))
