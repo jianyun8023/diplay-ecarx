@@ -1,16 +1,63 @@
 # DiPlay ECARX 0.2 — 未发布
 
 基线升级至上游 [DiPlay v0.2.22](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.22)，
-`versionCode 101`。保留 ECARX 的应用标识、可选本地认证资产和签名配置。
+`versionCode 105`。保留 ECARX 的应用标识、可选本地认证资产和签名配置。
+合并取舍与验收项见 [升级记录](docs/UPSTREAM-0.2.22-INTEGRATION.md)。
 
-- 合并音乐时钟与缓冲修复、USB PCM 录音分包修复、有线重连和 Android 8/9 无线断线检测。
-- 合并连接失败原因、首页最近一次连接问题、异步日志、报告脱敏和协议输入检查。
+## 新增
+
+- **CarPlay 日夜模式「跟随车辆」**：优先使用车机 AdaptAPI `IDayNightMode` 日夜推送
+  （含原厂自动模式下的光感结果），不可用时跟随车机版高德的日夜广播，再退回 Android 系统。
+- **导航距离守护**：导航期间订阅 DIM 距离主题，原厂 MapManager 写入后按同一格式重申我们的值，
+  避免它把 `nextTurnDistance <= 0` 夹成 1 m。
+- **仪表流随会话存活**：集群画面移入 retained AirPlay session，Activity 后台或销毁不再带走仪表。
+- **启动陈旧投屏恢复**：冷启动和进入设置时释放上一次遗留的仪表投屏。
+- **热点**：手动热点控制与 Android 9 热点状态检查；自动启动优先 5 GHz（写 `apBand` 并回读校验，
+  保留 SSID、密码与加密方式，尊重显式选择的 2.4 GHz）。
+- **媒体后端可选**：权限门控的 ECARX MediaCenter 传输，UNI / DIM / 标准 HY 三种后端。
+- **仪表内容**：车道引导、封面卡片、可编辑可见区。
+- **诊断**：ACL 唤醒源与重试决策追踪、麦克风真实来源与采集统计、无 ADB 车测报告、
+  设置操作与车机能力记录。
+- 可选的导航提示音焦点、通话采样率和桌面任务兼容设置，默认保持关闭。
+
+## 变更（含破坏性）
+
+- **默认媒体后端改为直连 ECARX 接管**。此前默认走 HY 代理；需要沿用 HY 代理或标准后端的，
+  请在设置里显式选择。
+- **应用语言收敛为英文 / 简体中文 / 繁体中文**。`values-ar`、`values-ja`、`values-ko`、
+  `values-ru`、`values-uk`、`values-es` 等目录已删除，其他语言设备回落到英文；
+  要恢复某语言需从上游重新并入，并补 ECARX 新增文案。
+- **不再暂停 `ecarx.naviservice`**。暂停会连带禁用桌面导航 widget，且重启用不回来；
+  旧版本暂停过它的机器由 `EcarxFactoryNavigationRestore` 自动重新启用，无需手动 `pm enable`。
+- **无线握手失败不再等满 5 分钟**：iPhone 拒绝 Wi-Fi 传输时 1 分钟内判定，并区分
+  「iPhone 说不可用」与「iPhone 始终未发起传输」两种原因；只对可自动恢复的原因重试。
+- **仪表「主画面镜像」未交付**：10-30 引入后同日移除（未通过验证），设置里没有该开关。
+  曾用过当日构建的，升级后请确认仪表不再出现镜像页。
+- `versionCode 101 → 105`。
+
+## 修复
+
+- 上游 v0.2.22 合并项：音乐时钟与缓冲、USB PCM 录音分包（每包不超链路 MTU）、有线重连、
+  Android 8/9 无线断线检测、连接失败原因与首页最近一次问题、异步日志、报告脱敏、
+  协议输入边界检查（AirPlay 接收缓冲上限、Bonjour 探测行数、bplist 越界、NCM NTB 解析边界）、
+  USB 权限接收器、MFi 远端明文、data socket peer 校验。
+- 上游安全项：备份服务、环境光锁文件、外部 intent extras、日志不写热点 SSID、脱敏遗漏、
+  sample launcher 固定包名、BYD classpath 引用、map embed service、更新流程、usbmux 日志洪泛。
+- ECARX 侧：导航结束后桌面导航 widget 消失；导航时仪表距离被原厂改成 1 m；
+  后台或切换应用后仪表黑屏；冷启动后仪表仍挂着上一次投屏；启动后蓝牙让位未恢复；
+  媒体有曲目无封面、同尺寸封面不刷新、自动 Play 重复触发；系统栏显示时画面被裁切或跳动；
+  热点恢复后状态一直失败、过期配置回调覆盖新状态；USB 失败会话未关闭、插拔后无线偏好被改写。
+
+## 保留与不做
+
 - 保留 ECARX 仪表与多角度车道引导、UNI/DIM/标准媒体后端、蓝牙让位和 820A 麦克风仲裁。
 - 保持英、简中、繁中范围；不恢复已删除的 BYD 功能，也不接入其他 Geely 机型的仪表路线。
-- 新增可选的导航提示音焦点、通话采样率和桌面任务兼容设置，默认保持关闭。
-- 新增 CarPlay 日夜模式「跟随车辆」：优先使用车机 AdaptAPI `IDayNightMode` 日夜推送
-  （含原厂自动模式下的光感结果），不可用时跟随车机版高德的日夜广播，再退回 Android 系统。
-- 本次没有发布 APK，实车验收尚未完成。合并取舍与验收项见 [升级记录](docs/UPSTREAM-0.2.22-INTEGRATION.md)。
+
+## 发布状态
+
+- 已出车测包 `artifacts/dev-cartest-20261031/DiPlay-DEV-20261031-cartest-r2.apk`，
+  以及 v105 发布构建 `artifacts/dev-release-20261031-v105/`（含 `SHA256SUMS`、`verification.json`）。
+- 实车验收尚未全部完成。
 
 ---
 
