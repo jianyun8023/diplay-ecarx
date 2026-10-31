@@ -380,9 +380,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
             getString(R.string.setup_error_auth)
         }
-        if (!CarPlayBackgroundSession.hasSession()) {
-            Log.i("DiPlay-ECARX", "factory navigation startup ${com.shilapi.xcertplay.hud.EcarxFactoryNavigationControl.release(applicationContext)}")
-        }
+        // One-time: an older build paused ecarx.naviservice during guidance; put it back on open so
+        // the desktop navigation widgets can be re-added without a manual `pm enable`.
+        Log.i("DiPlay-ECARX", com.shilapi.xcertplay.hud.EcarxFactoryNavigationRestore.restoreIfPausedByUs(applicationContext))
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
         settingsCategory = savedInstanceState?.getString("settings_category")
             ?.let { runCatching { SettingsCategory.valueOf(it) }.getOrNull() }
