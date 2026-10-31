@@ -235,7 +235,9 @@ internal object EcarxHudBridge {
             report("ECARX identity absent, output disabled: ${EcarxCapabilities.describe(app)}")
             return@synchronized
         }
-        report("factory navigation startup ${EcarxFactoryNavigationControl.release(app)}")
+        // No factory-navigation pause any more: disabling the package also killed its desktop
+        // navigation widgets, which Android does not put back when the package is re-enabled.
+        // Guidance contention is handled by EcarxProjectionChannel's distance guard instead.
         // Read the previous request for the startup reset below, not to restore a mirror.
         presentationWanted = EcarxOutputSettings.presentationSwitch(app)
         reclaimLocked()
@@ -409,7 +411,7 @@ internal object EcarxHudBridge {
         route.clear() // Stop the keepalive from restoring guidance after cleanup.
         if (lastPushed != null) endLocked("reason=clear-or-session-stop") else {
             clearLanesLocked()
-            context?.let { report("factory navigation ${EcarxFactoryNavigationControl.release(it)}") }
+            EcarxProjectionChannel.stopGuarding()
         }
     }
 
@@ -577,14 +579,12 @@ internal object EcarxHudBridge {
         val guidance = guidanceFor(maneuver)
         if (!force && guidance == lastPushed) return
         val firstFrame = lastPushed == null
-        if (firstFrame) report("factory navigation ${EcarxFactoryNavigationControl.acquire(app)}")
 
         // Order matches the toolkit: the aggregate payload first, then the discrete fields.
         val result = EcarxDimApi.updateNavigationInfo(naviRef, guidance)
         if (!result.ok) {
             report("updateNavigationInfo failed next=${maneuver.distanceMeters}m: ${result.reason}")
-            if (firstFrame) report("factory navigation ${EcarxFactoryNavigationControl.release(app)}")
-            else endLocked("reason=aggregate-failed")
+            if (!firstFrame) endLocked("reason=aggregate-failed")
             return
         }
         if (firstFrame) {
@@ -605,6 +605,13 @@ internal object EcarxHudBridge {
         val eta = maneuver.arrivalEpochSeconds?.let { EcarxDimApi.updateEta(naviRef, it) }
         maneuver.road.takeIf { it.isNotEmpty() }
             ?.let { EcarxDimApi.updateNextGuidancePointName(naviRef, it) }
+        // Keep the DIM service's live distance as ours: the factory app writes the same MQTT topic
+        // from its own NaviInteraction and would otherwise flip the cluster back to 1 m / 0 m.
+        EcarxProjectionChannel.guardGuidance(
+            nextMeters = maneuver.distanceMeters,
+            remainingMeters = maneuver.remainingMeters?.toInt(),
+            road = maneuver.road,
+        )
         if (EcarxOutputSettings.turnArrowExperimental(app)) {
             // The arrow goes to the cluster's own navigation page, which the head unit renders as
             // soon as the 仪表投屏 switch is on — so nothing here has to claim the phone as the
@@ -723,6 +730,9 @@ internal object EcarxHudBridge {
     }
 
     private fun endLocked(reason: String) {
+        // Stop correcting before the clear writes, so a queued correction cannot re-assert the old
+        // distance after this method publishes zero.
+        EcarxProjectionChannel.stopGuarding()
         try {
             lastGuidanceEnd = "$reason elapsedMs=${SystemClock.elapsedRealtime()}"
             lanes = null
@@ -771,7 +781,7 @@ internal object EcarxHudBridge {
                 clusterPresentationRequested?.invoke(false)
             }
         } finally {
-            context?.let { report("factory navigation ${EcarxFactoryNavigationControl.release(it)}") }
+            EcarxProjectionChannel.stopGuarding()
         }
     }
 
@@ -1070,7 +1080,7 @@ internal object EcarxHudBridge {
         append(" presentation=").append(EcarxOutputSettings.presentationSwitch(context))
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
         append(" media=").append(EcarxOutputSettings.mediaEnabled(context))
-        append(" factoryNavigation=[").append(EcarxFactoryNavigationControl.status(context)).append(']')
+        append(" navGuard=[").append(EcarxProjectionChannel.guardState()).append(']')
         synchronized(lock) {
             append(" wired=").append(ecarxDetected)
             append(" dim=").append(dim != null)

@@ -380,9 +380,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
             getString(R.string.setup_error_auth)
         }
-        if (!CarPlayBackgroundSession.hasSession()) {
-            Log.i("DiPlay-ECARX", "factory navigation startup ${com.shilapi.xcertplay.hud.EcarxFactoryNavigationControl.release(applicationContext)}")
-        }
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
         settingsCategory = savedInstanceState?.getString("settings_category")
             ?.let { runCatching { SettingsCategory.valueOf(it) }.getOrNull() }

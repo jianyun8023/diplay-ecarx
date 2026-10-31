@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.HashMap
 import java.util.concurrent.Executors
 
 /** Navigation projection channel for the ECARX DIM stack. */
@@ -48,6 +49,25 @@ internal object EcarxProjectionChannel {
      */
     private const val PUBLISH_CLIENT_ID = "diplay-projection-pub"
 
+    /**
+     * The two live guidance-distance topics `se.cevt.dimsupportservice` publishes on. The factory
+     * `ecarx.naviservice` writes the same topics from its own `NaviInteraction` instance
+     * (`MapManager.handleGuideInfoChanged`: `nextTurnDistance <= 0 -> 1`), so whichever app
+     * publishes last wins. This channel subscribes to both and re-asserts our value after a foreign
+     * write — instead of disabling the factory package, which also hosts the desktop navigation
+     * widgets and cannot be restored once disabled.
+     */
+    internal const val TOPIC_TURN_BY_TURN_NEXT = "ihu/info/navigation/turn-by-turn/next-turn"
+    internal const val TOPIC_DISTANCE_TO_DESTINATION = "ihu/events/navigation/distance"
+
+    /**
+     * A separate client id from [PUBLISH_CLIENT_ID]: the broker keys sessions by client id, so a
+     * subscriber must not evict the publisher (or the DIM service) from its session.
+     */
+    private const val GUARD_CLIENT_ID = "diplay-nav-guard"
+    private const val GUARD_MIN_CORRECTION_MS = 120L
+    private const val GUARD_RECONNECT_MS = 1_000L
+
     private val lock = Any()
 
     /** The broker connection used for publishing; kept open so a track change is one socket write. */
@@ -65,6 +85,16 @@ internal object EcarxProjectionChannel {
 
     /** The `ongoing` payload last published, so an unchanged road name is not re-sent. */
     private var lastOngoing: String? = null
+
+    // ---------------------------------------------------------------- navigation distance guard
+
+    /** True only while CarPlay guidance wants the cluster's distance; a foreign write is corrected. */
+    private var guardActive = false
+    private var guardTurnNext: String? = null
+    private var guardDistance: String? = null
+    private var guardSocket: Socket? = null
+    private var guardThread: Thread? = null
+    private val guardCorrectionAt = HashMap<String, Long>()
 
     /**
      * Every publish runs here rather than on the caller's thread.
@@ -160,6 +190,166 @@ internal object EcarxProjectionChannel {
         }
         return out.toString()
     }
+
+    // ---------------------------------------------------------------- navigation distance guard
+
+    /**
+     * Called on every guidance frame with our authoritative distance. Starts the guard on first use.
+     * The guard does not replace the XUI publish: it only re-asserts this value when the factory
+     * overwrites the shared topic (see [TOPIC_TURN_BY_TURN_NEXT]).
+     */
+    fun guardGuidance(nextMeters: Int, remainingMeters: Int?, road: String) = synchronized(lock) {
+        guardActive = true
+        guardTurnNext = turnByTurnPayload(nextMeters, road)
+        guardDistance = remainingMeters?.let { distancePayload(it) }
+        startGuardLocked()
+    }
+
+    /** Guidance ended: stop correcting, and stop the subscriber so it costs nothing on the road. */
+    fun stopGuarding() = synchronized(lock) {
+        guardActive = false
+        guardTurnNext = null
+        guardDistance = null
+        closeGuardLocked()
+    }
+
+    /** One-line state for the settings diagnostics block. */
+    fun guardState(): String = synchronized(lock) {
+        "active=$guardActive subscribed=${guardSocket != null}"
+    }
+
+    private fun startGuardLocked() {
+        if (guardThread != null) return
+        val thread = Thread({ runGuardSubscriber() }, "diplay-nav-guard").apply { isDaemon = true }
+        guardThread = thread
+        thread.start()
+    }
+
+    private fun closeGuardLocked() {
+        runCatching { guardSocket?.close() }
+        guardSocket = null
+        // The subscriber observes guardActive == false after its read fails and exits; it is not
+        // joined here because this is called while holding [lock].
+    }
+
+    private fun runGuardSubscriber() {
+        while (guardEnabled()) {
+            val connection = connectGuard() ?: run {
+                sleepQuietly(GUARD_RECONNECT_MS)
+                continue
+            }
+            try {
+                val out = connection.getOutputStream()
+                out.write(subscribePacket(nextGuardPacketId(), TOPIC_TURN_BY_TURN_NEXT, TOPIC_DISTANCE_TO_DESTINATION))
+                out.flush()
+                val suback = readPacket(connection.getInputStream())
+                if (suback == null || (suback.first and 0xF0) != 0x90) {
+                    runCatching { connection.close() }
+                    sleepQuietly(GUARD_RECONNECT_MS)
+                    continue
+                }
+                report("nav guard subscribed")
+                while (guardEnabled()) {
+                    val packet = readPacket(connection.getInputStream()) ?: break
+                    if ((packet.first and 0xF0) != 0x30) continue
+                    val (topic, payload) = parsePublish(packet.first, packet.second) ?: continue
+                    onGuardMessage(topic, payload)
+                }
+            } catch (_: Exception) {
+                // Broker gone, or the socket was closed by stopGuarding().
+            } finally {
+                synchronized(lock) { if (guardSocket === connection) guardSocket = null }
+                runCatching { connection.close() }
+            }
+            if (guardEnabled()) sleepQuietly(GUARD_RECONNECT_MS)
+        }
+        synchronized(lock) { guardThread = null }
+    }
+
+    private fun guardEnabled(): Boolean = synchronized(lock) { guardActive }
+
+    private fun connectGuard(): Socket? = runCatching {
+        val connection = Socket()
+        connection.connect(InetSocketAddress(BROKER_HOST, BROKER_PORT), CONNECT_TIMEOUT_MS)
+        connection.soTimeout = 0 // Block; stopGuarding() closes the socket to release the read.
+        val out = connection.getOutputStream()
+        out.write(connectPacket(GUARD_CLIENT_ID))
+        out.flush()
+        val ack = readPacket(connection.getInputStream())
+        val code = ack?.second?.lastOrNull()?.toInt() ?: -1
+        if (ack == null || (ack.first and 0xF0) != 0x20 || code != 0) {
+            runCatching { connection.close() }
+            null
+        } else {
+            synchronized(lock) { guardSocket = connection }
+            connection
+        }
+    }.getOrElse { null }
+
+    private fun onGuardMessage(topic: String, payload: String) {
+        val desired = synchronized(lock) {
+            if (!guardActive) return
+            desiredLocked(topic)
+        } ?: return
+        if (payload == desired) return // our own echo, or already correct
+        val now = System.nanoTime() / 1_000_000L
+        synchronized(lock) {
+            val last = guardCorrectionAt[topic] ?: 0L
+            if (now - last < GUARD_MIN_CORRECTION_MS) return
+            guardCorrectionAt[topic] = now
+        }
+        worker.execute {
+            val current = synchronized(lock) { if (guardActive) desiredLocked(topic) else null } ?: return@execute
+            val outcome = synchronized(lock) { publishRawLocked(topic, current) }
+            report("nav guard corrected $topic -> $outcome")
+        }
+    }
+
+    private fun desiredLocked(topic: String): String? = when (topic) {
+        TOPIC_TURN_BY_TURN_NEXT -> guardTurnNext
+        TOPIC_DISTANCE_TO_DESTINATION -> guardDistance
+        else -> null
+    }
+
+    private fun nextGuardPacketId(): Int = synchronized(lock) {
+        packetId = packetId % 0xFFFF + 1
+        packetId
+    }
+
+    private fun sleepQuietly(millis: Long) {
+        try {
+            Thread.sleep(millis)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    // ---------------------------------------------------------------- distance payload (JsonHelper)
+
+    /** Mirrors `se.cevt.dimsupportservice.util.JsonHelper.convertDistance(int, true)` exactly. */
+    internal fun convertDistance(distance: Int): String {
+        val space = " "
+        return when {
+            distance < 1000 -> "$distance$space" + "m"
+            distance < 10000 -> {
+                val roundRes = Math.round(distance / 100.0f).toLong()
+                val hundredRes = 100L * roundRes
+                if (hundredRes % 1000L != 0L) "${hundredRes / 1000.0}$space" + "km"
+                else "${hundredRes / 1000}$space" + "km"
+            }
+            else -> "${distance / 1000}$space" + "km"
+        }
+    }
+
+    /** `NavigationHandler.updateTurnByTurnNextTurn` payload: distance then address (32-char clamp). */
+    internal fun turnByTurnPayload(meters: Int, road: String): String {
+        val address = if (road.length > 32) road.substring(0, 32) else road
+        return "{\"distance\":\"${escapeJson(convertDistance(meters))}\",\"address\":\"${escapeJson(address)}\"}"
+    }
+
+    /** `NavigationHandler.updateDistanceToDestination` payload. */
+    internal fun distancePayload(meters: Int): String =
+        "{\"distance\":\"${escapeJson(convertDistance(meters))}\"}"
 
     /** One line of state for the settings diagnostics block. */
     fun state(): String = synchronized(lock) {
@@ -358,6 +548,36 @@ internal object EcarxProjectionChannel {
             read += count
         }
         return first to body
+    }
+
+    /** MQTT SUBSCRIBE with QoS 1 for each topic. */
+    internal fun subscribePacket(id: Int, vararg topics: String): ByteArray {
+        val body = ByteArrayOutputStream()
+        body.write((id ushr 8) and 0xFF)
+        body.write(id and 0xFF)
+        for (topic in topics) {
+            mqttString(body, topic)
+            body.write(1) // requested QoS 1
+        }
+        return frame(0x82, body.toByteArray())
+    }
+
+    /** Extracts `(topic, payload)` from a PUBLISH packet, or null when `first` is not a PUBLISH. */
+    internal fun parsePublish(first: Int, body: ByteArray): Pair<String, String>? {
+        if ((first and 0xF0) != 0x30 || body.size < 2) return null
+        val qos = (first ushr 1) and 0x03
+        var index = 0
+        val topicLength = ((body[index].toInt() and 0xFF) shl 8) or (body[index + 1].toInt() and 0xFF)
+        index += 2
+        if (topicLength < 0 || index + topicLength > body.size) return null
+        val topic = String(body, index, topicLength, Charsets.UTF_8)
+        index += topicLength
+        if (qos > 0) {
+            if (index + 2 > body.size) return null
+            index += 2
+        }
+        val payload = String(body, index, body.size - index, Charsets.UTF_8)
+        return topic to payload
     }
 
     private fun reason(error: Throwable): String = "${error.javaClass.simpleName}: ${error.message}"
