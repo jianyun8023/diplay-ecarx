@@ -35,6 +35,7 @@ object EcarxOutputSettings {
     private const val PREFS = "diplay_ecarx_outputs_v2"
     private const val KEY_ENABLED = "dim_navigation_enabled"
     private const val KEY_PRESENTATION = "dim_presentation_switch"
+    private const val KEY_PRESENTATION_RELEASE_PENDING = "dim_presentation_release_pending"
     private const val KEY_MEDIA = "dim_media_enabled"
     private const val KEY_LANE_GUIDANCE = "dim_lane_guidance_enabled"
 
@@ -81,6 +82,17 @@ object EcarxOutputSettings {
     internal fun setPresentationSwitch(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_PRESENTATION, enabled).commit()) {
             "Could not persist the ECARX instrument-cluster projection setting"
+        }
+    }
+
+    /** Our projection may still need releasing; this is not the driver's current request. */
+    internal fun presentationReleasePending(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PRESENTATION_RELEASE_PENDING, false)
+
+    internal fun setPresentationReleasePending(context: Context, pending: Boolean) {
+        if (presentationReleasePending(context) == pending) return
+        check(prefs(context).edit().putBoolean(KEY_PRESENTATION_RELEASE_PENDING, pending).commit()) {
+            "Could not persist the ECARX projection release state"
         }
     }
 

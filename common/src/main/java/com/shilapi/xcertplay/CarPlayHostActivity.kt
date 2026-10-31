@@ -879,6 +879,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.shilapi.xcertplay.hud.NavigationOutputs.onAppOpened(applicationContext)
         if (CarPlayScreen.forwarded(this)) {
             forwarded = true
             return

@@ -6,6 +6,7 @@ public final class DimInteraction {
     private static final DimInteraction INSTANCE = new DimInteraction();
     public static boolean nullCreate, nullMedia, nullNavi, nullPhone;
     public static boolean requireMainLooper;
+    public static boolean failPresentation;
     public static final MediaFixture media = new MediaFixture();
     public static final NaviFixture navi = new NaviFixture();
     public static final PhoneFixture phone = new PhoneFixture();
@@ -26,6 +27,7 @@ public final class DimInteraction {
     public static void reset() {
         nullCreate = nullMedia = nullNavi = nullPhone = false;
         requireMainLooper = false;
+        failPresentation = false;
         presentationOption = -1;
         INSTANCE.callback = null;
         navi.callback = null;
@@ -52,6 +54,7 @@ public final class DimInteraction {
     public void setPresentationToDimSwitch(int screenId, String packageName, String className, boolean show) {
         FixtureLog.capture("setPresentationToDimSwitch", "screenId", screenId,
             "packageName", packageName, "className", className, "show", show);
+        if (failPresentation) throw new IllegalStateException("DIM projection unavailable");
     }
     public void registerInteractionCallback(IInteractionCallback value) {
         FixtureLog.capture("registerInteractionCallback");

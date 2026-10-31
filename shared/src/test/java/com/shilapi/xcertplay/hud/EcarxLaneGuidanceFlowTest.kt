@@ -87,7 +87,7 @@ class EcarxLaneGuidanceFlowTest {
         DimInteraction.reset()
         for (name in listOf("context", "dim", "navi", "protocol", "dimCallback", "naviCallback",
             "lastPushed", "lastArrowChannel", "presentedPackage", "lanes", "lastLanePushed")) set(name, null)
-        for (name in listOf("ecarxDetected", "presentationWanted", "guidanceActive")) set(name, false)
+        for (name in listOf("ecarxDetected", "presentationWanted", "releaseStalePresentation", "guidanceActive")) set(name, false)
         for (name in listOf("presentationCountdown", "presentationAttempts", "ticksSincePush")) set(name, 0)
         // Only the scheduler is suppressed: tests explicitly run the production tick below.
         set("tickerStarted", true)
@@ -194,13 +194,112 @@ class EcarxLaneGuidanceFlowTest {
         }
     }
 
-    @Test fun startupClearsTheSavedProjectionRequestWithoutRestoringAMirror() {
+    @Test fun startupReleasesTheLegacyProjectionOnceWithoutRestoringAMirror() {
         EcarxOutputSettings.setPresentationSwitch(context, true)
         NavigationOutputs.onAppOpened(context)
         assertFalse(EcarxOutputSettings.presentationSwitch(context))
         repeat(12) { tick() }
-        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+        assertEquals(false, calls("setPresentationToDimSwitch").single().payload["show"])
+        assertFalse(EcarxOutputSettings.presentationReleasePending(context))
         assertTrue(panelRequests.isEmpty())
+    }
+
+    @Test fun startupWithoutResidueDoesNotTouchProjection() {
+        NavigationOutputs.onAppOpened(context)
+        repeat(12) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+    }
+
+    @Test fun startupReleaseWorksWithNavigationDisabledAndWaitsForDim() {
+        EcarxOutputSettings.setEnabled(context, false)
+        EcarxOutputSettings.setPresentationReleasePending(context, true)
+        DimInteraction.nullCreate = true
+        NavigationOutputs.onAppOpened(context)
+        repeat(3) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").isEmpty())
+        assertTrue(EcarxOutputSettings.presentationReleasePending(context))
+        DimInteraction.nullCreate = false
+        repeat(12) { tick() }
+        assertEquals(false, calls("setPresentationToDimSwitch").single().payload["show"])
+        assertFalse(EcarxOutputSettings.presentationReleasePending(context))
+    }
+
+    @Test fun legacyResidueSurvivesAnotherStartupBeforeDimIsReady() {
+        EcarxOutputSettings.setPresentationSwitch(context, true)
+        DimInteraction.nullCreate = true
+        NavigationOutputs.onAppOpened(context)
+        assertFalse(EcarxOutputSettings.presentationSwitch(context))
+        assertTrue(EcarxOutputSettings.presentationReleasePending(context))
+        set("context", null)
+        set("releaseStalePresentation", false)
+        EcarxOutputSettings.setEnabled(context, false)
+        NavigationOutputs.onAppOpened(context)
+        DimInteraction.nullCreate = false
+        tick()
+        assertEquals(false, calls("setPresentationToDimSwitch").single().payload["show"])
+    }
+
+    @Test fun failedStartupReleaseKeepsResidueAndRetriesUntilTheCallSucceeds() {
+        EcarxOutputSettings.setPresentationReleasePending(context, true)
+        DimInteraction.failPresentation = true
+        NavigationOutputs.onAppOpened(context)
+        tick()
+        assertTrue(EcarxOutputSettings.presentationReleasePending(context))
+        DimInteraction.failPresentation = false
+        repeat(2) { tick() }
+        assertFalse(EcarxOutputSettings.presentationReleasePending(context))
+        repeat(12) { tick() }
+        assertEquals(listOf(false, false), calls("setPresentationToDimSwitch").map { it.payload["show"] })
+    }
+
+    @Test fun startupFailuresBackOffAndDiagnosticsIdentifyTheResidue() {
+        EcarxOutputSettings.setPresentationReleasePending(context, true)
+        DimInteraction.failPresentation = true
+        initialize()
+        repeat(60) { tick() }
+        assertEquals(30, calls("setPresentationToDimSwitch").size)
+        repeat(20) { tick() }
+        assertEquals(32, calls("setPresentationToDimSwitch").size)
+        val diagnostic = NavigationOutputs.diagnosticReport(context)
+        assertTrue(diagnostic.contains("releasePending=true"))
+        assertTrue(diagnostic.contains("startupReleaseOrigin=pending"))
+        assertEquals(2, reports.count { it.startsWith("startup projection release call origin=pending") })
+        DimInteraction.failPresentation = false
+        repeat(10) { tick() }
+        assertFalse(EcarxOutputSettings.presentationReleasePending(context))
+        assertTrue(NavigationOutputs.diagnosticReport(context).contains("releasePending=false"))
+    }
+
+    @Test fun currentManualAndRouteRequestsSupersedeStartupReleaseEvenAfterReopeningTheApp() {
+        for (origin in listOf("settings-on", "cluster stream")) {
+            EcarxOutputSettings.setPresentationReleasePending(context, true)
+            set("context", null)
+            set("dim", null)
+            set("navi", null)
+            DimInteraction.nullCreate = true
+            NavigationOutputs.onAppOpened(context)
+            NavigationOutputs.requestPresentation(context, true, origin)
+            NavigationOutputs.onAppOpened(context)
+            FixtureLog.reset()
+            DimInteraction.nullCreate = false
+            repeat(12) { tick() }
+            assertTrue(calls("setPresentationToDimSwitch").isNotEmpty())
+            assertTrue(calls("setPresentationToDimSwitch").all { it.payload["show"] == true })
+            assertTrue(EcarxOutputSettings.presentationReleasePending(context))
+            NavigationOutputs.requestPresentation(context, false, origin)
+            assertFalse(EcarxOutputSettings.presentationReleasePending(context))
+        }
+    }
+
+    @Test fun currentFailedCloseCancelsStartupRetriesButPreservesResidueForNextLaunch() {
+        EcarxOutputSettings.setPresentationReleasePending(context, true)
+        NavigationOutputs.onAppOpened(context)
+        DimInteraction.failPresentation = true
+        assertFalse(NavigationOutputs.requestPresentation(context, false, "settings-off"))
+        DimInteraction.failPresentation = false
+        repeat(12) { tick() }
+        assertEquals(1, calls("setPresentationToDimSwitch").size)
+        assertTrue(EcarxOutputSettings.presentationReleasePending(context))
     }
 
     @Test fun manualProjectionRequestsKeepTheirStoredStateAndStopRetriesWhenDisabled() {

@@ -24,7 +24,8 @@ object NavigationOutputs {
     fun onAppOpened(context: Context) {
         val app = context.applicationContext
         if (!EcarxCapabilities.detect(app).identified) return
-        if (EcarxOutputSettings.enabled(app) || EcarxOutputSettings.presentationSwitch(app)) {
+        if (EcarxOutputSettings.enabled(app) || EcarxOutputSettings.presentationSwitch(app) ||
+            EcarxOutputSettings.presentationReleasePending(app)) {
             EcarxHudBridge.initialize(app)
         }
     }
