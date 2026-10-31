@@ -382,6 +382,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // A previous process may have died while the Bluetooth profiles were yielded. Recover on
         // every launch, not only after a boot or an authentication failure.
         CarBluetoothProfileGuard.recoverIfStale(this)
+        NavigationOutputs.onAppOpened(applicationContext)
         // One-time: an older build paused ecarx.naviservice during guidance; put it back on open so
         // the desktop navigation widgets can be re-added without a manual `pm enable`.
         Log.i("DiPlay-ECARX", com.shilapi.xcertplay.hud.EcarxFactoryNavigationRestore.restoreIfPausedByUs(applicationContext))

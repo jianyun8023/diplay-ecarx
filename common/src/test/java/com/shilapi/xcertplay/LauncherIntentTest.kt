@@ -52,6 +52,23 @@ class LauncherIntentTest {
     }
     private fun launcher() = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
 
+    @Test fun openingSettingsMigratesStaleProjectionWithoutAnIphoneSession() {
+        val app = RuntimeEnvironment.getApplication()
+        ReflectionHelpers.setField(CarPlayBackgroundSession, "stopAction", null)
+        shadowOf(app.packageManager).installPackage(android.content.pm.PackageInfo().apply {
+            packageName = "com.ecarx.xui.service"
+        })
+        val prefs = app.getSharedPreferences("diplay_ecarx_outputs_v2", 0)
+        prefs.edit().clear().putBoolean("dim_navigation_enabled", false)
+            .putBoolean("dim_presentation_switch", true).commit()
+        controller = Robolectric.buildActivity(DiPlayActivity::class.java,
+            Intent().putExtra("page", "settings")).create()
+        assertFalse(prefs.getBoolean("dim_presentation_switch", true))
+        // No vendor DIM implementation here: retain the release record until an interface is ready.
+        assertTrue(prefs.getBoolean("dim_presentation_release_pending", false))
+        assertFalse(CarPlayBackgroundSession.hasSession())
+    }
+
     private fun sessionWithRetiredLauncherSiriEnabled(): CarPlayController {
         val app = RuntimeEnvironment.getApplication()
         app.getSharedPreferences("diplay_external_siri", 0).edit().putBoolean("enabled", true).commit()
