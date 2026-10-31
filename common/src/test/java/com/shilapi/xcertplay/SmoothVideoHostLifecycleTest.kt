@@ -148,6 +148,7 @@ class SmoothVideoHostLifecycleTest {
     }
 
     @Test fun aBackgroundSessionWhosePacingMatchesTheViewIsAdopted() {
+        shadowOf(android.bluetooth.BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
         for (smooth in listOf(true, false)) {
             CarPlayBackgroundSession.clear()
             setField("controller", null)
@@ -156,6 +157,8 @@ class SmoothVideoHostLifecycleTest {
             setField("smoothVideo", smooth)
             val controller = mock(CarPlayController::class.java)
             `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
+            val session = mock(com.shilapi.xcertplay.airplay.AirPlaySession::class.java)
+            `when`(controller.activeAirPlaySession()).thenReturn(session)
             val sink = sink(pacingDelayMillis = if (smooth) smoothVideoDelayMillis(60) else 0)
             val stop = DeferredStop()
             CarPlayBackgroundSession.store(controller, sink, 1920, 990, Any(), display, stop::invoke)
@@ -165,6 +168,11 @@ class SmoothVideoHostLifecycleTest {
             assertSame(controller, getField("controller"))
             assertTrue(CarPlayBackgroundSession.isOwner(activity))
             assertEquals(0, stop.calls)
+            com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard.saveAdapterEnabled(activity, true)
+            invoke("scheduleAutoPlayAfterYield")
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+            verify(controller, org.mockito.Mockito.never())
+                .sendMediaButton(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PLAY)
         }
     }
 

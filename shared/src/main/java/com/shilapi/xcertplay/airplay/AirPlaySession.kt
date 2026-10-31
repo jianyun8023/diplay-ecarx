@@ -385,8 +385,13 @@ class AirPlaySession(
         sendHidReport(AirPlayHid.KNOB_HID_UID, AirPlayHid.knobReport(AirPlayKnobState(select = down)))
 
     fun sendMedia(index: Int) {
-        sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(index))
-        sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(0))
+        val startedNs = System.nanoTime()
+        // An executor accepting a key is not evidence that either HID report reached the socket.
+        debugLog("Playback recovery session=${System.identityHashCode(this)} media HID begin index=$index monotonicNs=$startedNs")
+        val down = sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(index))
+        val up = sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(0))
+        debugLog("Playback recovery session=${System.identityHashCode(this)} media HID complete index=$index startedNs=$startedNs downWritten=$down upWritten=$up " +
+            "writeMs=${(System.nanoTime() - startedNs) / 1_000_000}")
     }
 
     fun sendTelephony(index: Int) {
@@ -558,6 +563,7 @@ class AirPlaySession(
                 return RtspMessage.Response(status = 200)
             }
             "RECORD" -> {
+                debugLog("Playback recovery session=${System.identityHashCode(this)} RECORD monotonicNs=${System.nanoTime()}")
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
             }

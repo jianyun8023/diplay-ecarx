@@ -328,6 +328,12 @@ class IphoneUsbHost(
                 },
             ) ?: return current
             runCatching { onDiagnostic(outcome.diagnostic()) }
+            if (outcome.resetFailed) {
+                throw IphoneUsbException.DeviceUnavailable(
+                    "Android could not reset the iPhone USB configuration ${configuration.id}; " +
+                        "a head-unit driver may hold it",
+                )
+            }
             if (outcome.wrongConfiguration) {
                 throw IphoneUsbException.DeviceUnavailable(
                     "Android could not switch the iPhone to USB configuration ${configuration.id} " +

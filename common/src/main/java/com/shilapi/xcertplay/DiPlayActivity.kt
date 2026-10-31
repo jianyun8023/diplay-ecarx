@@ -2000,11 +2000,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Opt-in controls that can cost sound or video on some head units.
         filteredSection(content, SettingsSection.MEDIA_OUTPUT,
             getString(R.string.settings_media_output_mode), R.drawable.ic_dp_audio) { card ->
+            val modes = listOf(MediaSessionMode.ECARX, MediaSessionMode.ANDROID)
             choice(card, getString(R.string.settings_media_output_mode), listOf(
-                getString(R.string.settings_media_output_android),
                 getString(R.string.settings_media_output_ecarx),
-            ), MediaSessionSettings.mode(this).ordinal, reconnects = false) {
-                MediaSessionSettings.setMode(this, MediaSessionMode.entries[it])
+                getString(R.string.settings_media_output_android),
+            ), modes.indexOf(MediaSessionSettings.mode(this)), reconnects = false) {
+                MediaSessionSettings.setMode(this, modes[it])
                 markReconnectNeeded()
             }
             card.addView(label(getString(R.string.settings_media_output_description), 14, MUTED))

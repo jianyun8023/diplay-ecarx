@@ -1696,8 +1696,8 @@ private class VideoDecoder(
                 val slot = queuedSlotOf(info.presentationTimeUs)
                 val queued = if (slot >= 0) queuedAtNanos[slot] else 0L
                 val heldOverGap = queued in 1 until resumedAtNanos
+                if (queued > 0) stats.onDecodeLatency(now - queued, heldOverGap)
                 if (queued > 0 && !heldOverGap) {
-                    stats.onDecodeLatency(now - queued)
                     liveDecodeNanos.addAndGet(now - queued)
                     liveDecodeSamples.incrementAndGet()
                 }

@@ -81,12 +81,14 @@ class UsbSetupDiagnosticsTest {
         assertEquals("nothing detached, nothing to drop", 0, reopens)
         assertEquals("USB configuration select target=6 ok=false before=2 detached=none after=2", stuck.diagnostic())
 
-        // Already in configuration 6: the forced claims later detach cdc_ncm; nothing to switch here.
+        // Same configuration number after reopening is not a fresh USB session: reset the endpoints.
         val detached = mutableListOf<Int>()
-        val current = UsbConfigurationSelection.select(6, listOf(0, 3), { fail("must not reset the active configuration"); false }, { 6 }, { detached += it; true }) { fail("no reopen") }
+        var resets = 0
+        val current = UsbConfigurationSelection.select(6, listOf(0, 3), { resets++; true }, { 6 }, { detached += it; true }) { fail("no reopen") }
+        assertEquals(1, resets)
         assertFalse(current!!.wrongConfiguration)
         assertTrue(current.selected)
-        assertEquals("USB configuration select target=6 ok=true before=6 detached=none after=6 action=reuse-active", current.diagnostic())
+        assertEquals("USB configuration select target=6 ok=true before=6 detached=none after=6 action=reset-active", current.diagnostic())
         assertTrue(detached.isEmpty())
 
         // An unreadable configuration keeps the earlier claim-anyway behavior.
@@ -112,6 +114,29 @@ class UsbSetupDiagnosticsTest {
         assertNull(UsbConfigurationSelection.select(6, listOf(0), { switches++; true }, { null },
             { fail("no detach"); false }) { fail("no reopen") })
         assertEquals(1, switches)
+    }
+
+    @Test fun reopeningAnActiveConfigurationDetachesDriversWhenTheResetIsBlocked() {
+        val detached = mutableListOf<Int>()
+        var resets = 0
+        var reopened = false
+        val outcome = UsbConfigurationSelection.select(6, listOf(0, 1, 3), {
+            resets++
+            reopened
+        }, { 6 }, { detached += it; true }) { reopened = true }
+
+        assertEquals(2, resets)
+        assertTrue(reopened)
+        assertEquals(listOf(0, 1, 3), detached)
+        assertTrue(outcome!!.selected)
+        assertEquals("USB configuration select target=6 ok=true before=6 detached=0,1,3 after=6 action=reset-active", outcome.diagnostic())
+    }
+
+    @Test fun anUnresetOldConfigurationIsNotReportedAsUsable() {
+        val outcome = UsbConfigurationSelection.select(6, listOf(0, 1, 3), { false }, { 6 }, { true }) {}
+        assertFalse(outcome!!.selected)
+        assertTrue(outcome.resetFailed)
+        assertFalse(outcome.wrongConfiguration)
     }
 
     @Test

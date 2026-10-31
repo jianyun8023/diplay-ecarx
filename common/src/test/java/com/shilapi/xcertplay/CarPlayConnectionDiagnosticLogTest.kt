@@ -53,4 +53,13 @@ class CarPlayConnectionDiagnosticLogTest {
         assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         assertFalse(log.contains("private-token"))
     }
+
+    @Test fun playbackRecoverySurvivesOldGenerationAndOpenMenuWithRedaction() {
+        activity.javaClass.getDeclaredField("menuOpen").apply { isAccessible = true }.set(activity, true)
+        listener.onDebugLog("Playback recovery session=7 monotonicNs=123 nowPlaying previousMs=207000 elapsedMs=207")
+        listener.onDebugLog("Playback recovery token=private-token")
+        assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
+        assertTrue(log.contains("previousMs=207000 elapsedMs=207"))
+        assertFalse(log.contains("private-token"))
+    }
 }

@@ -731,8 +731,13 @@ class CarPlayController(
     fun sendMediaButton(index: Int): Boolean {
         if (closed) return false
         val session = activeSession ?: return false
+        val queuedNs = System.nanoTime()
         return try {
-            touchExecutor.execute { session.sendMedia(index) }
+            touchExecutor.execute {
+                debugLog("Playback recovery session=${System.identityHashCode(session)} media command dispatch index=$index queuedNs=$queuedNs " +
+                    "queueMs=${(System.nanoTime() - queuedNs) / 1_000_000} currentSession=${activeSession === session}")
+                session.sendMedia(index)
+            }
             true
         } catch (_: Exception) {
             false
@@ -897,11 +902,23 @@ class CarPlayController(
 
     // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
     private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame, source: String) {
+        val receivedNs = System.nanoTime()
         NavigationOutputs.onFrame(frame, source)
         com.shilapi.xcertplay.glance.CarPlayGlance.onFrame(frame)
         synchronized(playbackStatus) {
-            val previousPlaying = playbackStatus.playing
-            playbackStatus.acceptUpdate(frame)?.let { it to (it.playing != previousPlaying) }
+            val previous = playbackStatus.nowPlaying
+            playbackStatus.acceptUpdate(frame)?.let { update ->
+                val elapsed = update.elapsedMillis
+                val before = previous.elapsedMillis
+                val itemChanged = update.title != previous.title || update.sourceApp != previous.sourceApp
+                if (update.playing != previous.playing || itemChanged ||
+                    (elapsed != null && (before == null || elapsed < before))) {
+                    debugLog("Playback recovery session=${System.identityHashCode(activeSession)} nowPlaying source=$source " +
+                        "monotonicNs=$receivedNs previousMs=$before elapsedMs=$elapsed " +
+                        "playing=${update.playing} previousPlaying=${previous.playing} itemChanged=$itemChanged")
+                }
+                update to (update.playing != previous.playing)
+            }
         }?.let { (update, playingChanged) ->
             nowPlayingListener?.invoke(update)
             if (playingChanged) playbackListener?.invoke(update.playing)

@@ -281,10 +281,12 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadMediaAudioChannel(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt(KEY_MEDIA_AUDIO_CHANNEL, 0)
-            .takeIf { it in AUDIO_CHANNELS } ?: 0
+    fun loadMediaAudioChannel(context: Context): Int {
+        val default = if (loadAdvancedAudioChannelMapping(context)) 0 else 3
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_MEDIA_AUDIO_CHANNEL, default)
+            .takeIf { it in AUDIO_CHANNELS } ?: default
+    }
 
     fun saveMediaAudioChannel(context: Context, channel: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

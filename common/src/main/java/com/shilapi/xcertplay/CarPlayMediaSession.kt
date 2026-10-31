@@ -89,7 +89,7 @@ internal object CarPlayMediaSession {
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
     private var artworkUri: Uri? = null
-    private var lastHyPublication: Pair<CarPlayNowPlaying, Uri>? = null
+    private var lastHyPublication: Pair<CarPlayNowPlaying, Uri?>? = null
     @Volatile private var outputMode = MediaSessionMode.ANDROID
     private var clusterArtworkServer: ClusterArtworkServer? = null
     private var lastClusterArtworkReport = "Cluster artwork HTTP: not started"
@@ -211,7 +211,7 @@ internal object CarPlayMediaSession {
                     session?.setMetadata(androidMetadata(update, artwork, artworkUri))
                 }
                 publishPlaybackStateLocked()
-                publishHyArtworkLocked()
+                publishHyDisplayLocked()
             }
         }
     }
@@ -260,7 +260,7 @@ internal object CarPlayMediaSession {
             ClusterMusicState.publish(nowPlaying, artwork)
             controller?.let(::updateInitialAlbumRecovery)
             session?.setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
-            publishHyArtworkLocked()
+            publishHyDisplayLocked()
         }
     }
 
@@ -384,7 +384,7 @@ internal object CarPlayMediaSession {
         } else if (session == null) androidActivation = "IDLE"
         if (active) regainFocusLocked()
         publishPlaybackStateLocked()
-        publishHyArtworkLocked()
+        publishHyDisplayLocked()
     }
 
     private fun start(context: Context) {
@@ -541,17 +541,19 @@ internal object CarPlayMediaSession {
         )
     }
 
-    private fun publishHyArtworkLocked() {
+    private fun publishHyDisplayLocked() {
         if (outputMode != MediaSessionMode.ANDROID || session?.isActive != true) return
         val retained = controller?.nowPlayingSnapshot() ?: return
         // A decode may reach the main loop before the queued metadata for the next song.
         if (metadataChanged(nowPlaying, retained) || nowPlaying.playing != retained.playing) return
         val context = appContext ?: return
-        val uri = artworkUri ?: return
+        // A connecting session has no phone metadata yet; do not clear HY's current source.
+        if (nowPlaying == CarPlayNowPlaying()) return
+        val uri = artworkUri
         val publication = nowPlaying.copy(elapsedMillis = null) to uri
         if (lastHyPublication == publication) return
         lastHyPublication = publication
-        HyMediaDisplay.publishArtwork(context, nowPlaying, uri)
+        HyMediaDisplay.publish(context, nowPlaying, uri)
     }
 
     private fun send(index: Int, source: String) {

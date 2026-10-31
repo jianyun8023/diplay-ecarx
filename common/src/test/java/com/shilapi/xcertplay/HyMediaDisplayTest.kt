@@ -21,7 +21,7 @@ class HyMediaDisplayTest {
     private val artwork = Uri.parse("http://127.0.0.1:12345/current.png")
 
     @Test fun dashboardContractIsTargetedAndContainsOnlyDisplayFields() {
-        HyMediaDisplay.publishArtwork(app, CarPlayNowPlaying(
+        HyMediaDisplay.publish(app, CarPlayNowPlaying(
             title = "Track", artist = "Artist", album = "Album", durationMillis = 123_000, playing = true,
         ), artwork)
 
@@ -39,7 +39,7 @@ class HyMediaDisplayTest {
     }
 
     @Test fun missingMetadataAndPausedStateKeepHyWireDefaults() {
-        HyMediaDisplay.publishArtwork(app, CarPlayNowPlaying(playing = false), artwork)
+        HyMediaDisplay.publish(app, CarPlayNowPlaying(playing = false), artwork)
         val intent = shadowOf(app).broadcastIntents.single()
         for (key in listOf("getTrackName", "getArtistName", "getAlbumName")) {
             assertEquals("", intent.getStringExtra(key))
@@ -48,12 +48,21 @@ class HyMediaDisplayTest {
         assertEquals("0", intent.getStringExtra("playState"))
     }
 
+    @Test fun missingCoverExplicitlyClearsTheOldUriWithoutDelayingTextOrState() {
+        HyMediaDisplay.publish(app, CarPlayNowPlaying(title = "New track", playing = false), null)
+        val intent = shadowOf(app).broadcastIntents.single()
+        assertEquals("New track", intent.getStringExtra("getTrackName"))
+        assertEquals("0", intent.getStringExtra("playState"))
+        assertTrue(intent.hasExtra("getArtwork"))
+        assertEquals("", intent.getStringExtra("getArtwork"))
+    }
+
     @Test fun rejectedBroadcastDoesNotEscapeIntoMediaSessionUpdates() {
         val failure = SecurityException("broadcast rejected")
         val context = object : ContextWrapper(app) {
             override fun sendBroadcast(intent: Intent) { throw failure }
         }
-        HyMediaDisplay.publishArtwork(context, CarPlayNowPlaying(), artwork)
+        HyMediaDisplay.publish(context, CarPlayNowPlaying(), artwork)
         assertTrue(ShadowLog.getLogsForTag("DiPlay-MediaKeys").any { it.throwable === failure })
         assertTrue(shadowOf(app).broadcastIntents.isEmpty())
     }

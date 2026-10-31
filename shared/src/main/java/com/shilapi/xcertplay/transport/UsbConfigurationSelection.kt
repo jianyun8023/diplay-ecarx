@@ -24,17 +24,19 @@ internal object UsbConfigurationSelection {
         /** Android reported the switch as failed and the iPhone still reads another configuration. */
         val wrongConfiguration: Boolean get() = !selected && after != null && after != target
 
+        val resetFailed: Boolean get() = !selected && before == target
+
         fun diagnostic(): String =
             "USB configuration select target=$target ok=$selected before=${before ?: "unknown"} " +
                 "detached=${detached.joinToString(",").ifEmpty { "none" }} after=${after ?: "unknown"}" +
-                if (selected && before == target) " action=reuse-active" else ""
+                if (selected && before == target) " action=reset-active" else ""
     }
 
     /**
-     * Reuses an already active [target] without resetting its interfaces. Returns null when the
-     * first [setConfiguration] succeeds. Otherwise, unless the phone now reads [target], detaches
-     * drivers from [interfaceIds] with a claim that stays held, lets [reopen] close and reopen the
-     * connection to drop those claims, and tries once more on the new connection.
+     * Selects [target] before opening a new USBMUX/NCM session, even when it is already active:
+     * SET_CONFIGURATION resets old endpoint/alternate-setting state that closing a handle leaves behind.
+     * If a driver blocks the request, detaches it before reopening and retrying. A switch from another
+     * configuration that reports failure but actually selected [target] still keeps the existing fallback.
      */
     fun select(
         target: Int,
@@ -45,10 +47,11 @@ internal object UsbConfigurationSelection {
         reopen: () -> Unit,
     ): Outcome? {
         val before = activeConfiguration()
-        if (before == target) return Outcome(target, selected = true, before, before, emptyList())
-        if (setConfiguration()) return null
+        if (setConfiguration()) {
+            return if (before == target) Outcome(target, selected = true, before, before, emptyList()) else null
+        }
         val after = activeConfiguration()
-        if (after == target) return Outcome(target, selected = false, before, after, emptyList())
+        if (before != target && after == target) return Outcome(target, selected = false, before, after, emptyList())
         val detached = interfaceIds.distinct().sorted().filter(detach)
         if (detached.isNotEmpty()) reopen()
         val selected = setConfiguration()

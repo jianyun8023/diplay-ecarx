@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.graphics.Bitmap
+import android.media.session.MediaSession
 import android.os.Looper
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
@@ -89,5 +90,20 @@ class ClusterArtworkDeliveryTest {
         assertEquals(true, call("albumRecoveryEnabled"))
         ClusterMusicSettings.saveEnabled(context, false)
         assertEquals(true, call("albumRecoveryEnabled"))
+    }
+
+    @Test fun hyDoesNotClearAnotherSourceBeforePhoneMetadataOrDuplicateDirectEcarx() {
+        seed(CarPlayNowPlaying(artworkTransferId = 7))
+        set("session", MediaSession(context, "test").apply { isActive = true })
+        set("nowPlaying", CarPlayNowPlaying())
+        `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
+        call("publishHyDisplayLocked")
+        assertTrue(shadowOf(context).broadcastIntents.isEmpty())
+        val song = CarPlayNowPlaying(title = "A", playing = true)
+        set("nowPlaying", song)
+        `when`(controller.nowPlayingSnapshot()).thenReturn(song)
+        set("outputMode", MediaSessionMode.ECARX)
+        call("publishHyDisplayLocked")
+        assertTrue(shadowOf(context).broadcastIntents.isEmpty())
     }
 }

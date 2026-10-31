@@ -17,6 +17,33 @@ class NavigationAudioRoutePersistenceTest {
 
     @Before fun clearSettings() { prefs.edit().clear().commit() }
 
+    @Test fun usageRoutingIsDefaultAndLegacyChoicesArePreserved() {
+        assertTrue(AirPlayPersistence.loadAdvancedAudioChannelMapping(context))
+        assertEquals(0, AirPlayPersistence.loadMediaAudioChannel(context))
+        assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
+        assertFalse(AirPlayPersistence.loadNavigationOemContent(context))
+
+        AirPlayPersistence.saveAdvancedAudioChannelMapping(context, false)
+        assertEquals(3, AirPlayPersistence.loadMediaAudioChannel(context))
+        assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
+        assertFalse(prefs.contains("media_audio_channel"))
+        assertFalse(prefs.contains("navigation_audio_channel"))
+
+        AirPlayPersistence.saveAdvancedAudioChannelMapping(context, true)
+        assertEquals(0, AirPlayPersistence.loadMediaAudioChannel(context))
+        assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
+
+        for (channel in listOf(0, 3, 13, 14, 15)) {
+            AirPlayPersistence.saveMediaAudioChannel(context, channel)
+            AirPlayPersistence.saveNavigationAudioChannel(context, channel)
+            for (advanced in listOf(false, true)) {
+                AirPlayPersistence.saveAdvancedAudioChannelMapping(context, advanced)
+                assertEquals(channel, AirPlayPersistence.loadMediaAudioChannel(context))
+                assertEquals(channel, AirPlayPersistence.loadNavigationAudioChannel(context))
+            }
+        }
+    }
+
     @Test fun bothContentModesSelectAutomaticRoutingAndSurviveBackup() {
         assertFalse(AirPlayPersistence.loadNavigationOemContent(context))
         for (oem in listOf(true, false)) {

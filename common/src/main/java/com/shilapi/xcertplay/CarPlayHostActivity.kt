@@ -751,6 +751,10 @@ open class CarPlayHostActivity : ComponentActivity() {
         applyDisplaySize(size)
     }
 
+    private var autoPlaySchedule = 0
+    private var autoPlaySession: AirPlaySession? = null
+    private var autoPlayChecks = 0
+
     /**
      * Nudges the iPhone once the head unit's Bluetooth is out of the way.
      *
@@ -758,29 +762,34 @@ open class CarPlayHostActivity : ComponentActivity() {
      * mode is still counting down its delay at that point, so iOS hands the audio to the Bluetooth
      * link that is still up — the reported "it starts playing and then stops". The adapter is off
      * for good a moment later, by which time iOS has nothing playing at all, and the owner hears
-     * silence until they press play by hand. An explicit Play on the CarPlay link closes that gap;
-     * it is a no-op when iOS already resumed on its own, which is the other possible ending.
+     * silence until they press play by hand. An explicit Play on the CarPlay link closes that gap.
      *
      * It checks the adapter rather than trusting the clock, because `disable()` only *asks*: if the
      * radio is still on, a Play now would simply be handed back to the same Bluetooth link.
      */
     private val autoPlayAfterYield = object : Runnable {
-        private var checks = 0
-
         override fun run() {
-            if (shuttingDown.get() || activeAirPlaySession == null) return
-            if (headUnitBluetoothOn()) {
-                checks += 1
-                if (checks <= AUTO_PLAY_MAX_CHECKS) {
-                    mainHandler.postDelayed(this, AUTO_PLAY_RETRY_MILLIS)
-                    appendLog("AutoPlay: head unit Bluetooth still on; check $checks of $AUTO_PLAY_MAX_CHECKS")
-                    return
-                }
-                appendLog("AutoPlay: head unit Bluetooth never went off; no Play sent")
+            if (shuttingDown.get() || activeAirPlaySession == null || activeAirPlaySession !== autoPlaySession) {
+                logPlaybackRecovery("AutoPlay cancelled schedule=$autoPlaySchedule reason=session-inactive-or-replaced")
                 return
             }
+            val bluetoothOn = headUnitBluetoothOn()
+            val playback = controller?.nowPlayingSnapshot()
+            logPlaybackRecovery("AutoPlay check schedule=$autoPlaySchedule checks=$autoPlayChecks bluetoothOn=$bluetoothOn " +
+                "playing=${playback?.playing} elapsedMs=${playback?.elapsedMillis}")
+            if (bluetoothOn) {
+                autoPlayChecks += 1
+                if (autoPlayChecks <= AUTO_PLAY_MAX_CHECKS) {
+                    mainHandler.postDelayed(this, AUTO_PLAY_RETRY_MILLIS)
+                    logPlaybackRecovery("AutoPlay waiting schedule=$autoPlaySchedule check=$autoPlayChecks max=$AUTO_PLAY_MAX_CHECKS")
+                    return
+                }
+                logPlaybackRecovery("AutoPlay skipped schedule=$autoPlaySchedule reason=bluetooth-still-on")
+                return
+            }
+            logPlaybackRecovery("AutoPlay enqueue schedule=$autoPlaySchedule index=${CarPlayMediaButton.PLAY}")
             val sent = controller?.sendMediaButton(CarPlayMediaButton.PLAY) == true
-            appendLog("AutoPlay: Play sent after the Bluetooth yield sent=$sent")
+            logPlaybackRecovery("AutoPlay queued schedule=$autoPlaySchedule accepted=$sent")
         }
     }
 
@@ -5086,26 +5095,53 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     // Media-only yield preserves the phone profile; the older adapter-off mode is a separate opt-in.
     private fun yieldCarBluetooth() {
+        val sessionId = System.identityHashCode(activeAirPlaySession)
+        val targetLog = sessionLog
         CarBluetoothProfileGuard.yieldForSession(this, DiPlayPreferences.phoneAddress(this),
             mediaAudioAllowed = !AirPlayPersistence.loadCarBluetoothAudio(this)) { message ->
-            mainHandler.post { appendLog(message) }
+            val observedNs = System.nanoTime()
+            mainHandler.post { logPlaybackRecovery(message, sessionId, targetLog, observedNs) }
         }
+    }
+
+    // Capture the event clock and file before posting; old Bluetooth workers can finish after reconnect.
+    private fun logPlaybackRecovery(message: String,
+        sessionId: Int = System.identityHashCode(activeAirPlaySession), targetLog: SessionLogFile? = sessionLog,
+        observedNs: Long = System.nanoTime()) {
+        val line = "Playback recovery session=$sessionId monotonicNs=$observedNs $message"
+        Log.i("DiPlay-MediaKeys", line)
+        AsyncDiagnosticLog.append(targetLog, line)
     }
 
     /**
      * Adapter mode only: profile-level yielding leaves the adapter on, so iOS keeps routing its
-     * audio to Bluetooth and a Play would land nowhere. Cancels any pending nudge first, because a
-     * resumed session arms a fresh delay rather than inheriting the old one.
+     * audio to Bluetooth and a Play would land nowhere. Repeated RECORD callbacks must not rearm
+     * the same session; a new session replaces the pending nudge and gets its own retry budget.
      */
     private fun scheduleAutoPlayAfterYield() {
+        val session = activeAirPlaySession ?: return
+        if (autoPlaySession === session) {
+            logPlaybackRecovery("AutoPlay skipped schedule=$autoPlaySchedule reason=duplicate-session")
+            return
+        }
         mainHandler.removeCallbacks(autoPlayAfterYield)
-        if (!CarBluetoothProfileGuard.adapterEnabled(this)) return
+        autoPlaySession = session
+        autoPlayChecks = 0
+        autoPlaySchedule++
+        val enabled = CarBluetoothProfileGuard.adapterEnabled(this)
+        logPlaybackRecovery("AutoPlay schedule=$autoPlaySchedule adapterMode=$enabled " +
+            "mediaOnly=${CarBluetoothProfileGuard.mediaOnlyEnabled(this)} delayMs=$AUTO_PLAY_AFTER_YIELD_MILLIS")
+        if (!enabled) return
         mainHandler.postDelayed(autoPlayAfterYield, AUTO_PLAY_AFTER_YIELD_MILLIS)
     }
 
     private fun restoreCarBluetooth() {
+        val sessionId = System.identityHashCode(activeAirPlaySession)
+        val targetLog = sessionLog
+        logPlaybackRecovery("BT restore requested", sessionId, targetLog)
         CarBluetoothProfileGuard.restore(this) { message ->
-            mainHandler.post { appendLog(message) }
+            val observedNs = System.nanoTime()
+            mainHandler.post { logPlaybackRecovery(message, sessionId, targetLog, observedNs) }
         }
     }
 
@@ -5134,6 +5170,8 @@ open class CarPlayHostActivity : ComponentActivity() {
 
             override fun onSessionActive(session: AirPlaySession) {
                 runOnUiThread {
+                    logPlaybackRecovery("session active duplicate=${activeAirPlaySession === session} " +
+                        "generation=$controllerGeneration currentGeneration=$restartGeneration", System.identityHashCode(session), diagnosticLog)
                     if (controllerGeneration != restartGeneration) {
                         return@runOnUiThread
                     }
@@ -5178,6 +5216,8 @@ open class CarPlayHostActivity : ComponentActivity() {
 
             override fun onSessionEnded(session: AirPlaySession) {
                 runOnUiThread {
+                    logPlaybackRecovery("session ended active=${activeAirPlaySession === session} " +
+                        "generation=$controllerGeneration", System.identityHashCode(session), diagnosticLog)
                     val active = activeAirPlaySession
                     if (active != null && active !== session) {
                         // 探针或非活动握手结束时，保留当前播放会话。
@@ -5228,6 +5268,10 @@ open class CarPlayHostActivity : ComponentActivity() {
 
             override fun onDebugLog(message: String) {
                 if (DiagnosticRedactor.redact(message) == null) return
+                if (message.startsWith("Playback recovery ")) {
+                    AsyncDiagnosticLog.append(diagnosticLog, message)
+                    return
+                }
                 if (message.startsWith(CarPlayController.CONNECTION_DIAGNOSTIC_PREFIX + " ")) {
                     // Retain old-controller teardown evidence without accepting its UI/session state.
                     AsyncDiagnosticLog.append(diagnosticLog, message)
@@ -5369,6 +5413,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         // wheel keys reach the iPhone through it. Restore iOS's captured mask when the controller still
         // owns that live session.
         activeAirPlaySession = snapshot.controller.activeAirPlaySession()
+        // Adopting an existing stream must not grant it another automatic Play.
+        autoPlaySession = activeAirPlaySession
         activeAirPlaySession?.let { CarPlayMediaSession.onSessionActive(snapshot.controller, it) }
         if (blackCornerRadiusDp == CarPlayBlackCornerOverlay.IPHONE_MASK) {
             snapshot.controller.activeIphoneCornerMask()?.let { (session, png, width) ->
