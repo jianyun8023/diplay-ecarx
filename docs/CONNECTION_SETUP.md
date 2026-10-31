@@ -109,6 +109,14 @@ disconnecting, exiting, and turning this option off do not stop the hotspot.
 Unsupported firmware, missing permission, and startup failures are reported;
 the car's own hotspot settings remain available for manual setup.
 
+On Android 9/API 28, when the hotspot is off and the radio reports dual-band,
+DiPlay first moves the car's saved hotspot band to 5 GHz, keeping the SSID,
+password and security, so the automatic start comes up on 5 GHz. A hotspot
+that is already running keeps its current band until it is turned off and
+turned on again; DiPlay never restarts it just to change bands. Choosing
+2.4 GHz in the car-hotspot band setting opts out. If the band cannot be read,
+written or verified, DiPlay starts with the car's saved band instead.
+
 For startup after boot, also enable Open after the car starts. When both options
 are selected, the switch being enabled also requests missing SYSTEM_ALERT_WINDOW
 for boot launch. This does not enable a floating map or turn on the boot option

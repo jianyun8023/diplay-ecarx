@@ -197,7 +197,7 @@ class WirelessStartupControllerTest {
     @Implements(className = "com.shilapi.xcertplay.network.CarHotspotTethering", isInAndroidSdk = false)
     class Tethering {
         @Implementation fun enable(context: Context, isCancelled: () -> Boolean, timeoutMillis: Long,
-            log: (String) -> Unit): CarHotspotTethering.Result = result
+            log: (String) -> Unit, preferredBand: ManualHotspotBand?): CarHotspotTethering.Result = result
 
         companion object {
             @Volatile var result = CarHotspotTethering.Result.READY

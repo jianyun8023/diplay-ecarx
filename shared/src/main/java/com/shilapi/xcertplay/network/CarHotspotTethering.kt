@@ -6,6 +6,7 @@ import android.os.ResultReceiver
 import android.provider.Settings
 import com.shilapi.xcertplay.adb.AdbKeys
 import com.shilapi.xcertplay.adb.LocalAdb
+import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import java.lang.reflect.InvocationTargetException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -13,7 +14,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 
 /** Uses the saved hotspot configuration. Normal startup keeps an active hotspot; a failed Android 9
- *  start gets one Wi-Fi recovery cycle. This never writes the saved hotspot configuration. */
+ *  start gets one Wi-Fi recovery cycle. An automatic start may change only the saved band to 5 GHz
+ *  when the AP is off and the caller asks for it ([CarHotspotBand]); credentials and a running AP
+ *  are never touched. */
 object CarHotspotTethering {
     // Shared with explicit manual control: never issue simultaneous start/stop requests.
     internal val startupLock = ReentrantLock()
@@ -37,11 +40,15 @@ object CarHotspotTethering {
         isCancelled: () -> Boolean,
         timeoutMillis: Long = WirelessStartupPolicy.HOTSPOT_READY_MILLIS,
         log: (String) -> Unit,
+        preferredBand: ManualHotspotBand? = null,
     ): Result {
         // Android 9 manual and connection startup share state checks and one bounded recovery.
         if (android.os.Build.VERSION.SDK_INT == 28) {
             val control = ManualHotspotControl(context, log)
-            if (control.observe() != ManualHotspotControl.State.UNKNOWN) {
+            val state = control.observe()
+            if (state != ManualHotspotControl.State.UNKNOWN) {
+                // Only a saved-config rewrite while the AP is off can move the next start to 5 GHz.
+                if (state == ManualHotspotControl.State.OFF) preferFiveGhz(context, preferredBand, log)
                 val result = control.ensureHotspot(isCancelled, timeoutMillis)
                 val outcome = when (result) {
                     ManualHotspotControl.Result.ON -> Result.READY
@@ -55,6 +62,9 @@ object CarHotspotTethering {
                 return outcome
             }
         }
+        // The generic start path has no platform state read before this point; an unknown report
+        // is left alone so a running 2.4 GHz AP is never rewritten behind the driver's back.
+        if (CarHotspotStatus.isEnabled(context) == false) preferFiveGhz(context, preferredBand, log)
         val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
         val observedAdbState = AtomicReference<Boolean?>()
         val startReflection: (ResultReceiver) -> Unit = { receiver ->
@@ -96,6 +106,13 @@ object CarHotspotTethering {
                 log("car hotspot: Android state=${CarHotspotStatus.isEnabled(context) ?: "unknown"} writeSettings=${permitted(context)}")
             log("car hotspot auto-enable: ${it.diagnostic}")
         }
+    }
+
+    /** Writes the saved 5 GHz preference only for automatic starts that asked for it. */
+    private fun preferFiveGhz(context: Context, preferredBand: ManualHotspotBand?, log: (String) -> Unit) {
+        if (preferredBand == null || preferredBand == ManualHotspotBand.GHZ_2_4) return
+        if (!CarHotspotBand.supported()) return
+        CarHotspotBand.preferFiveGhz(context, log = log)
     }
 
     /** The shell's own tethering call ([CarHotspotStartMain]), for firmware without a hotspot command. */

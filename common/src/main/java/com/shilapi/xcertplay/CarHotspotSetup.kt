@@ -34,7 +34,10 @@ internal object CarHotspotSetup {
         prepare(30_000L, isCancelled, onProgress, log,
             hotspotEnabled = { CarHotspotStatus.isEnabled(context) },
             networkReady = { networkReady(context) },
-            enable = { remaining -> CarHotspotTethering.enable(context, isCancelled, remaining, log) })
+            enable = { remaining ->
+                CarHotspotTethering.enable(context, isCancelled, remaining, log,
+                    preferredBand = AirPlayPersistence.loadManualHotspotBand(context))
+            })
 
     internal fun prepare(
         timeoutMillis: Long,

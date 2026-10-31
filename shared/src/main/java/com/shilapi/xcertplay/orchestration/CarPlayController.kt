@@ -2578,6 +2578,7 @@ class CarPlayController(
                     !com.shilapi.xcertplay.network.CarHotspotSettings.enabled(appContext) },
                 timeoutMillis = ((readyDeadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1),
                 log = { debugLog("generation=$generation atNs=${System.nanoTime()} $it; awaiting hotspot interface") },
+                preferredBand = config.manualHotspotBand,
             )
             // Wi-Fi recovery can consume the start budget; the new interface still needs time to appear.
             if (result == com.shilapi.xcertplay.network.CarHotspotTethering.Result.READY) {
