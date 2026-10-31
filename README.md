@@ -4,12 +4,15 @@
 
 DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话，目前主要适配 **2021 款领克 01**。
 
+每个功能的开启位置、前提条件、怎么确认生效，见 [功能与使用说明](docs/FEATURES.zh-CN.md)。
+
 | 功能 | 需要开启的设置 |
 | --- | --- |
 | 仪表和 HUD 导航提示 | **设置 → 导航 → 亿咖通导航**，开启「仪表导航」 |
 | 车道指引 | 同一页面开启「仪表车道指引」 |
 | 歌曲信息和封面 | 同一页面开启「仪表媒体卡片」 |
-| 音乐走 CarPlay、保留蓝牙电话 | **设置 → 声音 → 蓝牙音频**，开启「CarPlay 期间停用蓝牙媒体」，关闭「通过车辆蓝牙播放 CarPlay 音频」 |
+| 日夜模式跟随车辆 | **设置 → 显示 → 显示与性能**，把「CarPlay 日夜模式」设为「跟随车辆」 |
+| 音乐走 CarPlay、保留蓝牙电话 | **设置 → 音频 → 蓝牙音频**，开启「CarPlay 期间停用蓝牙媒体」，关闭「通过车辆蓝牙播放 CarPlay 音频」 |
 | 无线连接 | 在连接设置中选择车机热点、Wi-Fi Direct 或已有 Wi-Fi，按提示完成配置 |
 | 开机自动连接 | **设置 → 连接 → 自动连接**，开启「车机启动后打开」和「打开 DiPlay 时连接」 |
 | 自定义方向盘按键 | **设置 → 车辆 → 方向盘按键**，开启按键服务并学习需要的按键 |
@@ -18,9 +21,9 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 **DEV 的 Siri 短按功能**：连接后自动生效，无需额外开关。该功能仍在实车验证中。
 
-只显示导航提示和歌曲信息时，保持「仪表投屏」关闭。设置修改后，按界面提示重新连接。
+只显示导航提示和歌曲信息时，保持「整屏镜像到仪表」关闭。设置修改后，按界面提示重新连接。
 
-目前 USB 连接仍有问题。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
+目前 USB 连接仍有问题；拔掉 USB 后会自动回到无线。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
 
 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分界面改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。许可与第三方声明见 [LICENSE](LICENSE) 和 [相关说明](docs/THIRD_PARTY_NOTICES.md)。
 
@@ -30,11 +33,14 @@ CarPlay 及相关标识属于 Apple；本项目与 Apple、领克、亿咖通无
 
 DiPlay brings iPhone navigation, music, Siri and calls to the **2021 Lynk & Co 01** head unit.
 
+Where each feature is enabled, what it needs first, and how to tell it works: [feature and usage guide](docs/FEATURES.zh-CN.md) (Simplified Chinese).
+
 | Feature | Settings |
 | --- | --- |
 | Cluster and HUD navigation | **Settings → Navigation → ECARX navigation**: enable “Navigation on the instrument cluster” |
 | Lane guidance | On the same page, enable “Cluster lane guidance” |
 | Song information and artwork | On the same page, enable “Cluster media card” |
+| Day/night following the vehicle | **Settings → Display → Display and performance**: set “CarPlay day/night mode” to “Follow the vehicle” |
 | Music through CarPlay, keep Bluetooth calls | **Settings → Audio → Bluetooth audio**: enable “Pause Bluetooth media for CarPlay” and disable “CarPlay audio over the car's Bluetooth” |
 | Wireless connection | Choose the car hotspot, Wi-Fi Direct or existing Wi-Fi in connection setup, then follow the prompts |
 | Automatic connection at startup | **Settings → Connection → Automatic connection**: enable “Open after the car starts” and “Connect when DiPlay opens” |
@@ -44,6 +50,6 @@ DiPlay brings iPhone navigation, music, Siri and calls to the **2021 Lynk & Co 0
 
 **Siri in DEV:** short-press voice-button activation works automatically while connected. Vehicle testing is still in progress.
 
-Keep full-screen cluster mirroring off when you only want navigation and song information. After changing settings, reconnect when prompted.
+Keep “Mirror the full screen to the instrument cluster” off when you only want navigation and song information. After changing settings, reconnect when prompted.
 
-USB connection issues remain unresolved. To report a problem, choose **Settings → Diagnostics → Save diagnostic report**.
+USB connection issues remain unresolved; unplugging the cable now falls back to wireless automatically. To report a problem, choose **Settings → Diagnostics → Save diagnostic report**.
