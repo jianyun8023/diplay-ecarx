@@ -47,6 +47,113 @@ class CarPlayNightModeControllerTest {
         }
     }
 
+    private class VehicleSource(override val available: Boolean = true, val succeeds: Boolean = true) :
+        com.shilapi.xcertplay.hud.VehicleNightSource {
+        var receiver: ((Boolean) -> Unit)? = null
+        var starts = 0
+        var stops = 0
+        override fun start(onNight: (Boolean) -> Unit): Boolean {
+            starts++
+            if (!succeeds) return false
+            receiver = onNight
+            return true
+        }
+        override fun stop() {
+            stops++
+            receiver = null
+        }
+        fun emit(night: Boolean) { receiver?.invoke(night) }
+    }
+
+    private class VehicleFixture(
+        initialNight: Boolean = false,
+        val vehicle: VehicleSource = VehicleSource(),
+        delaySeconds: Int = 2,
+    ) {
+        val clock = Clock()
+        val output = mutableListOf<Boolean>()
+        val controller = CarPlayNightModeController(
+            Light(), clock, initialNight, output::add, vehicle = vehicle,
+        )
+        init {
+            controller.configure(CarPlayNightMode.VEHICLE, initialNight, delaySeconds = delaySeconds)
+            controller.resume(initialNight)
+        }
+    }
+
+    @Test fun vehiclePushAppliesAfterTheDelayAndDebouncesFlips() {
+        val f = VehicleFixture(delaySeconds = 2)
+        f.vehicle.emit(true)
+        f.clock.advance(1_999)
+        assertFalse(f.controller.night)
+        // Reverting to the current state cancels the armed flip instead of re-arming it.
+        f.vehicle.emit(false)
+        f.vehicle.emit(true)
+        f.clock.advance(2_000)
+        assertTrue(f.controller.night)
+        assertEquals(listOf(true), f.output)
+    }
+
+    @Test fun vehiclePushMatchingCurrentStateCancelsThePendingFlip() {
+        val f = VehicleFixture(delaySeconds = 2)
+        f.vehicle.emit(true)
+        f.clock.advance(1_000)
+        f.vehicle.emit(false)
+        f.clock.advance(10_000)
+        assertFalse(f.controller.night)
+        assertTrue(f.clock.tasks.isEmpty())
+    }
+
+    @Test fun unavailableVehicleSourceFallsBackToSystemNight() {
+        val vehicle = VehicleSource(available = false)
+        val f = VehicleFixture(vehicle = vehicle)
+        assertEquals(0, vehicle.starts)
+        f.controller.systemChanged(true)
+        assertTrue(f.controller.night)
+    }
+
+    @Test fun unavailableVehicleSourceKeepsFollowingSystemWhileSelected() {
+        val vehicle = VehicleSource(available = false)
+        val f = VehicleFixture(vehicle = vehicle)
+        f.controller.systemChanged(true)
+        f.controller.systemChanged(false)
+        assertEquals(listOf(true, false), f.output)
+    }
+
+    @Test fun failedVehicleStartFallsBackToSystemAndKeepsSystemFollowing() {
+        val vehicle = VehicleSource(succeeds = false)
+        val f = VehicleFixture(vehicle = vehicle)
+        assertTrue(vehicle.starts > 0)
+        assertEquals(1, vehicle.stops)
+        f.controller.systemChanged(true)
+        assertTrue(f.controller.night)
+    }
+
+    @Test fun switchingAwayFromVehicleStopsItsSource() {
+        val f = VehicleFixture(delaySeconds = 0)
+        f.vehicle.emit(true)
+        assertTrue(f.controller.night)
+        f.controller.configure(CarPlayNightMode.DAY, false)
+        assertFalse(f.controller.night)
+        assertEquals(1, f.vehicle.stops)
+        assertEquals(null, f.vehicle.receiver)
+        f.vehicle.emit(true)
+        assertFalse(f.controller.night)
+    }
+
+    @Test fun vehicleEventsBeforeResumeAreIgnored() {
+        val vehicle = VehicleSource()
+        val clock = Clock()
+        val output = mutableListOf<Boolean>()
+        val controller = CarPlayNightModeController(Light(), clock, false, output::add, vehicle = vehicle)
+        controller.configure(CarPlayNightMode.VEHICLE, false, delaySeconds = 0)
+        vehicle.emit(true)
+        assertFalse(controller.night)
+        controller.resume(false)
+        vehicle.emit(true)
+        assertTrue(controller.night)
+    }
+
     @Test fun stableOnChangeReadingTransitionsOnlyAfterFiveSeconds() {
         val f = Fixture()
         f.light.emit(19f)

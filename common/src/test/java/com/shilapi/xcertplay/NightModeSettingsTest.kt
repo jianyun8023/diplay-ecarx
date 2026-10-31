@@ -190,6 +190,7 @@ class NightModeSettingsTest {
     private fun modeLabel(mode: CarPlayNightMode): Int = when (mode) {
         CarPlayNightMode.SYSTEM -> R.string.carplay_night_system
         CarPlayNightMode.AMBIENT -> R.string.carplay_night_ambient
+        CarPlayNightMode.VEHICLE -> R.string.carplay_night_vehicle
         CarPlayNightMode.DAY -> R.string.carplay_night_day
         CarPlayNightMode.NIGHT -> R.string.carplay_night_night
         CarPlayNightMode.SCHEDULE -> R.string.carplay_night_schedule

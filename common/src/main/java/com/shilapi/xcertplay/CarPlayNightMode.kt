@@ -1,11 +1,13 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.hud.VehicleNightSource
 import java.util.Calendar
 
 /** Stable preference values; never persist enum ordinals. */
 enum class CarPlayNightMode(val key: String) {
     SYSTEM("system"),
     AMBIENT("ambient"),
+    VEHICLE("vehicle"),
     DAY("day"),
     NIGHT("night"),
     SCHEDULE("schedule");
@@ -50,6 +52,7 @@ internal class CarPlayNightModeController(
     initialNight: Boolean,
     private val onNightChanged: (Boolean) -> Unit,
     private val timeSource: NightTimeSource = SystemNightTimeSource,
+    private val vehicle: VehicleNightSource? = null,
 ) {
     interface LightSource {
         val available: Boolean
@@ -71,13 +74,17 @@ internal class CarPlayNightModeController(
     private var schedule = CarPlayNightSchedule()
     private var resumed = false
     private var listening = false
+    private var listeningVehicle = false
     private var pending: Boolean? = null
     private val transition = Runnable {
         val target = pending
         pending = null
-        if (resumed && listening && mode == CarPlayNightMode.AMBIENT && target != null) {
-            applyNight(target)
+        val listeningNow = when (mode) {
+            CarPlayNightMode.AMBIENT -> listening
+            CarPlayNightMode.VEHICLE -> listeningVehicle
+            else -> false
         }
+        if (target != null && resumed && listeningNow) applyNight(target)
     }
     private val scheduleTick = object : Runnable {
         override fun run() {
@@ -117,7 +124,9 @@ internal class CarPlayNightModeController(
         systemNight = night
         val ambientFallback = mode == CarPlayNightMode.AMBIENT &&
             (!light.available || (resumed && !listening))
-        if (mode == CarPlayNightMode.SYSTEM || ambientFallback) applyNight(night)
+        val vehicleFallback = mode == CarPlayNightMode.VEHICLE &&
+            (vehicle == null || !vehicle.available || (resumed && !listeningVehicle))
+        if (mode == CarPlayNightMode.SYSTEM || ambientFallback || vehicleFallback) applyNight(night)
     }
 
     private fun applyMode() {
@@ -137,7 +146,29 @@ internal class CarPlayNightModeController(
                     }
                 }
             }
+            CarPlayNightMode.VEHICLE -> {
+                val source = vehicle
+                if (source == null || !source.available) {
+                    applyNight(systemNight)
+                } else if (resumed && !listeningVehicle) {
+                    listeningVehicle = source.start(::onVehicleNight)
+                    if (!listeningVehicle) {
+                        source.stop()
+                        applyNight(systemNight)
+                    }
+                }
+            }
         }
+    }
+
+    /** Vehicle deliveries arrive on the main thread and only on real head-unit decisions. */
+    private fun onVehicleNight(target: Boolean) {
+        if (!resumed || !listeningVehicle || mode != CarPlayNightMode.VEHICLE) return
+        if (target == night) {
+            requestTransition(null)
+            return
+        }
+        requestTransition(target)
     }
 
     private fun onLux(lux: Float) {
@@ -148,6 +179,11 @@ internal class CarPlayNightModeController(
             night && lux >= threshold.lux.toFloat() -> false
             else -> null
         }
+        requestTransition(target)
+    }
+
+    /** Arms [target] behind the delay; null cancels an armed transition without applying it. */
+    private fun requestTransition(target: Boolean?) {
         if (target == pending) return
         cancelPending()
         pending = target
@@ -161,6 +197,8 @@ internal class CarPlayNightModeController(
     private fun stopListening() {
         if (listening) light.stop()
         listening = false
+        if (listeningVehicle) vehicle?.stop()
+        listeningVehicle = false
         cancelPending()
         scheduler.remove(scheduleTick)
     }

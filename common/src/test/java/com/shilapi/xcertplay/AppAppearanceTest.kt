@@ -39,6 +39,8 @@ class AppAppearanceTest {
         assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SYSTEM, schedule, false, 23 * 60, null))
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.AMBIENT, schedule, true, 12 * 60, null))
         assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.AMBIENT, schedule, false, 23 * 60, null))
+        assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.VEHICLE, schedule, true, 12 * 60, null))
+        assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.VEHICLE, schedule, false, 23 * 60, null))
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SCHEDULE, schedule, false, 23 * 60, null))
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SCHEDULE, schedule, false, 0, null))
         assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SCHEDULE, schedule, true, 12 * 60, null))
