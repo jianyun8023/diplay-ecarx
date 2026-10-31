@@ -61,6 +61,8 @@ class LauncherIntentTest {
         val prefs = app.getSharedPreferences("diplay_ecarx_outputs_v2", 0)
         prefs.edit().clear().putBoolean("dim_navigation_enabled", false)
             .putBoolean("dim_presentation_switch", true).commit()
+        // Robolectric can reuse this singleton across activities; this case starts a new process.
+        ReflectionHelpers.setStaticField(Class.forName("com.shilapi.xcertplay.hud.EcarxHudBridge"), "context", null)
         controller = Robolectric.buildActivity(DiPlayActivity::class.java,
             Intent().putExtra("page", "settings")).create()
         assertFalse(prefs.getBoolean("dim_presentation_switch", true))
