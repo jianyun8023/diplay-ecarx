@@ -170,6 +170,7 @@ internal object EcarxHudBridge {
 
     /** The saved projection intent, and how many ticks are left before it is re-asserted. */
     private var presentationWanted = false
+    private var releaseStalePresentation = false
     private var presentationCountdown = 0
     private var presentationAttempts = 0
 
@@ -239,6 +240,9 @@ internal object EcarxHudBridge {
         report("factory navigation ${EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)}")
         // Read the previous request for the startup reset below, not to restore a mirror.
         presentationWanted = EcarxOutputSettings.presentationSwitch(app)
+        releaseStalePresentation = presentationWanted || EcarxOutputSettings.presentationReleasePending(app)
+        // Preserve legacy residue before clearing the old request, including across another restart.
+        if (releaseStalePresentation) EcarxOutputSettings.setPresentationReleasePending(app, true)
         reclaimLocked()
         watchDisplaysLocked(app)
         report(
@@ -461,6 +465,8 @@ internal object EcarxHudBridge {
         // settings screen rebuilt. This line is what separates them next time.
         report("presentation request show=$show origin=$origin")
         val app = context ?: return EcarxDimApi.EcarxResult.failed("DIM not initialized")
+        // A current manual or route request supersedes startup recovery under the same lock.
+        releaseStalePresentation = false
         EcarxOutputSettings.setPresentationSwitch(app, show)
         presentationWanted = show
         if (!show) {
@@ -491,12 +497,15 @@ internal object EcarxHudBridge {
     private fun applyPresentationLocked(show: Boolean): EcarxDimApi.EcarxResult {
         val interaction = dim ?: return EcarxDimApi.EcarxResult.failed("DimInteraction missing")
         val packageName = EcarxOutputSettings.PRESENTATION_PACKAGE
+        // Persist before opening: process death must not lose responsibility for the platform call.
+        if (show) context?.let { EcarxOutputSettings.setPresentationReleasePending(it, true) }
         val result = EcarxDimApi.setPresentationToDimSwitch(interaction, show, packageName = packageName)
         if (!result.ok) {
             report("presentation switch failed: ${result.reason}")
             return result
         }
         presentedPackage = if (show) packageName else null
+        if (!show) context?.let { EcarxOutputSettings.setPresentationReleasePending(it, false) }
         report("presentation switch -> $show package=\"$packageName\"")
         return result
     }
@@ -526,6 +535,11 @@ internal object EcarxHudBridge {
             // The cluster service is not up when the head unit is only on accessory power, so keep
             // asking for the handles as well as for the projection itself.
             if (dim == null || navi == null) reclaimLocked()
+            if (releaseStalePresentation && dim != null) {
+                val result = applyPresentationLocked(false)
+                if (result.ok) releaseStalePresentation = false
+                report("startup projection release call: ${result.reason}")
+            }
             watchProjectionLocked()
             // Guidance can expire without a frame (a list that stays empty), so check every second.
             if (route.current() == null && (lastPushed != null || lanes != null || lastLanePushed != null)) {
