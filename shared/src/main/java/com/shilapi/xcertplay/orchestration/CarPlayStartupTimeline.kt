@@ -12,6 +12,8 @@ import android.util.Log
 object CarPlayStartupTimeline {
     enum class Stage {
         BOOT_BROADCAST,
+        /** Application.onCreate: splits process fork and class loading from Activity creation. */
+        APPLICATION_CREATE,
         LAUNCHER_CREATE,
         LAUNCHER_RESUME,
         AUTO_CONNECT_DISPATCH,

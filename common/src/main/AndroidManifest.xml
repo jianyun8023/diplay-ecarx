@@ -53,7 +53,7 @@
             <data android:mimeType="*/*" />
         </intent>
     </queries>
-    <application>
+    <application android:name="com.shilapi.xcertplay.DiPlayApplication">
         <provider
             android:name="com.shilapi.xcertplay.CrashRecordInstaller"
             android:authorities="${applicationId}.crash-record"
