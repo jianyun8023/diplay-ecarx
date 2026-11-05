@@ -1594,6 +1594,14 @@ class CarPlayController(
                 btMac = hostBluetoothMac,
             )
 
+            // The RFCOMM link depends only on the paired target, while the listener, Bonjour and
+            // endpoint preparation does not depend on Bluetooth: connect the socket in parallel
+            // (the v124 real-car session C waited 235ms between bt/select and the first connect)
+            // so the two waits overlap instead of adding up. Only the socket connect is
+            // speculative — the bootstrap attempt below adopts it only after validateInfrastructure()
+            // passes, so the Bonjour gate and the CSM/bootstrap sequencing are unchanged.
+            val rfcommPreconnect = startRfcommPreconnect(generation, device)
+
             onStatus(CarPlayStatus.AttachingNetwork)
             val service = awaitVpnService()
                 ?: throw IOException("Could not bind the CarPlay AirPlay service")
@@ -1722,28 +1730,50 @@ class CarPlayController(
                 var bootstrapFailure: Throwable? = null
                 var stageStarted = System.nanoTime()
                 try {
+                    // Resolve the speculative connect before taking the resource lock: the wait can
+                    // last a full connect budget, and close/restart must stay responsive meanwhile.
+                    val preconnected = rfcommPreconnect.consume(
+                        target.address,
+                        RFCOMM_CONNECT_TIMEOUT_MILLIS + RFCOMM_PRECONNECT_WAIT_MARGIN_MILLIS,
+                    )
                     val socket = synchronized(wirelessResourceLock) {
                         attempt.checkCurrent()
                         if (handoffStarted()) throw java.util.concurrent.CancellationException("Wireless handoff started")
+                        // A pre-connected socket is adopted only after the infrastructure (Bonjour
+                        // included) is validated; a pre-connect failure is rethrown after the same
+                        // check, so the recovery classification and the Bonjour gate are unchanged.
                         validateInfrastructure()
                         bootstrapAttempt = attempt
-                        // A failed socket is never reused, including after a protocol-layer failure.
-                        target.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
-                            .also { bluetoothSocket = it }
+                        when (preconnected) {
+                            is RfcommPreconnect.Outcome.Adopted -> preconnected.socket
+                            is RfcommPreconnect.Outcome.Failed -> throw preconnected.error
+                            RfcommPreconnect.Outcome.Unavailable ->
+                                // A failed socket is never reused, including after a protocol-layer failure.
+                                target.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
+                                    .also { bluetoothSocket = it }
+                        }
                     }
-                    onBootstrapStatus(CarPlayStatus.ConnectingBluetooth, generation, attempt)
-                    logBluetoothConnectionSnapshot(target, "before-connect-${attempt.number}")
-                    val started = System.nanoTime()
-                    try {
-                        connectBluetoothSocket(socket, target.address) { attempt.isCurrent }
-                    } catch (error: Exception) {
-                        connectionDiagnostic("Bluetooth connect failed attempt=${attempt.number} " +
-                            "elapsedMs=${elapsedMillis(started)} failureClass=${diagnosticFailureClass(error)}")
-                        throw error
+                    val connectMillis: Long
+                    if (preconnected is RfcommPreconnect.Outcome.Adopted) {
+                        connectMillis = preconnected.connectMillis
+                        connectionDiagnostic(
+                            "Bluetooth preconnect adopted attempt=${attempt.number} connectMs=$connectMillis",
+                        )
+                    } else {
+                        onBootstrapStatus(CarPlayStatus.ConnectingBluetooth, generation, attempt)
+                        logBluetoothConnectionSnapshot(target, "before-connect-${attempt.number}")
+                        val started = System.nanoTime()
+                        try {
+                            connectBluetoothSocket(socket, target.address) { attempt.isCurrent }
+                        } catch (error: Exception) {
+                            connectionDiagnostic("Bluetooth connect failed attempt=${attempt.number} " +
+                                "elapsedMs=${elapsedMillis(started)} failureClass=${diagnosticFailureClass(error)}")
+                            throw error
+                        }
+                        connectMillis = elapsedMillis(started)
+                        connectionDiagnostic("Bluetooth connect completed attempt=${attempt.number} elapsedMs=$connectMillis")
+                        sampleWirelessStart(CarPlayStartupTimeline.Stage.RFCOMM_CONNECTED, generation, attempt.number)
                     }
-                    val connectMillis = elapsedMillis(started)
-                    connectionDiagnostic("Bluetooth connect completed attempt=${attempt.number} elapsedMs=$connectMillis")
-                    sampleWirelessStart(CarPlayStartupTimeline.Stage.RFCOMM_CONNECTED, generation, attempt.number)
                     attempt.stage = WirelessBootstrapRecovery.Stage.CSM
                     stageStarted = System.nanoTime()
                     val bootstrap = synchronized(wirelessResourceLock) {
@@ -3198,6 +3228,49 @@ class CarPlayController(
         )
     }
 
+    /**
+     * Starts the speculative RFCOMM connect right after target selection so it overlaps the
+     * listener / Bonjour / endpoint preparation. Only the socket connect is speculative:
+     *
+     * - the socket is registered in [bluetoothSocket] while it is created, so cleanup keeps
+     *   ownership exactly as for a serial connect;
+     * - no iAP2 byte flows before the bootstrap attempt validates the infrastructure;
+     * - a pre-connect failure is rethrown by the attempt after the infrastructure check and
+     *   keeps the #36 recovery classification — it is never silently retried by a second connect.
+     */
+    private fun startRfcommPreconnect(generation: Int, target: BluetoothDevice): RfcommPreconnect<BluetoothSocket> {
+        return RfcommPreconnect(
+            targetAddress = target.address,
+            isCurrent = { !isStaleWirelessRun(generation) },
+            createSocket = {
+                synchronized(wirelessResourceLock) {
+                    if (isStaleWirelessRun(generation)) {
+                        throw java.util.concurrent.CancellationException("Stale wireless run")
+                    }
+                    // A failed socket is never reused, including after a protocol-layer failure.
+                    target.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
+                        .also { bluetoothSocket = it }
+                }
+            },
+            connectSocket = { socket ->
+                onStatus(CarPlayStatus.ConnectingBluetooth, generation)
+                logBluetoothConnectionSnapshot(target, "before-preconnect")
+                val started = System.nanoTime()
+                try {
+                    connectBluetoothSocket(socket, target.address) { !isStaleWirelessRun(generation) }
+                } catch (error: Exception) {
+                    connectionDiagnostic("Bluetooth preconnect failed " +
+                        "elapsedMs=${elapsedMillis(started)} failureClass=${diagnosticFailureClass(error)}")
+                    throw error
+                }
+                connectionDiagnostic("Bluetooth preconnect completed elapsedMs=${elapsedMillis(started)}")
+                sampleWirelessStart(CarPlayStartupTimeline.Stage.RFCOMM_CONNECTED, generation)
+                elapsedMillis(started)
+            },
+            log = { debugLog("wireless generation=$generation $it") },
+        ).also { it.start() }
+    }
+
     private fun connectBluetoothSocket(
         socket: BluetoothSocket,
         address: String,
@@ -3839,6 +3912,13 @@ class CarPlayController(
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         // Measured connects: 147–1714ms. Leave >4x headroom, without spending 15s on each dead socket.
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 8_000L
+
+        /**
+         * The pre-connect's connect runs inside [RFCOMM_CONNECT_TIMEOUT_MILLIS] plus its polling
+         * granularity; this margin makes the adoption wait outlive the connect instead of timing
+         * out and silently opening a second socket while the first is still connecting.
+         */
+        private const val RFCOMM_PRECONNECT_WAIT_MARGIN_MILLIS = 2_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         /** An iPhone answers the mode request within about a second; one took six (#335). */
         const val REENUMERATION_WAIT_MILLIS = 10_000L

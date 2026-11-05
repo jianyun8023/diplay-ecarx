@@ -41,6 +41,19 @@ connect worker 只操作捕获的 socket；等待线程每 100ms 检查取消，
 
 handshake timeout 不延长较短的总控制 deadline；握手成功后的控制循环不再受短 handshake deadline 影响。所有 terminal 快照保留手机明确 `wirelessUnavailableReported` 的证据，避免将拒绝误判为可重试断链。
 
+## RFCOMM 预连接：只并行 socket connect
+
+v124 实车会话 C 中，bt/select（`53.291`）之后要等 listener attach、Bonjour 启动与 endpoint 构造（`53.526`）才发起 RFCOMM connect，串行空等约 235ms，而 connect 本身约 259ms。蓝牙建链只依赖已选中的配对目标，网络准备不依赖蓝牙，两段等待可以重叠。`RfcommPreconnect` 因此在目标选定后立即创建并连接 socket，与网络准备并行。安全边界：
+
+- **只并行 socket connect。** socket 创建时即在资源锁下登记到 `bluetoothSocket`，`closeWirelessStack`／`closeBluetoothBootstrapTransport` 的清理所有权与串行连接完全一致；run 失效（含已上报失败）后预连接线程不会再创建新 socket。
+- **CSM 与 bootstrap 仍等基础设施校验。** 采纳预连接 socket、以及重抛预连接失败，都发生在 `validateInfrastructure()`（含 Bonjour 运行校验）通过之后；首个 iAP2 字节仍只能在基础设施验证通过后发出，Bonjour 校验没有放宽。
+- **预连接失败就是该次尝试的 connect 失败。** 不静默另开第二个 socket 重连，直接进入 `WirelessBootstrapRecovery` 的既有分类与预算（CONNECT 阶段 400ms 退避、备用目标规则不变）。
+- **预连接只被第一次尝试消费一次。** 退避重试或切换备用 iPhone 时按原路径串行建链，避免两个 socket 同时连接同一部手机。
+- 采纳等待上限为 connect 8s 预算加 2s 轮询余量；预连接卡死时以 IOException 超时，而不是退回串行再开第二个 socket。
+- `RFCOMM_CONNECTED` 时间线采样在预连接线程 connect 完成时记录（不带 attempt 号），时间线反映真实连接时刻而非采纳时刻。
+
+主机单测（`RfcommPreconnectTest`）覆盖：成功采纳携带 connect 耗时、创建／连接失败原样上抛、一次性消费、目标不匹配不采纳、run 失效不可用、等待在途连接、卡死超时。实车需重新分段测量 bt/select → RFCOMM connected 是否重叠（预期节约 ≈235ms，需 A/B 验证），未验证前不宣称实车收益。
+
 ## 验证与车测
 
 主机自动化覆盖：重试次数／退避、跨目标共享预算、不可恢复分类、基础设施失效、generation／backoff 取消、旧 attempt 失效、资源关闭顺序与保留 Wi-Fi、connect 取消和迟到成功、listener owner、握手与控制预算分离、unavailable terminal 快照；同时运行原有 first-TCP、handoff、蓝牙 transport 与无线启动回归及仓库 CI 命令。
