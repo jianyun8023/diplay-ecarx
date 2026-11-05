@@ -45,7 +45,7 @@ class Iap2MfiAuthenticationClient(
                 REQUEST_CERTIFICATE -> {
                     onProgress("iap2 mfi rx=0xaa00 request-certificate")
                     send(session, certificateFrame, deadlineNanos)
-                    onProgress("iap2 mfi tx=0xaa01 certificate bytes=$certificatePayloadBytes")
+                    onProgress("iap2 mfi tx=0xaa01 certificate bytes=$certificatePayloadBytes writeMs=${session.lastSendMillis}")
                 }
                 REQUEST_CHALLENGE -> {
                     val challenge = requireParameterZero(frame)
@@ -55,7 +55,7 @@ class Iap2MfiAuthenticationClient(
                     onProgress("iap2 mfi rx=0xaa02 challenge bytes=${challenge.size}")
                     val signature = authentication.signChallenge(challenge)
                     send(session, Iap2AuthenticationMessages.response(signature), deadlineNanos)
-                    onProgress("iap2 mfi tx=0xaa03 signature bytes=${signature.size}")
+                    onProgress("iap2 mfi tx=0xaa03 signature bytes=${signature.size} writeMs=${session.lastSendMillis}")
                 }
                 AUTHENTICATION_SUCCEEDED -> {
                     onProgress("iap2 mfi rx=0xaa05 authentication-succeeded")

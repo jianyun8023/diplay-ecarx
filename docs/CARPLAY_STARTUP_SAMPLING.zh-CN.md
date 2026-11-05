@@ -10,9 +10,11 @@
 - 分别测试整车冷启动、ACC 唤醒、应用冷启动。关闭/开启热点自启动、已有热点、已有同 LAN 为不同实验条件；固定设备、iOS、频段和版本，交错至少 10 轮，所有超时/失败均保留。
 - `BOOT_BROADCAST` 仅表示 `BOOT_COMPLETED` 已被应用收到，**不等于 ACC 上电时刻**；ACC 真实起点需外部摄像/车辆信号。设备若只休眠唤醒，可能根本没有此广播。
 - `VIDEO_FIRST_FRAME` 表示主屏视频解码首次回调；`UI_FIRST_FRAME_CALLBACK` 表示 Host 主线程处理该回调，**均不是物理屏幕首次可操作/可见时刻**。最终应配合外部录像验证画面出现与输入可操作。
+- 运行期的画面证据看日志里的 `video stats … shown=…fps sinceShownMs=…`（生产环境每分钟一行，调试日志每 5 秒一行）与 `Audio: stats … underruns=+N maxGapMs=…`。`sinceShownMs=none` 表示本窗口内没有任何一帧真正送到屏幕，不是 0 毫秒。
 
 ## 阶段与判读
 
+0. `APPLICATION_CREATE` 由 `DiPlayApplication.onCreate` 写入，用来把进程 fork、类加载与 Activity 创建分开；它位于 ContentProvider 安装之后，因此这一段仍包含 provider 初始化。
 1. `LAUNCHER_CREATE` → `AUTO_CONNECT_DISPATCH` → `PROJECTION_REQUEST` → `HOST_CREATE`：自动启动及页面流转。
 2. `HOTSPOT_PREPARE_BEGIN/END`、`NETWORK_BACKEND_READY`、`ENDPOINT_READY`：系统热点开关、接口/地址；现有 Wi-Fi 不创建热点。
 3. `CONTROLLER_START`、`LOCAL_MFI_READY`、`WIRELESS_RUN_START`、`AIRPLAY_LISTENING`、`BONJOUR_STARTED`：控制器、监听准备。

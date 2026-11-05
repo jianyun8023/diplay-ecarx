@@ -20,6 +20,8 @@ internal class StreamReceiveStats(
     private var maxProcessNs = 0L
     private var lastTimestamp: Int? = null
     private var nextSequence: Int? = null
+    /** Packets in this window that actually carried a sequence number; 0 means the counters are unknown. */
+    private var sequenceSamples = 0
     private var forwardGapPackets = 0
     private var sequenceGapEvents = 0
     private var maxSequenceGap = 0
@@ -45,6 +47,7 @@ internal class StreamReceiveStats(
         packets++
         bytes += size
         if (sequence != null) {
+            sequenceSamples++
             val expected = nextSequence
             val delta = if (expected == null) 0 else (sequence - expected) and 0xffff
             if (delta < 0x8000) {
@@ -83,15 +86,23 @@ internal class StreamReceiveStats(
     fun flush(ended: Boolean = false) {
         val now = nowNs()
         if (!ended && now - windowStart < 5_000_000_000L) return
+        // A stream that carried no sequence in this window has no gap data: the counters below are
+        // not zero gaps, they are unmeasured. Say so instead of printing a misleading 0.
+        val sequence = if (sequenceSamples == 0) {
+            "seq=unavailable interArrivalMaxMs=${maxInterArrivalNs / 1_000_000} ended=$ended "
+        } else {
+            "seqForwardGaps=$forwardGapPackets lateOrDuplicate=$lateOrDuplicate " +
+                "interArrivalMaxMs=${maxInterArrivalNs / 1_000_000} " +
+                "seqGapEvents=$sequenceGapEvents seqGapMax=$maxSequenceGap " +
+                "seqGapLast=[$lastSequenceGap] seqGapAtMs=$lastSequenceGapAtMs ended=$ended "
+        }
         runCatching { report("Receive: $label packets=$packets bytes=$bytes readMaxMs=${maxReadNs / 1_000_000} " +
-            "processMaxUs=${maxProcessNs / 1000} seqForwardGaps=$forwardGapPackets " +
-            "lateOrDuplicate=$lateOrDuplicate interArrivalMaxMs=${maxInterArrivalNs / 1_000_000} " +
-            "seqGapEvents=$sequenceGapEvents seqGapMax=$maxSequenceGap " +
-            "seqGapLast=[$lastSequenceGap] seqGapAtMs=$lastSequenceGapAtMs ended=$ended " +
+            "processMaxUs=${maxProcessNs / 1000} $sequence" +
             "windowMs=${(now - windowStart).coerceAtLeast(0) / 1_000_000} " +
             "readsOver250Ms=$readsOver250Ms seqGapAfterReadOver250Ms=$seqGapAfterReadOver250Ms " +
             "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + decryptSummary()) }
         windowStart = now
+        sequenceSamples = 0
         decryptSamples = 0
         decryptBytes = 0
         decryptSumNs = 0

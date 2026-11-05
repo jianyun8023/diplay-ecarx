@@ -9,6 +9,8 @@ internal class VideoStats(
 ) {
     private var windowStartNs = nanoTime()
     private var lastArrivalNs = 0L
+    /** When the last frame reached the screen; 0 until the first one is rendered. */
+    private var lastRenderedNs = 0L
     private var received = 0
     private var rendered = 0
     private var recoveries = 0
@@ -46,7 +48,10 @@ internal class VideoStats(
         bytes += size
     }
 
-    @Synchronized fun onRendered() { rendered++ }
+    @Synchronized fun onRendered() {
+        rendered++
+        lastRenderedNs = nanoTime()
+    }
 
     @Synchronized fun onRecovery() { recoveries++ }
 
@@ -75,20 +80,33 @@ internal class VideoStats(
         return " decode p50=%dms p90=%dms late=%d".format(percentileMs(50), percentileMs(90), late) + delay
     }
 
-    @Synchronized fun logIfDue(): String? {
+    @Synchronized fun logIfDue(verbose: Boolean = true): String? {
         val now = nanoTime()
         val elapsedNs = now - windowStartNs
-        if (elapsedNs < WINDOW_NS) return null
+        // Debug logging keeps the 5 s window. Production gets one compact line a minute: without it
+        // the report can see packets arrive but never what reached the screen.
+        if (elapsedNs < if (verbose) WINDOW_NS else SUMMARY_WINDOW_NS) return null
         val seconds = elapsedNs / 1e9
-        if (received == 0 && rendered == 0 && heldDecodeSamples == 0 && touchSamples == 0) { windowStartNs = now; return null }
-        val touchAvgMs = if (touchSamples == 0) -1 else touchLatencySumNs / touchSamples / 1_000_000
-        val line = ("video stats$label rx=%.1ffps shown=%.1ffps maxGap=%dms kbps=%d recoveries=%d " +
-            "touch2frame avg=%dms max=%dms n=%d touchSendMax=%dms").format(
-            received / seconds, rendered / seconds, maxArrivalGapNs / 1_000_000,
-            (bytes * 8 / 1000 / seconds).toLong(), recoveries,
-            touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, TouchLatencyProbe.maxSendNs / 1_000_000,
-        ) + decodeSummary() + " idleGaps=$idleGaps idleGapMax=${maxIdleGapNs / 1_000_000}ms" +
-            " heldDecodeN=$heldDecodeSamples heldDecodeMax=${maxHeldDecodeNs / 1_000_000}ms monotonicNs=$now"
+        val idle = received == 0 && rendered == 0 && heldDecodeSamples == 0 && touchSamples == 0
+        // A stream that already reached the screen and then went quiet is the interesting case: keep
+        // one line a minute so a frozen picture is visible instead of silence.
+        if (idle && (verbose || lastRenderedNs == 0L)) { windowStartNs = now; return null }
+        val sinceShown = if (lastRenderedNs == 0L) "none" else ((now - lastRenderedNs) / 1_000_000).toString()
+        val line = if (verbose) {
+            val touchAvgMs = if (touchSamples == 0) -1 else touchLatencySumNs / touchSamples / 1_000_000
+            ("video stats$label rx=%.1ffps shown=%.1ffps maxGap=%dms kbps=%d recoveries=%d " +
+                "touch2frame avg=%dms max=%dms n=%d touchSendMax=%dms").format(
+                received / seconds, rendered / seconds, maxArrivalGapNs / 1_000_000,
+                (bytes * 8 / 1000 / seconds).toLong(), recoveries,
+                touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, TouchLatencyProbe.maxSendNs / 1_000_000,
+            ) + decodeSummary() + " idleGaps=$idleGaps idleGapMax=${maxIdleGapNs / 1_000_000}ms" +
+                " heldDecodeN=$heldDecodeSamples heldDecodeMax=${maxHeldDecodeNs / 1_000_000}ms monotonicNs=$now"
+        } else {
+            ("video stats$label rx=%.1ffps shown=%.1ffps maxGap=%dms kbps=%d recoveries=%d sinceShownMs=$sinceShown").format(
+                received / seconds, rendered / seconds, maxArrivalGapNs / 1_000_000,
+                (bytes * 8 / 1000 / seconds).toLong(), recoveries,
+            ) + decodeSummary() + " idleGaps=$idleGaps idleGapMax=${maxIdleGapNs / 1_000_000}ms monotonicNs=$now"
+        }
         TouchLatencyProbe.maxSendNs = 0
         Log.i(TAG, line)
         windowStartNs = now
@@ -102,6 +120,7 @@ internal class VideoStats(
     private companion object {
         const val TAG = "DiPlay-VideoStats"
         const val WINDOW_NS = 5_000_000_000L
+        const val SUMMARY_WINDOW_NS = 60_000_000_000L // production: one compact line a minute
         const val IDLE_GAP_NS = 2_000_000_000L // report separately: static content can also cause long gaps
     }
 }

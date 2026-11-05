@@ -34,11 +34,13 @@ internal class WirelessStartupDiagnostics(
     }
 
     @Synchronized fun controlProgress(message: String) {
-        when (message) {
-            "iap2 authentication accepted" -> authenticated = true
-            "iap2 tx=0x5703 accessory-wifi-configuration",
-            "iap2 tx=0x5703 post-transport accessory-wifi-configuration" -> wifiConfigs++
-            "iap2 tx=0x4301 carplay-start-session" -> {
+        // Prefix matching: the bootstrap now appends writeMs to these lines, and the counters must
+        // keep working with both the old and the new text.
+        when {
+            message.startsWith("iap2 authentication accepted") -> authenticated = true
+            message.startsWith("iap2 tx=0x5703 accessory-wifi-configuration") ||
+                message.startsWith("iap2 tx=0x5703 post-transport accessory-wifi-configuration") -> wifiConfigs++
+            message.startsWith("iap2 tx=0x4301 carplay-start-session") -> {
                 startRequests++
                 if (firstStartRequestNs == null) firstStartRequestNs = nowNs()
             }

@@ -52,4 +52,25 @@ class VideoStatsTest {
         now += 5_000_000_000
         assertNull(stats.logIfDue())
     }
+
+    @Test fun productionSummaryReportsWhatReachedTheScreenOnceAMinute() {
+        val summary = VideoStats(nanoTime = { now })
+        summary.onReceived(1_000)
+        summary.onRendered()
+        now += 30_000_000_000
+        assertNull("production keeps the 60 s window", summary.logIfDue(verbose = false))
+        now += 30_000_000_000
+        val line = summary.logIfDue(verbose = false)!!
+        assertTrue(line, line.contains("shown=0.0fps"))
+        assertTrue(line, line.contains("sinceShownMs=60000"))
+        assertFalse("production summary stays compact", line.contains("touch2frame"))
+    }
+
+    @Test fun productionSummarySaysNoneBeforeAnyFrameReachedTheScreen() {
+        val summary = VideoStats(nanoTime = { now })
+        summary.onReceived(100)
+        now += 60_000_000_000
+        val line = summary.logIfDue(verbose = false)!!
+        assertTrue(line, line.contains("sinceShownMs=none"))
+    }
 }

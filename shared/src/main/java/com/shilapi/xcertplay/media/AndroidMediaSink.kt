@@ -1214,7 +1214,7 @@ private class VideoDecoder(
                         null -> Unit
                     }
                     if (outputThread == null) decoder?.let(::drainOutput)
-                    if (debugLogsEnabled()) stats.logIfDue()?.let(report)
+                    stats.logIfDue(verbose = debugLogsEnabled())?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
                     onJobFailure(job?.javaClass?.simpleName ?: "drain", error)
@@ -2714,7 +2714,8 @@ private class AudioRenderer(
     private fun logStatsIfDue(force: Boolean = false) {
         val now = System.nanoTime()
         if (statsWindowStartNs == 0L) statsWindowStartNs = now
-        if (!force && now - statsWindowStartNs < STATS_WINDOW_NS) return
+        val verbose = debugLogsEnabled()
+        if (!force && now - statsWindowStartNs < if (verbose) STATS_WINDOW_NS else SUMMARY_WINDOW_NS) return
         val underruns = track?.underrunCount ?: 0
         val lastRx = lastArrivalNs.get()
         val currentTrack = track
@@ -2733,7 +2734,7 @@ private class AudioRenderer(
         val received = packetsReceived.getAndSet(0)
         val dropped = packetsDropped.getAndSet(0)
         val arrivalGapMs = maxArrivalGapMs.getAndSet(0)
-        if (debugLogsEnabled()) {
+        if (verbose) {
             val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
             val line = "audio stats audioType=${format.audioType} payloadType=${format.payloadType} channel=$channelName " +
                 "routeId=${currentTrack?.routedDevice?.id ?: -1} routeType=${currentTrack?.routedDevice?.type ?: -1} routeAddress=${currentTrack?.routedDevice?.address ?: "none"} " +
@@ -2764,6 +2765,20 @@ private class AudioRenderer(
                 Log.i(STATS_TAG, decoderLine)
                 runCatching { report(decoderLine) }
             }
+        } else {
+            // Production summary: without it a report can show packets arriving but never whether the
+            // track starved, how deep the queue was, or how long the buffer really is.
+            val sampleRate = currentTrack?.sampleRate ?: format.sampleRate
+            val bufferMs = currentTrack?.bufferSizeInFrames?.let { frames ->
+                if (sampleRate > 0) frames * 1000L / sampleRate else -1L
+            } ?: -1L
+            val line = "Audio: stats audioType=${format.audioType} codec=${format.codec} " +
+                "rx=$received dropped=$dropped underruns=+${underruns - statsLastUnderruns} " +
+                "queue=${queue.size} playing=$playbackStarted maxGapMs=$arrivalGapMs " +
+                "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} " +
+                "bufferMs=$bufferMs rebuffers=$rebufferCount writeErrors=$writeErrorsThisWindow ended=$force"
+            Log.i(STATS_TAG, line)
+            runCatching { report(line) }
         }
         statsLastUnderruns = underruns
         maxWriteMs = 0L
@@ -2858,6 +2873,8 @@ private class AudioRenderer(
         const val PREBUFFER_WRITE_CHUNK_BYTES = 2 * 1024
         const val STATS_TAG = "DiPlay-AudioStats"
         const val STATS_WINDOW_NS = 5_000_000_000L
+        // Production: one compact line a minute so the report still shows underruns and queue depth.
+        const val SUMMARY_WINDOW_NS = 60_000_000_000L
         const val MAX_REBUFFER_REPORTS = 5
         const val MAX_QUEUE_FULL_REPORTS = 5
     }

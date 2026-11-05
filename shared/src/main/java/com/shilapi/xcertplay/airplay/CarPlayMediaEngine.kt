@@ -138,7 +138,10 @@ class CarPlayMediaEngine(
         val peer = session.remoteAddress ?: return null
         val streamKey = StreamKey(session, type)
         Log.i(TAG, "airplay screen key connectionID=${unsignedPlistDecimal(stream["streamConnectionID"])}")
-        val screen = ScreenStream(key, peer, session::logDebug)
+        // Two screens receive at once. Label the stats so a stall can be attributed to one of them;
+        // the main screen keeps the historical "video" prefix that the report parser expects.
+        val screenLabel = if (type == STREAM_TYPE_MAIN_SCREEN) "video" else "video stream=$type"
+        val screen = ScreenStream(key, peer, session::logDebug, screenLabel)
         sink.setVideoDiagnosticHandler(type) {
             if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it == "first frame rendered") {
                 session.videoFrameRendered()

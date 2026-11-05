@@ -25,6 +25,14 @@ class Iap2Session private constructor(
 ) : AutoCloseable {
     val isClosed: Boolean get() = channel.isClosed
 
+    private val lastSendNanos = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * How long the most recent [send] blocked in the transport, in milliseconds. A bootstrap wait is
+     * our write plus the phone's reply; without this split the two are indistinguishable.
+     */
+    val lastSendMillis: Long get() = lastSendNanos.get() / 1_000_000L
+
     fun awaitReady(timeoutMillis: Long): Boolean {
         val ready = channel.awaitReady(timeoutMillis)
         emitTrace("IAP2 READY [$traceContext] ready=$ready")
@@ -32,8 +40,10 @@ class Iap2Session private constructor(
     }
 
     fun send(frame: Iap2Frame, timeoutMillis: Long = DEFAULT_SEND_TIMEOUT_MILLIS) {
+        val started = System.nanoTime()
         try {
             channel.send(frame, timeoutMillis)
+            lastSendNanos.set(System.nanoTime() - started)
             emitFrameTrace(Iap2TraceDirection.TX, frame)
         } catch (failure: Throwable) {
             emitTrace(

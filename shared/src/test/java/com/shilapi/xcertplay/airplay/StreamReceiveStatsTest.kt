@@ -66,6 +66,23 @@ class StreamReceiveStatsTest {
         assertTrue(output.last().contains("seqForwardGaps=1"))
     }
 
+    @Test fun reportsSequenceUnavailableInsteadOfZeroGapsWhenNoPacketCarriedOne() {
+        var clock = 0L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats("video", output::add) { clock }
+        stats.reading()
+        clock += 100_000_000L
+        stats.received(128) // header-only keepalive: no sequence number at all
+        stats.processed()
+        clock += 5_000_000_000L
+        stats.flush()
+        val line = output.single()
+        assertTrue(line, line.contains("seq=unavailable"))
+        assertFalse(line, line.contains("seqGapMax=0"))
+        assertFalse(line, line.contains("seqForwardGaps=0"))
+        assertTrue(line, line.contains("packets=1 bytes=128"))
+    }
+
     @Test fun decryptTimingIsReportedOnlyWhenRecordedAndThenReset() {
         var clock = 0L
         val output = mutableListOf<String>()

@@ -23,6 +23,8 @@ class ScreenStream(
     private val key: ByteArray,
     private val expectedPeer: InetAddress,
     private val onDiagnostic: (String) -> Unit = {},
+    /** Receive-stat label; the main screen keeps "video", other screens say which stream they are. */
+    private val label: String = "video",
 ) : Closeable {
     interface Listener {
         fun onCodec(codec: VideoCodec) {}
@@ -73,7 +75,7 @@ class ScreenStream(
 
     private fun run(sock: Socket) {
         var failure: Throwable? = null
-        val stats = StreamReceiveStats("video", onDiagnostic)
+        val stats = StreamReceiveStats(label, onDiagnostic)
         try {
             val input = sock.getInputStream()
             while (!closed.get()) {

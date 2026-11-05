@@ -70,19 +70,20 @@ class Iap2WirelessControlClient(
             onProgress,
             onLinkReady = { onBootstrapPhase(Iap2BootstrapPhase.CSM_ESTABLISHED) },
         )
-        onProgress("iap2 identification accepted")
+        onProgress("iap2 identification accepted writeMs=${session.lastSendMillis}")
         var stage = Iap2WirelessControlStage.IDENTIFIED
 
         mfi.run(session, handshakeRemaining(), onProgress)
         onBootstrapPhase(Iap2BootstrapPhase.MFi_AUTHENTICATED)
         stage = Iap2WirelessControlStage.AUTHENTICATED
-        onProgress("iap2 authentication accepted")
+        onProgress("iap2 authentication accepted writeMs=${session.lastSendMillis}")
 
+        val subscriptionsStarted = System.nanoTime()
         for (subscription in Iap2WiredControlClient.subscriptions()) {
             session.send(subscription, handshakeRemaining())
         }
         stage = Iap2WirelessControlStage.SUBSCRIBED
-        onProgress("iap2 subscriptions sent")
+        onProgress("iap2 subscriptions sent writeMs=${(System.nanoTime() - subscriptionsStarted) / 1_000_000}")
         onReady()
 
         fun sendControl(frame: Iap2Frame) {
@@ -212,7 +213,7 @@ class Iap2WirelessControlClient(
                             } else {
                                 preTransportWiFiConfigurationsSent++
                             }
-                            onProgress("iap2 tx=0x5703 accessory-wifi-configuration")
+                            onProgress("iap2 tx=0x5703 accessory-wifi-configuration writeMs=${session.lastSendMillis}")
                         }
                     }
 
@@ -223,7 +224,7 @@ class Iap2WirelessControlClient(
                         sendStartSession(endpoint, ::sendControl, onStartSessionSent)
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
-                        onProgress("iap2 tx=0x4301 carplay-start-session")
+                        onProgress("iap2 tx=0x4301 carplay-start-session writeMs=${session.lastSendMillis}")
                         onBootstrapPhase(Iap2BootstrapPhase.START_SESSION_SENT)
                     }
 
@@ -263,7 +264,7 @@ class Iap2WirelessControlClient(
                             wifiConfigurationsSent++
                             postTransportWiFiConfigurationsSent++
                             onProgress(
-                                "iap2 tx=0x5703 post-transport accessory-wifi-configuration",
+                                "iap2 tx=0x5703 post-transport accessory-wifi-configuration writeMs=${session.lastSendMillis}",
                             )
                         }
                     }
