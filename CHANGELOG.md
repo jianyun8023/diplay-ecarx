@@ -6,6 +6,14 @@
 
 使用手册正文已跟进到本段实现；页面截图仍是 v106 实车画面，各节标注了后续版本的实测状态。
 
+## RFCOMM 连接与网络准备并行（无线连接提速，待实车验证）
+
+- 选定配对 iPhone 后立即开始 RFCOMM socket 连接，与 AirPlay listener attach、Bonjour 启动、endpoint 构造并行执行。v124 实车日志中这两段原本串行：bt/select 之后空等约 235ms 才发起连接，而连接本身约 259ms；并行后两段等待重叠，预期节约 ≈235ms（待实车 A/B 验证）。
+- 只并行 socket connect：socket 创建时即在资源锁下登记到既有清理路径，所有权不变；采纳预连接 socket 或重抛其失败都发生在 `validateInfrastructure()`（含 Bonjour 校验）通过之后，CSM 与 bootstrap 时序不变，未放宽任何校验。
+- 预连接失败按该次尝试的 connect 失败处理，保留 #36 局部恢复的分类与预算；预连接只被第一次尝试消费一次，退避重试与备用 iPhone 仍按原路径串行建链，不会出现两个 socket 同时连接同一部手机。
+- 采纳等待上限为 connect 8s 预算加 2s 轮询余量：预连接卡死时以 IOException 超时进入既有重试，而不是退回串行再开第二个 socket。
+- `RFCOMM_CONNECTED` 启动时间线采样移到预连接线程 connect 真正完成时刻，时间线不再把「等网络准备」计入连接耗时。
+
 ## 热点就绪分级确认（无线连接提速）
 
 - 热点检测改为分级确认：首个采样已显示 AP 已开、接口已在 `getTetheredIfaces()` 中且地址可用时，稳定采样由 3 次缩短为 2 次（少等一个 250ms 轮询）；热点刚启动、接口或地址发生变化时仍保留 3 次完整确认。
