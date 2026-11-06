@@ -215,7 +215,7 @@ class LauncherIntentTest {
         assertEquals(0, stops)
     }
 
-    @Test fun bootStartWithoutASessionStaysOnHomeAndAutoConnectsOnlyWhenOn() {
+    @Test fun bootStartWithoutASessionShowsTheConnectionPageWhenAutoConnectIsOn() {
         CarPlayBackgroundSession.clear()
         val app = RuntimeEnvironment.getApplication()
         DiPlayPreferences.savePhone(app, "00:11:22:33:44:55", "Test iPhone")
@@ -230,7 +230,8 @@ class LauncherIntentTest {
             home.start().resume()
             shadowOf(Looper.getMainLooper()).idle()
             assertFalse(activity.isFinishing)
-            assertEquals("home", ReflectionHelpers.getField<String>(activity, "page"))
+            assertEquals(if (autoConnect) "carplay-starting" else "home",
+                ReflectionHelpers.getField<String>(activity, "page"))
             assertNull(shadowOf(activity).nextStartedActivity)
             shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(5))
             assertEquals("autoConnect=$autoConnect", if (autoConnect) CarPlayHostActivity::class.java.name else null,

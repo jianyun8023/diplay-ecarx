@@ -390,8 +390,15 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         setupStep = savedInstanceState?.getInt("setup_step") ?: SetupGuide.STEP_CONNECTION
         setupFromSettings = savedInstanceState?.getBoolean("setup_from_settings") ?: false
         page = savedInstanceState?.getString("page") ?: requestedPage(intent)
-            ?: if (setupError == null && SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(this),
-                    DiPlayPreferences.phoneAddress(this) != null)) "setup" else "home"
+            ?: when {
+                setupError == null && SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(this),
+                    DiPlayPreferences.phoneAddress(this) != null) -> "setup"
+                setupError == null && !CarPlayBackgroundSession.hasSession() &&
+                    DiPlayPreferences.autoConnect(this) &&
+                    (!DiPlayPreferences.autoConnectWireless(this) || DiPlayPreferences.phoneAddress(this) != null) ->
+                    "carplay-starting"
+                else -> "home"
+            }
         render()
         handleWirelessRecovery()
         if (consumeBluetoothAutoConnectIntent(intent)) {
@@ -535,13 +542,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (initialLaunch) {
             initialLaunch = false
             startCarHotspotOnLaunch()
-            if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
-                DiPlayPreferences.autoConnect(this) && requestedPage(intent) == null && page != "setup") {
+            val shouldAutoConnect = setupError == null && !CarPlayBackgroundSession.hasSession() &&
+                DiPlayPreferences.autoConnect(this) && requestedPage(intent) == null && page != "setup"
+            if (shouldAutoConnect) {
                 // The same-LAN backend already waits for the interface/IP, so a blind 5s
                 // launch delay only hides useful work. A manually managed car hotspot can be
                 // started by the OEM after our Activity: wait for its ON state, but preserve
                 // the original bounded fallback for unknown/off framework states.
                 val wireless = DiPlayPreferences.autoConnectWireless(this)
+                if (page == "home" &&
+                    (!wireless || DiPlayPreferences.phoneAddress(this) != null)) {
+                    page = "carplay-starting"
+                    render()
+                }
                 val mode = AirPlayPersistence.loadWirelessHotspotMode(this)
                 val plan = LaunchAutoConnectPolicy.plan(wireless, mode, autoHotspotWanted())
                 val scheduledAt = SystemClock.elapsedRealtime()
@@ -726,6 +739,22 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 "setup" -> setupGuide(content)
                 "settings" -> settingsCategoryContent(content)
                 "backup" -> backup(content)
+                "carplay-starting" -> {
+                    val panel = column().apply { gravity = Gravity.CENTER }
+                    panel.addView(ImageView(this).apply {
+                        setImageResource(R.drawable.ic_carplay)
+                        contentDescription = getString(R.string.carplay_icon)
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                    }, LinearLayout.LayoutParams(dp(112), dp(112)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+                    panel.addView(label(getString(R.string.connecting_to_your_iphone), 26, TEXT, true).apply {
+                        gravity = Gravity.CENTER
+                    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+                    panel.addView(ProgressBar(this), LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        topMargin = dp(24)
+                    })
+                    content.addView(panel, LinearLayout.LayoutParams(-1, 0, 1f))
+                }
                 else -> home(content)
             }
             scroll
@@ -2719,7 +2748,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     val manualFallback = result == CarHotspotTethering.Result.UNSUPPORTED &&
                         com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(app) == null
                     if (result == CarHotspotTethering.Result.READY || manualFallback) connectPreparedWithSource(true, source)
-                    else toast(hotspotResultText(result))
+                    else {
+                        leaveCarPlayStartingPage()
+                        toast(hotspotResultText(result))
+                    }
                 }
             }
         }, "diplay-hotspot-startup").start()
@@ -4635,12 +4667,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         connectPreparedWithSource(wireless, source)
     }
 
+    private fun leaveCarPlayStartingPage() {
+        if (page != "carplay-starting") return
+        page = "home"
+        render()
+    }
+
     private fun connectPreparedWithSource(wireless: Boolean, source: ConnectionTraceSource) {
-        if (manualHotspotBusy()) { toast(getString(R.string.settings_manual_hotspot_working)); return }
+        if (manualHotspotBusy()) { leaveCarPlayStartingPage(); toast(getString(R.string.settings_manual_hotspot_working)); return }
         ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.CONNECT_ENTERED)
         startupHotspotCancelled = true
         if (wireless && pendingCarHotspotSetup) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED); toast(getString(R.string.save_your_hotspot_details_in_connection_setup_first)); page = "connection"; hotspotEntryChecked = true; render(); return }
-        if (setupError != null) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.SETUP_BLOCKED); toast(setupError!!); return }
+        if (setupError != null) { leaveCarPlayStartingPage(); ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.SETUP_BLOCKED); toast(setupError!!); return }
         if (wireless && AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
             hotspotError(storedSsid(), storedPassword()) != null) {
             ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_SETUP_REQUIRED)
@@ -4651,8 +4689,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             toast(getString(R.string.save_the_name_and_password_from_the_car_s_hotspot_settings))
             return
         }
-        if (wireless && carHotspotOff()) { ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_OFF); carHotspotOffDialog(); return }
+        if (wireless && carHotspotOff()) { leaveCarPlayStartingPage(); ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.HOTSPOT_OFF); carHotspotOffDialog(); return }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
+            leaveCarPlayStartingPage()
             ConnectionDiagnostics.record(this, source, ConnectionTraceEvent.PHONE_SELECTION_REQUIRED)
             pendingWireless = true; choosePhone(); return
         }
@@ -4675,10 +4714,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         else open()
     }
     private fun openProjection() {
-        if (manualHotspotBusy()) { toast(getString(R.string.settings_manual_hotspot_working)); return }
+        if (manualHotspotBusy()) { leaveCarPlayStartingPage(); toast(getString(R.string.settings_manual_hotspot_working)); return }
+        val startingCarPlay = page == "carplay-starting"
+        if (startingCarPlay) page = "home"
         projectionRequested = true
         if (!OwnScreenStart.start(this, CarPlayScreen.intent(this).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))) {
             projectionRequested = false
+            if (startingCarPlay) render()
         }
     }
     private fun choosePhone() {
