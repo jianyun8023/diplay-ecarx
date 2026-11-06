@@ -17,6 +17,10 @@ class StartupDiagnosticSnapshotTest {
     private val app get() = RuntimeEnvironment.getApplication()
     @Before fun reset() {
         app.getSharedPreferences("diplay_startup_diagnostics", Context.MODE_PRIVATE).edit().clear().commit()
+        app.createDeviceProtectedStorageContext()
+            .getSharedPreferences("diplay_startup_diagnostics", Context.MODE_PRIVATE).edit().clear().commit()
+        app.createDeviceProtectedStorageContext()
+            .getSharedPreferences("diplay_boot_startup", Context.MODE_PRIVATE).edit().clear().commit()
         AirPlayPersistence.saveAutoStartOnBoot(app, false)
     }
 
@@ -56,6 +60,20 @@ class StartupDiagnosticSnapshotTest {
         AirPlayPersistence.saveAutoStartOnBoot(app, false)
         BootReceiver().onReceive(context, Intent(Intent.ACTION_BOOT_COMPLETED))
         assertTrue(StartupDiagnosticSnapshot.report(app).contains("launchResult=disabled failureClass=none"))
+    }
+
+    @Test fun lockedBootWarmupRecordsTheEarlierCheckpointWithoutLaunchingOrTouchingTheNormalBootState() {
+        AirPlayPersistence.saveAutoStartOnBoot(app, true)
+        var launched = false
+        val context = object : ContextWrapper(app) {
+            override fun startActivity(intent: Intent) { launched = true }
+        }
+        BootReceiver().onReceive(context, Intent(Intent.ACTION_LOCKED_BOOT_COMPLETED))
+        assertFalse(launched)
+        val report = StartupDiagnosticSnapshot.report(app)
+        assertTrue(report.contains("lockedBootReceivedAtEpochMs="))
+        assertTrue(report.contains("lockedLaunchEnabled=true"))
+        assertFalse(report.contains("launchResult="))
     }
 
     @Test fun unrelatedBroadcastsDoNotCreateOrOverwriteBootEvidence() {
