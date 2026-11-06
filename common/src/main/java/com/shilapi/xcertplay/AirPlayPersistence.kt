@@ -564,6 +564,8 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_AUTO_START_ON_BOOT, enabled)
             .apply()
+        // LOCKED_BOOT_COMPLETED can arrive before credential-encrypted storage is readable.
+        runCatching { BootStartupPreferences.saveAutoStartOnBoot(context, enabled) }
     }
 
     /**

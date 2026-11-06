@@ -2,8 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- android:persistent is honoured only when the APK is preinstalled on /system/priv-app
+         (FLAG_SYSTEM). Android clears the flag for ordinary /data/app installs. -->
     <application
         android:allowBackup="false"
+        android:persistent="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@drawable/ic_carplay"

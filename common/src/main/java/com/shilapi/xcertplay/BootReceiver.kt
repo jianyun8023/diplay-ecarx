@@ -11,12 +11,35 @@ import com.shilapi.xcertplay.orchestration.CarPlayStartupTimeline
 /** Starts the CarPlay host after boot when the user has enabled the startup option. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        when (intent.action) {
+            Intent.ACTION_LOCKED_BOOT_COMPLETED -> onLockedBoot(context)
+            Intent.ACTION_BOOT_COMPLETED -> onBootCompleted(context)
+            else -> return
+        }
+    }
+
+    /**
+     * Runs before credential-encrypted storage is available. Only the device-protected copy of the
+     * auto-start flag is safe to read. Creating this process early is the win: the later
+     * BOOT_COMPLETED launch no longer pays the fork, class-load and provider-install cost, and the
+     * receiver is directBootAware so the platform can deliver it without waiting for user unlock.
+     */
+    private fun onLockedBoot(context: Context) {
+        val launchEnabled = BootStartupPreferences.loadAutoStartOnBoot(context)
+        StartupDiagnosticSnapshot.lockedBootReceived(context, launchEnabled)
+        if (!launchEnabled) return
+        Log.i(TAG, "LOCKED_BOOT_COMPLETED received; process warmed for boot auto-start")
+    }
+
+    private fun onBootCompleted(context: Context) {
         val mode = AirPlayPersistence.loadWirelessHotspotMode(context)
         CarPlayStartupTimeline.record(context, CarPlayStartupTimeline.Stage.BOOT_BROADCAST, mode)
         // Starts the watcher for other apps' calls when that setting is on, even without opening DiPlay.
         PhoneAudioRoute.attach(context)
         val launchEnabled = AirPlayPersistence.loadAutoStartOnBoot(context)
+        // Refresh the device-protected mirror for the next power cycle, including upgrades from
+        // versions that only had the credential-protected preference.
+        runCatching { BootStartupPreferences.saveAutoStartOnBoot(context, launchEnabled) }
         StartupDiagnosticSnapshot.received(context, launchEnabled)
         // The profile policy outlives a killed process, so a power cycle is the one moment that is
         // guaranteed to follow an unclean exit. Release it before anything else can look at it.
