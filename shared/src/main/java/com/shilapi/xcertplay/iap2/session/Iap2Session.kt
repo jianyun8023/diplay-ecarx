@@ -7,6 +7,7 @@ import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.trace.Iap2FrameFormatter
 import com.shilapi.xcertplay.iap2.trace.Iap2TraceDirection
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.logging.XCertplayTrace
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import com.shilapi.xcertplay.transport.Iap2CsmChannel
 import com.shilapi.xcertplay.transport.Iap2ArtworkTransfer
@@ -24,6 +25,8 @@ class Iap2Session private constructor(
     private val onTrace: (String) -> Unit,
 ) : AutoCloseable {
     val isClosed: Boolean get() = channel.isClosed
+
+    private val frameTraceLimiter = Iap2FrameTraceLimiter()
 
     fun awaitReady(timeoutMillis: Long): Boolean {
         val ready = channel.awaitReady(timeoutMillis)
@@ -92,7 +95,20 @@ class Iap2Session private constructor(
 
     private fun emitFrameTrace(direction: Iap2TraceDirection, frame: Iap2Frame) {
         try {
-            emitTrace(Iap2FrameFormatter.format(direction, traceContext, frame))
+            val selection = frameTraceLimiter.select(
+                direction = direction,
+                messageId = frame.messageId,
+                nowNs = System.nanoTime(),
+                detailed = XCertplayTrace.enabled,
+            ) ?: return
+            var message = Iap2FrameFormatter.format(
+                direction,
+                traceContext,
+                frame,
+                detail = selection.detail,
+            )
+            if (selection.suppressed > 0) message += " suppressed=" + selection.suppressed
+            emitTrace(message)
         } catch (failure: Exception) {
             emitTrace(
                 Iap2FrameFormatter.formatFailure(

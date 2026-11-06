@@ -40,6 +40,7 @@ import com.shilapi.xcertplay.bluetooth.BluetoothAdapterRestore
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
 import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.iap2.session.Iap2Session
+import com.shilapi.xcertplay.logging.XCertplayTrace
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClient
@@ -375,6 +376,8 @@ class CarPlayController(
         return Triple(current.session, current.png.copyOf(), current.width)
     }
 
+    private val commandLogLimiter = AirPlayCommandLogLimiter()
+
     private val sessionListener = object : AirPlaySessionListener {
         // Trace lines reach logcat and the UI; build them only for `setprop log.tag.DiPlayTrace VERBOSE` or a UI that wants them.
         override val debugLogsEnabled: Boolean get() = uiListener?.debugLogsEnabled == true
@@ -488,15 +491,23 @@ class CarPlayController(
         }
 
         override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {
-            // Values, not just keys. `duckAudio` carries the iPhone's own durationMs/volume, and
-            // without them a duck of the wrong depth cannot be told apart from one fired at the
-            // wrong moment. Iterated by hand so no lambda (and so no new class) is introduced.
-            val rendered = StringBuilder()
-            for ((key, value) in params) {
-                if (rendered.isNotEmpty()) rendered.append(',')
-                rendered.append(key).append('=').append(value)
+            // Never drop a command: suppress only repetitive diagnostic formatting.
+            // Detailed parameters are available with the explicit trace switch.
+            if (XCertplayTrace.enabled) {
+                val rendered = StringBuilder()
+                for ((key, value) in params) {
+                    if (rendered.isNotEmpty()) rendered.append(',')
+                    rendered.append(key).append('=').append(value)
+                }
+                debugLog("AirPlay command type=" + type + " params=" + rendered)
+            } else if (commandLogLimiter.shouldLog(session, type, params)) {
+                if (type == "modesChanged") {
+                    debugLog("AirPlay command type=modesChanged appStates=" + params["appStates"] +
+                        " resources=" + params["resources"])
+                } else {
+                    debugLog("AirPlay command type=" + type + " keys=" + params.keys.sorted())
+                }
             }
-            debugLog("AirPlay command type=$type params=$rendered")
             // The parameters arrive from a plist, so they may be integer or real.
             val duckDurationMs = (params["durationMs"] as? Number)?.toInt()
             val duckVolume = (params["volume"] as? Number)?.toFloat()

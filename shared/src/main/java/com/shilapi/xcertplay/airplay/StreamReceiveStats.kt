@@ -4,6 +4,7 @@ package com.shilapi.xcertplay.airplay
 internal class StreamReceiveStats(
     private val label: String,
     private val report: (String) -> Unit,
+    private val reportIntervalNs: Long = DEFAULT_REPORT_INTERVAL_NS,
     private val nowNs: () -> Long = System::nanoTime,
 ) {
     private var windowStart = nowNs()
@@ -82,7 +83,16 @@ internal class StreamReceiveStats(
 
     fun flush(ended: Boolean = false) {
         val now = nowNs()
-        if (!ended && now - windowStart < 5_000_000_000L) return
+        val elapsed = now - windowStart
+        // Blocking socket reads frequently exceed 250 ms on healthy streams.
+        // Only actual RTP sequence anomalies warrant a 5-second report.
+        val anomaly = sequenceGapEvents > 0 || lateOrDuplicate > 0
+        if (!ended) {
+            if (elapsed < reportIntervalNs) {
+                // Healthy windows use the heartbeat; packet loss and reordering report promptly.
+                if (!anomaly || elapsed < ANOMALY_MIN_INTERVAL_NS) return
+            }
+        }
         runCatching { report("Receive: $label packets=$packets bytes=$bytes readMaxMs=${maxReadNs / 1_000_000} " +
             "processMaxUs=${maxProcessNs / 1000} seqForwardGaps=$forwardGapPackets " +
             "lateOrDuplicate=$lateOrDuplicate interArrivalMaxMs=${maxInterArrivalNs / 1_000_000} " +
@@ -121,6 +131,10 @@ internal class StreamReceiveStats(
             "decryptMBps=$mbPerSecond"
     }
 
-    private companion object { const val LONG_READ_NS = 250_000_000L }
+    private companion object {
+        const val LONG_READ_NS = 250_000_000L
+        const val DEFAULT_REPORT_INTERVAL_NS = 5_000_000_000L
+        const val ANOMALY_MIN_INTERVAL_NS = 5_000_000_000L
+    }
 
 }
