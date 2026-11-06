@@ -30,10 +30,10 @@ class Iap2FrameTraceLimiterTest {
         val limiter = Iap2FrameTraceLimiter()
         repeat(3) { limiter.select(rx, 0xfffb, it.toLong(), false) }
         repeat(9) { assertNull(limiter.select(rx, 0xfffb, 4L, false)) }
-        repeat(10) {
+        repeat(10) { index ->
             val decision = limiter.select(rx, 0xfffb, 5L, true)!!
             assertTrue(decision.detail)
-            assertEquals(0L, decision.suppressed)
+            assertEquals(if (index == 0) 9L else 0L, decision.suppressed)
         }
         assertNull(limiter.select(rx, 0xfffb, 6L, false))
         val heartbeat = limiter.select(rx, 0xfffb, 60_000_000_006L, false)!!

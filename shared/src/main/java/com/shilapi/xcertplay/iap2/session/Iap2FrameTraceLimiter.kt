@@ -35,9 +35,9 @@ internal class Iap2FrameTraceLimiter(
             state.seen++
             val heartbeatDue = state.lastLoggedNs?.let { nowNs - it >= heartbeatNanos } == true
             if (detailed || state.seen <= initialFrames || heartbeatDue) {
-                // Explicit DEBUG emits all frames. No suppressed count is carried across
-                // detailed tracing because those frames were not suppressed.
-                decision = Decision(detail = detailed, suppressed = if (detailed) 0 else state.suppressed)
+                // Carry the preceding suppressed count into the first DEBUG frame too,
+                // so enabling trace cannot silently erase unreported omissions.
+                decision = Decision(detail = detailed, suppressed = state.suppressed)
                 state.suppressed = 0
                 state.lastLoggedNs = nowNs
             } else {
