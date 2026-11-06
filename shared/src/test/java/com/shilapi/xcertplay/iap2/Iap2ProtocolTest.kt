@@ -168,8 +168,19 @@ class Iap2ProtocolTest {
     }
 
     @Test
-    fun formatterFallsBackForMalformedBodies() {
-        val formatted = Iap2FrameFormatter.format(
+    fun summaryFormatterOmitsParametersAndRawBody() {
+        val frame = Iap2ControlMessages.locationInformation("\$GPGGA,1\r\n")
+
+        val formatted = Iap2FrameFormatter.format(Iap2TraceDirection.TX, "wired", frame, detail = false)
+
+        assertTrue(formatted.startsWith("IAP2 TX [wired] 0xfffb LocationInformation"))
+        assertTrue("body=" in formatted)
+        assertFalse("raw-body=" in formatted)
+        assertFalse("NMEA" in formatted)
+    }
+
+    @Test
+    fun formatterFallsBackForMalformedBodies() {        val formatted = Iap2FrameFormatter.format(
             Iap2TraceDirection.RX,
             "wired",
             Iap2Frame(0x4300, byteArrayOf(0, 1, 2)),

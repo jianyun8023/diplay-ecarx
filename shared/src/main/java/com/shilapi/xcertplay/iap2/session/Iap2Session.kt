@@ -7,9 +7,11 @@ import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.trace.Iap2FrameFormatter
 import com.shilapi.xcertplay.iap2.trace.Iap2TraceDirection
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.logging.XCertplayTrace
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import com.shilapi.xcertplay.transport.Iap2CsmChannel
 import com.shilapi.xcertplay.transport.Iap2ArtworkTransfer
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * One immediately readable and writable iAP2 CSM session.
@@ -24,6 +26,11 @@ class Iap2Session private constructor(
     private val onTrace: (String) -> Unit,
 ) : AutoCloseable {
     val isClosed: Boolean get() = channel.isClosed
+
+    /** Per-endpoint trace budget: the first frames are useful, the rest are noise. */
+    private val traceCounts = ConcurrentHashMap<Int, Int>()
+    private val traceLastAt = ConcurrentHashMap<Int, Long>()
+    private val traceSuppressed = ConcurrentHashMap<Int, Int>()
 
     fun awaitReady(timeoutMillis: Long): Boolean {
         val ready = channel.awaitReady(timeoutMillis)
@@ -92,7 +99,26 @@ class Iap2Session private constructor(
 
     private fun emitFrameTrace(direction: Iap2TraceDirection, frame: Iap2Frame) {
         try {
-            emitTrace(Iap2FrameFormatter.format(direction, traceContext, frame))
+            val now = System.nanoTime()
+            val endpointId = frame.messageId
+            val count = traceCounts.merge(endpointId, 1) { previous, _ -> previous + 1 } ?: 1
+            val last = traceLastAt[endpointId] ?: 0L
+            val firstFrames = count <= LOGGED_FRAMES_PER_ENDPOINT
+            val heartbeatDue = last != 0L && now - last >= TRACE_HEARTBEAT_NANOS
+            if (!firstFrames && !heartbeatDue) {
+                traceSuppressed.merge(endpointId, 1) { previous, _ -> previous + 1 }
+                return
+            }
+            traceLastAt[endpointId] = now
+            val suppressed = traceSuppressed.remove(endpointId) ?: 0
+            var message = Iap2FrameFormatter.format(
+                direction,
+                traceContext,
+                frame,
+                detail = XCertplayTrace.enabled,
+            )
+            if (suppressed > 0) message += " suppressed=$suppressed"
+            emitTrace(message)
         } catch (failure: Exception) {
             emitTrace(
                 Iap2FrameFormatter.formatFailure(
@@ -115,6 +141,8 @@ class Iap2Session private constructor(
 
     companion object {
         private const val DEFAULT_SEND_TIMEOUT_MILLIS = 5_000L
+        const val LOGGED_FRAMES_PER_ENDPOINT = 3
+        const val TRACE_HEARTBEAT_NANOS = 60_000_000_000L
 
         fun open(
             underlying: BlockingDuplexByteStream,

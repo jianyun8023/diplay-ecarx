@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.airplay
 
 import android.util.Log
 import com.shilapi.xcertplay.hud.NavigationOutputs
+import com.shilapi.xcertplay.logging.XCertplayTrace
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import java.io.BufferedInputStream
@@ -559,10 +560,9 @@ class AirPlaySession(
                     val showInDebugOverlay =
                         !path.endsWith("/feedback") &&
                             !(request.method == "POST" && path.endsWith("/command"))
-                    debugLog(
-                        "airplay rx ${request.method} ${request.path} cseq=$cseq body=${request.body.size}",
-                        showInDebugOverlay,
-                    )
+                    val rxMessage =
+                        "airplay rx ${request.method} ${request.path} cseq=$cseq body=${request.body.size}"
+                    if (showInDebugOverlay) debugLog(rxMessage, true) else XCertplayTrace.log(rxMessage)
                     if (showInDebugOverlay) debugLog(
                         AirPlayControlDiagnostics.request(request.method, request.path, request.body.size),
                         false,
@@ -581,10 +581,13 @@ class AirPlaySession(
                         )
                         RtspMessage.Response(status = 500)
                     }
-                    debugLog(
-                        "airplay tx status=${response.status ?: 200} cseq=$cseq body=${response.body.size}",
-                        showInDebugOverlay,
-                    )
+                    val txMessage =
+                        "airplay tx status=${response.status ?: 200} cseq=$cseq body=${response.body.size}"
+                    if (showInDebugOverlay || (response.status ?: 200) != 200) {
+                        debugLog(txMessage, showInDebugOverlay)
+                    } else {
+                        XCertplayTrace.log(txMessage)
+                    }
                     if (showInDebugOverlay) debugLog(
                         "airplay control response status=${response.status ?: 200} contentBytes=${response.body.size}",
                         false,

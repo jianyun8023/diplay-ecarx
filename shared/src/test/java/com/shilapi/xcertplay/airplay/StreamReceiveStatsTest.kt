@@ -81,4 +81,23 @@ class StreamReceiveStatsTest {
         stats.flush()
         assertTrue(!output.last().contains("decrypt"))
     }
+
+    @Test fun heartbeatIntervalDefersHealthyWindows() {
+        var clock = 0L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats(
+            "video",
+            output::add,
+            reportIntervalNs = 60_000_000_000L,
+        ) { clock }
+        stats.received(100)
+        stats.processed()
+        clock = 5_000_000_000L
+        stats.flush()
+        assertEquals(0, output.size)
+        clock = 60_000_000_000L
+        stats.flush()
+        assertEquals(1, output.size)
+        assertTrue(output.single().contains("packets=1 bytes=100"))
+    }
 }
