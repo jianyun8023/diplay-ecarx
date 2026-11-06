@@ -848,7 +848,15 @@ class AirPlaySession(
         }
         val type = string(body["type"])
         val params = asMap(body["params"]) ?: emptyMap()
-        debugLog("airplay command type=$type keys=${params.keys.sorted()}")
+        val noisyCommand = type == "modesChanged" || type == "duckAudio" ||
+            type == "unduckAudio" || type == "suggestUI"
+        if (noisyCommand) {
+            if (XCertplayTrace.enabled) {
+                XCertplayTrace.log("airplay command type=" + type + " keys=" + params.keys.sorted())
+            }
+        } else {
+            debugLog("airplay command type=" + type + " keys=" + params.keys.sorted())
+        }
         val streamId = request.headers["x-apple-streamid"]?.toLongOrNull()
         val data = params["data"] as? ByteArray
         if (streamId != null && data != null) {
@@ -861,9 +869,9 @@ class AirPlaySession(
                 ?.firstOrNull { (it["appStateID"] as? Number)?.toInt() == 3 }
             val entity = (navigation?.get("entity") as? Number)?.toInt()
             if (entity != null) {
-                Log.i(TAG, "navigation mode entity=$entity")
                 synchronized(eventWriteLock) {
                     if (entity != navigationExitLastEntity) {
+                        Log.i(TAG, "navigation mode entity=" + entity)
                         navigationExitLastEntity = entity
                         navigationExitRequestId?.let { NavigationOutputs.diagnostic("exit modesChanged entity=$entity", it) }
                     }

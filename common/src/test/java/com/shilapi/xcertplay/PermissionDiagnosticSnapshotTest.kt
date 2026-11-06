@@ -96,7 +96,9 @@ class PermissionDiagnosticSnapshotTest {
         shadowOf(app).grantPermissions(Manifest.permission.PACKAGE_USAGE_STATS)
         org.robolectric.Robolectric.buildContentProvider(CrashRecordInstaller::class.java).create()
         val lines = org.robolectric.shadows.ShadowLog.getLogsForTag("DiPlayPermissions").map { it.msg }
-        assertTrue(lines.any { it.contains("Permission $granted=GRANTED") })
+        assertTrue(lines.any { it.contains("granted=1 denied=1 unavailable=1 unknown=0") })
+        assertTrue(lines.any { it.contains("Permission $denied=DENIED") })
+        assertFalse(lines.any { it.contains("Permission $granted=GRANTED") })
         assertTrue(lines.any { it.contains("GET_USAGE_STATS mode=3") })
         assertTrue(lines.any { it.contains("USAGE=true") })
         assertEquals(AppOpsManager.MODE_DEFAULT,
