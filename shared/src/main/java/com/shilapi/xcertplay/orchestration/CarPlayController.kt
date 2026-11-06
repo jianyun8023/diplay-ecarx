@@ -36,6 +36,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.airplay.VideoPlaybackDelivery
+import com.shilapi.xcertplay.bluetooth.BluetoothAdapterRestore
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
 import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.iap2.session.Iap2Session
@@ -162,6 +163,17 @@ internal fun isWirelessHandoffInProgress(
     tunnelActive: Boolean,
     sessionActive: Boolean,
 ): Boolean = handoffRequested || tunnelActive || sessionActive
+
+/** An expected CSM EOF after an authenticated Wi-Fi tunnel is not a failed bootstrap. */
+internal fun isExpectedHandoffControlClose(
+    stage: WirelessBootstrapRecovery.Stage,
+    error: Throwable,
+    wirelessActive: Boolean,
+    tunnelReady: Boolean,
+): Boolean = stage == WirelessBootstrapRecovery.Stage.CONTROL &&
+    wirelessActive && tunnelReady &&
+    error is IOException && error !is java.io.InterruptedIOException &&
+    error !is ConnectionFailureException && error !is WirelessStartupException
 
 /**
  * Wires the complete wired or wireless CarPlay path: MFi coprocessor discovery, iPhone bring-up,
@@ -1460,6 +1472,10 @@ class CarPlayController(
                 appContext,
                 isCurrent = { !isStaleWirelessRun(generation) },
                 log = { debugLog(it) },
+                // Only cold-start workers may wait for an OEM radio that is still OFF.
+                // The observation never enables Bluetooth and remains cancellable.
+                passiveBootWait = android.os.SystemClock.elapsedRealtime() in
+                    0 until BluetoothAdapterRestore.EARLY_BOOT_WINDOW_MILLIS,
             )
             val hotspotInfo = startWirelessHotspot(generation)
             if (isStaleWirelessRun(generation)) {
@@ -1525,6 +1541,11 @@ class CarPlayController(
                         "${startedHotspot?.connectionDiagnosticSnapshot() ?: "association=unknown"} " +
                         (startedBonjour?.diagnosticSnapshot() ?: "bonjour=not_started") + "\n" +
                         receiveDiagnostics.snapshot()
+                },
+                // Closing diagnostics is synchronous with the still-owned hotspot.
+                // Keep the historical sampled line, then append its latest atomic SoftAP count.
+                finalSnapshot = {
+                    startedHotspot?.connectionDiagnosticSnapshot() ?: "association=unknown"
                 },
                 log = { message -> if (!isStaleWirelessRun(generation)) debugLog(message) },
             )
@@ -1890,10 +1911,20 @@ class CarPlayController(
                     completed = true
                 } catch (error: Throwable) {
                     val failure = attempt.failure(error)
-                    bootstrapFailure = failure
-                    connectionDiagnostic("wireless attempt=${attempt.number} stage=${attempt.stage} failed " +
-                        "elapsedMs=${elapsedMillis(stageStarted)} failureClass=${diagnosticFailureClass(failure)}")
-                    throw failure
+                    if (isExpectedHandoffControlClose(
+                            attempt.stage, failure, wirelessActiveReported.get(), wirelessTunnelReady.get(),
+                        )) {
+                        // The owner intentionally closed RFCOMM after the Wi-Fi tunnel became active.
+                        // Treat the resulting CSM IOException as an expected handoff, not a failed attempt.
+                        completed = true
+                        connectionDiagnostic("wireless attempt=${attempt.number} stage=CONTROL handoff-completed " +
+                            "elapsedMs=${elapsedMillis(stageStarted)} reason=expected-csm-close")
+                    } else {
+                        bootstrapFailure = failure
+                        connectionDiagnostic("wireless attempt=${attempt.number} stage=${attempt.stage} failed " +
+                            "elapsedMs=${elapsedMillis(stageStarted)} failureClass=${diagnosticFailureClass(failure)}")
+                        throw failure
+                    }
                 } finally {
                     if (!handoffStarted()) {
                         // A control probe can take a full connect timeout: never hold the resource

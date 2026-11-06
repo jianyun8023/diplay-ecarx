@@ -47,3 +47,6 @@ The public Android P2P client list may omit legacy Wi-Fi stations. Therefore the
 Conclusive per-phone association or raw multicast diagnosis may still need device-side AP diagnostics or a packet capture supplied separately; this logger does not claim to capture packets.
 
 All new report events use counts, fixed categories and exception classes. The existing credential/payload redaction remains enabled.
+
+
+After a startup observer ends, `wireless snapshot cached=true` retains the historical 10-second sample. A separate `wireless snapshot fresh=true association=... softApClients=...` line reads the current in-memory AP count before the hotspot owner closes; these are distinct timestamps, and neither count identifies a specific iPhone. During a successful Wi-Fi tunnel handoff, an expected CSM EOF is logged as `stage=CONTROL handoff-completed` rather than `stage=CONTROL failed`. A premature or explicitly rejected control session still reports failure.

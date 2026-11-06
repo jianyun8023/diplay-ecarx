@@ -22,3 +22,9 @@
 - APK 使用本车平台证书签名（已有 `auth-assets/platform.p12`，SHA-256 `C8:A2:E9:BC:…:2A:B8`）。
 - 放入 `/system/priv-app/DiPlay/DiPlay.apk`，权限 `644`，owner `root:root`，SELinux label `u:object_r:system_file:s0`，重启后由 PackageManager 扫描。
 - 只在预置版本上使用 `persistent` 语义；普通车测包仍按 `/data/app` 升级，避免不可更新。
+
+## 实车问题修复（2026-11-06）
+
+- 开机 90 秒内，普通数据应用的无线连接工作线程遇到系统蓝牙 `STATE_OFF` 时，可以**只观察、不调用 enable()**，最多等待 8 秒至 `STATE_ON`；超时仍报原有错误。用户在正常运行时关闭蓝牙不会被 DiPlay 自动打开。取消连接会中止等待。
+- 启动诊断增加 `lockedBootPid`、`receivedPid`、两个 `elapsedMs` 时间点及 `sameProcessAtBoot`，用于确认提前广播创建的进程是否被正常广播复用。
+- 新的 `LOCKED_BOOT_COMPLETED` 会清理上一轮启动的诊断结果；仅收到普通广播时，使用开机基准时间过滤上一轮的锁定广播记录。

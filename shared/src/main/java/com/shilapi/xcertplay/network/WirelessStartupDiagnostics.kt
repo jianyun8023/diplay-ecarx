@@ -14,6 +14,7 @@ internal class WirelessStartupDiagnostics(
     private val log: (String) -> Unit,
     private val intervalMillis: Long = 10_000,
     private val nowNs: () -> Long = System::nanoTime,
+    private val finalSnapshot: (() -> String)? = null,
 ) : Closeable {
     private val closed = AtomicBoolean(false)
     private val startedNanos = nowNs()
@@ -92,13 +93,21 @@ internal class WirelessStartupDiagnostics(
         worker.interrupt()
         emit("${summary()} observation=ended")
         emitSnapshot(lastSnapshot, cached = true)
+        // The 10 s historical sample may predate the phone's association. This lightweight
+        // final observation is read before the hotspot owner closes, without Binder/IO work.
+        finalSnapshot?.let { snapshot ->
+            val fresh = try { snapshot() } catch (error: Exception) {
+                "association=unavailable failureClass=${error.javaClass.simpleName}"
+            }
+            emitSnapshot(fresh, fresh = true)
+        }
     }
 
-    private fun emitSnapshot(snapshot: String, cached: Boolean = false) {
+    private fun emitSnapshot(snapshot: String, cached: Boolean = false, fresh: Boolean = false) {
         // The report redactor caps each log line at 700 characters. Never append the kernel
         // counters to the already detailed startup/interface/P2P/Bonjour state line.
         snapshot.lineSequence().filter { it.isNotBlank() }.take(4).forEach { line ->
-            emit("wireless snapshot${if (cached) " cached=true" else ""} $line")
+            emit("wireless snapshot${if (cached) " cached=true" else if (fresh) " fresh=true" else ""} $line")
         }
     }
 
