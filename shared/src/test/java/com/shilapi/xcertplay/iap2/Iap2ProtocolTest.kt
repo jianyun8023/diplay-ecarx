@@ -180,7 +180,8 @@ class Iap2ProtocolTest {
     }
 
     @Test
-    fun formatterFallsBackForMalformedBodies() {        val formatted = Iap2FrameFormatter.format(
+    fun formatterFallsBackForMalformedBodies() {
+        val formatted = Iap2FrameFormatter.format(
             Iap2TraceDirection.RX,
             "wired",
             Iap2Frame(0x4300, byteArrayOf(0, 1, 2)),

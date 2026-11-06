@@ -119,7 +119,7 @@ class BluetoothProfileGuardRestoreTest {
         shadowOf(adapter).setState(BluetoothAdapter.STATE_OFF)
         var connectionWork = false
         try {
-            CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, { true }) {}
+            CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, isCurrent = { true }, log = {})
             connectionWork = true
         } catch (_: java.io.IOException) { /* the production gate blocks hotspot/RFCOMM */ }
         assertFalse(connectionWork)
@@ -132,7 +132,7 @@ class BluetoothProfileGuardRestoreTest {
         shadowOf(adapter).setState(BluetoothAdapter.STATE_OFF)
         var connectionWork = false
         try {
-            CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, { false }) {}
+            CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, isCurrent = { false }, log = {})
             connectionWork = true
         } catch (_: java.io.InterruptedIOException) { }
         assertFalse(connectionWork)
@@ -146,7 +146,7 @@ class BluetoothProfileGuardRestoreTest {
         shadowOf(BluetoothAdapter.getDefaultAdapter()).setState(BluetoothAdapter.STATE_TURNING_ON)
         var connectionWork = false
         try {
-            CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, { true }) {}
+            CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, isCurrent = { true }, log = {})
             connectionWork = true
         } catch (_: java.io.IOException) { }
         assertFalse(connectionWork)

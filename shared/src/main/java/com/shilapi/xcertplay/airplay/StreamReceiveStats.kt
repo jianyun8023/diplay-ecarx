@@ -84,13 +84,12 @@ internal class StreamReceiveStats(
     fun flush(ended: Boolean = false) {
         val now = nowNs()
         val elapsed = now - windowStart
-        val anomaly = sequenceGapEvents > 0 ||
-            seqMissingAfterReadOver250Ms > 0 ||
-            readsOver250Ms >= ANOMALY_READS
+        // Blocking socket reads frequently exceed 250 ms on healthy streams.
+        // Only actual RTP sequence anomalies warrant a 5-second report.
+        val anomaly = sequenceGapEvents > 0 || lateOrDuplicate > 0
         if (!ended) {
             if (elapsed < reportIntervalNs) {
-                // Normal windows are reported at the heartbeat interval; a real gap/long-read
-                // burst still surfaces quickly instead of waiting up to a minute.
+                // Healthy windows use the heartbeat; packet loss and reordering report promptly.
                 if (!anomaly || elapsed < ANOMALY_MIN_INTERVAL_NS) return
             }
         }
@@ -136,7 +135,6 @@ internal class StreamReceiveStats(
         const val LONG_READ_NS = 250_000_000L
         const val DEFAULT_REPORT_INTERVAL_NS = 5_000_000_000L
         const val ANOMALY_MIN_INTERVAL_NS = 5_000_000_000L
-        const val ANOMALY_READS = 3
     }
 
 }
