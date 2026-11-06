@@ -267,6 +267,7 @@ public object CarBluetoothProfileGuard {
         context: Context,
         isCurrent: () -> Boolean,
         log: (String) -> Unit = logcat,
+        passiveBootWait: Boolean = false,
     ) {
         if (!isCurrent()) throw java.io.InterruptedIOException("Bluetooth startup cancelled")
         val app = context.applicationContext
@@ -275,15 +276,29 @@ public object CarBluetoothProfileGuard {
         val recoveryNeeded = applied(app)
         val ownedPause = recoveryNeeded && appliedMode(app) == MODE_ADAPTER
         if (recoveryNeeded) restore(app, log)
+        val initialState = radio.state
+        // On a real cold boot the OEM may keep the radio OFF until its service starts.
+        // Observe it briefly without calling enable(); outside this window an OFF radio
+        // still means the driver must enable Bluetooth manually.
+        val observeBootRadio = BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
+            passiveBootWait, initialState, ownedPause,
+        )
+        if (observeBootRadio) {
+            log("BT guard connect: early boot Bluetooth OFF; passively waiting for system STATE_ON " +
+                "budgetMs=${BluetoothAdapterRestore.PASSIVE_BOOT_WAIT_MILLIS}")
+        }
+        val waitStarted = System.nanoTime()
         val outcome = try {
-            if (!ownedPause && radio.state != BluetoothAdapter.STATE_ON &&
-                radio.state != BluetoothAdapter.STATE_TURNING_ON) {
+            if (!ownedPause && initialState != BluetoothAdapter.STATE_ON &&
+                initialState != BluetoothAdapter.STATE_TURNING_ON && !observeBootRadio) {
                 BluetoothAdapterRestore.Outcome.REJECTED
             } else {
                 BluetoothAdapterRestore.awaitOn(
                     state = { radio.state },
                     requestEnable = null, // The guard worker alone issues any authorized enable.
                     isCurrent = isCurrent,
+                    timeoutMillis = if (observeBootRadio) BluetoothAdapterRestore.PASSIVE_BOOT_WAIT_MILLIS
+                        else 5_000L,
                 )
             }
         } catch (error: RuntimeException) {
@@ -297,6 +312,10 @@ public object CarBluetoothProfileGuard {
             log("BT guard connect: STATE_ON not confirmed outcome=$outcome ownedPause=$ownedPause")
             throw com.shilapi.xcertplay.transport.BluetoothRadioCheck.failure(
                 com.shilapi.xcertplay.transport.BluetoothRadioCheck.RADIO_OFF)
+        }
+        if (observeBootRadio) {
+            log("BT guard connect: system Bluetooth STATE_ON observed waitMs=" +
+                "${(System.nanoTime() - waitStarted).coerceAtLeast(0L) / 1_000_000L}")
         }
     }
 

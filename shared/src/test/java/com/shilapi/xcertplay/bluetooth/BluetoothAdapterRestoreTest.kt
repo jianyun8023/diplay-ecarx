@@ -37,6 +37,41 @@ class BluetoothAdapterRestoreTest {
         assertEquals(1, radio.enables)
     }
 
+    @Test fun coldBootPassiveObservationWaitsForOemWithoutEnablingTheRadio() {
+        assertTrue(BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
+            earlyBoot = true, initialState = BluetoothAdapter.STATE_OFF, ownedPause = false,
+        ))
+        var current = BluetoothAdapter.STATE_OFF
+        var now = 0L
+        var enableRequests = 0
+        val outcome = BluetoothAdapterRestore.awaitOn(
+            state = { current },
+            requestEnable = null,
+            isCurrent = { true },
+            nowMillis = { now },
+            pause = {
+                now += it
+                if (now >= 300L) current = BluetoothAdapter.STATE_ON
+            },
+            timeoutMillis = BluetoothAdapterRestore.PASSIVE_BOOT_WAIT_MILLIS,
+        )
+        assertEquals(BluetoothAdapterRestore.Outcome.ON, outcome)
+        assertEquals(300L, now)
+        assertEquals(0, enableRequests)
+    }
+
+    @Test fun userOffOutsideEarlyBootIsNotPassivelyObserved() {
+        assertFalse(BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
+            earlyBoot = false, initialState = BluetoothAdapter.STATE_OFF, ownedPause = false,
+        ))
+        assertFalse(BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
+            earlyBoot = true, initialState = BluetoothAdapter.STATE_TURNING_OFF, ownedPause = false,
+        ))
+        assertFalse(BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
+            earlyBoot = true, initialState = BluetoothAdapter.STATE_OFF, ownedPause = true,
+        ))
+    }
+
     @Test fun alreadyOnNeedsNoEnable() {
         val radio = Radio().apply { state = BluetoothAdapter.STATE_ON }
         assertEquals(BluetoothAdapterRestore.Outcome.ON, radio.restore())
