@@ -52,6 +52,19 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     private fun openAtUnlock(context: Context) {
+        // ECARX starts its own services once its home screen has shown; CarPlay must not cover it first.
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(context).identified) {
+            EcarxLauncherStartup.afterFirstBatch(context) { waitedMs, seen ->
+                Log.i(TAG, "Launcher first batch seen=$seen waitedMs=$waitedMs; opening CarPlay")
+                CarPlayStartupTimeline.record(context,
+                    if (seen) CarPlayStartupTimeline.Stage.LAUNCHER_FIRST_BATCH else CarPlayStartupTimeline.Stage.LAUNCHER_FIRST_BATCH_MISSED,
+                    AirPlayPersistence.loadWirelessHotspotMode(context))
+                openCarPlayAtUnlock(context)
+            }
+        } else openCarPlayAtUnlock(context)
+    }
+
+    private fun openCarPlayAtUnlock(context: Context) {
         // The direct path only: anything that needs the home screen waits for BOOT_COMPLETED.
         runCatching {
             if (!AirPlayPersistence.loadAutoStartOnBoot(context)) return@runCatching

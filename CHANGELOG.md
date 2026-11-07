@@ -1,10 +1,16 @@
 # DiPlay ECARX 0.2 — 未发布
 
 基线升级至上游 [DiPlay v0.2.22](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.22)，
-`versionCode 122`。保留 ECARX 的应用标识、可选本地认证资产和签名配置。
+`versionCode 134`。保留 ECARX 的应用标识、可选本地认证资产和签名配置。
 合并取舍与验收项见 [升级记录](docs/UPSTREAM-0.2.22-INTEGRATION.md)。
 
 使用手册正文已跟进到本段实现；页面截图仍是 v106 实车画面，各节标注了后续版本的实测状态。
+
+## v134：解锁启动先等待车机桌面启动服务（待实车重启验证）
+
+- ECARX 解锁后先等待桌面的 `EAS_LAUNCH_BAT_0ST` 广播，最多 5 秒，再打开 CarPlay，避免遮住桌面导致语音键等车机服务未启动；其他车机仍立即打开。
+- 启动时间线新增 `LAUNCHER_FIRST_BATCH` 和 `LAUNCHER_FIRST_BATCH_MISSED`，区分收到广播和未等到广播。
+- v134 平台签名车测包已覆盖安装；重启后的服务启动和短按语音键唤醒 Siri 尚待实车验证。
 
 ## 导航声音跟随 iPhone 和车机；冷启动蓝牙等待与网络并行（待实车验证）
 

@@ -19,6 +19,13 @@ object CarPlayStartupTimeline {
          * credential unlocks about 10 s before BOOT_COMPLETED reaches the app (v129: 38.4 s vs 48.4 s).
          */
         UNLOCK_DIRECT_HOST,
+        /**
+         * ECARX: the launcher's home screen resumed and began starting the head unit's services
+         * (`EAS_LAUNCH_BAT_0ST`); the unlock launch waits for it so CarPlay does not cover it first.
+         */
+        LAUNCHER_FIRST_BATCH,
+        /** The same wait ended without that broadcast, after the 5 s wait. */
+        LAUNCHER_FIRST_BATCH_MISSED,
         LAUNCHER_CREATE,
         LAUNCHER_RESUME,
         AUTO_CONNECT_DISPATCH,
