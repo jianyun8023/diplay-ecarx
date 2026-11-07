@@ -58,7 +58,8 @@ class CarPlayConnectionDiagnosticLogTest {
         val sessionLog = activity.javaClass.getDeclaredField("sessionLog").apply { isAccessible = true }
             .get(activity) as SessionLogFile
         assertTrue(sessionLog.awaitIdle(2_000))
-        assertTrue(log.contains("Permissions: Platform signature check="))
+        // One summary line since the session log coalesced permissions (#51); the full list is in the report.
+        assertTrue(Regex("Permissions: inspection uid=\\d+ signature=\\S+ granted=\\d+ denied=\\d+").containsMatchIn(log))
         assertTrue(log.contains("Permissions: USB setup permissions:"))
         assertTrue(log.contains("Permissions: Usage access AppOps: GET_USAGE_STATS mode="))
     }
