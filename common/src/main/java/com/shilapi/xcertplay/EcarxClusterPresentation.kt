@@ -8,6 +8,7 @@ import android.view.Display
 import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 
 /**
@@ -72,6 +73,10 @@ internal class EcarxClusterPresentation(
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The cluster takes no input. Focusable, it took the system's one focused window from the
+        // CarPlay screen when it appeared after it, and Android 9 then showed the head unit's status
+        // bar over CarPlay: the bars follow the focused window's flags (car test 2026-11-07).
+        window?.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         val view = ClusterVideoTexture(context, onPresented = onPresented, onSurface = onSurface)
         texture = view
         view.setVideoSize(videoSize.first, videoSize.second)
