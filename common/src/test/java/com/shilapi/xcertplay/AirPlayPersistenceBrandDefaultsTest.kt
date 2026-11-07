@@ -42,11 +42,12 @@ class AirPlayPersistenceBrandDefaultsTest {
         preferences.edit()
             .putString("manufacturer", "Toyota")
             .putString("model", "Head Unit X")
-            .putString("oem_label", "My car")
+            .putString("oem_label", "DiPlay")
             .commit()
 
         assertEquals("Toyota", AirPlayPersistence.loadManufacturer(context))
         assertEquals("Head Unit X", AirPlayPersistence.loadModel(context))
-        assertEquals("My car", AirPlayPersistence.loadOemLabel(context))
+        // Unlike manufacturer/model, the OEM label was not a persisted DiPlay default.
+        assertEquals("DiPlay", AirPlayPersistence.loadOemLabel(context))
     }
 }
