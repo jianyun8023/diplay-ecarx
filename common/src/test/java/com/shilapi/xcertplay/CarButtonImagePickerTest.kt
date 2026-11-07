@@ -4,18 +4,23 @@ import android.content.ActivityNotFoundException
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.Resources
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.view.Surface
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
@@ -163,6 +168,27 @@ class CarButtonImagePickerTest {
         match = IntentFilter.MATCH_CATEGORY_TYPE
     }
 
+    @Test fun homeAndCarPlaySettingsUseTheSamePackagedDefaultIcon() {
+        withHome { activity ->
+            AirPlayPersistence.clearCustomAirPlayIcon(activity)
+            val controls = LinearLayout(activity)
+            DiPlayActivity::class.java.getDeclaredMethod("carButtonControls", LinearLayout::class.java)
+                .apply { isAccessible = true }.invoke(activity, controls)
+            val preview = views(controls).filterIsInstance<ImageView>().single()
+            assertPackagedDefaultIcon(activity.resources, preview)
+        }
+
+        withHost { activity ->
+            AirPlayPersistence.clearCustomAirPlayIcon(activity)
+            val section = CarPlayHostActivity::class.java.getDeclaredMethod("buildAirPlayIconSection")
+                .apply { isAccessible = true }.invoke(activity) as View
+            val preview = views(section).filterIsInstance<ImageView>().single()
+            assertPackagedDefaultIcon(activity.resources, preview)
+            val status = ReflectionHelpers.getField<TextView>(activity, "iconStatusView")
+            assertEquals(activity.getString(R.string.default_icon), status.text.toString())
+        }
+    }
+
     @Test fun savingCarButtonNameMarksTheActiveSessionWithoutStoppingIt() = withHome { activity ->
         val session = mock(CarPlayController::class.java)
         val sink = mock(AndroidMediaSink::class.java)
@@ -199,6 +225,12 @@ class CarButtonImagePickerTest {
             AirPlayPersistence.saveOemLabel(activity, previousName)
             PendingReconnect.clear()
         }
+    }
+
+    private fun assertPackagedDefaultIcon(resources: Resources, preview: ImageView) {
+        val actual = (preview.drawable as BitmapDrawable).bitmap
+        val expected = BitmapFactory.decodeResource(resources, R.raw.ic_car_home)
+        assertTrue(actual.sameAs(expected))
     }
 
     private fun assertDocumentFilter(intent: Intent) {

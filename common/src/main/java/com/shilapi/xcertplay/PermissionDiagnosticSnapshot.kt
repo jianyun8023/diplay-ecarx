@@ -30,7 +30,22 @@ internal object PermissionDiagnosticSnapshot {
 
     fun log(context: Context, write: (String) -> Unit) {
         runCatching {
-            read(context).report().lineSequence().forEach { write("Permissions: $it") }
+            val snapshot = read(context)
+            val granted = snapshot.permissions.count { it.state == State.GRANTED }
+            val denied = snapshot.permissions.count { it.state == State.DENIED }
+            val unavailable = snapshot.permissions.count { it.state == State.UNAVAILABLE }
+            val unknown = snapshot.permissions.count { it.state == State.UNKNOWN }
+            write("Permissions: inspection uid=" + snapshot.uid + " signature=" + snapshot.signature +
+                " granted=" + granted + " denied=" + denied + " unavailable=" + unavailable +
+                " unknown=" + unknown)
+            snapshot.permissions.filter { it.state == State.DENIED || it.state == State.UNKNOWN }
+                .forEach { write("Permissions: Permission " + it.name.removePrefix("android.permission.") +
+                    "=" + it.state) }
+            write("Permissions: USB setup permissions: " + snapshot.access)
+            write("Permissions: Usage access AppOps: GET_USAGE_STATS mode=" +
+                (snapshot.usageStatsAppOpMode ?: "unavailable"))
+            write("Permissions: Wheel access: allowed=" + snapshot.wheelAllowed +
+                " connected=" + snapshot.wheelConnected)
         }.onFailure { write("Permissions: inspection failed ${it.javaClass.simpleName}") }
     }
 

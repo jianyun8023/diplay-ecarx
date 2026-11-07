@@ -36,9 +36,11 @@ import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.airplay.VideoInCar
 import com.shilapi.xcertplay.airplay.VideoPlaybackDelivery
+import com.shilapi.xcertplay.bluetooth.BluetoothAdapterRestore
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
 import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.iap2.session.Iap2Session
+import com.shilapi.xcertplay.logging.XCertplayTrace
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClient
@@ -162,6 +164,17 @@ internal fun isWirelessHandoffInProgress(
     tunnelActive: Boolean,
     sessionActive: Boolean,
 ): Boolean = handoffRequested || tunnelActive || sessionActive
+
+/** An expected CSM EOF after an authenticated Wi-Fi tunnel is not a failed bootstrap. */
+internal fun isExpectedHandoffControlClose(
+    stage: WirelessBootstrapRecovery.Stage,
+    error: Throwable,
+    wirelessActive: Boolean,
+    tunnelReady: Boolean,
+): Boolean = stage == WirelessBootstrapRecovery.Stage.CONTROL &&
+    wirelessActive && tunnelReady &&
+    error is IOException && error !is java.io.InterruptedIOException &&
+    error !is ConnectionFailureException && error !is WirelessStartupException
 
 /**
  * Wires the complete wired or wireless CarPlay path: MFi coprocessor discovery, iPhone bring-up,
@@ -363,6 +376,8 @@ class CarPlayController(
         return Triple(current.session, current.png.copyOf(), current.width)
     }
 
+    private val commandLogLimiter = AirPlayCommandLogLimiter()
+
     private val sessionListener = object : AirPlaySessionListener {
         // Trace lines reach logcat and the UI; build them only for `setprop log.tag.DiPlayTrace VERBOSE` or a UI that wants them.
         override val debugLogsEnabled: Boolean get() = uiListener?.debugLogsEnabled == true
@@ -476,15 +491,23 @@ class CarPlayController(
         }
 
         override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {
-            // Values, not just keys. `duckAudio` carries the iPhone's own durationMs/volume, and
-            // without them a duck of the wrong depth cannot be told apart from one fired at the
-            // wrong moment. Iterated by hand so no lambda (and so no new class) is introduced.
-            val rendered = StringBuilder()
-            for ((key, value) in params) {
-                if (rendered.isNotEmpty()) rendered.append(',')
-                rendered.append(key).append('=').append(value)
+            // Never drop a command: suppress only repetitive diagnostic formatting.
+            // Detailed parameters are available with the explicit trace switch.
+            if (XCertplayTrace.enabled) {
+                val rendered = StringBuilder()
+                for ((key, value) in params) {
+                    if (rendered.isNotEmpty()) rendered.append(',')
+                    rendered.append(key).append('=').append(value)
+                }
+                debugLog("AirPlay command type=" + type + " params=" + rendered)
+            } else if (commandLogLimiter.shouldLog(session, type, params)) {
+                if (type == "modesChanged") {
+                    debugLog("AirPlay command type=modesChanged appStates=" + params["appStates"] +
+                        " resources=" + params["resources"])
+                } else {
+                    debugLog("AirPlay command type=" + type + " keys=" + params.keys.sorted())
+                }
             }
-            debugLog("AirPlay command type=$type params=$rendered")
             // The parameters arrive from a plist, so they may be integer or real.
             val duckDurationMs = (params["durationMs"] as? Number)?.toInt()
             val duckVolume = (params["volume"] as? Number)?.toFloat()
@@ -1460,6 +1483,10 @@ class CarPlayController(
                 appContext,
                 isCurrent = { !isStaleWirelessRun(generation) },
                 log = { debugLog(it) },
+                // Only cold-start workers may wait for an OEM radio that is still OFF.
+                // The observation never enables Bluetooth and remains cancellable.
+                passiveBootWait = android.os.SystemClock.elapsedRealtime() in
+                    0 until BluetoothAdapterRestore.EARLY_BOOT_WINDOW_MILLIS,
             )
             val hotspotInfo = startWirelessHotspot(generation)
             if (isStaleWirelessRun(generation)) {
@@ -1525,6 +1552,11 @@ class CarPlayController(
                         "${startedHotspot?.connectionDiagnosticSnapshot() ?: "association=unknown"} " +
                         (startedBonjour?.diagnosticSnapshot() ?: "bonjour=not_started") + "\n" +
                         receiveDiagnostics.snapshot()
+                },
+                // Closing diagnostics is synchronous with the still-owned hotspot.
+                // Keep the historical sampled line, then append its latest atomic SoftAP count.
+                finalSnapshot = {
+                    startedHotspot?.connectionDiagnosticSnapshot() ?: "association=unknown"
                 },
                 log = { message -> if (!isStaleWirelessRun(generation)) debugLog(message) },
             )
@@ -1890,10 +1922,20 @@ class CarPlayController(
                     completed = true
                 } catch (error: Throwable) {
                     val failure = attempt.failure(error)
-                    bootstrapFailure = failure
-                    connectionDiagnostic("wireless attempt=${attempt.number} stage=${attempt.stage} failed " +
-                        "elapsedMs=${elapsedMillis(stageStarted)} failureClass=${diagnosticFailureClass(failure)}")
-                    throw failure
+                    if (isExpectedHandoffControlClose(
+                            attempt.stage, failure, wirelessActiveReported.get(), wirelessTunnelReady.get(),
+                        )) {
+                        // The owner intentionally closed RFCOMM after the Wi-Fi tunnel became active.
+                        // Treat the resulting CSM IOException as an expected handoff, not a failed attempt.
+                        completed = true
+                        connectionDiagnostic("wireless attempt=${attempt.number} stage=CONTROL handoff-completed " +
+                            "elapsedMs=${elapsedMillis(stageStarted)} reason=expected-csm-close")
+                    } else {
+                        bootstrapFailure = failure
+                        connectionDiagnostic("wireless attempt=${attempt.number} stage=${attempt.stage} failed " +
+                            "elapsedMs=${elapsedMillis(stageStarted)} failureClass=${diagnosticFailureClass(failure)}")
+                        throw failure
+                    }
                 } finally {
                     if (!handoffStarted()) {
                         // A control probe can take a full connect timeout: never hold the resource

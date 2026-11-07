@@ -1,28 +1,56 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.os.Process
+import android.os.SystemClock
+import kotlin.math.abs
 
-/** Only the latest received boot event and launch result; no Intent extras or device identifiers. */
+/** Only the latest boot's checkpoints and launch result; no Intent extras or device identifiers. */
 internal object StartupDiagnosticSnapshot {
     private const val PREFS = "diplay_startup_diagnostics"
+    private const val BOOT_ORIGIN_TOLERANCE_MILLIS = 30_000L
 
     /** Device-protected so the locked-boot checkpoint survives before credential storage is available. */
     private fun prefs(context: Context) = context.createDeviceProtectedStorageContext()
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /** A new locked-boot broadcast starts a new observation; never mix it with an earlier boot. */
     fun lockedBootReceived(context: Context, launchEnabled: Boolean) {
         runCatching {
-            prefs(context).edit()
+            prefs(context).edit().clear()
                 .putLong("lockedBootReceivedAt", System.currentTimeMillis())
+                .putLong("lockedBootElapsedMs", SystemClock.elapsedRealtime())
+                .putInt("lockedBootPid", Process.myPid())
                 .putBoolean("lockedLaunchEnabled", launchEnabled)
                 .apply()
         }
     }
 
+    /** Both broadcasts belong to this boot only if their wall-clock/elapsed origins agree. */
+    private fun sameBoot(prefs: SharedPreferences, nowAt: Long, nowElapsed: Long): Boolean {
+        val lockedAt = prefs.getLong("lockedBootReceivedAt", 0)
+        val lockedElapsed = prefs.getLong("lockedBootElapsedMs", -1L)
+        if (lockedAt <= 0 || lockedElapsed < 0 || lockedElapsed > nowElapsed) return false
+        return abs((lockedAt - lockedElapsed) - (nowAt - nowElapsed)) <=
+            BOOT_ORIGIN_TOLERANCE_MILLIS
+    }
+
     fun received(context: Context, launchEnabled: Boolean) {
         runCatching {
-            prefs(context).edit()
-                .putLong("receivedAt", System.currentTimeMillis())
+            val prefs = prefs(context)
+            val nowAt = System.currentTimeMillis()
+            val nowElapsed = SystemClock.elapsedRealtime()
+            val editor = prefs.edit()
+            // The OEM may deliver only BOOT_COMPLETED. Drop any locked-boot marker from a
+            // previous power cycle instead of reporting a fictional two-broadcast timeline.
+            if (!sameBoot(prefs, nowAt, nowElapsed)) {
+                editor.remove("lockedBootReceivedAt").remove("lockedBootElapsedMs")
+                    .remove("lockedBootPid").remove("lockedLaunchEnabled")
+            }
+            editor.putLong("receivedAt", nowAt)
+                .putLong("receivedElapsedMs", nowElapsed)
+                .putInt("receivedPid", Process.myPid())
                 .putBoolean("launchEnabled", launchEnabled)
                 .putString("launchResult", if (launchEnabled) "pending" else "disabled")
                 .remove("failureClass").apply()
@@ -42,20 +70,31 @@ internal object StartupDiagnosticSnapshot {
         val prefs = prefs(context)
         val receivedAt = prefs.getLong("receivedAt", 0)
         val lockedAt = prefs.getLong("lockedBootReceivedAt", 0)
+        val lockedDetails = if (lockedAt > 0) {
+            " lockedBootReceivedAtEpochMs=$lockedAt" +
+                " lockedBootElapsedMs=${prefs.getLong("lockedBootElapsedMs", -1L)}" +
+                " lockedBootPid=${prefs.getInt("lockedBootPid", -1)}" +
+                " lockedLaunchEnabled=${prefs.getBoolean("lockedLaunchEnabled", false)}"
+        } else ""
         if (receivedAt == 0L) {
             if (lockedAt == 0L) {
                 "Boot diagnostics received=false; no boot delivery has been recorded by this version."
             } else {
-                "Boot diagnostics received=false lockedBootReceivedAtEpochMs=$lockedAt " +
-                    "lockedLaunchEnabled=${prefs.getBoolean("lockedLaunchEnabled", false)}; " +
-                    "no normal BOOT_COMPLETED has been recorded."
+                "Boot diagnostics received=false$lockedDetails; no normal BOOT_COMPLETED has been recorded."
             }
         } else {
+            val receivedPid = prefs.getInt("receivedPid", -1)
+            val receivedElapsed = prefs.getLong("receivedElapsedMs", -1L)
+            val reuse = if (lockedAt > 0) {
+                " sameProcessAtBoot=${receivedPid == prefs.getInt("lockedBootPid", -1)}" +
+                    " lockedToNormalBootMs=${(receivedElapsed - prefs.getLong("lockedBootElapsedMs", receivedElapsed)).coerceAtLeast(0L)}"
+            } else ""
             "Boot diagnostics received=true receivedAtEpochMs=$receivedAt " +
                 "launchEnabledAtBoot=${prefs.getBoolean("launchEnabled", false)} " +
                 "launchResult=${prefs.getString("launchResult", "unknown")} " +
                 "failureClass=${prefs.getString("failureClass", "none") ?: "none"}" +
-                (if (lockedAt > 0) " lockedBootReceivedAtEpochMs=$lockedAt" else "") + "; " +
+                " receivedElapsedMs=$receivedElapsed receivedPid=$receivedPid" +
+                lockedDetails + reuse + "; " +
                 "startActivity-returned does not prove the OEM displayed the app."
         }
     }.getOrDefault("Boot diagnostics unavailable.")

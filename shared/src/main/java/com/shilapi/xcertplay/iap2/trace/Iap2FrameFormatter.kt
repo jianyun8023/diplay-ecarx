@@ -26,30 +26,42 @@ object Iap2FrameFormatter {
     private const val MAX_STRING_CHARS = 240
     private const val MAX_HEX_BYTES = 24
 
+    /**
+     * @param detail when false, returns only the one-line frame summary. Parameter values and the
+     * raw body are omitted, which keeps a 1 Hz LocationInformation frame from producing three
+     * logcat lines every second. Callers enable detail only for an explicit trace session.
+     */
     fun format(
         direction: Iap2TraceDirection,
         context: String,
         frame: Iap2Frame,
+        detail: Boolean = true,
     ): String {
         val endpoint = Iap2Endpoints.byId(frame.messageId)
         val encoded = frame.encodedFrame()
-        val parameters = try {
-            Iap2ParameterList.parse(frame.payload)
-        } catch (_: Iap2ProtocolException) {
+        val parameters = if (detail) {
+            try {
+                Iap2ParameterList.parse(frame.payload)
+            } catch (_: Iap2ProtocolException) {
+                null
+            }
+        } else {
             null
         }
         val lines = ArrayList<String>()
-        if (parameters == null) {
-            lines += "  body=malformed TLV"
-        } else {
-            appendParameters(
-                parameters = parameters,
-                specs = endpoint?.fields.orEmpty(),
-                depth = 1,
-                lines = lines,
-            )
+        if (detail) {
+            if (parameters == null) {
+                lines += "  body=malformed TLV"
+            } else {
+                appendParameters(
+                    parameters = parameters,
+                    specs = endpoint?.fields.orEmpty(),
+                    depth = 1,
+                    lines = lines,
+                )
+            }
+            lines += "  raw-body=${hexPreview(frame.payload)}"
         }
-        lines += "  raw-body=${hexPreview(frame.payload)}"
 
         val endpointText = endpoint?.let { " ${it.name}" }.orEmpty()
         return buildString {
@@ -63,7 +75,12 @@ object Iap2FrameFormatter {
             append(" frame=")
             append(encoded.size)
             append("B body=")
-            append(if (parameters == null) "malformed" else "${parameters.size} params")
+            if (!detail) {
+                append(frame.payload.size)
+                append('B')
+            } else {
+                append(if (parameters == null) "malformed" else "${parameters.size} params")
+            }
             lines.forEach { line ->
                 append('\n')
                 append(line)

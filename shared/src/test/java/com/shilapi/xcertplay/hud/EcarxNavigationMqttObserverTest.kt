@@ -15,6 +15,17 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class EcarxNavigationMqttObserverTest {
+    @Test fun treatsRefreshPairAsOneActiveStateWithoutHidingRouteEnd() {
+        val topic = "ihu/events/navigation/ongoing"
+        val ready = "naviEvent=firstFrameReady destinationPresent=false"
+        val active = "naviEvent=ongoingNavi destinationPresent=false"
+        val off = "naviEvent=naviAppOff destinationPresent=false"
+        assertEquals(mqttLogSummaryKey(topic, ready), mqttLogSummaryKey(topic, active))
+        assertNotEquals(mqttLogSummaryKey(topic, active), mqttLogSummaryKey(topic, off))
+        assertNotEquals(mqttLogSummaryKey(topic, active),
+            mqttLogSummaryKey(topic, "naviEvent=ongoingNavi destinationPresent=true"))
+    }
+
     @Test fun subscribesReadOnlyAndDistinguishesRetainedFromLiveWithoutLoggingAddress() {
         ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { broker ->
             broker.soTimeout = 5000
@@ -104,7 +115,18 @@ class EcarxNavigationMqttObserverTest {
                     assertTrue(lines.isEmpty())
                     assertTrue(observer.diagnosticReport().contains("next-turn count=1000"))
 
-                    clock.addAndGet(30_000_000_000)
+                    // The OEM alternates these two active-state events every second.
+                    // A different-topic report is a processing barrier for the assertions.
+                    repeat(15) {
+                        ongoing("firstFrameReady")
+                        ongoing("ongoingNavi")
+                    }
+                    send("ihu/events/navigation/distance", """{"distance":"50 m"}""")
+                    assertTrue(lines.poll(5, TimeUnit.SECONDS).contains("topic=ihu/events/navigation/distance"))
+                    assertTrue(lines.isEmpty())
+                    assertTrue(observer.diagnosticReport().contains("ihu/events/navigation/ongoing count=31"))
+
+                    clock.addAndGet(60_000_000_000)
                     nextTurn()
                     val summary = lines.poll(5, TimeUnit.SECONDS)
                     assertTrue(summary.contains("count=1001 suppressed=999"))

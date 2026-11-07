@@ -108,9 +108,11 @@ internal class EcarxNavigationMqttObserver(
                                 val now = nanoTime() / 1_000_000
                                 val previous = observations[topic]
                                 val count = (previous?.count ?: 0) + 1
-                                val changed = previous == null || previous.summary != summary || previous.retained != retained
+                                val changed = previous == null ||
+                                    mqttLogSummaryKey(topic, previous.summary) != mqttLogSummaryKey(topic, summary) ||
+                                    previous.retained != retained
                                 // Keep transitions immediately; coalesce repeated traffic without losing its count.
-                                val due = previous == null || now - previous.reportedMs >= if (debug) 1000 else 30_000
+                                val due = previous == null || now - previous.reportedMs >= if (debug) 1000 else 60_000
                                 val emit = changed || due
                                 observations[topic] = Observation(summary, retained, count, now,
                                     if (emit) now else previous?.reportedMs ?: now,
@@ -166,4 +168,15 @@ internal class EcarxNavigationMqttObserver(
             }
         }
     }
+}
+
+/**
+ * Alternating "firstFrameReady" / "ongoingNavi" observations are routine refreshes of the
+ * same active navigation state, not transitions. Preserve the unmodified last observation in
+ * diagnosticReport() and preserve idle/off/destination changes as distinct states.
+ */
+internal fun mqttLogSummaryKey(topic: String, summary: String): String {
+    if (topic != "ihu/events/navigation/ongoing") return summary
+    return summary.replace("naviEvent=firstFrameReady", "naviEvent=active")
+        .replace("naviEvent=ongoingNavi", "naviEvent=active")
 }

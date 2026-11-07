@@ -28,6 +28,26 @@ class WirelessStartupDiagnosticsTest {
         } finally { diagnostics.close() }
     }
 
+    @Test fun finalSnapshotSeparatesLatestSoftApCountFromCachedStartupCount() {
+        val firstSample = CountDownLatch(1)
+        val logs = java.util.concurrent.CopyOnWriteArrayList<String>()
+        var current = "association=not_exposed softApClients=0 softApObservation=registered"
+        val diagnostics = WirelessStartupDiagnostics(
+            sample = { "interfaceState=up association=not_exposed softApClients=0" },
+            finalSnapshot = { current },
+            log = {
+                logs.add(it)
+                if (it.startsWith("wireless snapshot interfaceState=")) firstSample.countDown()
+            },
+        )
+        diagnostics.start()
+        assertTrue(firstSample.await(2, TimeUnit.SECONDS))
+        current = "association=not_exposed softApClients=2 softApObservation=registered"
+        diagnostics.close()
+        assertTrue(logs.any { it.contains("snapshot cached=true") && it.contains("softApClients=0") })
+        assertTrue(logs.any { it.contains("snapshot fresh=true") && it.contains("softApClients=2") })
+    }
+
     @Test fun startupTimersMeasureTheFirstRequestAndFirstAcceptedTcpWithoutChangingStages() {
         var clock = 1_000_000_000L
         val diagnostics = WirelessStartupDiagnostics({ "" }, {}, nowNs = { clock })

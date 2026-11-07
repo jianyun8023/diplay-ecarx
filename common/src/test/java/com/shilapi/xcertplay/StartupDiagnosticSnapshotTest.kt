@@ -3,6 +3,8 @@ package com.shilapi.xcertplay
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.os.Process
+import android.os.SystemClock
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -74,6 +76,42 @@ class StartupDiagnosticSnapshotTest {
         assertTrue(report.contains("lockedBootReceivedAtEpochMs="))
         assertTrue(report.contains("lockedLaunchEnabled=true"))
         assertFalse(report.contains("launchResult="))
+    }
+
+    @Test fun aNewLockedBootClearsThePreviousBootResultAndRecordsProcessReuse() {
+        AirPlayPersistence.saveAutoStartOnBoot(app, true)
+        StartupDiagnosticSnapshot.received(app, true)
+        StartupDiagnosticSnapshot.launchResult(app, SecurityException("old failure"))
+        assertTrue(StartupDiagnosticSnapshot.report(app).contains("launchResult=failed"))
+
+        StartupDiagnosticSnapshot.lockedBootReceived(app, true)
+        val beforeNormal = StartupDiagnosticSnapshot.report(app)
+        assertTrue(beforeNormal.contains("received=false"))
+        assertTrue(beforeNormal.contains("lockedBootPid=${Process.myPid()}"))
+        assertFalse(beforeNormal.contains("launchResult="))
+        assertFalse(beforeNormal.contains("failureClass="))
+
+        StartupDiagnosticSnapshot.received(app, true)
+        val afterNormal = StartupDiagnosticSnapshot.report(app)
+        assertTrue(afterNormal.contains("receivedPid=${Process.myPid()}"))
+        assertTrue(afterNormal.contains("sameProcessAtBoot=true"))
+        assertTrue(afterNormal.contains("lockedToNormalBootMs="))
+        assertTrue(afterNormal.contains("launchResult=pending"))
+    }
+
+    @Test fun normalBootWithoutLockedBroadcastDropsAStaleCheckpoint() {
+        val prefs = app.createDeviceProtectedStorageContext()
+            .getSharedPreferences("diplay_startup_diagnostics", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putLong("lockedBootReceivedAt", System.currentTimeMillis() - 3_600_000L)
+            .putLong("lockedBootElapsedMs", SystemClock.elapsedRealtime())
+            .putInt("lockedBootPid", 123)
+            .commit()
+        StartupDiagnosticSnapshot.received(app, false)
+        val report = StartupDiagnosticSnapshot.report(app)
+        assertFalse(report.contains("lockedBootReceivedAtEpochMs"))
+        assertFalse(report.contains("lockedBootPid="))
+        assertTrue(report.contains("launchResult=disabled"))
     }
 
     @Test fun unrelatedBroadcastsDoNotCreateOrOverwriteBootEvidence() {

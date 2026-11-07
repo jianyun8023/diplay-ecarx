@@ -6,6 +6,14 @@ import android.bluetooth.BluetoothAdapter
 internal object BluetoothAdapterRestore {
     enum class Outcome { ON, REJECTED, TIMED_OUT, CANCELLED }
 
+    /** Only the first 90 seconds of a real boot may observe an OEM-enabled radio from OFF. */
+    const val EARLY_BOOT_WINDOW_MILLIS = 90_000L
+    const val PASSIVE_BOOT_WAIT_MILLIS = 8_000L
+
+    fun shouldPassivelyObserveBootRadio(
+        earlyBoot: Boolean, initialState: Int, ownedPause: Boolean,
+    ): Boolean = earlyBoot && !ownedPause && initialState == BluetoothAdapter.STATE_OFF
+
     fun awaitOn(
         state: () -> Int,
         requestEnable: (() -> Boolean)?,
