@@ -1,10 +1,10 @@
-# DiPlay ECARX 0.2 — 未发布
+# DiPlay ECARX v134 — 2026-11-07
 
 基线升级至上游 [DiPlay v0.2.22](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.22)，
 `versionCode 134`。保留 ECARX 的应用标识、可选本地认证资产和签名配置。
 合并取舍与验收项见 [升级记录](docs/UPSTREAM-0.2.22-INTEGRATION.md)。
 
-使用手册正文已跟进到本段实现；页面截图仍是 v106 实车画面，各节标注了后续版本的实测状态。
+使用手册已对照 v122 更新至 v134（代码基线 `7619ee32`）：补齐导航声音、热点保护、开机启动、后台连接和诊断说明，纠正设置入口；README 同步简体、繁体和英文摘要。[车主使用说明](docs/USER-GUIDE.zh-CN.md)按连接、日常设置、排错与升级重写，删去开发过程和协议细节；注明高德仪表地图需 iOS 17.4 或更新版本，补充新版设置图。以下条目保留各阶段改动，功能细节见[详细说明](docs/FEATURES.zh-CN.md)。
 
 ## v134：解锁启动先等待车机桌面启动服务（待实车重启验证）
 
