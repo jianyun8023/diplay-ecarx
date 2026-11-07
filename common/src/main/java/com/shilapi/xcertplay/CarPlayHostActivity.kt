@@ -5034,10 +5034,10 @@ open class CarPlayHostActivity : ComponentActivity() {
                 AirPlayPersistence.clearCustomAirPlayIcon(this)
             }
         }
-        val bitmap = customBitmap ?: BitmapFactory.decodeResource(resources, R.raw.placeholder_icon)
+        val bitmap = customBitmap ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home)
         preview.setImageBitmap(bitmap)
         iconStatusView?.text =
-            if (customBitmap != null) getString(R.string.custom_1_1_icon) else getString(R.string.default_placeholder_icon)
+            if (customBitmap != null) getString(R.string.custom_1_1_icon) else getString(R.string.default_icon)
     }
 
     private fun currentActivitySize(): DisplaySize? {

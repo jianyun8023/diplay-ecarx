@@ -134,10 +134,11 @@ object AirPlayPersistence {
     private const val SAFE_AREA_KEY_PREFIX = "safe_area_"
     private const val CUSTOM_ICON_FILE = "airplay-icon.png"
 
-    const val DEFAULT_MANUFACTURER = "DiPlay"
-    const val DEFAULT_MODEL = "DiPlay"
-    /** Empty by default: the head unit's own brand is not assumed, the user may set it in settings. */
-    const val DEFAULT_OEM_LABEL = ""
+    private const val LEGACY_DEFAULT_BRAND = "DiPlay"
+    const val DEFAULT_MANUFACTURER = "Lynk&Co"
+    const val DEFAULT_MODEL = "Lynk&Co"
+    /** Default label shown below this ECARX build's CarPlay car button. */
+    const val DEFAULT_OEM_LABEL = "Lynk&Co"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -612,10 +613,7 @@ object AirPlayPersistence {
     }
 
     fun loadManufacturer(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_MANUFACTURER, null)
-            ?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_MANUFACTURER
+        loadBrandSetting(context, KEY_MANUFACTURER, DEFAULT_MANUFACTURER)
 
     fun saveManufacturer(context: Context, manufacturer: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -624,10 +622,7 @@ object AirPlayPersistence {
     }
 
     fun loadModel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_MODEL, null)
-            ?.takeIf { it.isNotBlank() }
-            ?: DEFAULT_MODEL
+        loadBrandSetting(context, KEY_MODEL, DEFAULT_MODEL)
 
     fun saveModel(context: Context, model: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -638,8 +633,18 @@ object AirPlayPersistence {
     fun loadOemLabel(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
-            // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+            ?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_OEM_LABEL
+
+    /**
+     * Older DiPlay builds persisted their former defaults when settings were saved.
+     * Treat those values like missing settings, while preserving any explicit custom brand.
+     */
+    private fun loadBrandSetting(context: Context, key: String, defaultValue: String): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(key, null)
+            ?.takeIf { it.isNotBlank() && !it.trim().equals(LEGACY_DEFAULT_BRAND, ignoreCase = true) }
+            ?: defaultValue
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
