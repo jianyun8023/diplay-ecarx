@@ -80,22 +80,35 @@ internal object BootCarPlayLaunch {
         )
     }
 
-    /** Returns true when the CarPlay screen was asked to open; false leaves the home-screen launch to the caller. */
-    fun open(context: Context): Boolean {
+    /**
+     * Returns true when the CarPlay screen is open or was asked to open; false leaves the home-screen
+     * launch to the caller. [early]: called at user unlock, before BOOT_COMPLETED.
+     */
+    fun open(context: Context, early: Boolean = false): Boolean {
+        // An earlier call at user unlock already opened it; BOOT_COMPLETED must not open Home over it.
+        if (CarPlayScreen.current() != null) {
+            Log.i(TAG, "Boot: CarPlay screen already open")
+            if (!early) StartupDiagnosticSnapshot.launchResult(context, target = "carplay-already-open")
+            return true
+        }
         val inputs = runCatching { inputs(context) }.getOrElse {
             Log.w(TAG, "Boot CarPlay checks failed; opening DiPlay home", it)
             return false
         }
         if (decide(inputs) != Decision.CARPLAY) return false
-        CarPlayStartupTimeline.record(context, CarPlayStartupTimeline.Stage.BOOT_DIRECT_HOST, inputs.mode)
+        CarPlayStartupTimeline.record(context,
+            if (early) CarPlayStartupTimeline.Stage.UNLOCK_DIRECT_HOST else CarPlayStartupTimeline.Stage.BOOT_DIRECT_HOST,
+            inputs.mode)
         ConnectionDiagnostics.record(context, ConnectionDiagnostics.Source.BOOT, ConnectionDiagnostics.Event.PROJECTION_REQUESTED)
         // The same write DiPlayActivity makes before it opens the projection.
         AirPlayPersistence.saveWirelessEnabled(context, true)
         return try {
             context.startActivity(CarPlayScreen.intent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            StartupDiagnosticSnapshot.launchResult(context, target = "carplay")
+            StartupDiagnosticSnapshot.launchResult(context, target = if (early) "carplay-unlock" else "carplay")
             // Only after the screen is on its way: the home-screen fallback runs its own hotspot start.
             if (inputs.mode == WirelessHotspotMode.MANUAL && inputs.appStartsHotspot) StartupHotspot.start(context)
+            // The home screen schedules this when it opens; this path skips it.
+            runCatching { com.shilapi.xcertplay.update.BackgroundUpdateScheduler.schedule(context.applicationContext) }
             true
         } catch (error: RuntimeException) {
             Log.w(TAG, "Boot could not open the CarPlay screen; opening DiPlay home", error)

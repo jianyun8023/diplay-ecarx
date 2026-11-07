@@ -14,14 +14,42 @@ class RfcommPreconnectTest {
         isCurrent: () -> Boolean = { true },
         createSocket: () -> String = { "socket" },
         connectSocket: (String) -> Long = { 259L },
+        closeSocket: (String) -> Unit = {},
         log: (String) -> Unit = {},
     ) = RfcommPreconnect(
         targetAddress = target,
         isCurrent = isCurrent,
         createSocket = createSocket,
         connectSocket = connectSocket,
+        closeSocket = closeSocket,
         log = log,
     )
+
+    @Test fun aConnectThatFinishesAfterTheWaitTimedOutIsClosedNotLeftOpen() {
+        val release = CountDownLatch(1)
+        val closed = mutableListOf<String>()
+        val preconnect = preconnect(
+            connectSocket = { release.await(5, TimeUnit.SECONDS); 259L },
+            closeSocket = { synchronized(closed) { closed += it } },
+        )
+        val worker = preconnect.start()
+        val timedOut = runCatching { preconnect.consume(TARGET, 10) }.exceptionOrNull()
+        assertTrue(timedOut is IOException)
+        release.countDown()
+        worker.join(5_000)
+        assertEquals(listOf("socket"), synchronized(closed) { closed.toList() })
+        // The retry connects serially; nothing is handed out twice.
+        assertSame(RfcommPreconnect.Outcome.Unavailable, preconnect.consume(TARGET, AWAIT))
+    }
+
+    @Test fun abandoningAnAdoptableSocketClosesIt() {
+        val closed = mutableListOf<String>()
+        val preconnect = preconnect(closeSocket = { closed += it })
+        preconnect.run()
+        preconnect.abandon()
+        assertEquals(listOf("socket"), closed)
+        assertSame(RfcommPreconnect.Outcome.Unavailable, preconnect.consume(TARGET, AWAIT))
+    }
 
     @Test fun connectedSocketIsAdoptedWithItsConnectDuration() {
         val preconnect = preconnect()

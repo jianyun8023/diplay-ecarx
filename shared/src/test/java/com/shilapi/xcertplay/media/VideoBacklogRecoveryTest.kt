@@ -7,6 +7,23 @@ class VideoBacklogRecoveryTest {
     private fun VideoBacklogRecovery.sample(now: Long, age: Long, span: Long, frames: Int = 3): Boolean =
         observe(now * MS, (now - age) * MS, frames, (now - age + span) * MS)
 
+    @Test fun aNewDecoderCatchesUpBeforeAHardBacklogRecovers() {
+        // v129 07:08:23: the hard age fired 0.63 s after the first frame of a new decoder.
+        val recovery = VideoBacklogRecovery()
+        recovery.decoderStarted(0)
+        assertFalse(recovery.sample(630, age = 2_000, span = 500))
+        assertFalse(recovery.sample(2_999, age = 2_000, span = 500))
+        // Still behind once the startup window has passed: recover as before.
+        assertTrue(recovery.sample(3_000, age = 2_000, span = 500))
+    }
+
+    @Test fun resetKeepsTheStartupWindow() {
+        val recovery = VideoBacklogRecovery()
+        recovery.decoderStarted(0)
+        recovery.reset()
+        assertFalse(recovery.sample(1_000, age = 2_000, span = 500))
+    }
+
     @Test fun stableDelayedBacklogDoesNotRecoverAfterGrace() {
         val recovery = VideoBacklogRecovery()
         for (now in listOf(0L, 750L, 1500L, 3000L)) {

@@ -14,6 +14,11 @@ object CarPlayStartupTimeline {
         BOOT_BROADCAST,
         /** The boot receiver opened the CarPlay screen itself, skipping the DiPlay home screen. */
         BOOT_DIRECT_HOST,
+        /**
+         * The same, at user unlock right after LOCKED_BOOT_COMPLETED: a head unit without a lock-screen
+         * credential unlocks about 10 s before BOOT_COMPLETED reaches the app (v129: 38.4 s vs 48.4 s).
+         */
+        UNLOCK_DIRECT_HOST,
         LAUNCHER_CREATE,
         LAUNCHER_RESUME,
         AUTO_CONNECT_DISPATCH,

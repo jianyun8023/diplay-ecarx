@@ -17,7 +17,11 @@ class PhoneBluetoothReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != BluetoothDevice.ACTION_ACL_CONNECTED) return
         if (!DiPlayPreferences.connectOnPhoneBluetooth(context)) { trace(context, Event.OPT_OUT); return }
-        if (CarPlayBackgroundSession.hasSession()) { trace(context, Event.OWNER_PRESENT); return }
+        // The boot receiver opens the CarPlay screen before its controller exists; the home screen
+        // opened over it would only bounce back to it.
+        if (CarPlayBackgroundSession.hasSession() || CarPlayScreen.current() != null) {
+            trace(context, Event.OWNER_PRESENT); return
+        }
         val selected = DiPlayPreferences.phoneAddress(context)
             ?: run { trace(context, Event.NO_SELECTION); return }
         if (Build.VERSION.SDK_INT >= 31 &&

@@ -886,7 +886,7 @@ class AndroidMediaSink(
         ).also {
             it.debugLogsEnabled = debugLogsEnabled
             it.navigationPromptState = ::navigationPromptState
-            it.onNavigationTrack = navigationPromptFocus::onNavigationStream
+            it.onNavigationAudio = navigationPromptFocus::onNavigationAudio
             it.setNavigationAttenuationDb(navigationAttenuationDb)
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
             audioRenderers[id] = it
@@ -1375,6 +1375,7 @@ private class VideoDecoder(
             decoder = configured?.codec
             outputLock.notifyAll()
         }
+        if (configured != null) backlogRecovery.decoderStarted(System.nanoTime())
         configuredRate = used?.operatingRate ?: 0
         configuredMtkMode = configured?.mtkMode ?: MtkDecoderMode.NONE
         configuredMtkCodec2LowLatency = configured != null && requestedMtkCodec2 != null &&
@@ -1947,11 +1948,12 @@ private class AudioRenderer(
     var debugLogsEnabled: () -> Boolean = { false }
     /** The sink's iPhone-duck and prompt-focus state, for the per-prompt log line. */
     var navigationPromptState: () -> String = { "" }
-    /** Open (true) and close (false) of this renderer's navigation track, each reported once. */
-    var onNavigationTrack: (Boolean) -> Unit = {}
-    private val navigationTrackLock = Any()
-    private var navigationTrackOpen = false
-    private var navigationTrackClosed = false
+    /** This navigation track started (true) or stopped (false) playing sound; always reported in pairs. */
+    var onNavigationAudio: (Boolean) -> Unit = {}
+    private val navigationAudioLock = Any()
+    @Volatile private var navigationAudible = false
+    private var navigationAudioEnded = false
+    @Volatile private var lastAudibleNs = 0L
     private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
@@ -2067,21 +2069,42 @@ private class AudioRenderer(
     override fun close() {
         running = false
         NavigationPlayback.close(navigationPlaybackToken)
-        reportNavigationTrack(false)
+        reportNavigationAudio(false, ended = true)
         thread.interrupt()
     }
 
-    /** A close that races the worker's open still reports the pair exactly once. */
-    private fun reportNavigationTrack(open: Boolean) {
-        val notify = synchronized(navigationTrackLock) {
-            if (open) {
-                if (navigationTrackOpen || navigationTrackClosed) false else { navigationTrackOpen = true; true }
-            } else {
-                navigationTrackClosed = true
-                navigationTrackOpen.also { navigationTrackOpen = false }
-            }
+    /**
+     * Reports each change between sound and silence once. After [ended] (close, or the worker
+     * stopping) a late write from the worker cannot start a new prompt that nobody would end.
+     */
+    private fun reportNavigationAudio(audible: Boolean, ended: Boolean = false) {
+        val notify = synchronized(navigationAudioLock) {
+            if (ended) navigationAudioEnded = true
+            if (audible == navigationAudible || (audible && navigationAudioEnded)) false
+            else { navigationAudible = audible; true }
         }
-        if (notify) runCatching { onNavigationTrack(open) }
+        if (!notify) return
+        runCatching { onNavigationAudio(audible) }
+        // One line per prompt: whether the iPhone asked to duck the music and whether the prompt
+        // plays with its own focus. The session log's repeat limiter never drops it.
+        if (audible) runCatching { report("Audio: navigation prompt start ${navigationPromptState()} " +
+            "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType}") }
+    }
+
+    /** Navigation PCM before attenuation; the iPhone sends digital silence between prompts. */
+    private fun trackNavigationSound(data: ByteArray, offset: Int, length: Int) {
+        if (mappedChannel != AudioChannel.NAVIGATION) return
+        if (isAudiblePcm16(data, offset, length, NAVIGATION_AUDIBLE_PEAK)) {
+            lastAudibleNs = System.nanoTime()
+            if (!navigationAudible) reportNavigationAudio(true)
+        }
+    }
+
+    /** Called from the worker loop: silence long enough to have played out ends the prompt. */
+    private fun endNavigationSoundIfSilent() {
+        if (navigationAudible && System.nanoTime() - lastAudibleNs >= NAVIGATION_SILENCE_NS) {
+            reportNavigationAudio(false)
+        }
     }
 
     private fun run() {
@@ -2099,14 +2122,6 @@ private class AudioRenderer(
             createTrack()
             diagnosticStage = "focus"
             requestAudioFocus()
-            // One line per prompt survives the session log's repeat limiter: it shows whether the
-            // iPhone asked to duck the music and whether the prompt plays with its own focus.
-            if (mappedChannel == AudioChannel.NAVIGATION) {
-                // Before the first write: without duckAudio this open is the prompt's only signal.
-                reportNavigationTrack(true)
-                runCatching { report("Audio: navigation prompt start ${navigationPromptState()} " +
-                    "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType}") }
-            }
             while (running) {
                 // Report Settings changes from this worker, never from the UI thread, also between prompts.
                 applyNavigationAttenuation()
@@ -2120,6 +2135,7 @@ private class AudioRenderer(
                 maintainPlaybackBuffer()
                 diagnosticStage = "stats"
                 logStatsIfDue()
+                endNavigationSoundIfSilent()
             }
         } catch (_: InterruptedException) {
             // Worker shut down.
@@ -2133,6 +2149,8 @@ private class AudioRenderer(
             if (running) reportFailure(error)
             throw error
         } finally {
+            // A worker that stops on an error must still end its prompt focus.
+            reportNavigationAudio(false, ended = true)
             runCatching { logStatsIfDue(force = true) }
             release()
         }
@@ -2595,6 +2613,8 @@ private class AudioRenderer(
             )
         }
         voiceFilter?.process(data, offset, length)
+        // Before the first write of the prompt: the focus is asked for while this PCM still prebuffers.
+        trackNavigationSound(data, offset, length)
         applyNavigationAttenuation()
         attenuateNavigation(data, offset, length)
         if (!fadeApplied) {
@@ -2890,6 +2910,10 @@ private class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_INPUT_WAIT_NS = 100_000_000L
         const val AUDIO_POLL_MILLIS = 10L
+        /** About -54 dBFS: above dither, below any spoken prompt. */
+        const val NAVIGATION_AUDIBLE_PEAK = 64
+        /** Covers the track's playout delay so the prompt's tail is not cut by the release. */
+        const val NAVIGATION_SILENCE_NS = 600_000_000L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
         const val MAX_QUEUED_PACKETS = 192
@@ -2899,4 +2923,16 @@ private class AudioRenderer(
         const val MAX_REBUFFER_REPORTS = 5
         const val MAX_QUEUE_FULL_REPORTS = 5
     }
+}
+
+/** True when any 16-bit little-endian sample in the range reaches [peak]. */
+internal fun isAudiblePcm16(data: ByteArray, offset: Int, length: Int, peak: Int): Boolean {
+    var index = offset
+    val end = offset + length - 1
+    while (index < end) {
+        val sample = (data[index].toInt() and 0xff) or (data[index + 1].toInt() shl 8)
+        if (sample >= peak || sample <= -peak) return true
+        index += 2
+    }
+    return false
 }

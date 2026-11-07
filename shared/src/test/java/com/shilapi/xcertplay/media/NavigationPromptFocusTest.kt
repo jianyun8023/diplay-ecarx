@@ -156,50 +156,88 @@ class NavigationPromptFocusTest {
         assertTrue(reports.toString(), reports.any { it.startsWith("Audio: navigation prompt focus released reason=closed") })
     }
 
-    @Test fun aStreamWithoutDuckAudioHoldsFocusUntilItEnds() {
-        // AMap set to mix with music: the iPhone sends no duckAudio, only the navigation stream.
+    @Test fun soundWithoutDuckAudioHoldsFocusUntilItFallsSilent() {
+        // AMap set to mix with music: the iPhone sends no duckAudio, only the navigation sound.
         val prompt = focus()
-        prompt.onNavigationStream(true)
+        prompt.onNavigationAudio(true)
         val sent = shadowOf(manager).lastAudioFocusRequest
         assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, sent.durationHint)
         assertEquals("held", prompt.state())
-        assertTrue(reports.toString(), reports.single().startsWith("Audio: navigation prompt focus requested trigger=stream "))
+        assertTrue(reports.toString(), reports.single().startsWith("Audio: navigation prompt focus requested trigger=audio "))
         idle(NavigationPromptFocus.TIMEOUT_MILLIS + 1)
-        assertFalse("an open stream outlives the duck timeout", abandoned(sent))
-        prompt.onNavigationStream(false)
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS - 1)
+        assertFalse("sound that still plays outlives the duck timeout", abandoned(sent))
+        prompt.onNavigationAudio(false)
+        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS - 1)
         assertFalse(abandoned(sent))
         idle(2)
         assertTrue(abandoned(sent))
         assertEquals("none", prompt.state())
+        assertTrue(reports.last(), Regex("released reason=silence result=\\S+ heldMs=\\d+$").containsMatchIn(reports.last()))
     }
 
-    @Test fun duckAndStreamShareOneRequestAndTheLastOneToEndReleasesIt() {
+    @Test fun soundAgainBeforeTheReleaseKeepsTheSameRequest() {
+        val prompt = focus()
+        prompt.onNavigationAudio(true)
+        val sent = shadowOf(manager).lastAudioFocusRequest
+        prompt.onNavigationAudio(false)
+        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS - 1)
+        prompt.onNavigationAudio(true)
+        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS + 1)
+        assertSame(sent, shadowOf(manager).lastAudioFocusRequest)
+        assertFalse(abandoned(sent))
+    }
+
+    @Test fun duckAndSoundShareOneRequestAndTheLastOneToEndReleasesIt() {
         val prompt = focus()
         prompt.onDuck()
         val sent = shadowOf(manager).lastAudioFocusRequest
-        prompt.onNavigationStream(true)
+        prompt.onNavigationAudio(true)
         assertSame(sent, shadowOf(manager).lastAudioFocusRequest)
         prompt.onUnduck()
         idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS + 1)
-        assertFalse("the stream is still playing", abandoned(sent))
-        prompt.onNavigationStream(false)
+        assertFalse("the prompt is still playing", abandoned(sent))
+        prompt.onNavigationAudio(false)
+        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS + 1)
+        assertTrue(abandoned(sent))
+    }
+
+    @Test fun silenceWhileTheIphoneStillDucksWaitsForUnduck() {
+        val prompt = focus()
+        prompt.onDuck()
+        val sent = shadowOf(manager).lastAudioFocusRequest
+        prompt.onNavigationAudio(true)
+        prompt.onNavigationAudio(false)
+        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS + 1)
+        assertFalse(abandoned(sent))
+        prompt.onUnduck()
         idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS + 1)
         assertTrue(abandoned(sent))
     }
 
-    @Test fun aStreamThatNeverClosesIsBounded() {
+    @Test fun soundThatNeverEndsIsBounded() {
         val prompt = focus()
-        prompt.onNavigationStream(true)
+        prompt.onNavigationAudio(true)
         val sent = shadowOf(manager).lastAudioFocusRequest
         idle(NavigationPromptFocus.STREAM_TIMEOUT_MILLIS + 1)
         assertTrue(abandoned(sent))
     }
 
-    @Test fun streamsRespectTheOptionAndTheAudioFocusSetting() {
-        focus(enabled = false).onNavigationStream(true)
-        focus(audioFocus = false).onNavigationStream(true)
+    @Test fun soundRespectsTheOptionAndTheAudioFocusSetting() {
+        focus(enabled = false).onNavigationAudio(true)
+        focus(audioFocus = false).onNavigationAudio(true)
         assertNull(shadowOf(manager).lastAudioFocusRequest)
+    }
+
+    @Test fun audibleDetectionIgnoresDigitalSilenceAndDither() {
+        fun pcm(vararg samples: Int) = ByteArray(samples.size * 2).also { bytes ->
+            samples.forEachIndexed { i, v -> bytes[2 * i] = v.toByte(); bytes[2 * i + 1] = (v shr 8).toByte() }
+        }
+        assertFalse(isAudiblePcm16(pcm(0, 0, 0, 0), 0, 8, 64))
+        assertFalse(isAudiblePcm16(pcm(3, -2, 63, -63), 0, 8, 64))
+        assertTrue(isAudiblePcm16(pcm(0, 0, -64, 0), 0, 8, 64))
+        assertTrue(isAudiblePcm16(pcm(0, 12000), 0, 4, 64))
+        // Only the given range counts.
+        assertFalse(isAudiblePcm16(pcm(12000, 0, 0), 2, 4, 64))
     }
 
     private fun focus(enabled: Boolean = true, audioFocus: Boolean = true, channel: Int = 0) =

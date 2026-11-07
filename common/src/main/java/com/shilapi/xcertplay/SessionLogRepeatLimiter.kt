@@ -5,10 +5,12 @@ package com.shilapi.xcertplay
  *
  * Every navigation prompt opens a new audio stream, and each one logged the same SETUP, UDP buffer,
  * decoder, focus and clock lines again: about 12 lines per prompt, 28% of the v129 session log
- * (2026-11-07, 190 prompts in 85 minutes). A line is written when its content, without the
- * per-stream ports and connection IDs, has not been written yet in this session; a changed value
- * (another codec, a refused focus request, a drifting clock) is written in full. The counts of
- * what was left out follow in one summary line every [summaryIntervalMillis] and at [flush].
+ * (2026-11-07, 190 prompts in 85 minutes). A setup line is written when its content, without the
+ * per-stream ports and connection IDs, has not been written yet in this AirPlay session
+ * ([newSession] starts the next one, so a reconnect logs its own setup). A measured value (clock
+ * rate, playout lead) is written whenever it differs from the last one written, so a problem that
+ * comes back is logged again. A focus gain is written when it follows a loss. The counts of what
+ * was left out follow in one summary line every [summaryIntervalMillis] and at [flush].
  *
  * Debug logs bypass this so a developer still gets every line.
  */
@@ -16,21 +18,42 @@ internal class SessionLogRepeatLimiter(
     private val now: () -> Long,
     private val summaryIntervalMillis: Long = SUMMARY_INTERVAL_MILLIS,
 ) {
-    private class Rule(val label: String, val prefix: String, val key: (String) -> String)
+    /** [changesOnly]: compare with the last line written for this rule, not with every earlier one. */
+    private class Rule(val label: String, val prefix: String, val changesOnly: Boolean = false, val key: (String) -> String)
 
     private val written = HashSet<String>()
+    private val lastWritten = HashMap<String, String>()
     private val suppressed = LinkedHashMap<String, Int>()
     private var lastSummaryAt = now()
+    private var focusLostSinceGain = false
 
     /** Returns the lines to write, in order: possibly a due summary, then [message] unless it repeats. */
     @Synchronized
     fun filter(message: String): List<String> {
+        if (message.startsWith(FOCUS_CHANGE) && !message.startsWith(FOCUS_GAIN)) focusLostSinceGain = true
+        if (message.startsWith(FOCUS_GAIN) && focusLostSinceGain) {
+            // The gain that ends a loss shows how long the music was down; never leave it out.
+            focusLostSinceGain = false
+            return listOf(message)
+        }
         val rule = RULES.firstOrNull { message.startsWith(it.prefix) } ?: return listOf(message)
-        val key = rule.label + "|" + rule.key(message)
-        if (written.add(key)) return listOf(message)
+        val key = rule.key(message)
+        // Each stream type keeps its own last value: navigation and media streams alternate.
+        val fresh = if (rule.changesOnly) lastWritten.put(rule.label + "|" + STREAM_TYPE.find(message)?.value, key) != key
+            else written.add(rule.label + "|" + key)
+        if (fresh) return listOf(message)
         suppressed[rule.label] = (suppressed[rule.label] ?: 0) + 1
         val summary = if (now() - lastSummaryAt >= summaryIntervalMillis) summaryLine() else null
         return listOfNotNull(summary)
+    }
+
+    /** A new AirPlay session writes its own setup lines; returns the counts of the one before. */
+    @Synchronized
+    fun newSession(): String? {
+        written.clear()
+        lastWritten.clear()
+        focusLostSinceGain = false
+        return summaryLine()
     }
 
     /** The counts not yet reported, for the end of the session log. */
@@ -73,11 +96,19 @@ internal class SessionLogRepeatLimiter(
             Rule("Audio starting", "Audio: starting ") { it },
             Rule("Audio ready", "Audio: ready ") { it },
             Rule("Audio decoded format", "Audio: decoded format ") { it },
-            Rule("rtp clock", "Audio: rtp clock ") { rtpClockKey(it) },
-            Rule("feedback", "Audio: feedback ") { feedbackKey(it) },
-            Rule("prompt focus requested", "Audio: navigation prompt focus requested ") { it },
-            Rule("prompt focus released", "Audio: navigation prompt focus released ") { it },
-            Rule("focus regained", "Audio: focus change=1 ") { it },
+            Rule("rtp clock", "Audio: rtp clock ", changesOnly = true) { rtpClockKey(it) },
+            Rule("feedback", "Audio: feedback ", changesOnly = true) { feedbackKey(it) },
+            // A refused request has its own key, so the first refusal is written; a later one is
+            // written again after any granted request in between.
+            Rule("prompt focus requested", "Audio: navigation prompt focus requested ", changesOnly = true) {
+                it.replace(TRIGGER, "")
+            },
+            // The release line carries heldMs, how long the music was ducked: written for every prompt.
+            Rule("focus regained", FOCUS_GAIN) { it },
         )
+        private val STREAM_TYPE = Regex("\\btype=\\d+")
+        private val TRIGGER = Regex("trigger=\\S+ ")
+        private const val FOCUS_CHANGE = "Audio: focus change="
+        private const val FOCUS_GAIN = "Audio: focus change=1 "
     }
 }

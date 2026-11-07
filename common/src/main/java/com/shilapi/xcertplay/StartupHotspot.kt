@@ -5,29 +5,28 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.shilapi.xcertplay.network.CarHotspotTethering
+import com.shilapi.xcertplay.network.HotspotHeadStart
 import com.shilapi.xcertplay.orchestration.CarPlayStartupTimeline
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Starts the car hotspot as soon as the head unit boots, while the CarPlay screen is still being
  * created. Android 9 takes about 2.4 s to bring the SoftAP up on a cold boot; doing it here takes
  * that time off the path to the first picture.
  *
- * The hotspot control allows one start at a time and a second caller gets BUSY, so the CarPlay
- * screen must call [whenIdle] before its controller starts the hotspot itself. By then the AP is
- * usually on and the controller only confirms it.
+ * The hotspot control allows one start at a time and a second caller gets BUSY. The controller
+ * waits for this start through [HotspotHeadStart] and then only confirms the AP; the home screen
+ * uses [whenIdle] before its own hotspot start.
  */
 internal object StartupHotspot {
     private const val TAG = "DiPlay-Hotspot"
-    private val running = AtomicBoolean(false)
     private val waiting = mutableListOf<() -> Unit>()
     private val main by lazy { Handler(Looper.getMainLooper()) }
 
-    fun isRunning(): Boolean = running.get()
+    fun isRunning(): Boolean = HotspotHeadStart.isRunning()
 
     /** Returns false when a start is already running; it is never queued twice. */
     fun start(context: Context): Boolean {
-        if (!running.compareAndSet(false, true)) return false
+        if (!HotspotHeadStart.begin()) return false
         val app = context.applicationContext
         val mode = AirPlayPersistence.loadWirelessHotspotMode(app)
         CarPlayStartupTimeline.record(app, CarPlayStartupTimeline.Stage.HOTSPOT_PREPARE_BEGIN, mode)
@@ -58,14 +57,14 @@ internal object StartupHotspot {
     /** Runs [action] on the main thread now, or once the boot hotspot start has finished. */
     fun whenIdle(action: () -> Unit) {
         val runNow = synchronized(waiting) {
-            if (running.get()) { waiting += action; false } else true
+            if (HotspotHeadStart.isRunning()) { waiting += action; false } else true
         }
         if (runNow) action()
     }
 
     private fun finish() {
         val ready = synchronized(waiting) {
-            running.set(false)
+            HotspotHeadStart.finish()
             waiting.toList().also { waiting.clear() }
         }
         ready.forEach { main.post(it) }

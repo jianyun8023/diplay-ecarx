@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.media
 
 /** Recover a growing input backlog, while allowing delayed bursts and static tail frames to finish. */
 internal class VideoBacklogRecovery {
+    /** Survives [reset]: only a new decoder moves it. */
+    private var startupEndsNs: Long? = null
     private var episodeStartNs: Long? = null
     private var initialSpanNs = 0L
     private var initialPendingFrames = 0
@@ -14,8 +16,27 @@ internal class VideoBacklogRecovery {
         lastObservedNs = null
     }
 
+    /**
+     * A new decoder starts behind: the frames that arrived while it was created wait in the queue.
+     * Recovery drops the reference chain and waits for a keyframe, and the iPhone does not answer
+     * keyframe requests on the transitional stream before the tunnel StartSession (v129 car test,
+     * 2026-11-07: recovery 0.63 s after the first frame froze the picture for 8.7 s). Let a new
+     * decoder catch up first; a queue overflow still resyncs at once.
+     */
+    fun decoderStarted(nowNs: Long) {
+        reset()
+        startupEndsNs = nowNs + STARTUP_GRACE_NS
+    }
+
     fun observe(nowNs: Long, currentReceivedNs: Long, pendingFrames: Int,
         newestPendingReceivedNs: Long?): Boolean {
+        startupEndsNs?.let { ends ->
+            if (nowNs < ends) {
+                reset()
+                return false
+            }
+            startupEndsNs = null
+        }
         if (pendingFrames <= 0 || newestPendingReceivedNs == null ||
             currentReceivedNs > nowNs || newestPendingReceivedNs > nowNs ||
             newestPendingReceivedNs < currentReceivedNs ||
@@ -60,5 +81,6 @@ internal class VideoBacklogRecovery {
         const val GRACE_NS = 750_000_000L
         const val SPAN_GROWTH_NS = 100_000_000L
         const val FRAME_GROWTH = 4
+        const val STARTUP_GRACE_NS = 3_000_000_000L
     }
 }

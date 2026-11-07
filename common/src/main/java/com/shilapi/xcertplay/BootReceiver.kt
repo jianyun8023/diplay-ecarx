@@ -3,6 +3,8 @@ package com.shilapi.xcertplay
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.UserManager
 import android.util.Log
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
@@ -29,7 +31,42 @@ class BootReceiver : BroadcastReceiver() {
         StartupDiagnosticSnapshot.lockedBootReceived(context, launchEnabled)
         if (!launchEnabled) return
         Log.i(TAG, "LOCKED_BOOT_COMPLETED received; process warmed for boot auto-start")
+        // Without a lock-screen credential the user unlocks right away, about 10 s before
+        // BOOT_COMPLETED reaches this app. Credential storage, and with it the settings, is then
+        // readable: open CarPlay at once. BOOT_COMPLETED finds it open and launches nothing else.
+        val app = context.applicationContext
+        if (userUnlocked(app)) {
+            openAtUnlock(app)
+            return
+        }
+        // USER_UNLOCKED goes to registered receivers only; this warmed process waits for it. If the
+        // process does not live that long, BOOT_COMPLETED still opens CarPlay as before.
+        runCatching {
+            app.registerReceiver(object : BroadcastReceiver() {
+                override fun onReceive(receiverContext: Context, unlocked: Intent) {
+                    runCatching { app.unregisterReceiver(this) }
+                    openAtUnlock(app)
+                }
+            }, IntentFilter(Intent.ACTION_USER_UNLOCKED))
+        }.onFailure { Log.w(TAG, "Could not wait for user unlock", it) }
     }
+
+    private fun openAtUnlock(context: Context) {
+        // The direct path only: anything that needs the home screen waits for BOOT_COMPLETED.
+        runCatching {
+            if (!AirPlayPersistence.loadAutoStartOnBoot(context)) return@runCatching
+            // As BOOT_COMPLETED does: release a profile policy an unclean exit left behind before CarPlay
+            // uses Bluetooth. It skips itself once a session holds the guard.
+            CarBluetoothProfileGuard.recoverIfStale(context)
+            if (BootCarPlayLaunch.open(context, early = true)) {
+                Log.i(TAG, "CarPlay opened at user unlock")
+            }
+        }.onFailure { Log.w(TAG, "CarPlay at user unlock failed; BOOT_COMPLETED will retry", it) }
+    }
+
+    private fun userUnlocked(context: Context): Boolean = runCatching {
+        context.getSystemService(UserManager::class.java)?.isUserUnlocked == true
+    }.getOrDefault(false)
 
     private fun onBootCompleted(context: Context) {
         val mode = AirPlayPersistence.loadWirelessHotspotMode(context)

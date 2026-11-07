@@ -566,11 +566,14 @@ class CarPlayController(
      * True once the current wireless attempt has handed the iPhone a CarPlayStartSession over
      * Bluetooth. From then on the iPhone is joining this listener; tearing it down leaves the
      * phone waiting on an endpoint that no longer exists (07:04 car test: no AirPlay TCP for the
-     * next four attempts until the head unit restarted).
+     * next four attempts until the head unit restarted). False again once that attempt has failed,
+     * for example on the first-TCP timeout: a failed attempt has nothing left to keep.
      */
-    fun startSessionDispatched(): Boolean =
-        !closed && config.transport == CarPlayTransport.WIRELESS &&
-            bootstrapStartSessionGeneration.get() == wirelessGeneration.get()
+    fun startSessionDispatched(): Boolean {
+        val generation = wirelessGeneration.get()
+        return config.transport == CarPlayTransport.WIRELESS &&
+            bootstrapStartSessionGeneration.get() == generation && !isStaleWirelessRun(generation)
+    }
 
     /** Nonblocking identity for wheel controls: only an unclosed phone with an accepted primary stream. */
     fun activeAirPlaySessionToken(): Any? {
@@ -1757,20 +1760,33 @@ class CarPlayController(
                         RFCOMM_CONNECT_TIMEOUT_MILLIS + RFCOMM_PRECONNECT_WAIT_MARGIN_MILLIS,
                     )
                     val socket = synchronized(wirelessResourceLock) {
-                        attempt.checkCurrent()
-                        if (handoffStarted()) throw java.util.concurrent.CancellationException("Wireless handoff started")
-                        // A pre-connected socket is adopted only after the infrastructure (Bonjour
-                        // included) is validated; a pre-connect failure is rethrown after the same
-                        // check, so the recovery classification and the Bonjour gate are unchanged.
-                        validateInfrastructure()
+                        try {
+                            attempt.checkCurrent()
+                            if (handoffStarted()) throw java.util.concurrent.CancellationException("Wireless handoff started")
+                            // A pre-connected socket is adopted only after the infrastructure (Bonjour
+                            // included) is validated; a pre-connect failure is rethrown after the same
+                            // check, so the recovery classification and the Bonjour gate are unchanged.
+                            validateInfrastructure()
+                        } catch (error: Throwable) {
+                            // This attempt never owned the transport, so its cleanup will not close the
+                            // connected pre-connect; the retry would open a second RFCOMM link beside it.
+                            if (preconnected is RfcommPreconnect.Outcome.Adopted) {
+                                closeOwnedBluetoothSocket(preconnected.socket, "unadopted preconnect")
+                            }
+                            throw error
+                        }
                         bootstrapAttempt = attempt
                         when (preconnected) {
                             is RfcommPreconnect.Outcome.Adopted -> preconnected.socket
                             is RfcommPreconnect.Outcome.Failed -> throw preconnected.error
-                            RfcommPreconnect.Outcome.Unavailable ->
+                            RfcommPreconnect.Outcome.Unavailable -> {
+                                // A socket still registered here belongs to an attempt that ended before it
+                                // owned the transport. Never leave it open beside the new one.
+                                bluetoothSocket?.let { closeOwnedBluetoothSocket(it, "leftover") }
                                 // A failed socket is never reused, including after a protocol-layer failure.
                                 target.createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
                                     .also { bluetoothSocket = it }
+                            }
                         }
                     }
                     val connectMillis: Long
@@ -2933,6 +2949,15 @@ class CarPlayController(
             type.equals("disable-bluetooth", ignoreCase = true)
 
     private fun startWirelessHotspot(generation: Int): WirelessHotspotInfo {
+        if (com.shilapi.xcertplay.network.HotspotHeadStart.isRunning()) {
+            val started = System.nanoTime()
+            // Bounded by the head start's own budget; a second start meanwhile would only get BUSY.
+            val finished = com.shilapi.xcertplay.network.HotspotHeadStart.await(HOTSPOT_HEAD_START_WAIT_MILLIS) {
+                isStaleWirelessRun(generation)
+            }
+            debugLog("generation=$generation boot hotspot start waited finished=$finished elapsedMs=${elapsedMillis(started)}")
+            if (isStaleWirelessRun(generation)) throw java.util.concurrent.CancellationException("Stale wireless run")
+        }
         var readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
         val hotspotMode = config.wirelessHotspotMode
         if (com.shilapi.xcertplay.network.CarHotspotSettings.shouldEnable(
@@ -3286,7 +3311,8 @@ class CarPlayController(
                 }
             },
             connectSocket = { socket ->
-                onStatus(CarPlayStatus.ConnectingBluetooth, generation)
+                // No status from here: the network preparation reports its own stages meanwhile, and
+                // a Bluetooth stage between them would step the connection screen backwards.
                 logBluetoothConnectionSnapshot(target, "before-preconnect")
                 val started = System.nanoTime()
                 try {
@@ -3300,8 +3326,18 @@ class CarPlayController(
                 sampleWirelessStart(CarPlayStartupTimeline.Stage.RFCOMM_CONNECTED, generation)
                 elapsedMillis(started)
             },
+            closeSocket = { socket ->
+                synchronized(wirelessResourceLock) { closeOwnedBluetoothSocket(socket, "abandoned preconnect") }
+            },
             log = { debugLog("wireless generation=$generation $it") },
         ).also { it.start() }
+    }
+
+    /** Caller holds [wirelessResourceLock]. Closes [socket] and clears the slot if it is registered there. */
+    private fun closeOwnedBluetoothSocket(socket: BluetoothSocket, reason: String) {
+        if (bluetoothSocket === socket) bluetoothSocket = null
+        connectionDiagnostic("Bluetooth socket closed reason=$reason")
+        closeBestEffort("wireless Bluetooth socket") { socket.close() }
     }
 
     private fun connectBluetoothSocket(
@@ -3943,6 +3979,8 @@ class CarPlayController(
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
+        /** Above the boot hotspot start's 30 s budget. */
+        private const val HOTSPOT_HEAD_START_WAIT_MILLIS = 35_000L
         /** Elapsed may step back by a fraction of a second between updates (130690 -> 130552 on v129). */
         private const val PLAYBACK_ELAPSED_JITTER_MILLIS = 2_000L
         // Measured connects: 147–1714ms. Leave >4x headroom, without spending 15s on each dead socket.

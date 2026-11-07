@@ -26,6 +26,8 @@ internal class RfcommPreconnect<T : Any>(
     private val createSocket: () -> T,
     /** Connects the socket, returns the connect duration in milliseconds, throws on failure. */
     private val connectSocket: (T) -> Long,
+    /** Closes a connected socket that nobody will adopt. */
+    private val closeSocket: (T) -> Unit = {},
     private val log: (String) -> Unit = {},
 ) {
     sealed interface Outcome<out T : Any> {
@@ -42,21 +44,27 @@ internal class RfcommPreconnect<T : Any>(
     private val done = CountDownLatch(1)
     private val consumed = AtomicBoolean(false)
 
-    @Volatile
+    private val lock = Any()
     private var outcome: Outcome<T> = Outcome.Unavailable
+    private var abandoned = false
 
     /** Runs on the pre-connect thread; exposed so tests can drive it deterministically. */
     fun run() {
         try {
-            if (!isCurrent()) {
-                outcome = Outcome.Unavailable
-                return
-            }
+            if (!isCurrent()) return
             val socket = createSocket()
             val connectMillis = connectSocket(socket)
-            outcome = Outcome.Adopted(socket, connectMillis)
+            val orphaned = synchronized(lock) {
+                if (!abandoned) outcome = Outcome.Adopted(socket, connectMillis)
+                abandoned
+            }
+            if (orphaned) {
+                // The attempt stopped waiting; a second connect may already be on its way.
+                log("rfcomm preconnect finished after it was abandoned; closing it")
+                runCatching { closeSocket(socket) }
+            }
         } catch (error: Throwable) {
-            outcome = Outcome.Failed(error)
+            synchronized(lock) { outcome = Outcome.Failed(error) }
         } finally {
             done.countDown()
         }
@@ -80,13 +88,28 @@ internal class RfcommPreconnect<T : Any>(
         }
         try {
             if (!done.await(awaitMillis, TimeUnit.MILLISECONDS)) {
+                abandon()
                 throw IOException("Timed out after ${awaitMillis}ms waiting for the RFCOMM preconnect")
             }
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
+            abandon()
             throw IOException("Interrupted while waiting for the RFCOMM preconnect", error)
         }
-        return outcome
+        return synchronized(lock) { outcome }
+    }
+
+    /**
+     * Gives up on the pre-connect: a socket it holds now, or connects later, is closed instead of
+     * being left open to the iPhone beside the next attempt's own socket.
+     */
+    fun abandon() {
+        consumed.set(true)
+        val socket = synchronized(lock) {
+            abandoned = true
+            (outcome as? Outcome.Adopted)?.socket.also { outcome = Outcome.Unavailable }
+        }
+        if (socket != null) runCatching { closeSocket(socket) }
     }
 
     private companion object {

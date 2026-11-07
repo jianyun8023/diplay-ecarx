@@ -520,7 +520,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var advancedAudioChannelMapping = false
     private var navigationStreamType = 14
     @Volatile private var debugLogsEnabled = false
-    private var logRepeatLimiter = SessionLogRepeatLimiter(SystemClock::elapsedRealtime)
+    @Volatile private var logRepeatLimiter = SessionLogRepeatLimiter(SystemClock::elapsedRealtime)
     private var autoStartOnBoot = false
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
     private var model = AirPlayPersistence.DEFAULT_MODEL
@@ -620,7 +620,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var manualHotspotInterface = ""
     private var awaitingVpnConsent = false
     private var vpnPlatformConsentTried = false
-    private var awaitingStartupHotspot = false
+    /** The driver left after CarPlayStartSession; this attempt may finish, but is not retried out of sight. */
+    private var attemptKeptInBackground = false
     private var awaitingWirelessPermissions = false
     private var wirelessPermissionsRefused = false
     private var awaitingWiredPermissions = false
@@ -1308,6 +1309,8 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Back in front: failures are visible again and retry as usual.
+        attemptKeptInBackground = false
         if (!forwarded && AirPlayPersistence.loadWirelessEnabled(this)) {
             CarPlayStartupTimeline.record(this, CarPlayStartupTimeline.Stage.HOST_START,
                 AirPlayPersistence.loadWirelessHotspotMode(this))
@@ -5310,7 +5313,14 @@ open class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration) {
                         return@runOnUiThread
                     }
+                    if (activeAirPlaySession !== session) {
+                        // A reconnect writes its own stream setup; the counts of the last session close it.
+                        logRepeatLimiter.newSession()?.let {
+                            sessionLog?.append(formattedLogLine(it, System.currentTimeMillis()))
+                        }
+                    }
                     activeAirPlaySession = session
+                    attemptKeptInBackground = false
                     val pending = pendingIphoneCornerMask
                     if (pending?.first === session) {
                         installIphoneCornerMask(session, pending.second.first, pending.second.second)
@@ -5458,6 +5468,16 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         if (status is CarPlayStatus.Failed || status is CarPlayStatus.ControlEnded) {
             callPopupSessionReady = false
+        }
+        if (status is CarPlayStatus.Failed && attemptKeptInBackground) {
+            // Retrying would run Bluetooth and the hotspot again behind the home screen, and a later
+            // connect from there would adopt this owner instead of starting fresh.
+            attemptKeptInBackground = false
+            appendLog("The attempt kept in the background failed; stopping it instead of retrying out of sight")
+            if (CarPlayBackgroundSession.isOwner(this) && !shuttingDown.get()) {
+                CarPlayBackgroundSession.stop { mainHandler.post { if (!isDestroyed) finish() } }
+            }
+            return@report
         }
         if (menuOpen) {
             if (status is CarPlayStatus.Failed) {
@@ -5611,17 +5631,11 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun startCarPlay(size: DisplaySize) {
-        // The boot receiver may still be bringing the car hotspot up. The controller would get BUSY from
-        // the hotspot control, so start it once that head start has finished.
+        // The boot receiver may still be bringing the car hotspot up. That start is this app's own, not a
+        // driver's request in Settings: start the controller now, and it waits for the AP after Bluetooth.
         if (StartupHotspot.isRunning()) {
-            if (!awaitingStartupHotspot) {
-                awaitingStartupHotspot = true
-                appendLog("Waiting for the boot hotspot start before starting CarPlay")
-                StartupHotspot.whenIdle {
-                    awaitingStartupHotspot = false
-                    if (!isDestroyed) maybeStartCarPlay()
-                }
-            }
+            appendLog("Starting CarPlay while the boot hotspot start finishes")
+            startCarPlayWhenHotspotIdle(size)
             return
         }
         if (!com.shilapi.xcertplay.network.ManualHotspotControl.runIfIdle { startCarPlayWhenHotspotIdle(size) }) {
@@ -6242,7 +6256,11 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Once the iPhone has the CarPlayStartSession it is already joining this listener. Cancelling
         // then left the phone stuck on a dead endpoint: four later attempts got no AirPlay TCP until the
         // head unit restarted. Keep that handshake in the background; the first-TCP watchdog still ends it.
-        if (cancelIfNotConnected && activeAirPlaySession == null && controller?.startSessionDispatched() == true) {
+        // Wi-Fi recovery is the driver asking for a fresh connection, so that attempt is still cancelled.
+        if (cancelIfNotConnected && page != "wireless-recovery" && activeAirPlaySession == null &&
+            controller?.startSessionDispatched() == true
+        ) {
+            attemptKeptInBackground = true
             appendLog("Left the connection screen after CarPlayStartSession; keeping the attempt in the background")
         } else if (cancelIfNotConnected && activeAirPlaySession == null && !shuttingDown.get() &&
             CarPlayBackgroundSession.isOwner(this)

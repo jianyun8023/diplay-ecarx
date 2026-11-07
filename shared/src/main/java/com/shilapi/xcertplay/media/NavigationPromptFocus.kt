@@ -19,10 +19,12 @@ internal fun navigationRouteAttributes(navigationChannel: Int, oemContent: Boole
  * focus owner's sound then plays the prompt, and other sound can duck instead of being muted. Nothing
  * is requested while the Audio focus setting is off.
  *
- * A prompt is the iPhone's duckAudio … unduckAudio, or a navigation audio stream that is open. The
- * iPhone sends no duckAudio when the navigation app is set to mix with music (AMap "coexist"); the
- * stream alone then holds the focus, or the car mutes the prompt (v129 car test, 2026-11-07: 56
- * prompts without focus, none of them heard).
+ * A prompt is the iPhone's duckAudio … unduckAudio, or navigation audio that is audible. The iPhone
+ * sends no duckAudio when the navigation app is set to mix with music (AMap "coexist"); the sound
+ * alone then holds the focus, or the car mutes the prompt (v129 car test, 2026-11-07: 56 prompts
+ * without focus, none of them heard). The car ducks the music for as long as the request is held,
+ * and the iPhone keeps a navigation stream open for up to 32 s after a 2 s prompt, so the request
+ * follows the sound, not the open stream.
  */
 internal class NavigationPromptFocus(
     context: Context?,
@@ -33,6 +35,8 @@ internal class NavigationPromptFocus(
     private val releaseDelayMillis: Long = RELEASE_DELAY_MILLIS,
     private val timeoutMillis: Long = TIMEOUT_MILLIS,
     private val streamTimeoutMillis: Long = STREAM_TIMEOUT_MILLIS,
+    private val audibleReleaseDelayMillis: Long = AUDIBLE_RELEASE_DELAY_MILLIS,
+    private val clock: () -> Long = android.os.SystemClock::elapsedRealtime,
 ) {
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -44,7 +48,8 @@ internal class NavigationPromptFocus(
     private var skipReported = false
     private var closed = false
     private var iphoneDucking = false
-    private var navigationStreams = 0
+    private var audibleStreams = 0
+    private var heldSince = 0L
 
     @Synchronized
     fun onDuck() {
@@ -52,7 +57,7 @@ internal class NavigationPromptFocus(
         iphoneDucking = true
         if (!acquire("duck")) return
         // Each duck restarts the timeout, and a duck right after an unduck keeps the same request.
-        scheduleRelease("timeout", if (navigationStreams > 0) streamTimeoutMillis else timeoutMillis)
+        scheduleRelease("timeout", if (audibleStreams > 0) streamTimeoutMillis else timeoutMillis)
     }
 
     /** The prompt's last audio is still in DiPlay's buffers when the iPhone sends unduckAudio. */
@@ -60,21 +65,25 @@ internal class NavigationPromptFocus(
     fun onUnduck() {
         iphoneDucking = false
         if (closed || request == null) return
-        // An open navigation stream keeps the prompt going; its end releases the focus.
-        if (navigationStreams == 0) scheduleRelease("unduck", releaseDelayMillis)
+        // Navigation sound still playing keeps the prompt going; its silence releases the focus.
+        if (audibleStreams == 0) scheduleRelease("unduck", releaseDelayMillis)
     }
 
-    /** A navigation audio track started (true) or closed (false). */
+    /**
+     * A navigation track started (true) or stopped (false) playing sound: its first audible PCM
+     * after silence, and its silence, close or failure after that. Each renderer reports a pair.
+     */
     @Synchronized
-    fun onNavigationStream(active: Boolean) {
-        navigationStreams = (navigationStreams + if (active) 1 else -1).coerceAtLeast(0)
+    fun onNavigationAudio(audible: Boolean) {
+        audibleStreams = (audibleStreams + if (audible) 1 else -1).coerceAtLeast(0)
         if (closed || !promptFocusEnabled) return
-        if (active) {
-            if (!acquire("stream")) return
-            // Streams lasted 1.3–32 s on v129; this only bounds a stream that never closes.
+        if (audible) {
+            if (!acquire("audio")) return
+            // Only bounds a renderer that never reports its silence.
             scheduleRelease("timeout", streamTimeoutMillis)
-        } else if (navigationStreams == 0 && !iphoneDucking && request != null) {
-            scheduleRelease("stream-end", releaseDelayMillis)
+        } else if (audibleStreams == 0 && !iphoneDucking && request != null) {
+            // The renderer reports silence after it has waited out its own playout delay.
+            scheduleRelease("silence", audibleReleaseDelayMillis)
         }
     }
 
@@ -120,7 +129,10 @@ internal class NavigationPromptFocus(
         )
         val result = runCatching { next.request(manager) }.getOrDefault(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
         val granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (granted) request = next else runCatching { next.abandon(manager) }
+        if (granted) {
+            request = next
+            heldSince = clock()
+        } else runCatching { next.abandon(manager) }
         val line = "Audio: navigation prompt focus requested trigger=$trigger " +
             "gain=${AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK} " +
             "usage=${routeAttributes.usage} contentType=${routeAttributes.contentType} granted=$result"
@@ -152,7 +164,9 @@ internal class NavigationPromptFocus(
         val held = request ?: return
         request = null
         val result = manager?.let { runCatching { held.abandon(it) }.getOrNull() }
-        val line = "Audio: navigation prompt focus released reason=$reason result=$result"
+        // How long the car ducked the music for this prompt.
+        val line = "Audio: navigation prompt focus released reason=$reason result=$result " +
+            "heldMs=${(clock() - heldSince).coerceAtLeast(0)}"
         Log.i(TAG, line)
         runCatching { report(line) }
     }
@@ -163,7 +177,9 @@ internal class NavigationPromptFocus(
         const val RELEASE_DELAY_MILLIS = 1_000L
         /** Longest hold without unduckAudio; reported prompts lasted up to about 15 s. */
         const val TIMEOUT_MILLIS = 30_000L
-        /** Longest hold for one open navigation stream. */
+        /** Longest hold for navigation sound that never reports its end. */
         const val STREAM_TIMEOUT_MILLIS = 60_000L
+        /** Added to the renderer's own silence wait; together about the old 1 s tail. */
+        const val AUDIBLE_RELEASE_DELAY_MILLIS = 400L
     }
 }

@@ -442,14 +442,16 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             !DiPlayPreferences.connectOnPhoneBluetooth(this) -> ConnectionTraceEvent.OPT_OUT
             DiPlayPreferences.phoneAddress(this) == null -> ConnectionTraceEvent.NO_SELECTION
             setupError != null -> ConnectionTraceEvent.SETUP_BLOCKED
-            CarPlayBackgroundSession.hasSession() -> ConnectionTraceEvent.OWNER_PRESENT
+            CarPlayBackgroundSession.hasSession() || CarPlayScreen.current() != null -> ConnectionTraceEvent.OWNER_PRESENT
             else -> ConnectionTraceEvent.INTENT_ACCEPTED
         }
         ConnectionDiagnostics.record(this, ConnectionTraceSource.PHONE_ACL, event)
         return event == ConnectionTraceEvent.INTENT_ACCEPTED
     }
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putString("page", page)
+        // The launch screen only stands for an automatic connection of this instance; a recreated one
+        // may find nothing left to start, and would show its spinner with no way out.
+        outState.putString("page", if (page == "carplay-starting") "home" else page)
         outState.putString("settings_category", settingsCategory.name)
         connectionSettingsReturnCategory?.let { outState.putString("connection_settings_return_category", it.name) }
         outState.putBoolean("pending_car_hotspot", pendingCarHotspotSetup)
