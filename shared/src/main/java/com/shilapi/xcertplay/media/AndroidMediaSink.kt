@@ -886,6 +886,7 @@ class AndroidMediaSink(
         ).also {
             it.debugLogsEnabled = debugLogsEnabled
             it.navigationPromptState = ::navigationPromptState
+            it.onNavigationTrack = navigationPromptFocus::onNavigationStream
             it.setNavigationAttenuationDb(navigationAttenuationDb)
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
             audioRenderers[id] = it
@@ -1946,6 +1947,11 @@ private class AudioRenderer(
     var debugLogsEnabled: () -> Boolean = { false }
     /** The sink's iPhone-duck and prompt-focus state, for the per-prompt log line. */
     var navigationPromptState: () -> String = { "" }
+    /** Open (true) and close (false) of this renderer's navigation track, each reported once. */
+    var onNavigationTrack: (Boolean) -> Unit = {}
+    private val navigationTrackLock = Any()
+    private var navigationTrackOpen = false
+    private var navigationTrackClosed = false
     private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
@@ -2061,7 +2067,21 @@ private class AudioRenderer(
     override fun close() {
         running = false
         NavigationPlayback.close(navigationPlaybackToken)
+        reportNavigationTrack(false)
         thread.interrupt()
+    }
+
+    /** A close that races the worker's open still reports the pair exactly once. */
+    private fun reportNavigationTrack(open: Boolean) {
+        val notify = synchronized(navigationTrackLock) {
+            if (open) {
+                if (navigationTrackOpen || navigationTrackClosed) false else { navigationTrackOpen = true; true }
+            } else {
+                navigationTrackClosed = true
+                navigationTrackOpen.also { navigationTrackOpen = false }
+            }
+        }
+        if (notify) runCatching { onNavigationTrack(open) }
     }
 
     private fun run() {
@@ -2082,6 +2102,8 @@ private class AudioRenderer(
             // One line per prompt survives the session log's repeat limiter: it shows whether the
             // iPhone asked to duck the music and whether the prompt plays with its own focus.
             if (mappedChannel == AudioChannel.NAVIGATION) {
+                // Before the first write: without duckAudio this open is the prompt's only signal.
+                reportNavigationTrack(true)
                 runCatching { report("Audio: navigation prompt start ${navigationPromptState()} " +
                     "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType}") }
             }
