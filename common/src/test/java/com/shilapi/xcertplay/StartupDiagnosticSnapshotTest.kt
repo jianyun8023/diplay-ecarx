@@ -75,6 +75,9 @@ class StartupDiagnosticSnapshotTest {
         val report = StartupDiagnosticSnapshot.report(app)
         assertTrue(report.contains("lockedBootReceivedAtEpochMs="))
         assertTrue(report.contains("lockedLaunchEnabled=true"))
+        // Decides whether CarPlay can later start at this broadcast instead of BOOT_COMPLETED.
+        assertTrue(report.contains("lockedUserUnlocked="))
+        assertTrue(report.contains("lockedBluetoothState="))
         assertFalse(report.contains("launchResult="))
     }
 

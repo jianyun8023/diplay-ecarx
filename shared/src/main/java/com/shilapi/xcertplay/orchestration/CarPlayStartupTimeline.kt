@@ -12,6 +12,8 @@ import android.util.Log
 object CarPlayStartupTimeline {
     enum class Stage {
         BOOT_BROADCAST,
+        /** The boot receiver opened the CarPlay screen itself, skipping the DiPlay home screen. */
+        BOOT_DIRECT_HOST,
         LAUNCHER_CREATE,
         LAUNCHER_RESUME,
         AUTO_CONNECT_DISPATCH,
@@ -19,9 +21,12 @@ object CarPlayStartupTimeline {
         HOTSPOT_PREPARE_END,
         PROJECTION_REQUEST,
         HOST_CREATE,
+        HOST_START,
         CONTROLLER_START,
         LOCAL_MFI_READY,
         WIRELESS_RUN_START,
+        /** The head unit's Bluetooth radio was confirmed ON; RFCOMM cannot start before this. */
+        BLUETOOTH_READY,
         NETWORK_BACKEND_READY,
         ENDPOINT_READY,
         AIRPLAY_LISTENING,
@@ -34,6 +39,13 @@ object CarPlayStartupTimeline {
         AIRPLAY_SESSION_ACTIVE,
         VIDEO_FIRST_FRAME,
         UI_FIRST_FRAME_CALLBACK,
+        /** CarPlayStartSession (0x4301) answered over the Wi-Fi iAP2 tunnel. */
+        TUNNEL_START_SESSION_SENT,
+        /**
+         * The first decoded frame after the tunnel StartSession. The iPhone restarts the main
+         * screen stream then, so this is when the picture stops being transitional.
+         */
+        STABLE_VIDEO_FRAME,
         WIRELESS_FAILED,
     }
 

@@ -327,6 +327,10 @@ class CarPlayController(
     /** Set when the handoff fell back and kept Bluetooth as the only iAP2 channel. */
     private val wirelessHandoffFellBack = AtomicBoolean(false)
     private val wirelessGeneration = AtomicInteger(0)
+    /** The wireless generation whose Bluetooth CarPlayStartSession was (or may have been) written. */
+    private val bootstrapStartSessionGeneration = AtomicInteger(-1)
+    private val tunnelStartSessionGeneration = AtomicInteger(-1)
+    private val stableFrameGeneration = AtomicInteger(-1)
     private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
 
     private var permissionCloseable: Closeable? = null
@@ -557,6 +561,16 @@ class CarPlayController(
     }
 
     fun isClosed(): Boolean = closed
+
+    /**
+     * True once the current wireless attempt has handed the iPhone a CarPlayStartSession over
+     * Bluetooth. From then on the iPhone is joining this listener; tearing it down leaves the
+     * phone waiting on an endpoint that no longer exists (07:04 car test: no AirPlay TCP for the
+     * next four attempts until the head unit restarted).
+     */
+    fun startSessionDispatched(): Boolean =
+        !closed && config.transport == CarPlayTransport.WIRELESS &&
+            bootstrapStartSessionGeneration.get() == wirelessGeneration.get()
 
     /** Nonblocking identity for wheel controls: only an unclosed phone with an accepted primary stream. */
     fun activeAirPlaySessionToken(): Any? {
@@ -1488,6 +1502,7 @@ class CarPlayController(
                 passiveBootWait = android.os.SystemClock.elapsedRealtime() in
                     0 until BluetoothAdapterRestore.EARLY_BOOT_WINDOW_MILLIS,
             )
+            sampleWirelessStart(CarPlayStartupTimeline.Stage.BLUETOOTH_READY, generation)
             val hotspotInfo = startWirelessHotspot(generation)
             if (isStaleWirelessRun(generation)) {
                 return
@@ -1853,6 +1868,7 @@ class CarPlayController(
                             // The phone may receive 0x4301 even if the write later fails. Stop
                             // local retries before writing any of that frame, not after it succeeds.
                             beginStartSessionDispatch(generation, attempt, startSessionSent, ::validateInfrastructure)
+                            bootstrapStartSessionGeneration.set(generation)
                         },
                         onStartSessionSent = {
                             if (attempt.isCurrent) {
@@ -2054,6 +2070,12 @@ class CarPlayController(
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
+                        onStartSessionSent = {
+                            if (!closed && generation == wirelessGeneration.get() &&
+                                tunnelStartSessionGeneration.getAndSet(generation) != generation) {
+                                sampleWirelessStart(CarPlayStartupTimeline.Stage.TUNNEL_START_SESSION_SENT, generation)
+                            }
+                        },
                         onIncoming = { onRouteFrame(it, "wireless-tunnel") },
                         onProgress = { message -> debugLog("iAP tunnel $message") },
                     )
@@ -2140,6 +2162,12 @@ class CarPlayController(
                 if (isStaleWirelessRun(generation) || activeSession !== session) return
                 if (!watchdog.sessionEstablished()) return
                 wirelessConnectionProof.rendered(generation, session)
+                // Each decoder start reports its first frame. The one after the tunnel StartSession
+                // is the restarted stream that stays on screen.
+                if (tunnelStartSessionGeneration.get() == generation &&
+                    stableFrameGeneration.getAndSet(generation) != generation) {
+                    sampleWirelessStart(CarPlayStartupTimeline.Stage.STABLE_VIDEO_FRAME, generation)
+                }
                 val firstFrame = synchronized(this) {
                     if (reportedFrameSession === session) false else {
                         reportedFrameSession = session

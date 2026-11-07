@@ -6,9 +6,16 @@
 
 使用手册正文已跟进到本段实现；页面截图仍是 v106 实车画面，各节标注了后续版本的实测状态。
 
+## 开机直接进入 CarPlay（冷启动提速，待实车验证）
+
+- 开机广播在配置完整时（无线自动连接、已选 iPhone、车机热点信息有效或同一局域网、MFi 可加载）直接打开 CarPlay 页面，不再经过 DiPlay 首页 → 热点检查 → 投屏请求。v129 实车冷启动这一段在 CarPlay 页面创建前就用了 5.5s；任何一项不满足仍走原首页路径。
+- 需要 DiPlay 打开车机热点时，开机广播同时在后台开始开热点（冷启动 SoftAP 约 2.4s），与 CarPlay 页面创建并行；CarPlay 页面和首页都会等这次启动结束，不会因为热点控制忙而失败。
+- 已向 iPhone 发出 CarPlayStartSession（0x4301）后离开连接页，不再取消本次连接，改为留在后台，由 first-TCP 看门狗兜底。v129 实车 07:04 在 0x4301 后 2.2s 取消，之后 4 次重连 iPhone 都不再发起 AirPlay TCP，直到车机重启。
+- 启动时间线新增 `BOOT_DIRECT_HOST`、`HOST_START`、`BLUETOOTH_READY`、`TUNNEL_START_SESSION_SENT`、`STABLE_VIDEO_FRAME`（隧道 StartSession 后重建视频流的首帧，即画面真正稳定的时刻）；开机诊断新增 `lockedUserUnlocked`、两次开机广播时的蓝牙状态和 `launchTarget`。
+
 ## RFCOMM 连接与网络准备并行（无线连接提速，待实车验证）
 
-- 选定配对 iPhone 后立即开始 RFCOMM socket 连接，与 AirPlay listener attach、Bonjour 启动、endpoint 构造并行执行。v124 实车日志中这两段原本串行：bt/select 之后空等约 235ms 才发起连接，而连接本身约 259ms；并行后两段等待重叠，预期节约 ≈235ms（待实车 A/B 验证）。
+- 选定配对 iPhone 后立即开始 RFCOMM socket 连接，与 AirPlay listener attach、Bonjour 启动、endpoint 构造并行执行。v124 实车日志中这两段原本串行：bt/select 之后空等约 235ms 才发起连接，而连接本身约 259ms。v129 实车 BONJOUR_STARTED → RFCOMM_CONNECTED 冷启动 0.77s、热启动 0.4–1.1s，并行后预期大部分可重叠（待实车 A/B 验证）。
 - 只并行 socket connect：socket 创建时即在资源锁下登记到既有清理路径，所有权不变；采纳预连接 socket 或重抛其失败都发生在 `validateInfrastructure()`（含 Bonjour 校验）通过之后，CSM 与 bootstrap 时序不变，未放宽任何校验。
 - 预连接失败按该次尝试的 connect 失败处理，保留 #36 局部恢复的分类与预算；预连接只被第一次尝试消费一次，退避重试与备用 iPhone 仍按原路径串行建链，不会出现两个 socket 同时连接同一部手机。
 - 采纳等待上限为 connect 8s 预算加 2s 轮询余量：预连接卡死时以 IOException 超时进入既有重试，而不是退回串行再开第二个 socket。

@@ -619,6 +619,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var manualHotspotInterface = ""
     private var awaitingVpnConsent = false
     private var vpnPlatformConsentTried = false
+    private var awaitingStartupHotspot = false
     private var awaitingWirelessPermissions = false
     private var wirelessPermissionsRefused = false
     private var awaitingWiredPermissions = false
@@ -1306,6 +1307,10 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (!forwarded && AirPlayPersistence.loadWirelessEnabled(this)) {
+            CarPlayStartupTimeline.record(this, CarPlayStartupTimeline.Stage.HOST_START,
+                AirPlayPersistence.loadWirelessHotspotMode(this))
+        }
         logThemeState(ThemeModeDiagnostics.Source.START, resources.configuration)
         mainHandler.removeCallbacks(pollConfiguration)
         mainHandler.post(pollConfiguration)
@@ -5600,6 +5605,19 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun startCarPlay(size: DisplaySize) {
+        // The boot receiver may still be bringing the car hotspot up. The controller would get BUSY from
+        // the hotspot control, so start it once that head start has finished.
+        if (StartupHotspot.isRunning()) {
+            if (!awaitingStartupHotspot) {
+                awaitingStartupHotspot = true
+                appendLog("Waiting for the boot hotspot start before starting CarPlay")
+                StartupHotspot.whenIdle {
+                    awaitingStartupHotspot = false
+                    if (!isDestroyed) maybeStartCarPlay()
+                }
+            }
+            return
+        }
         if (!com.shilapi.xcertplay.network.ManualHotspotControl.runIfIdle { startCarPlayWhenHotspotIdle(size) }) {
             android.widget.Toast.makeText(this, R.string.settings_manual_hotspot_working, android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -6215,7 +6233,12 @@ open class CarPlayHostActivity : ComponentActivity() {
         // it running kept the controller owned by no visible screen, and the next attempt adopted
         // that same dead handshake instead of starting a new one: choosing another iPhone then looked
         // like it was stuck at the same stage forever.
-        if (cancelIfNotConnected && activeAirPlaySession == null && !shuttingDown.get() &&
+        // Once the iPhone has the CarPlayStartSession it is already joining this listener. Cancelling
+        // then left the phone stuck on a dead endpoint: four later attempts got no AirPlay TCP until the
+        // head unit restarted. Keep that handshake in the background; the first-TCP watchdog still ends it.
+        if (cancelIfNotConnected && activeAirPlaySession == null && controller?.startSessionDispatched() == true) {
+            appendLog("Left the connection screen after CarPlayStartSession; keeping the attempt in the background")
+        } else if (cancelIfNotConnected && activeAirPlaySession == null && !shuttingDown.get() &&
             CarPlayBackgroundSession.isOwner(this)
         ) {
             appendLog("Left the connection screen before the first CarPlay picture; cancelling the attempt")

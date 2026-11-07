@@ -2657,6 +2657,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun startCarHotspotOnLaunch(connectSource: ConnectionTraceSource? = null) {
         if (!startupHotspotEligible() && !(connectSource != null && autoHotspotWanted())) return
+        // A second start while the boot receiver's is running would only get BUSY back.
+        if (StartupHotspot.isRunning()) {
+            StartupHotspot.whenIdle { if (!isFinishing && !isDestroyed) startCarHotspotOnLaunch(connectSource) }
+            return
+        }
         if (hotspotStartupRunning) {
             if (connectSource != null) hotspotConnectSource = connectSource
             return

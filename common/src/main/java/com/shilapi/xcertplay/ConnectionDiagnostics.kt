@@ -10,7 +10,7 @@ internal object ConnectionDiagnostics {
     private const val KEY = "events"
     private const val LIMIT = 32
 
-    enum class Source { ACL_BROADCAST, PHONE_ACL, APP_LAUNCH, UI_OR_CONTINUATION, RETRY }
+    enum class Source { ACL_BROADCAST, PHONE_ACL, APP_LAUNCH, BOOT, UI_OR_CONTINUATION, RETRY }
     enum class Event {
         OPT_OUT, OWNER_PRESENT, NO_SELECTION, PERMISSION_DENIED, NO_DEVICE, ADDRESS_UNAVAILABLE,
         OTHER_DEVICE, THROTTLED, LAUNCH_REQUESTED, LAUNCH_RETURNED, LAUNCH_FAILED,

@@ -45,6 +45,9 @@ class BootReceiver : BroadcastReceiver() {
         // guaranteed to follow an unclean exit. Release it before anything else can look at it.
         CarBluetoothProfileGuard.recoverIfStale(context)
         if (!launchEnabled) return
+        // A fully configured wireless auto-connect opens CarPlay directly and starts the car hotspot
+        // in parallel; everything else goes through the home screen as before.
+        if (BootCarPlayLaunch.open(context)) return
 
         // Shaped like the launcher icon's intent: a USB authenticator or iPhone plugged in can open CarPlay
         // before this broadcast, and DiPlayActivity then returns to that session instead of showing Home over it.
