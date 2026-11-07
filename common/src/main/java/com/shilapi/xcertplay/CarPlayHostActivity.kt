@@ -5169,6 +5169,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
         val diagnosticLog = sessionLog
+        val diagnosticRepeats = logRepeatLimiter
         // The instrument-cluster bridge logs to logcat only, and a car without adb cannot return
         // logcat, so its lines are routed into the same session report the audio sink writes to.
         // Fully qualified on purpose: nothing else in this file needs the hud package.
@@ -5197,7 +5198,10 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (message.startsWith("Microphone: ")) {
                     AsyncDiagnosticLog.append(diagnosticLog, message)
                 } else {
-                    diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
+                    // The per-prompt audio lines repeat with every navigation prompt; write each once.
+                    val now = System.currentTimeMillis()
+                    val lines = if (debugLogsEnabled) listOf(message) else diagnosticRepeats.filter(message)
+                    lines.forEach { diagnosticLog?.append(formattedLogLine(it, now)) }
                 }
             },
             onMediaAudioChanged = CarPlayMediaSession::onMediaAudioChanged,
