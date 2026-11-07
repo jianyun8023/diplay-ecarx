@@ -1500,17 +1500,25 @@ class CarPlayController(
             firstTcpWatchdog = watchdog
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
-            // Wireless CarPlay begins over Bluetooth: a radio that is off is found before the Wi-Fi is changed.
-            CarBluetoothProfileGuard.requireAdapterReadyForConnection(
-                appContext,
-                isCurrent = { !isStaleWirelessRun(generation) },
-                log = { debugLog(it) },
-                // Only cold-start workers may wait for an OEM radio that is still OFF.
-                // The observation never enables Bluetooth and remains cancellable.
-                passiveBootWait = android.os.SystemClock.elapsedRealtime() in
-                    0 until BluetoothAdapterRestore.EARLY_BOOT_WINDOW_MILLIS,
-            )
-            sampleWirelessStart(CarPlayStartupTimeline.Stage.BLUETOOTH_READY, generation)
+            // Only cold-start workers may wait for an OEM radio that is still OFF.
+            // The observation never enables Bluetooth and remains cancellable.
+            val coldStart = android.os.SystemClock.elapsedRealtime() in
+                0 until BluetoothAdapterRestore.EARLY_BOOT_WINDOW_MILLIS
+            fun awaitBluetoothRadio() {
+                CarBluetoothProfileGuard.requireAdapterReadyForConnection(
+                    appContext,
+                    isCurrent = { !isStaleWirelessRun(generation) },
+                    log = { debugLog(it) },
+                    passiveBootWait = coldStart,
+                )
+                sampleWirelessStart(CarPlayStartupTimeline.Stage.BLUETOOTH_READY, generation)
+            }
+            // Wireless CarPlay begins over Bluetooth: a radio that is off is found before the Wi-Fi is
+            // changed. A cold start is the exception: the boot hotspot is already up, and the head unit
+            // restarts its Bluetooth after unlock, which took 6 s while hotspot, listener and Bonjour
+            // waited behind it (car test 2026-11-07). Those need no radio, so they go first and the
+            // wait moves to just before the iPhone is chosen.
+            if (!coldStart) awaitBluetoothRadio()
             val hotspotInfo = startWirelessHotspot(generation)
             if (isStaleWirelessRun(generation)) {
                 return
@@ -1599,19 +1607,25 @@ class CarPlayController(
             val adapter = currentBluetoothAdapter()
                 ?: throw BluetoothRadioCheck.failure(BluetoothRadioCheck.NO_ADAPTER)
             if (isStaleWirelessRun(generation)) return
-            // Recheck after hotspot startup; a retained recovery marker never permits RFCOMM on OFF.
-            val radioBlocker = BluetoothRadioCheck.blockerForState(
-                adapterPresent = true,
-                state = adapter.state,
-                pausedByDiPlay = false,
-            )
-            if (radioBlocker != null) throw BluetoothRadioCheck.failure(radioBlocker)
-            val device = selectWirelessBluetoothDevice(adapter)
+            // Settings keep the local address while the radio is off, so the network side needs no radio.
             val hostBluetoothMac = accessoryBluetoothMac(adapter)
-            debugLog(
-                "wireless selected Bluetooth target name=${device.name ?: "unknown"} " +
-                    "address=${device.address} localBt=$hostBluetoothMac",
-            )
+            /** The paired iPhone, after the radio is confirmed: the bonded list is empty while it is off. */
+            fun chooseBluetoothTarget(): BluetoothDevice {
+                // Recheck after hotspot startup; a retained recovery marker never permits RFCOMM on OFF.
+                val radioBlocker = BluetoothRadioCheck.blockerForState(
+                    adapterPresent = true,
+                    state = adapter.state,
+                    pausedByDiPlay = false,
+                )
+                if (radioBlocker != null) throw BluetoothRadioCheck.failure(radioBlocker)
+                return selectWirelessBluetoothDevice(adapter).also { device ->
+                    debugLog(
+                        "wireless selected Bluetooth target name=${device.name ?: "unknown"} " +
+                            "address=${device.address} localBt=$hostBluetoothMac",
+                    )
+                }
+            }
+            var device = if (coldStart) null else chooseBluetoothTarget()
             val wirelessAirPlayConfig = airPlayConfig.copy(
                 deviceId = deviceIdentifier,
                 btMac = hostBluetoothMac,
@@ -1623,7 +1637,7 @@ class CarPlayController(
             // so the two waits overlap instead of adding up. Only the socket connect is
             // speculative — the bootstrap attempt below adopts it only after validateInfrastructure()
             // passes, so the Bonjour gate and the CSM/bootstrap sequencing are unchanged.
-            val rfcommPreconnect = startRfcommPreconnect(generation, device)
+            var rfcommPreconnect = device?.let { startRfcommPreconnect(generation, it) }
 
             onStatus(CarPlayStatus.AttachingNetwork)
             val service = awaitVpnService()
@@ -1739,13 +1753,22 @@ class CarPlayController(
                 }
                 requireNotNull(startedHotspot).validateReady()
             }
+            if (device == null) {
+                // Cold start: the network side is up; now the part that needs the radio.
+                awaitBluetoothRadio()
+                if (isStaleWirelessRun(generation)) return
+                device = chooseBluetoothTarget()
+                rfcommPreconnect = startRfcommPreconnect(generation, device)
+            }
+            val bluetoothTarget = requireNotNull(device)
+            val preconnect = requireNotNull(rfcommPreconnect)
             WirelessBootstrapRecovery(
                 isCurrent = { !isStaleWirelessRun(generation) },
                 validateInfrastructure = ::validateInfrastructure,
                 handoffStarted = ::handoffStarted,
                 log = { connectionDiagnostic("wireless generation=$generation $it") },
             ).run(
-                target = device,
+                target = bluetoothTarget,
                 validateTarget = { target -> validateBluetoothTarget(adapter, target) },
                 fallback = { target -> wirelessBluetoothFallback(adapter, target) },
             ) { target, attempt ->
@@ -1755,7 +1778,7 @@ class CarPlayController(
                 try {
                     // Resolve the speculative connect before taking the resource lock: the wait can
                     // last a full connect budget, and close/restart must stay responsive meanwhile.
-                    val preconnected = rfcommPreconnect.consume(
+                    val preconnected = preconnect.consume(
                         target.address,
                         RFCOMM_CONNECT_TIMEOUT_MILLIS + RFCOMM_PRECONNECT_WAIT_MARGIN_MILLIS,
                     )
