@@ -631,7 +631,10 @@ object AirPlayPersistence {
     }
 
     fun loadOemLabel(context: Context): String =
-        loadBrandSetting(context, KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+            ?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_OEM_LABEL
 
     /**
      * Older DiPlay builds persisted their former defaults when settings were saved.
