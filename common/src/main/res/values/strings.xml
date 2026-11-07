@@ -836,6 +836,11 @@
     <string name="settings_navigation_attenuation_description">Reduce CarPlay navigation guidance without changing music or call volume. Applies immediately; your head unit’s navigation volume still works.</string>
     <string name="settings_car_hotspot_control">Car hotspot</string>
     <string name="settings_auto_car_hotspot_system_description">Turns on the saved hotspot when DiPlay opens or connects wirelessly, using vehicle permissions. To start at boot, also enable “Open after the car starts”. DiPlay prefers 5 GHz when starting a hotspot, keeps the band of a running hotspot, and leaves it on when you exit.</string>
+    <string name="settings_keep_car_wifi_off_title">Keep the car Wi-Fi off</string>
+    <string name="settings_keep_car_wifi_off_description">When DiPlay turns on the car hotspot, it also turns off the car\'s Wi-Fi connection to other networks. The car turns that connection on at every start, and on this head unit it stops the hotspot, which delays wireless CarPlay. The car then no longer joins Wi-Fi networks by itself. Turn this off to give the Wi-Fi connection back.</string>
+    <string name="settings_keep_car_wifi_off_restored">The car Wi-Fi is on again.</string>
+    <string name="settings_keep_car_wifi_off_restored_later">The car Wi-Fi comes back the next time the car starts. Turning it on now would stop the CarPlay hotspot.</string>
+    <string name="settings_keep_car_wifi_off_restore_failed">The car Wi-Fi could not be turned back on. Turn it on in the car\'s Wi-Fi settings.</string>
     <string name="settings_write_settings_granted">“Modify system settings” access: allowed</string>
     <string name="settings_write_settings_missing">“Modify system settings” access is not allowed yet. Allow it so DiPlay can turn on the hotspot.</string>
     <string name="settings_write_settings_allow">Allow access</string>

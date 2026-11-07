@@ -74,6 +74,7 @@ import com.shilapi.xcertplay.network.CarHotspotConfigWrite
 import com.shilapi.xcertplay.network.CarHotspotSavedCredentials
 import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.network.CarHotspotTethering
+import com.shilapi.xcertplay.network.CarWifiClientGuard
 import com.shilapi.xcertplay.network.HotspotCredentials
 import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
@@ -3150,6 +3151,22 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     openWriteSettingsAccess()
                 } else Handler(Looper.getMainLooper()).post { startCarHotspotOnLaunch() }
             }
+            // Android 9 only: there the car settings app turns its Wi-Fi client on, which stops the hotspot.
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P && CarHotspotSettings.enabled(this)) {
+                toggle(parent, getString(R.string.settings_keep_car_wifi_off_title),
+                    getString(R.string.settings_keep_car_wifi_off_description), CarWifiClientGuard.keepOff(this)) { keepOff ->
+                    CarWifiClientGuard.setKeepOff(this, keepOff)
+                    if (!keepOff) {
+                        val inUse = CarPlayBackgroundSession.hasSession() || hotspotStartupRunning
+                        when (CarWifiClientGuard.restore(this, inUse)) {
+                            CarWifiClientGuard.Restore.NOW -> toast(getString(R.string.settings_keep_car_wifi_off_restored))
+                            CarWifiClientGuard.Restore.NEXT_START -> toast(getString(R.string.settings_keep_car_wifi_off_restored_later))
+                            CarWifiClientGuard.Restore.FAILED -> toast(getString(R.string.settings_keep_car_wifi_off_restore_failed))
+                            CarWifiClientGuard.Restore.NOT_NEEDED -> Unit
+                        }
+                    }
+                }
+            }
             val phaseText = if (hotspotStartupRunning) when (hotspotStartupPhase) {
                 CarHotspotSetup.Phase.CHECKING -> R.string.settings_hotspot_checking
                 CarHotspotSetup.Phase.STARTING -> R.string.settings_hotspot_starting
@@ -4955,6 +4972,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("MTK decoder tuning preference: ${if (AirPlayPersistence.loadMtkDecoderTuning(appContext)) "enabled" else "disabled"}")
         appendLine("CarPlay size: ${AirPlayPersistence.loadWidthPhysicalMm(appContext).let { mm -> "${com.shilapi.xcertplay.airplay.CarPlaySize.exact(mm)?.label ?: "Custom"}, $mm mm" }}")
         appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
+        appendLine(runCatching { CarWifiClientGuard.diagnostic(appContext) }.getOrElse { "Car Wi-Fi client: unavailable=${it.javaClass.simpleName}" })
         appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
         appendLine("CarPlay screen: ${CarPlayScreen.report(appContext)}")
         appendLine(PhoneWakeDiagnostics.report(appContext))

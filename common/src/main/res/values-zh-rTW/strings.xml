@@ -794,6 +794,11 @@
     <string name="settings_navigation_attenuation_description">只降低 CarPlay 導航提示音量，不影響音樂與通話。調整立即生效，仍可使用車機本身的導航音量。</string>
     <string name="settings_car_hotspot_control">車輛熱點</string>
     <string name="settings_auto_car_hotspot_system_description">DiPlay 開啟或無線連線時，使用車機權限開啟已儲存的熱點。需要開機自動開啟時，請同時啟用「車機啟動後開啟」。啟動熱點時優先使用 5 GHz，保留已執行熱點的頻段，退出時不會關閉熱點。</string>
+    <string name="settings_keep_car_wifi_off_title">保持車機 Wi-Fi 關閉</string>
+    <string name="settings_keep_car_wifi_off_description">DiPlay 開啟車機熱點時，同時關閉車機連線其他 Wi-Fi 網路的功能。車機每次啟動都會開啟這項連線，而在這台車機上它會關閉熱點，拖慢無線 CarPlay。開啟後車機不再自動連線 Wi-Fi 網路。關閉此項即可恢復車機 Wi-Fi。</string>
+    <string name="settings_keep_car_wifi_off_restored">車機 Wi-Fi 已重新開啟。</string>
+    <string name="settings_keep_car_wifi_off_restored_later">車機 Wi-Fi 將在下次車輛啟動時恢復。現在開啟會關閉 CarPlay 正在使用的熱點。</string>
+    <string name="settings_keep_car_wifi_off_restore_failed">無法重新開啟車機 Wi-Fi，請在車機的 Wi-Fi 設定中手動開啟。</string>
     <string name="settings_write_settings_granted">「修改系統設定」權限：已允許</string>
     <string name="settings_write_settings_missing">尚未允許「修改系統設定」權限。請允許，讓 DiPlay 能開啟熱點。</string>
     <string name="settings_write_settings_allow">允許權限</string>

@@ -35,6 +35,8 @@ class ManualHotspotManager(
     private val onDiagnostic: (String) -> Unit = {},
     private val isCancelled: () -> Boolean = { false },
     private val preferredInterface: String? = null,
+    /** The AP stopped after this manager attached to it, such as when the car's Wi-Fi client came on. */
+    private val onApLost: () -> Unit = {},
 ) : WirelessHotspotManager {
     private val appContext = context.applicationContext
     private val interfaces = ManualHotspotInterfaces(appContext, onDiagnostic, preferredInterface)
@@ -174,7 +176,9 @@ class ManualHotspotManager(
         // Android 9 exposes a read-only system Soft AP client count via a hidden callback.
         // Register asynchronously so an OEM Wi-Fi service cannot delay the CarPlay handshake.
         if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
-            val observer = Android9SoftApClientObserver.forWifiManager(wifiManager, onDiagnostic)
+            val observer = Android9SoftApClientObserver.forWifiManager(wifiManager, onDiagnostic) {
+                if (!closed && !isCancelled()) onApLost()
+            }
             synchronized(waitLock) {
                 if (!closed && !isCancelled()) softApClientObserver = observer
             }

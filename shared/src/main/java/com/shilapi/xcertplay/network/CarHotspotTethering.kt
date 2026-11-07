@@ -42,6 +42,8 @@ object CarHotspotTethering {
         log: (String) -> Unit,
         preferredBand: ManualHotspotBand? = null,
     ): Result {
+        // A client the car settings app turns on later would stop this hotspot again.
+        runCatching { CarWifiClientGuard.beforeHotspotStart(context, log) }
         // Android 9 manual and connection startup share state checks and one bounded recovery.
         if (android.os.Build.VERSION.SDK_INT == 28) {
             val control = ManualHotspotControl(context, log)

@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.shilapi.xcertplay.network.CarHotspotTethering
+import com.shilapi.xcertplay.network.CarWifiClientGuard
 import com.shilapi.xcertplay.network.HotspotHeadStart
 import com.shilapi.xcertplay.orchestration.CarPlayStartupTimeline
 
@@ -33,13 +34,25 @@ internal object StartupHotspot {
         Thread({
             var result: CarHotspotTethering.Result? = null
             try {
+                // With the client allowed, start after the car settings app turned it on, not before.
+                CarWifiClientGuard.awaitClientRestore(app, CarWifiClientGuard.CLIENT_RESTORE_WAIT_MILLIS,
+                    isCancelled = { !com.shilapi.xcertplay.network.CarHotspotSettings.enabled(app) })?.let {
+                    Log.i(TAG, "Boot hotspot waited for the car Wi-Fi client waitedMs=$it")
+                    SettingsActionDiagnostics.record(app, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT,
+                        "phase=boot-prepare clientWaitMs=$it")
+                }
                 result = CarHotspotSetup.prepare(app,
                     isCancelled = { !com.shilapi.xcertplay.network.CarHotspotSettings.enabled(app) },
                     onProgress = { phase ->
                         SettingsActionDiagnostics.record(app, SettingsActionDiagnostics.Action.MANUAL_HOTSPOT,
                             "phase=boot-prepare state=$phase")
                     },
-                    log = { Log.i(TAG, it) })
+                    log = {
+                        Log.i(TAG, it)
+                        // The report keeps this one; logcat drops most lines at boot.
+                        if (it.startsWith("car Wi-Fi client")) SettingsActionDiagnostics.record(app,
+                            SettingsActionDiagnostics.Action.MANUAL_HOTSPOT, "phase=boot-prepare $it")
+                    })
             } catch (error: RuntimeException) {
                 Log.w(TAG, "Boot hotspot start failed", error)
             } finally {

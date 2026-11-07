@@ -3037,6 +3037,13 @@ class CarPlayController(
                 onDiagnostic = { debugLog("generation=$generation $it") },
                 isCancelled = { isStaleWirelessRun(generation) },
                 preferredInterface = config.manualHotspotInterface,
+                // Without the AP the session is gone; restart now instead of after the TCP liveness deadline.
+                onApLost = {
+                    if (!isStaleWirelessRun(generation)) {
+                        debugLog("generation=$generation car hotspot stopped; restarting wireless")
+                        restartWireless()
+                    }
+                },
             )
         }
         synchronized(wirelessResourceLock) {

@@ -6,6 +6,14 @@
 
 使用手册正文已跟进到本段实现；页面截图仍是 v106 实车画面，各节标注了后续版本的实测状态。
 
+## 开机热点不再被车机 Wi-Fi 关掉（待实车验证）
+
+- 原因：dcy11 固件开机时不由系统恢复 Wi-Fi，而是车机设置 App（`com.ecarx.settings`）每次进程启动都按 `wifi_on` 打开 Wi-Fi 客户端；Android 9 上客户端与热点互斥。它在 LOCKED_BOOT_COMPLETED 后 6–10s 启动，解锁即开的热点因此被关掉，控制器要再花 4–5s 重开（实车 11-06、11-07；ROM `WifiServiceImpl.checkAndStartWifi` 跳过 `dcy11`，`Settings.System "wifi_on"` 转读 `Settings.Global`）。
+- 新设置「保持车机 Wi-Fi 关闭」，默认开启，只在 Android 9 且「自动开启热点」时显示和生效：DiPlay 每次自动开启热点前，若车机记住的 Wi-Fi 是开，就调用 `setWifiEnabled(false)`，设置 App 之后读到的是关。关闭此项会把 DiPlay 关掉的 Wi-Fi 打开；CarPlay 正在用热点时只恢复保存值，下次启动生效。
+- 关闭此项时，开机热点先等设置 App 打开 Wi-Fi 客户端（最多 15s）再开，不再开了又被关。
+- 会话中热点被关（上一行原因、或车机设置 App 进程重启）时立即重启无线连接，不再等 TCP 心跳超时；SoftAP 每次状态变化都写入会话日志。
+- 诊断报告新增 `Car Wi-Fi client:` 行：开关、`wifi_on` 保存值、客户端状态，以及车机电源管理服务的 `persist.vendor.lge.wifimodestate` 和 `persist.service.wcp.connect`。
+
 ## 评审修复：后台保留、RFCOMM 泄漏、导航焦点时长、首帧冻结、解锁即启动（待实车验证）
 
 - 导航播报焦点改为跟随「有声音」而不是「流打开」：导航 PCM 出现非静音（峰值 ≥ -54 dBFS）时申请可压低临时焦点，连续 0.6s 静音后再等 0.4s 释放；iPhone 的 duckAudio…unduckAudio 期间照旧持有。v129 中导航流在 2s 播报后最长保持打开 32s，旧做法会让车机把音乐压低这么久。工作线程异常退出时也会结束本次焦点。释放行新增 `heldMs=`（音乐被压低的时长），每次播报都写。

@@ -58,7 +58,37 @@ class Android9SoftApClientObserverTest {
         registrar.state(14)
         assertTrue(observer.diagnosticSnapshot().contains("softApClients=2"))
         assertTrue(observer.diagnosticSnapshot().contains("softApObservation=closed"))
-        assertEquals(3, transitions.size)
+        assertTrue(transitions.contains("wireless SoftAP state=enabled previous=unknown"))
+        assertEquals(4, transitions.size)
+    }
+
+    @Test fun reportsTheAccessPointGoingDownOnceAndOnlyAfterItWasUp() {
+        val registrar = FakeRegistrar()
+        val transitions = mutableListOf<String>()
+        var lost = 0
+        val observer = Android9SoftApClientObserver(
+            registrar, dispatch = { it() }, log = transitions::add, onApLost = { lost++ },
+        )
+        observer.start()
+        // A hotspot that was never up is no loss: the start path reports that itself.
+        registrar.state(11)
+        assertEquals(0, lost)
+        registrar.state(12)
+        registrar.state(13)
+        registrar.state(13)
+        assertEquals(0, lost)
+        // The car's Wi-Fi client coming on stops the AP (car test 2026-11-07).
+        registrar.state(10)
+        assertEquals(1, lost)
+        registrar.state(11)
+        registrar.state(13)
+        registrar.state(14)
+        assertEquals(1, lost)
+        assertTrue(transitions.contains("wireless SoftAP state=disabling previous=enabled"))
+        assertEquals(1, transitions.count { it == "wireless SoftAP state=enabled previous=enabling" })
+        observer.close()
+        registrar.state(11)
+        assertEquals(1, lost)
     }
 
     @Test fun vendorSecurityErrorIsObservabilityOnlyAndNeverLeaksMessages() {

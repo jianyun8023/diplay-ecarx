@@ -794,6 +794,11 @@
     <string name="settings_navigation_attenuation_description">仅降低 CarPlay 导航播报音量，不影响音乐和通话。调整立即生效，车机自身的导航音量仍可使用。</string>
     <string name="settings_car_hotspot_control">车辆热点</string>
     <string name="settings_auto_car_hotspot_system_description">DiPlay 打开或无线连接时，使用车机权限开启已保存的热点。需要开机自动开启时，请同时启用“车机启动后打开”。启动热点时优先使用 5 GHz，保留已运行热点的频段，退出时不会关闭热点。</string>
+    <string name="settings_keep_car_wifi_off_title">保持车机 Wi-Fi 关闭</string>
+    <string name="settings_keep_car_wifi_off_description">DiPlay 开启车机热点时，同时关闭车机连接其他 Wi-Fi 网络的功能。车机每次启动都会打开这项连接，而在这台车机上它会关掉热点，拖慢无线 CarPlay。开启后车机不再自动连接 Wi-Fi 网络。关闭此项即可恢复车机 Wi-Fi。</string>
+    <string name="settings_keep_car_wifi_off_restored">车机 Wi-Fi 已重新打开。</string>
+    <string name="settings_keep_car_wifi_off_restored_later">车机 Wi-Fi 将在下次车辆启动时恢复。现在打开会关掉 CarPlay 正在使用的热点。</string>
+    <string name="settings_keep_car_wifi_off_restore_failed">无法重新打开车机 Wi-Fi，请在车机的 Wi-Fi 设置中手动打开。</string>
     <string name="settings_write_settings_granted">“修改系统设置”权限：已允许</string>
     <string name="settings_write_settings_missing">尚未允许“修改系统设置”权限。请允许，以便 DiPlay 开启热点。</string>
     <string name="settings_write_settings_allow">允许权限</string>

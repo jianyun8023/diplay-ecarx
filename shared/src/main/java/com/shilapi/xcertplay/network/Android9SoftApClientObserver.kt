@@ -11,10 +11,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Read-only tethered Soft AP client count for Android 9 (API 28).
+ * Read-only tethered Soft AP client count and state for Android 9 (API 28).
  *
  * The hidden callback may be unavailable on vendor builds even with NETWORK_SETTINGS. The observer
- * never changes hotspot state, credentials, wireless startup policy, or retry decisions. A missing
+ * never changes hotspot state or credentials; it only tells its owner, through [onApLost], that
+ * the AP it attached to went down. A missing
  * callback is UNKNOWN, never zero. Counts include all stations on the system AP, not necessarily
  * the CarPlay iPhone (and may include a companion SSID).
  *
@@ -27,6 +28,8 @@ internal class Android9SoftApClientObserver(
         Thread(action, "diplay-softap-client-observer").apply { isDaemon = true; start() }
     },
     private val log: (String) -> Unit = {},
+    /** The AP went from enabled to disabling, disabled or failed while observed; called once. */
+    private val onApLost: () -> Unit = {},
 ) : Closeable {
     fun interface Registrar {
         fun register(onClients: (Int) -> Unit, onState: (Int) -> Unit): Closeable
@@ -41,6 +44,7 @@ internal class Android9SoftApClientObserver(
     private val sample = AtomicReference(Sample())
     private val started = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
+    private val lostReported = AtomicBoolean(false)
     private val registrationLock = Any()
     private var registration: Closeable? = null
 
@@ -86,7 +90,13 @@ internal class Android9SoftApClientObserver(
 
     private fun onState(state: Int) {
         if (closed.get()) return
-        sample.updateAndGet { it.copy(apState = state) }
+        val previous = sample.getAndUpdate { it.copy(apState = state) }.apState
+        if (previous == state) return
+        // Logged with its time: something else stopping the AP shows up here first.
+        report("state=${stateLabel(state)} previous=${stateLabel(previous)}")
+        if (previous == AP_ENABLED && state in AP_DOWN && lostReported.compareAndSet(false, true)) {
+            runCatching { onApLost() }
+        }
     }
 
     private fun markUnavailable(error: Throwable) {
@@ -146,13 +156,20 @@ internal class Android9SoftApClientObserver(
     }
 
     companion object {
+        private const val AP_ENABLED = 13
+        private val AP_DOWN = setOf(10, 11, 14)
+
         /**
          * Android 9 AOSP: WifiManager.registerSoftApCallback(SoftApCallback, Handler).
          * Android 10+ uses a different signature; callers must explicitly guard API 28.
          * A vendor-hidden API failure is only an unavailable diagnostic, not startup failure.
          */
         @SuppressLint("PrivateApi")
-        fun forWifiManager(wifi: WifiManager, log: (String) -> Unit = {}): Android9SoftApClientObserver =
+        fun forWifiManager(
+            wifi: WifiManager,
+            log: (String) -> Unit = {},
+            onApLost: () -> Unit = {},
+        ): Android9SoftApClientObserver =
             Android9SoftApClientObserver(
                 registrar = Registrar { onClients, onState ->
                     val type = Class.forName("android.net.wifi.WifiManager\$SoftApCallback")
@@ -180,6 +197,7 @@ internal class Android9SoftApClientObserver(
                     Closeable { unregister.invoke(wifi, callback) }
                 },
                 log = log,
+                onApLost = onApLost,
             )
     }
 }
