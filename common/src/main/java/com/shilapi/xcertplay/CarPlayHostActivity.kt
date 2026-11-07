@@ -5190,6 +5190,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             navigationOemContent = AirPlayPersistence.loadNavigationOemContent(this),
+            navigationFollowsIphone = AirPlayPersistence.loadNavigationFollowsIphone(this),
             navigationAttenuationDb = AirPlayPersistence.loadNavigationAudioAttenuationDb(this),
             context = this,
             navigationStreamType = navigationStreamType,

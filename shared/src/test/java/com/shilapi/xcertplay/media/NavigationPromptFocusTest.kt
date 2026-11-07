@@ -42,6 +42,24 @@ class NavigationPromptFocusTest {
         assertEquals(listOf("Audio: navigation prompt focus requested trigger=duck gain=3 usage=12 contentType=1 granted=1"), reports)
     }
 
+    @Test fun aPromptMixedIntoMusicThatHoldsFocusAsksForNothingAndAsksAgainWithoutMusic() {
+        var musicHoldsFocus = true
+        val focus = NavigationPromptFocus(context, true, true, { navigationRouteAttributes(AudioManager.STREAM_MUSIC) },
+            reports::add, skipRequest = { musicHoldsFocus }).also(helpers::add)
+        focus.onNavigationAudio(true)
+        focus.onNavigationAudio(false)
+        focus.onNavigationAudio(true)
+        assertNull(shadowOf(manager).lastAudioFocusRequest)
+        assertEquals("skipped-musicHoldsFocus", focus.state())
+        assertEquals(listOf("Audio: navigation prompt focus skipped trigger=audio music holds focus"), reports)
+        focus.onNavigationAudio(false)
+        // Cold boot, no music yet: the request is what gives the car's amplifier a source.
+        musicHoldsFocus = false
+        focus.onNavigationAudio(true)
+        assertNotNull(shadowOf(manager).lastAudioFocusRequest)
+        assertEquals("held", focus.state())
+    }
+
     @Test fun unduckReleasesAfterTheBufferedTailAndANewPromptKeepsTheRequest() {
         val focus = focus()
         focus.onDuck()

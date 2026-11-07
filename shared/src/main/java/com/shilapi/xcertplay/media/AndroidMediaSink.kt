@@ -99,6 +99,10 @@ internal class AudioFocusCoordinator(
         applyMediaVolume(track, active.getValue(track))
     }
 
+    /** CarPlay music holds granted focus now, so the car's audio controller already plays Android. */
+    @Synchronized
+    fun mediaHoldsFocus(): Boolean = request != null && requestedChannel == AudioChannel.MEDIA && focusGranted
+
     @Synchronized
     fun release(track: AudioTrack) {
         if (active.remove(track) != null) refreshRequest()
@@ -230,6 +234,11 @@ class AndroidMediaSink(
     /** Opt-in (#946): navigation prompts request duckable focus while the iPhone ducks audio. Needs [audioFocusEnabled]. */
     navigationPromptAudioFocus: Boolean = false,
     private val navigationOemContent: Boolean = false,
+    /**
+     * ECARX: each navigation stream picks its route from the iPhone's duckAudio ([NavigationAudioRoute]),
+     * and on the music stream follows the car's navigation volume ([CarNavigationVolume]).
+     */
+    private val navigationFollowsIphone: Boolean = false,
     private val debugLogsEnabled: () -> Boolean = { false },
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
@@ -247,17 +256,54 @@ class AndroidMediaSink(
         appContext,
         promptFocusEnabled = navigationPromptAudioFocus,
         audioFocusEnabled = audioFocusEnabled,
-        attributes = { navigationRouteAttributes(navigationChannel, navigationOemContent) },
+        attributes = { navigationRouteAttributes(promptRoute(), navigationOemContent) },
+        // On the music stream a prompt reaches the speakers through the focus CarPlay music already
+        // holds. Asking again made the ECARX head unit resend its amplifier source each time, a hitch
+        // in the music (car test 2026-11-07). Without music it still asks: after a cold boot the
+        // amplifier has no source until something holds focus, and a first prompt was silent.
+        skipRequest = {
+            navigationFollowsIphone && promptRoute() == NavigationAudioRoute.MUSIC_STREAM &&
+                audioFocusCoordinator.mediaHoldsFocus()
+        },
         report = onAudioDiagnostic,
     )
 
     /** The iPhone's latest duckAudio/unduckAudio, for the per-prompt log line. */
     @Volatile private var iphoneDucking = false
 
+    /**
+     * The route of the current or next prompt. Following the iPhone, each navigation renderer moves
+     * to it between prompts; a duckAudio arrives before the prompt's sound, in time for the move.
+     */
+    private fun navigationRoute(): Int = NavigationAudioRoute.choose(navigationFollowsIphone, navigationChannel, iphoneDucking)
+
+    /** The open navigation renderer that follows the iPhone, if any. */
+    @Volatile private var followingNavigationRenderer: AudioRenderer? = null
+
+    /**
+     * The route a prompt's focus is asked for. A duck asks for the car channel the renderer moves to
+     * before the sound arrives. Without one, the renderer's actual route: a prompt that starts within
+     * the silence wait after a ducked one still plays on the car channel, which is silent without focus.
+     */
+    private fun promptRoute(): Int = if (iphoneDucking) navigationRoute()
+        else followingNavigationRenderer?.navigationRoute ?: navigationRoute()
+
     override fun onAudioDuck(ducked: Boolean) {
         iphoneDucking = ducked
         if (ducked) navigationPromptFocus.onDuck() else navigationPromptFocus.onUnduck()
     }
+
+    /** dB for a navigation stream on [route]: the car's navigation volume on the music stream. */
+    private fun navigationAttenuationFor(route: Int): Int =
+        if (navigationFollowsIphone && route == NavigationAudioRoute.MUSIC_STREAM) {
+            appContext?.let(CarNavigationVolume::relativeDb) ?: navigationAttenuationDb
+        } else navigationAttenuationDb
+
+    private fun isNavigationStream(format: AudioFormat): Boolean = AudioChannelMapper.map(
+        audioType = format.audioType,
+        payloadType = format.payloadType,
+        mode = if (advancedAudioChannelMapping) AudioChannelMappingMode.AUTOMOTIVE_BUS else AudioChannelMappingMode.MOBILE_COMPATIBLE,
+    ).channel == AudioChannel.NAVIGATION
 
     private fun navigationPromptState(): String =
         "iphoneDuck=$iphoneDucking promptFocus=${navigationPromptFocus.state()}"
@@ -292,7 +338,7 @@ class AndroidMediaSink(
     /** Apply a saved Audio setting to existing navigation tracks without reconnecting CarPlay. */
     fun setNavigationAttenuationDb(db: Int) {
         navigationAttenuationDb = NavigationAudioGain.clamp(db)
-        audioRenderers.values.forEach { it.setNavigationAttenuationDb(navigationAttenuationDb) }
+        audioRenderers.values.forEach { it.setNavigationAttenuationDb(navigationAttenuationFor(it.navigationRoute)) }
     }
     private val microphoneUplinks = ConcurrentHashMap<AudioStreamId, MicrophoneUplink>()
     private val audioModeLock = Any()
@@ -561,7 +607,7 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(id: AudioStreamId) {
         synchronized(this) {
-            audioRenderers.remove(id)?.close()
+            audioRenderers.remove(id)?.also { if (followingNavigationRenderer === it) followingNavigationRenderer = null }?.close()
             callEchoReferences.remove(id)
         }
         updateMediaAudio(id, false)
@@ -801,6 +847,7 @@ class AndroidMediaSink(
         navigationPromptFocus.close()
         audioRenderers.values.forEach(AudioRenderer::close)
         audioRenderers.clear()
+        followingNavigationRenderer = null
         callEchoReferences.clear()
         val hadMedia = synchronized(mediaAudioTypes) { mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() } }
         if (hadMedia) onMediaAudioChanged(false)
@@ -869,12 +916,17 @@ class AndroidMediaSink(
             callEchoReferences.remove(id)
             null
         }
+        val followRoute = navigationFollowsIphone && isNavigationStream(format)
+        val route = if (followRoute) navigationRoute() else navigationChannel
+        if (followRoute) runCatching {
+            onAudioDiagnostic("Audio: navigation route=${NavigationAudioRoute.label(route)} iphoneDuck=$iphoneDucking")
+        }
         return AudioRenderer(
             format,
             advancedAudioChannelMapping,
             audioFocusEnabled,
             mediaChannel,
-            navigationChannel,
+            route,
             audioFocusCoordinator,
             navigationStreamType,
             mediaBufferMillis,
@@ -886,12 +938,21 @@ class AndroidMediaSink(
         ).also {
             it.debugLogsEnabled = debugLogsEnabled
             it.navigationPromptState = ::navigationPromptState
-            it.onNavigationAudio = navigationPromptFocus::onNavigationAudio
-            it.setNavigationAttenuationDb(navigationAttenuationDb)
+            it.onNavigationAudio = { audible ->
+                // The car's volumes may have changed since the stream opened.
+                if (audible) it.setNavigationAttenuationDb(navigationAttenuationFor(it.navigationRoute))
+                navigationPromptFocus.onNavigationAudio(audible)
+            }
+            if (followRoute) {
+                followingNavigationRenderer = it
+                it.navigationRouteWanted = ::navigationRoute
+                it.onNavigationRouteChanged = { moved -> it.setNavigationAttenuationDb(navigationAttenuationFor(moved)) }
+            }
+            it.setNavigationAttenuationDb(navigationAttenuationFor(route))
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
             audioRenderers[id] = it
             // Cover a Settings change made while this renderer was being prepared.
-            it.setNavigationAttenuationDb(navigationAttenuationDb)
+            it.setNavigationAttenuationDb(navigationAttenuationFor(route))
         }
     }
 
@@ -1934,7 +1995,7 @@ private class AudioRenderer(
     private val advancedAudioChannelMapping: Boolean,
     private val audioFocusEnabled: Boolean,
     private val mediaChannel: Int,
-    private val navigationChannel: Int,
+    initialNavigationChannel: Int,
     private val audioFocusCoordinator: AudioFocusCoordinator,
     private val navigationStreamType: Int,
     private val mediaBufferMillis: Int,
@@ -1945,6 +2006,16 @@ private class AudioRenderer(
     voiceFilter: Boolean = false,
     private val navigationOemContent: Boolean = false,
 ) : Closeable {
+    /** The configured navigation channel, or the route chosen for the current prompt ([navigationRouteWanted]). */
+    @Volatile private var navigationChannel = initialNavigationChannel
+    val navigationRoute: Int get() = navigationChannel
+    /**
+     * The route the next prompt wants, read from this worker. The iPhone keeps a navigation stream open
+     * for up to 32 s, and AMap asks to lower the music for some prompts but not others, so one stream
+     * carries both kinds (car test 2026-11-07); the track is rebuilt on the wanted route between prompts.
+     */
+    @Volatile var navigationRouteWanted: (() -> Int)? = null
+    @Volatile var onNavigationRouteChanged: (Int) -> Unit = {}
     var debugLogsEnabled: () -> Boolean = { false }
     /** The sink's iPhone-duck and prompt-focus state, for the per-prompt log line. */
     var navigationPromptState: () -> String = { "" }
@@ -2006,7 +2077,7 @@ private class AudioRenderer(
     private var statsWindowStartNs = 0L
     private var statsLastUnderruns = 0
     private var bytesPerSecond = 0
-    private val bufferProgress = AudioBufferProgress(if (format.channels >= 2) 4 else 2)
+    private var bufferProgress = AudioBufferProgress(if (format.channels >= 2) 4 else 2)
     private var underrunsAtPlaybackStart = 0
     private var headAtPlaybackStart = 0
     private var droppedAtLastTrim = 0
@@ -2136,6 +2207,7 @@ private class AudioRenderer(
                 diagnosticStage = "stats"
                 logStatsIfDue()
                 endNavigationSoundIfSilent()
+                switchNavigationRouteIfWanted()
             }
         } catch (_: InterruptedException) {
             // Worker shut down.
@@ -2154,6 +2226,27 @@ private class AudioRenderer(
             runCatching { logStatsIfDue(force = true) }
             release()
         }
+    }
+
+    /** Only while no prompt plays: the old track then holds the iPhone's digital silence at most. */
+    private fun switchNavigationRouteIfWanted() {
+        val wanted = navigationRouteWanted?.let { runCatching(it).getOrNull() } ?: return
+        if (wanted == navigationChannel || mappedChannel != AudioChannel.NAVIGATION || navigationAudible || track == null) return
+        diagnosticStage = "navigation-route"
+        val from = navigationChannel
+        releaseTrack()
+        navigationChannel = wanted
+        playbackStarted = false
+        prebufferBytes = 0
+        fadeApplied = false
+        appliedNavigationAttenuationDb = null
+        bufferProgress = AudioBufferProgress(frameBytes)
+        createTrack()
+        runCatching {
+            report("Audio: navigation route=${NavigationAudioRoute.label(wanted)} " +
+                "from=${NavigationAudioRoute.label(from)} switchedBetweenPrompts=true")
+        }
+        runCatching { onNavigationRouteChanged(wanted) }
     }
 
     private fun configureCodec(mime: String) {
@@ -2878,6 +2971,11 @@ private class AudioRenderer(
                 // Best effort.
             }
         }
+        releaseTrack()
+    }
+
+    @Synchronized
+    private fun releaseTrack() {
         val track = track
         this.track = null
         if (track != null) {

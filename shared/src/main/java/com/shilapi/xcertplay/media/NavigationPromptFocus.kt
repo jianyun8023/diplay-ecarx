@@ -37,6 +37,12 @@ internal class NavigationPromptFocus(
     private val streamTimeoutMillis: Long = STREAM_TIMEOUT_MILLIS,
     private val audibleReleaseDelayMillis: Long = AUDIBLE_RELEASE_DELAY_MILLIS,
     private val clock: () -> Long = android.os.SystemClock::elapsedRealtime,
+    /**
+     * True when a new request is not needed: the prompt plays through focus the music already holds.
+     * Without any focus the ECARX head unit leaves its amplifier on no source after a cold boot, and
+     * a first prompt before any music was silent, so this never skips while nothing holds focus.
+     */
+    private val skipRequest: () -> Boolean = { false },
 ) {
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -50,6 +56,7 @@ internal class NavigationPromptFocus(
     private var iphoneDucking = false
     private var audibleStreams = 0
     private var heldSince = 0L
+    private var skipping = false
 
     @Synchronized
     fun onDuck() {
@@ -97,7 +104,16 @@ internal class NavigationPromptFocus(
             return false
         }
         val manager = manager ?: return false
-        return request != null || requestFocus(manager, trigger)
+        if (request != null) return true
+        if (runCatching(skipRequest).getOrDefault(false)) {
+            if (!skipping) {
+                skipping = true
+                runCatching { report("Audio: navigation prompt focus skipped trigger=$trigger music holds focus") }
+            }
+            return false
+        }
+        skipping = false
+        return requestFocus(manager, trigger)
     }
 
     /**
@@ -109,6 +125,7 @@ internal class NavigationPromptFocus(
         !promptFocusEnabled -> "off"
         !audioFocusEnabled -> "skipped-audioFocusOff"
         request != null -> "held"
+        skipping -> "skipped-musicHoldsFocus"
         else -> "none"
     }
 

@@ -6,6 +6,15 @@
 
 使用手册正文已跟进到本段实现；页面截图仍是 v106 实车画面，各节标注了后续版本的实测状态。
 
+## 导航声音跟随 iPhone 和车机；冷启动蓝牙等待与网络并行（待实车验证）
+
+- 原因（实车 11-07，ADB 实时日志）：导航走车机导航通道（usage 12）时，车机 MCU 打开导航子通道并把音乐压到几乎听不见，幅度固定、车机设置里不可调；改走音乐流后，若每条播报都申请焦点，车机每次重发功放主通道选择（`Changing MainChannel 0x31→0x31`），音乐顿一下，且 DiPlay 固定把音乐降到 20%。完全不申请焦点又会让冷启动后没放过音乐时首条播报无声：车机主通道在第一次焦点申请前是 `0xffffffff`。
+- 新设置「导航声音跟随 iPhone 和车机」，ECARX 车机默认开启：每条导航音频流在建立时按 iPhone 的 duckAudio 选路（duckAudio 早于音频流 80–210 ms）。iPhone 导航设为「压低音乐」→ 走车机导航通道，压低和导航音量由车机决定；设为「共同播报」→ 走音乐流叠加在音乐上，音量按车机导航音量与媒体音量之差（每档 1.5 dB，只能调低）。音乐流上 CarPlay 音乐已持有焦点时播报不再申请焦点（无顿挫）；没有音乐时仍申请，保证首条播报有声。音乐流上收到 duckAudio 时 DiPlay 自行把音乐降到 50%。开启后不再显示「音频焦点」「导航播报申请音频焦点」「导航播报音量」「导航音频流」。不影响车机媒体中心接管（`requestPlay`）。
+- 一条导航音频流里可以同时有「压低」和「不压低」的播报（高德按条决定是否发 duckAudio，iPhone 让音频流在播报间最长保持 32 s）：导航渲染器在两条播报之间（静音 0.6 s 后）按当前是否 duckAudio 重建 AudioTrack 切换车机导航通道 / 音乐流，不再整条流沿用第一条的通道；焦点按渲染器实际所在通道申请，避免紧接着的播报落在没有焦点的车机导航通道上无声。
+- 仪表地图（Presentation）窗口改为不可获取焦点：它在 CarPlay 页面之后出现时会抢走系统唯一的焦点窗口，Android 9 按焦点窗口的标志显示状态栏，导致车机顶部系统栏一直压在 CarPlay 画面上。
+- 冷启动（开机早期窗口）时，控制器先确认热点、建立 AirPlay 监听与 Bonjour，再等车机蓝牙就绪，随后立即选择 iPhone 并预连 RFCOMM；此前这三步排在约 6 s 的蓝牙等待之后。非冷启动仍先检查蓝牙。
+- 诊断报告音频行新增 `navigationFollowsIphone=` 和 `carNavigationDb=`；每条导航流写 `Audio: navigation route=car|music iphoneDuck=`。
+
 ## 开机热点不再被车机 Wi-Fi 关掉（待实车验证）
 
 - 原因：dcy11 固件开机时不由系统恢复 Wi-Fi，而是车机设置 App（`com.ecarx.settings`）每次进程启动都按 `wifi_on` 打开 Wi-Fi 客户端；Android 9 上客户端与热点互斥。它在 LOCKED_BOOT_COMPLETED 后 6–10s 启动，解锁即开的热点因此被关掉，控制器要再花 4–5s 重开（实车 11-06、11-07；ROM `WifiServiceImpl.checkAndStartWifi` 跳过 `dcy11`，`Settings.System "wifi_on"` 转读 `Settings.Global`）。

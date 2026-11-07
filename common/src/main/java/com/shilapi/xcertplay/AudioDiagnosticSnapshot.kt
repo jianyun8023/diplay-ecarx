@@ -20,7 +20,9 @@ internal object AudioDiagnosticSnapshot {
             "navigationChannel=${AirPlayPersistence.loadNavigationAudioChannel(context)} " +
             "navigationOemContent=${AirPlayPersistence.loadNavigationOemContent(context)} " +
             "focus=${AirPlayPersistence.loadAudioFocusEnabled(context)} " +
-            "navigationPromptFocus=${AirPlayPersistence.loadNavigationPromptAudioFocus(context)}")
+            "navigationPromptFocus=${AirPlayPersistence.loadNavigationPromptAudioFocus(context)} " +
+            "navigationFollowsIphone=${AirPlayPersistence.loadNavigationFollowsIphone(context)} " +
+            "carNavigationDb=${com.shilapi.xcertplay.media.CarNavigationVolume.relativeDb(context) ?: "unreadable"}")
         val manager = context.getSystemService(AudioManager::class.java)
         if (manager == null) {
             appendLine("Audio manager: unavailable")

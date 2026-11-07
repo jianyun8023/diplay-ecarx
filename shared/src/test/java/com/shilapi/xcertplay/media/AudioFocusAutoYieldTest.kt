@@ -82,6 +82,19 @@ class AudioFocusAutoYieldTest {
         assertTrue(volumes(phone).isEmpty())
     }
 
+    @Test fun musicHoldsFocusOnlyWhileItIsTheGrantedRequest() {
+        val coordinator = coordinator()
+        assertFalse(coordinator.mediaHoldsFocus())
+        val media = track(); val phone = track()
+        coordinator.acquire(media, AudioChannel.MEDIA, attributes)
+        coordinator.acquire(phone, AudioChannel.PHONE, attributes)
+        assertFalse(coordinator.mediaHoldsFocus())
+        coordinator.release(phone)
+        assertTrue(coordinator.mediaHoldsFocus())
+        coordinator.release(media)
+        assertFalse(coordinator.mediaHoldsFocus())
+    }
+
     @Test fun optionOffKeepsTransientAudioAndFocusOffIgnoresForwardedEvents() {
         val optionOff = coordinator(autoYield = false)
         val first = track()

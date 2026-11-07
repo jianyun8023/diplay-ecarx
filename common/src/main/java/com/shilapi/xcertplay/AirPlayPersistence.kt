@@ -47,6 +47,7 @@ object AirPlayPersistence {
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
     private const val KEY_AUDIO_FOCUS_AUTO_YIELD = "audio_focus_auto_yield"
     private const val KEY_NAVIGATION_PROMPT_AUDIO_FOCUS = "navigation_prompt_audio_focus"
+    private const val KEY_NAVIGATION_FOLLOWS_IPHONE = "navigation_follows_iphone"
     private const val KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS = "disable_media_key_audio_focus"
     private const val KEY_MEDIA_AUDIO_CHANNEL = "media_audio_channel"
     private const val KEY_NAVIGATION_AUDIO_CHANNEL = "navigation_audio_channel"
@@ -241,7 +242,8 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadAudioFocusEnabled(context: Context): Boolean =
+    /** Navigation sound following the iPhone needs CarPlay audio to take focus ([loadNavigationFollowsIphone]). */
+    fun loadAudioFocusEnabled(context: Context): Boolean = loadNavigationFollowsIphone(context) ||
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_AUDIO_FOCUS_ENABLED, true)
 
@@ -262,9 +264,27 @@ object AirPlayPersistence {
     }
 
     /** Each navigation prompt requests duckable focus while audio focus is on. */
-    fun loadNavigationPromptAudioFocus(context: Context): Boolean =
+    fun loadNavigationPromptAudioFocus(context: Context): Boolean = loadNavigationFollowsIphone(context) ||
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_NAVIGATION_PROMPT_AUDIO_FOCUS, true)
+
+    @Volatile private var ecarxHeadUnit: Boolean? = null
+
+    /**
+     * ECARX: each navigation prompt plays where the iPhone's own "lower music" choice puts it, at the
+     * car's navigation volume, with no DiPlay audio settings to combine (car test 2026-11-07). On by
+     * default on ECARX head units only; elsewhere the existing audio settings stay in charge.
+     */
+    fun loadNavigationFollowsIphone(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.contains(KEY_NAVIGATION_FOLLOWS_IPHONE)) return prefs.getBoolean(KEY_NAVIGATION_FOLLOWS_IPHONE, false)
+        return ecarxHeadUnit ?: com.shilapi.xcertplay.hud.EcarxCapabilities.detect(context).identified.also { ecarxHeadUnit = it }
+    }
+
+    fun saveNavigationFollowsIphone(context: Context, follows: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_NAVIGATION_FOLLOWS_IPHONE, follows).apply()
+    }
 
     fun saveNavigationPromptAudioFocus(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

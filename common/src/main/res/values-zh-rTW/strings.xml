@@ -791,6 +791,8 @@
     <string name="settings_call_speakerphone_description">適用於當作車機的 Android 手機或平板：CarPlay 通話從揚聲器播放而不是聽筒，並使用免持麥克風。車機上請保持關閉。從下一次通話開始生效。</string>
     <string name="settings_navigation_attenuation">導航提示音量</string>
     <string name="settings_navigation_attenuation_value">%1$d dB</string>
+    <string name="settings_navigation_follows_iphone">導航聲音跟隨 iPhone 和車機</string>
+    <string name="settings_navigation_follows_iphone_description">iPhone 導航 App 設為「壓低音樂」時，提示由車機壓低音樂；設為「共同播報」時，提示疊加在音樂上，音量跟隨車機的導航音量；沒有播放音樂時，車輛啟動後第一次提示也能聽到。下次連線 CarPlay 時生效。</string>
     <string name="settings_navigation_attenuation_description">只降低 CarPlay 導航提示音量，不影響音樂與通話。調整立即生效，仍可使用車機本身的導航音量。</string>
     <string name="settings_car_hotspot_control">車輛熱點</string>
     <string name="settings_auto_car_hotspot_system_description">DiPlay 開啟或無線連線時，使用車機權限開啟已儲存的熱點。需要開機自動開啟時，請同時啟用「車機啟動後開啟」。啟動熱點時優先使用 5 GHz，保留已執行熱點的頻段，退出時不會關閉熱點。</string>

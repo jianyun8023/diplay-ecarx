@@ -833,6 +833,8 @@
     <string name="settings_call_speakerphone_description">For an Android phone or tablet used as the head unit: plays CarPlay calls on its loudspeaker instead of the earpiece and uses its hands-free microphone. Leave off on a car head unit. Applies from the next call.</string>
     <string name="settings_navigation_attenuation">Navigation guidance volume</string>
     <string name="settings_navigation_attenuation_value">%1$d dB</string>
+    <string name="settings_navigation_follows_iphone">Navigation sound follows the iPhone and the car</string>
+    <string name="settings_navigation_follows_iphone_description">Prompts lower the music when the iPhone\'s navigation app is set to lower it, and play over the music when it is set to play along. Played over music, they follow the car\'s navigation volume; when nothing plays, the first prompt after the car starts is still heard. Applies at the next connection.</string>
     <string name="settings_navigation_attenuation_description">Reduce CarPlay navigation guidance without changing music or call volume. Applies immediately; your head unit’s navigation volume still works.</string>
     <string name="settings_car_hotspot_control">Car hotspot</string>
     <string name="settings_auto_car_hotspot_system_description">Turns on the saved hotspot when DiPlay opens or connects wirelessly, using vehicle permissions. To start at boot, also enable “Open after the car starts”. DiPlay prefers 5 GHz when starting a hotspot, keeps the band of a running hotspot, and leaves it on when you exit.</string>
