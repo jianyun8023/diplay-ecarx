@@ -73,7 +73,7 @@ class ScreenStream(
 
     private fun run(sock: Socket) {
         var failure: Throwable? = null
-        val stats = StreamReceiveStats("video", onDiagnostic, reportIntervalNs = 60_000_000_000L)
+        val stats = StreamReceiveStats("video", onDiagnostic, reportIntervalNs = StreamReceiveStats.SESSION_REPORT_INTERVAL_NS)
         try {
             val input = sock.getInputStream()
             while (!closed.get()) {

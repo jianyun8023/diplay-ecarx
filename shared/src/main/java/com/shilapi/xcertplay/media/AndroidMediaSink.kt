@@ -251,9 +251,16 @@ class AndroidMediaSink(
         report = onAudioDiagnostic,
     )
 
+    /** The iPhone's latest duckAudio/unduckAudio, for the per-prompt log line. */
+    @Volatile private var iphoneDucking = false
+
     override fun onAudioDuck(ducked: Boolean) {
+        iphoneDucking = ducked
         if (ducked) navigationPromptFocus.onDuck() else navigationPromptFocus.onUnduck()
     }
+
+    private fun navigationPromptState(): String =
+        "iphoneDuck=$iphoneDucking promptFocus=${navigationPromptFocus.state()}"
 
     /** The media-key session may own Android's current focus request for this same sink. */
     fun onMediaAudioFocusChanged(change: Int) {
@@ -878,6 +885,7 @@ class AndroidMediaSink(
             navigationOemContent = navigationOemContent,
         ).also {
             it.debugLogsEnabled = debugLogsEnabled
+            it.navigationPromptState = ::navigationPromptState
             it.setNavigationAttenuationDb(navigationAttenuationDb)
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
             audioRenderers[id] = it
@@ -1936,6 +1944,8 @@ private class AudioRenderer(
     private val navigationOemContent: Boolean = false,
 ) : Closeable {
     var debugLogsEnabled: () -> Boolean = { false }
+    /** The sink's iPhone-duck and prompt-focus state, for the per-prompt log line. */
+    var navigationPromptState: () -> String = { "" }
     private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
@@ -2069,6 +2079,12 @@ private class AudioRenderer(
             createTrack()
             diagnosticStage = "focus"
             requestAudioFocus()
+            // One line per prompt survives the session log's repeat limiter: it shows whether the
+            // iPhone asked to duck the music and whether the prompt plays with its own focus.
+            if (mappedChannel == AudioChannel.NAVIGATION) {
+                runCatching { report("Audio: navigation prompt start ${navigationPromptState()} " +
+                    "usage=${trackAttributes?.usage} contentType=${trackAttributes?.contentType}") }
+            }
             while (running) {
                 // Report Settings changes from this worker, never from the UI thread, also between prompts.
                 applyNavigationAttenuation()

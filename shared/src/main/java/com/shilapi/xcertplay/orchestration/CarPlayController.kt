@@ -999,9 +999,14 @@ class CarPlayController(
             playbackStatus.acceptUpdate(frame)?.let { update ->
                 val elapsed = update.elapsedMillis
                 val before = previous.elapsedMillis
-                val itemChanged = update.title != previous.title || update.sourceApp != previous.sourceApp
-                if (update.playing != previous.playing || itemChanged ||
-                    (elapsed != null && (before == null || elapsed < before))) {
+                // Some music apps put the current lyric line in the title, which changes every few
+                // seconds while the same track plays on (v129: 243 of 451 lines). A new item shows in
+                // the other fields or as a restart; a few hundred ms of elapsed jitter is not one.
+                val itemChanged = update.sourceApp != previous.sourceApp || update.album != previous.album ||
+                    update.artist != previous.artist || update.durationMillis != previous.durationMillis
+                val restarted = elapsed != null &&
+                    (before == null || elapsed < before - PLAYBACK_ELAPSED_JITTER_MILLIS)
+                if (update.playing != previous.playing || itemChanged || restarted) {
                     debugLog("Playback recovery session=${System.identityHashCode(activeSession)} nowPlaying source=$source " +
                         "monotonicNs=$receivedNs previousMs=$before elapsedMs=$elapsed " +
                         "playing=${update.playing} previousPlaying=${previous.playing} itemChanged=$itemChanged")
@@ -3938,6 +3943,8 @@ class CarPlayController(
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
+        /** Elapsed may step back by a fraction of a second between updates (130690 -> 130552 on v129). */
+        private const val PLAYBACK_ELAPSED_JITTER_MILLIS = 2_000L
         // Measured connects: 147–1714ms. Leave >4x headroom, without spending 15s on each dead socket.
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 8_000L
 

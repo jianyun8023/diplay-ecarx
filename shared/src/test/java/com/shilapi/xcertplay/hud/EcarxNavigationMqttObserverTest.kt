@@ -126,7 +126,7 @@ class EcarxNavigationMqttObserverTest {
                     assertTrue(lines.isEmpty())
                     assertTrue(observer.diagnosticReport().contains("ihu/events/navigation/ongoing count=31"))
 
-                    clock.addAndGet(60_000_000_000)
+                    clock.addAndGet(300_000_000_000)
                     nextTurn()
                     val summary = lines.poll(5, TimeUnit.SECONDS)
                     assertTrue(summary.contains("count=1001 suppressed=999"))

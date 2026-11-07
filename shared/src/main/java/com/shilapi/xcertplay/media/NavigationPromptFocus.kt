@@ -62,6 +62,18 @@ internal class NavigationPromptFocus(
         scheduleRelease("unduck", releaseDelayMillis)
     }
 
+    /**
+     * For the per-prompt log line: whether this prompt plays with its own focus. "none" with the
+     * option on means the iPhone sent no duckAudio for it, as when the navigation app mixes with music.
+     */
+    @Synchronized
+    fun state(): String = when {
+        !promptFocusEnabled -> "off"
+        !audioFocusEnabled -> "skipped-audioFocusOff"
+        request != null -> "held"
+        else -> "none"
+    }
+
     @Synchronized
     fun close() {
         if (closed) return

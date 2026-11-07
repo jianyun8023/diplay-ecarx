@@ -520,6 +520,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var advancedAudioChannelMapping = false
     private var navigationStreamType = 14
     @Volatile private var debugLogsEnabled = false
+    private var logRepeatLimiter = SessionLogRepeatLimiter(SystemClock::elapsedRealtime)
     private var autoStartOnBoot = false
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
     private var model = AirPlayPersistence.DEFAULT_MODEL
@@ -1872,6 +1873,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         currentSurfaceTexture = null
         fallbackVideoView = null
         fallbackVideoBounds = null
+        logRepeatLimiter.flush()?.let { sessionLog?.append(formattedLogLine(it, System.currentTimeMillis())) }
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
@@ -6896,7 +6898,13 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun appendLog(message: String) = appendFileLog(message)
 
     private fun appendFileLog(message: String) {
-        sessionLog?.append(formattedLogLine(message, System.currentTimeMillis()))
+        val log = sessionLog ?: return
+        val now = System.currentTimeMillis()
+        if (debugLogsEnabled) {
+            log.append(formattedLogLine(message, now))
+            return
+        }
+        logRepeatLimiter.filter(message).forEach { log.append(formattedLogLine(it, now)) }
     }
 
     private fun formattedLogLine(message: String, nowMillis: Long): String =
@@ -6913,6 +6921,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             )
         }
         sessionLog = activeLog
+        logRepeatLimiter = SessionLogRepeatLimiter(SystemClock::elapsedRealtime)
         PermissionDiagnosticSnapshot.log(this, ::appendLog)
     }
 

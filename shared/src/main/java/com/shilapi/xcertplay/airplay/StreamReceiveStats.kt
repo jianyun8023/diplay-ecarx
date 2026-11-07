@@ -131,9 +131,14 @@ internal class StreamReceiveStats(
             "decryptMBps=$mbPerSecond"
     }
 
-    private companion object {
+    internal companion object {
         const val LONG_READ_NS = 250_000_000L
         const val DEFAULT_REPORT_INTERVAL_NS = 5_000_000_000L
+        /**
+         * Healthy-stream heartbeat for the session streams. Anomalies still report within seconds and
+         * every stream reports when it ends; a 60 s heartbeat was 16% of the v129 session log.
+         */
+        const val SESSION_REPORT_INTERVAL_NS = 300_000_000_000L
         const val ANOMALY_MIN_INTERVAL_NS = 5_000_000_000L
     }
 

@@ -112,7 +112,8 @@ internal class EcarxNavigationMqttObserver(
                                     mqttLogSummaryKey(topic, previous.summary) != mqttLogSummaryKey(topic, summary) ||
                                     previous.retained != retained
                                 // Keep transitions immediately; coalesce repeated traffic without losing its count.
-                                val due = previous == null || now - previous.reportedMs >= if (debug) 1000 else 60_000
+                                // Six topics at one line a minute each were still 12% of the v129 session log.
+                                val due = previous == null || now - previous.reportedMs >= if (debug) 1000 else UNCHANGED_REPORT_MILLIS
                                 val emit = changed || due
                                 observations[topic] = Observation(summary, retained, count, now,
                                     if (emit) now else previous?.reportedMs ?: now,
@@ -180,3 +181,6 @@ internal fun mqttLogSummaryKey(topic: String, summary: String): String {
     return summary.replace("naviEvent=firstFrameReady", "naviEvent=active")
         .replace("naviEvent=ongoingNavi", "naviEvent=active")
 }
+
+/** Repeat interval for a topic whose state has not changed; changes are written at once. */
+private const val UNCHANGED_REPORT_MILLIS = 300_000L
