@@ -23,30 +23,32 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.util.ReflectionHelpers
 
-/** The leave-car pause switch in Audio on the current 1920×1080 ECARX head unit. */
+/** The three music pause switches in Audio on the current 1920×1080 ECARX head unit. */
 @RunWith(RobolectricTestRunner::class)
 // SDK 33 ships the platform car service, like the head unit.
 @Config(sdk = [33])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-class LeaveCarPauseSettingsScreenshotTest {
+class MusicPauseSettingsScreenshotTest {
     @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
-    fun switchIsOnByDefaultAndFitsTheCurrentHeadUnit() {
+    fun switchesAreOffByDefaultAndFitTheCurrentHeadUnit() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         shadowOf(activity.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xui.service" })
-        val output = File("build/reports/leave-car-pause-settings-ui").apply { mkdirs() }
+        val output = File("build/reports/music-pause-settings-ui").apply { mkdirs() }
         try {
             val page = render(activity)
             val title = views(page).filterIsInstance<TextView>()
-                .single { it.text == activity.getString(R.string.settings_leave_car_pause) }
+                .single { it.text == activity.getString(R.string.settings_music_pause_door) }
             assertTrue(visible(title))
-            val switch = views(page).filterIsInstance<Switch>()
-                .single { it.contentDescription == activity.getString(R.string.settings_leave_car_pause) }
-            assertTrue("on by default", switch.isChecked)
-            switch.performClick()
-            assertFalse(LeaveCarPauseSettings.enabled(activity))
-            switch.performClick()
-            assertTrue(LeaveCarPauseSettings.enabled(activity))
+            for ((trigger, name) in TITLES) {
+                val switch = views(page).filterIsInstance<Switch>()
+                    .single { it.contentDescription == activity.getString(name) }
+                assertFalse("$trigger off by default", switch.isChecked)
+                switch.performClick()
+                assertTrue(MusicPauseSettings.enabled(activity, trigger))
+                switch.performClick()
+                assertFalse(MusicPauseSettings.enabled(activity, trigger))
+            }
 
             val width = page.width
             val top = Rect(0, 0, title.width, title.height).also { page.offsetDescendantRectToMyCoords(title, it) }.top
@@ -54,7 +56,7 @@ class LeaveCarPauseSettingsScreenshotTest {
             val bitmap = Bitmap.createBitmap(width, 1080, Bitmap.Config.ARGB_8888)
             try {
                 Canvas(bitmap).apply { drawColor(DiPlayPalette.DARK.surface); translate(0f, -frameTop.toFloat()) }.also(page::draw)
-                File(output, "leave-car-pause-current-head-unit.png").outputStream().use {
+                File(output, "music-pause-current-head-unit.png").outputStream().use {
                     assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
                 }
             } finally {
@@ -73,15 +75,24 @@ class LeaveCarPauseSettingsScreenshotTest {
         }
     }
 
-    @Test fun otherHeadUnitsDoNotOfferIt() {
+    @Test fun otherHeadUnitsOnlyOfferTheScreenSwitch() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         try {
             val page = render(activity)
-            assertFalse(views(page).any { it is TextView && it.text == activity.getString(R.string.settings_leave_car_pause) })
+            val shown = TITLES.filter { (_, name) -> views(page).any { it is TextView && it.text == activity.getString(name) } }
+            assertEquals(listOf(MusicPauseTrigger.SCREEN_OFF), shown.map { it.first })
         } finally {
             activity.finish()
         }
+    }
+
+    private companion object {
+        val TITLES = listOf(
+            MusicPauseTrigger.DOOR to R.string.settings_music_pause_door,
+            MusicPauseTrigger.ENGINE_OFF to R.string.settings_music_pause_engine_off,
+            MusicPauseTrigger.SCREEN_OFF to R.string.settings_music_pause_screen_off,
+        )
     }
 
     private fun render(activity: DiPlayActivity): LinearLayout {

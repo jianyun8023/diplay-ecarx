@@ -897,8 +897,12 @@
     <string name="settings_media_output_android">HY 代理</string>
     <string name="settings_media_output_ecarx">DiPlay 直接接管</string>
     <string name="settings_media_output_description">由 DiPlay 直接处理仪表歌曲和媒体控制，或交给 HY。选择 DiPlay 时需关闭 HY 的媒体接管。下次连接 CarPlay 生效。</string>
-    <string name="settings_leave_car_pause">熄火开门时暂停音乐</string>
-    <string name="settings_leave_car_pause_description">熄火后打开主驾门时，在车机断开 CarPlay 前先暂停音乐。你自己暂停的音乐保持暂停。立即生效。</string>
+    <string name="settings_music_pause_door">打开主驾车门时暂停音乐</string>
+    <string name="settings_music_pause_door_description">不论是否熄火。原车不会因此暂停。立即生效。</string>
+    <string name="settings_music_pause_engine_off">车辆熄火时暂停音乐</string>
+    <string name="settings_music_pause_engine_off_description">原车熄火后会继续播放，直到打开主驾车门。立即生效。</string>
+    <string name="settings_music_pause_screen_off">车机息屏时暂停音乐</string>
+    <string name="settings_music_pause_screen_off_description">仅在 Android 关闭屏幕或关机时触发。亿咖通车机熄火后的黑屏由原车绘制，不算息屏。立即生效。</string>
     <string name="settings_hy_siri_key">HY Siri 按键</string>
     <string name="settings_hy_siri_key_description">在 HY 方向盘设置中选择对应的模拟按键组。Android 9 授予读取系统日志权限后，DiPlay 在后台也能唤醒 Siri，前台应用同时收到按键。</string>
     <string name="settings_hy_siri_background">实体按键无障碍服务</string>

@@ -2146,11 +2146,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 markReconnectNeeded()
             }
             card.addView(label(getString(R.string.settings_media_output_description), 14, MUTED))
-            // Needs the car's usage mode and driver door, so only ECARX head units offer it.
-            if (com.shilapi.xcertplay.hud.EcarxVehicleSignalProbe.supported(this)) {
-                toggle(card, getString(R.string.settings_leave_car_pause),
-                    getString(R.string.settings_leave_car_pause_description), LeaveCarPauseSettings.enabled(this)) {
-                    LeaveCarPauseSettings.setEnabled(this, it)
+            // The door and engine triggers need the car's signals, so only ECARX head units offer them.
+            val pauses = buildList {
+                if (com.shilapi.xcertplay.hud.EcarxVehicleSignalProbe.supported(this@DiPlayActivity)) {
+                    add(Triple(MusicPauseTrigger.DOOR, R.string.settings_music_pause_door, R.string.settings_music_pause_door_description))
+                    add(Triple(MusicPauseTrigger.ENGINE_OFF, R.string.settings_music_pause_engine_off, R.string.settings_music_pause_engine_off_description))
+                }
+                add(Triple(MusicPauseTrigger.SCREEN_OFF, R.string.settings_music_pause_screen_off, R.string.settings_music_pause_screen_off_description))
+            }
+            for ((trigger, title, description) in pauses) {
+                toggle(card, getString(title), getString(description), MusicPauseSettings.enabled(this, trigger)) {
+                    MusicPauseSettings.setEnabled(this, trigger, it)
                 }
             }
         }
