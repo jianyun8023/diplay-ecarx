@@ -127,6 +127,20 @@ class BluetoothProfileGuardRestoreTest {
         assertFalse(prefs.getBoolean("applied", false))
     }
 
+    @Test fun radioTheCarTurnsBackOnIsWaitedForWithoutEnablingIt() {
+        // Engine off then the driver door: the car turns Bluetooth off and back on when the screen wakes.
+        prefs.edit().clear().commit()
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        shadowOf(adapter).setState(BluetoothAdapter.STATE_OFF)
+        val logs = mutableListOf<String>()
+        Thread { Thread.sleep(300); shadowOf(adapter).setState(BluetoothAdapter.STATE_ON) }.start()
+        CarBluetoothProfileGuard.requireAdapterReadyForConnection(context, isCurrent = { true },
+            log = { logs += it }, passiveWaitMillis = 5_000L)
+        assertTrue(logs.toString(), logs.any { it.startsWith("BT guard connect: Bluetooth OFF; passively waiting") })
+        assertTrue(logs.toString(), logs.any { it.startsWith("BT guard connect: system Bluetooth STATE_ON observed") })
+        assertFalse(prefs.getBoolean("applied", false))
+    }
+
     @Test fun cancelledGenerationDoesNotRestoreOrStartConnectionWork() {
         val adapter = BluetoothAdapter.getDefaultAdapter()
         shadowOf(adapter).setState(BluetoothAdapter.STATE_OFF)
