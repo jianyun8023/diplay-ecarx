@@ -103,7 +103,7 @@ class CarPlayNightModeControllerTest {
         val f = VehicleFixture(initialNight = true)
         assertFalse(f.controller.night)
         assertEquals(listOf(false), f.output)
-        assertEquals(listOf("Vehicle day/night not reported yet; schedule guess night=false"), f.diagnostics)
+        assertEquals(listOf("Night guess setting=vehicle basis=schedule night=false"), f.diagnostics)
         f.vehicle.emit(true)
         assertTrue(f.controller.night)
         // A known head-unit decision survives pause and resume instead of a new guess.
@@ -112,6 +112,111 @@ class CarPlayNightModeControllerTest {
         f.controller.resume(true)
         assertTrue(f.controller.night)
         assertEquals(1, f.diagnostics.size)
+    }
+
+    /** "Outside light" on ECARX: the body twilight sensor, no Android light sensor. */
+    private class OutsideFixture(
+        delaySeconds: Int = 3,
+        val twilight: VehicleSource = VehicleSource(),
+        val light: Light = Light(available = false),
+        val time: FixedTime = FixedTime(),
+        recent: Boolean? = null,
+        resume: Boolean = true,
+    ) {
+        val clock = Clock()
+        val output = mutableListOf<Boolean>()
+        val diagnostics = mutableListOf<String>()
+        val remembered = mutableListOf<Pair<CarPlayNightMode, Boolean>>()
+        val controller = CarPlayNightModeController(
+            light, clock, true, output::add, time, VehicleSource(), diagnostics::add,
+            twilight = twilight,
+            recentNight = { recent },
+            rememberNight = { mode, night -> remembered += mode to night },
+        )
+        init {
+            controller.configure(CarPlayNightMode.AMBIENT, true, delaySeconds = delaySeconds)
+            if (resume) controller.resume(true)
+        }
+    }
+
+    @Test fun outsideLightAppliesTheFirstReadingAtOnceAndLaterChangesAfterTheDelay() {
+        val f = OutsideFixture()
+        // Midday guess first: Android's night (as locked on ECARX) is ignored.
+        assertFalse(f.controller.night)
+        assertEquals("guess-schedule", f.controller.reason)
+        f.twilight.emit(true)
+        assertTrue(f.controller.night)
+        assertEquals("outside-light", f.controller.reason)
+        f.twilight.emit(false)
+        f.clock.advance(2_999)
+        assertTrue(f.controller.night)
+        f.clock.advance(1)
+        assertFalse(f.controller.night)
+        // A flicker shorter than the delay is dropped.
+        f.twilight.emit(true)
+        f.clock.advance(1_000)
+        f.twilight.emit(false)
+        f.clock.advance(10_000)
+        assertFalse(f.controller.night)
+        assertEquals(listOf(false, true, false), f.output)
+        assertEquals(CarPlayNightMode.AMBIENT to false, f.remembered.last())
+        assertTrue(f.diagnostics.toString(), f.diagnostics.contains("Outside light source=twilight delay=3s"))
+    }
+
+    @Test fun outsideLightWithZeroDelayFollowsEveryChangeAtOnce() {
+        val f = OutsideFixture(delaySeconds = 0)
+        f.twilight.emit(true)
+        f.twilight.emit(false)
+        f.twilight.emit(true)
+        assertEquals(listOf(false, true, false, true), f.output)
+        assertTrue(f.clock.tasks.isEmpty())
+    }
+
+    @Test fun eachStartAppliesItsFirstReadingAtOnce() {
+        val f = OutsideFixture()
+        f.twilight.emit(false)
+        f.controller.pause()
+        f.controller.resume(true)
+        f.twilight.emit(true)
+        assertTrue(f.controller.night)
+        assertEquals(2, f.twilight.starts)
+    }
+
+    @Test fun outsideLightIgnoresAndroidUntilNoSourceWorks() {
+        val f = OutsideFixture()
+        f.controller.systemChanged(true)
+        assertFalse(f.controller.night)
+
+        val failed = OutsideFixture(twilight = VehicleSource(succeeds = false), light = Light(available = true))
+        // The twilight sensor failed, so Android's light sensor and its threshold take over.
+        assertEquals(1, failed.light.starts)
+        assertTrue(failed.diagnostics.toString(), failed.diagnostics.any { it.startsWith("Outside light source=android-sensor") })
+
+        val none = OutsideFixture(twilight = VehicleSource(available = false))
+        assertTrue(none.controller.night)
+        none.controller.systemChanged(false)
+        assertFalse(none.controller.night)
+        assertEquals("system", none.controller.reason)
+    }
+
+    @Test fun recentDecisionBeatsTheScheduleGuess() {
+        val f = OutsideFixture(recent = true)
+        assertTrue(f.controller.night)
+        assertEquals(listOf("Night guess setting=ambient basis=recent night=true"),
+            f.diagnostics.filter { it.startsWith("Night guess") })
+    }
+
+    @Test fun settingsChangedWhilePausedApplyAtOnceFromKnownValues() {
+        val f = VehicleFixture()
+        f.vehicle.emit(true)
+        f.controller.pause()
+        f.controller.configure(CarPlayNightMode.DAY, true)
+        assertFalse(f.controller.night)
+        // Back to the head unit: its last decision applies before any new push arrives.
+        f.controller.configure(CarPlayNightMode.VEHICLE, true)
+        assertTrue(f.controller.night)
+        assertEquals("vehicle", f.controller.reason)
+        assertEquals(1, f.vehicle.starts)
     }
 
     @Test fun silentVehicleAtNightGuessesNight() {

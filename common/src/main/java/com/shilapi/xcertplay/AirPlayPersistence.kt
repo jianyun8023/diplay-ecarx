@@ -73,6 +73,8 @@ object AirPlayPersistence {
     private const val KEY_OEM_LABEL = "oem_label"
     private const val KEY_APP_APPEARANCE = "app_appearance"
     private const val KEY_CARPLAY_NIGHT_MODE = "carplay_night_mode"
+    private const val KEY_AMBIENT_DELAY_SECONDS = "ambient_delay_seconds"
+    private const val KEY_RECENT_NIGHT_PREFIX = "carplay_recent_night_"
     private const val KEY_CARPLAY_NIGHT_START = "carplay_night_start_minute"
     private const val KEY_CARPLAY_NIGHT_END = "carplay_night_end_minute"
     private const val KEY_AMBIENT_LUX_THRESHOLD = "ambient_lux_threshold"
@@ -144,11 +146,11 @@ object AirPlayPersistence {
 
     fun loadAmbientDelaySeconds(context: Context): Int =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt("ambient_delay_seconds", 2).coerceIn(0, 60)
+            .getInt(KEY_AMBIENT_DELAY_SECONDS, 0).coerceIn(0, 60)
 
     fun saveAmbientDelaySeconds(context: Context, seconds: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt("ambient_delay_seconds", seconds.coerceIn(0, 60)).apply()
+            .putInt(KEY_AMBIENT_DELAY_SECONDS, seconds.coerceIn(0, 60)).apply()
     }
 
     fun loadDisplayScalePercent(context: Context): Int =
@@ -691,9 +693,49 @@ object AirPlayPersistence {
             .putString(KEY_APP_APPEARANCE, appearance.key).apply()
     }
 
-    fun loadCarPlayNightMode(context: Context): CarPlayNightMode = CarPlayNightMode.fromKey(
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CARPLAY_NIGHT_MODE, null),
+    fun preferences(context: Context): android.content.SharedPreferences =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /** The saved choice as this head unit applies it; see [effectiveCarPlayNightMode]. */
+    fun loadCarPlayNightMode(context: Context): CarPlayNightMode =
+        effectiveCarPlayNightMode(loadSavedCarPlayNightModeKey(context), isEcarxHeadUnit(context))
+
+    /** The stored key, before [effectiveCarPlayNightMode]; null when the driver never chose. */
+    fun loadSavedCarPlayNightModeKey(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_CARPLAY_NIGHT_MODE, null)
+
+    fun isEcarxHeadUnit(context: Context): Boolean =
+        com.shilapi.xcertplay.hud.EcarxCapabilities.detect(context).identified
+
+    /** Preferences the CarPlay host re-applies at once when Settings changes them. */
+    fun isCarPlayNightSettingKey(key: String?): Boolean = key in setOf(
+        KEY_CARPLAY_NIGHT_MODE, KEY_CARPLAY_NIGHT_START, KEY_CARPLAY_NIGHT_END,
+        KEY_AMBIENT_DELAY_SECONDS, KEY_AMBIENT_LUX_THRESHOLD,
     )
+
+    /** Keeps the last head-unit or outside-light decision for the next cold start. */
+    fun saveRecentNight(context: Context, mode: CarPlayNightMode, night: Boolean, nowMillis: Long) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("$KEY_RECENT_NIGHT_PREFIX${mode.key}", night)
+            .putLong("$KEY_RECENT_NIGHT_PREFIX${mode.key}_at", nowMillis)
+            .apply()
+    }
+
+    /** The value saved by [saveRecentNight] when it is at most [maxAgeMillis] old, otherwise null. */
+    fun loadRecentNight(
+        context: Context,
+        mode: CarPlayNightMode,
+        nowMillis: Long,
+        maxAgeMillis: Long = RECENT_NIGHT_MAX_AGE_MILLIS,
+    ): Boolean? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val key = "$KEY_RECENT_NIGHT_PREFIX${mode.key}"
+        if (!prefs.contains(key)) return null
+        val age = nowMillis - prefs.getLong("${key}_at", Long.MIN_VALUE / 2)
+        return if (age in 0..maxAgeMillis) prefs.getBoolean(key, false) else null
+    }
+
+    const val RECENT_NIGHT_MAX_AGE_MILLIS = 30 * 60_000L
 
     fun saveCarPlayNightMode(context: Context, mode: CarPlayNightMode) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

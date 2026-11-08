@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothAdapter
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -644,13 +645,21 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var carPlayNightMode = CarPlayNightMode.SYSTEM
     private var nightSchedule = CarPlayNightSchedule()
     private var ambientLightThreshold = AmbientLightThreshold()
-    private var ambientDelaySeconds = 2
+    private var ambientDelaySeconds = 0
+    private var nightModeMigrationLogged = false
     private var nightModeDiagnosticSource = ThemeModeDiagnostics.Source.CARPLAY_MODE
-    private val nightModeController by lazy {
+    private val nightModeController: CarPlayNightModeController by lazy {
         CarPlayNightModeController(
             light = AndroidAmbientLight(this),
             vehicle = com.shilapi.xcertplay.hud.EcarxVehicleDayNight(applicationContext) { appendLog(it) },
             diagnostic = { appendLog(it) },
+            twilight = com.shilapi.xcertplay.hud.EcarxTwilightSensor(applicationContext, "Outside light twilight") {
+                appendLog(it)
+            },
+            recentNight = { mode -> AirPlayPersistence.loadRecentNight(this, mode, System.currentTimeMillis()) },
+            rememberNight = { mode, night ->
+                AirPlayPersistence.saveRecentNight(this, mode, night, System.currentTimeMillis())
+            },
             scheduler = MainThreadNightModeScheduler(),
             initialNight = darkMode,
             onNightChanged = { night ->
@@ -658,7 +667,8 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (hostAppearanceResumed) AppAppearanceRuntime.publishHost(this, night)
                 refreshAppAppearance()
                 paintWaitingScreen()
-                appendLog("CarPlay switched to ${if (night) "night" else "day"} mode setting=${carPlayNightMode.key}")
+                appendLog("CarPlay switched to ${if (night) "night" else "day"} mode " +
+                    "setting=${carPlayNightMode.key} reason=${nightModeController.reason}")
                 logThemeState(nightModeDiagnosticSource, resources.configuration)
                 syncAirPlayDarkMode(nightModeDiagnosticSource)
             },
@@ -984,6 +994,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             resources.getBoolean(R.bool.config_advanced_audio_channel_mapping)
         airPlayIdentity = AirPlayPersistence.loadIdentity(this)
         loadPersistedSettings()
+        AirPlayPersistence.preferences(this).registerOnSharedPreferenceChangeListener(nightSettingsListener)
         locationPermissionAvailable = hasFineLocationPermission()
         setContentView(buildContentView())
         applyFullscreenMode()
@@ -1021,9 +1032,43 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    private fun logNightModeMigration() {
+        if (nightModeMigrationLogged) return
+        nightModeMigrationLogged = true
+        val saved = AirPlayPersistence.loadSavedCarPlayNightModeKey(this)
+        if (CarPlayNightMode.fromKey(saved) != carPlayNightMode) {
+            appendLog("Night mode migrated ${saved ?: "unset"}→${carPlayNightMode.key}: Android's theme is locked on ECARX")
+        }
+    }
+
+    /** Re-applies the CarPlay day/night choice when Settings saves it, even while this host is paused. */
+    private val nightSettingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (AirPlayPersistence.isCarPlayNightSettingKey(key)) reloadNightSettings()
+    }
+
+    /** Returns whether the choice changed and was applied. */
+    private fun reloadNightSettings(): Boolean {
+        val savedNightMode = AirPlayPersistence.loadCarPlayNightMode(this)
+        val savedThreshold = AirPlayPersistence.loadAmbientLightThreshold(this)
+        val savedDelay = AirPlayPersistence.loadAmbientDelaySeconds(this)
+        val savedSchedule = AirPlayPersistence.loadCarPlayNightSchedule(this)
+        if (savedNightMode == carPlayNightMode && savedThreshold == ambientLightThreshold &&
+            savedDelay == ambientDelaySeconds && savedSchedule == nightSchedule) return false
+        carPlayNightMode = savedNightMode
+        ambientLightThreshold = savedThreshold
+        ambientDelaySeconds = savedDelay
+        nightSchedule = savedSchedule
+        appendLog("Night mode settings applied setting=${carPlayNightMode.key} delay=${ambientDelaySeconds}s " +
+            "resumed=$hostAppearanceResumed")
+        nightModeController.configure(carPlayNightMode, nightModeOrNull(resources.configuration.uiMode) ?: false,
+            ambientLightThreshold, ambientDelaySeconds, nightSchedule)
+        return true
+    }
+
     private fun loadPersistedSettings() {
         carPlayDock = CarPlayDock.load(this)
         carPlayNightMode = AirPlayPersistence.loadCarPlayNightMode(this)
+        logNightModeMigration()
         ambientLightThreshold = AirPlayPersistence.loadAmbientLightThreshold(this)
         ambientDelaySeconds = AirPlayPersistence.loadAmbientDelaySeconds(this)
         nightSchedule = AirPlayPersistence.loadCarPlayNightSchedule(this)
@@ -1330,20 +1375,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         super.onResume()
         WheelKeyService.restoreIfNeeded(this)
         hostAppearanceResumed = true
-        val savedNightMode = AirPlayPersistence.loadCarPlayNightMode(this)
-        val savedThreshold = AirPlayPersistence.loadAmbientLightThreshold(this)
-        val savedDelay = AirPlayPersistence.loadAmbientDelaySeconds(this)
-        val savedSchedule = AirPlayPersistence.loadCarPlayNightSchedule(this)
         val systemNight = nightModeOrNull(resources.configuration.uiMode) ?: false
-        if (savedNightMode != carPlayNightMode || savedThreshold != ambientLightThreshold ||
-            savedDelay != ambientDelaySeconds || savedSchedule != nightSchedule) {
-            carPlayNightMode = savedNightMode
-            ambientLightThreshold = savedThreshold
-            ambientDelaySeconds = savedDelay
-            nightSchedule = savedSchedule
-            nightModeController.configure(carPlayNightMode, systemNight, ambientLightThreshold, ambientDelaySeconds,
-                nightSchedule)
-        }
+        reloadNightSettings()
         nightModeController.resume(systemNight)
         AppAppearanceRuntime.publishHost(this, darkMode)
         refreshAppAppearance()
@@ -1859,6 +1892,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         hostAppearanceResumed = false
         AppAppearanceRuntime.clearHost(this)
         nightModeController.pause()
+        AirPlayPersistence.preferences(this).unregisterOnSharedPreferenceChangeListener(nightSettingsListener)
         pictureBinding?.close()
         pictureBinding = null
         removeVideoSurfaceProbe()

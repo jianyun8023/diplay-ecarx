@@ -31,6 +31,8 @@ class NightModeSettingsTest {
     private lateinit var controller: ActivityController<DiPlayActivity>
     private lateinit var activity: DiPlayActivity
     private lateinit var page: LinearLayout
+    // Robolectric is not an ECARX head unit, so Android's own theme stays a choice.
+    private val choices = carPlayNightModeChoices(ecarx = false)
 
     @Before fun setUp() {
         controller = Robolectric.buildActivity(DiPlayActivity::class.java)
@@ -81,6 +83,25 @@ class NightModeSettingsTest {
         assertAmbientVisible(true)
         assertTrue(button(R.string.ambient_light_threshold_title).text.toString().endsWith("75 lux"))
         assertTrue(button(R.string.ambient_delay_title).text.toString().endsWith("7 s"))
+    }
+
+    @Test fun ecarxOffersFiveChoicesWithoutAndroidThemeAndShowsTheSavedSystemAsTheHeadUnit() {
+        shadowOf(activity.packageManager).installPackage(
+            android.content.pm.PackageInfo().apply { packageName = "com.ecarx.xui.service" })
+        AirPlayPersistence.saveCarPlayNightMode(activity, CarPlayNightMode.SYSTEM)
+        renderSettings()
+        assertEquals(appearanceSummary(CarPlayNightMode.VEHICLE), button(R.string.carplay_night_mode).text.toString())
+        button(R.string.carplay_night_mode).performClick()
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val ecarx = carPlayNightModeChoices(ecarx = true)
+        assertEquals(ecarx.map { activity.getString(modeLabel(it)) },
+            (0 until dialog.listView.adapter.count).map { dialog.listView.adapter.getItem(it) })
+        assertEquals(0, dialog.listView.checkedItemPosition)
+        dialog.listView.performItemClick(null, ecarx.indexOf(CarPlayNightMode.AMBIENT), 0)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(CarPlayNightMode.AMBIENT, AirPlayPersistence.loadCarPlayNightMode(activity))
+        assertTrue(button(R.string.ambient_delay_title).isShown)
     }
 
     @Test fun cancellingModeChoiceKeepsSavedModeAndVisibility() {
@@ -138,8 +159,8 @@ class NightModeSettingsTest {
             assertEquals(appearanceSummary(mode), button(R.string.carplay_night_mode).text.toString())
             button(R.string.carplay_night_mode).performClick()
             val dialog = ShadowAlertDialog.getLatestAlertDialog()
-            assertEquals(CarPlayNightMode.entries.size, dialog.listView.adapter.count)
-            assertEquals(CarPlayNightMode.entries.indexOf(mode), dialog.listView.checkedItemPosition)
+            assertEquals(choices.size, dialog.listView.adapter.count)
+            assertEquals(choices.indexOf(mode), dialog.listView.checkedItemPosition)
             assertEquals(activity.getString(modeLabel(mode)),
                 dialog.listView.adapter.getItem(dialog.listView.checkedItemPosition))
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
@@ -155,7 +176,7 @@ class NightModeSettingsTest {
 
         val dialog = selectMode(CarPlayNightMode.SCHEDULE)
         assertEquals(activity.getString(R.string.carplay_night_schedule),
-            dialog.listView.adapter.getItem(CarPlayNightMode.entries.indexOf(CarPlayNightMode.SCHEDULE)))
+            dialog.listView.adapter.getItem(choices.indexOf(CarPlayNightMode.SCHEDULE)))
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         shadowOf(Looper.getMainLooper()).idle()
 
@@ -218,7 +239,8 @@ class NightModeSettingsTest {
             assertEquals(activity.getString(id), expected, button(id).isShown)
         }
         assertEquals(expected, label(R.string.carplay_night_ambient_hint).isShown)
-        val nightHint = "${activity.getString(R.string.carplay_night_hint)} ${activity.getString(R.string.carplay_night_time_note)}"
+        // Settings apply at once, so only the iPhone appearance note remains.
+        val nightHint = activity.getString(R.string.carplay_night_time_note)
         assertTrue(nightHint, views(page).filterIsInstance<TextView>().single { it.text == nightHint }.isShown)
         assertTrue(activity.getString(R.string.picture_adjustments), label(R.string.picture_adjustments).isShown)
     }
@@ -240,7 +262,7 @@ class NightModeSettingsTest {
     private fun selectMode(mode: CarPlayNightMode): AlertDialog {
         button(R.string.carplay_night_mode).performClick()
         return ShadowAlertDialog.getLatestAlertDialog().also {
-            it.listView.performItemClick(null, CarPlayNightMode.entries.indexOf(mode), 0)
+            it.listView.performItemClick(null, choices.indexOf(mode), 0)
         }
     }
 

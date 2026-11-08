@@ -86,6 +86,20 @@ class CarPlayHostThemeDiagnosticsTest {
         assertTrue(savedLog().contains("reported=dark applied=light sessionActive=true"))
     }
 
+    @Test fun savingTheChoiceInSettingsReachesTheIphoneWhileTheHostIsInTheBackground() {
+        val session = mock(AirPlaySession::class.java)
+        setField("activeAirPlaySession", session)
+        AirPlayPersistence.saveCarPlayNightMode(activity, CarPlayNightMode.DAY)
+        (getField("nightSettingsListener") as android.content.SharedPreferences.OnSharedPreferenceChangeListener)
+            .onSharedPreferenceChanged(AirPlayPersistence.preferences(activity), "carplay_night_mode")
+        commands.runAll()
+        assertEquals(false, getField("darkMode"))
+        verify(session, times(1)).setNightMode(false)
+        val log = savedLog()
+        assertTrue(log, log.contains("Night mode settings applied setting=day"))
+        assertTrue(log, log.contains("CarPlay switched to day mode setting=day reason=fixed"))
+    }
+
     private fun savedLog(): String {
         assertTrue((getField("sessionLog") as SessionLogFile).awaitIdle(2_000))
         return logFile.readText()

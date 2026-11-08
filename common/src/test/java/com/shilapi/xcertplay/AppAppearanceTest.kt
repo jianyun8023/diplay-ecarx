@@ -37,10 +37,13 @@ class AppAppearanceTest {
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.NIGHT, schedule, false, 12 * 60, null))
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SYSTEM, schedule, true, 12 * 60, null))
         assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SYSTEM, schedule, false, 23 * 60, null))
-        assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.AMBIENT, schedule, true, 12 * 60, null))
-        assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.AMBIENT, schedule, false, 23 * 60, null))
-        assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.VEHICLE, schedule, true, 12 * 60, null))
-        assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.VEHICLE, schedule, false, 23 * 60, null))
+        // Follow modes ignore Android's theme (locked to night on ECARX): recent value, else schedule.
+        for (mode in listOf(CarPlayNightMode.AMBIENT, CarPlayNightMode.VEHICLE)) {
+            assertFalse(resolveAppNight(AppAppearance.AUTO, mode, schedule, true, 12 * 60, null))
+            assertTrue(resolveAppNight(AppAppearance.AUTO, mode, schedule, false, 23 * 60, null))
+            assertTrue(resolveAppNight(AppAppearance.AUTO, mode, schedule, false, 12 * 60, null, recentNight = true))
+            assertFalse(resolveAppNight(AppAppearance.AUTO, mode, schedule, true, 23 * 60, null, recentNight = false))
+        }
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SCHEDULE, schedule, false, 23 * 60, null))
         assertTrue(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SCHEDULE, schedule, false, 0, null))
         assertFalse(resolveAppNight(AppAppearance.AUTO, CarPlayNightMode.SCHEDULE, schedule, true, 12 * 60, null))

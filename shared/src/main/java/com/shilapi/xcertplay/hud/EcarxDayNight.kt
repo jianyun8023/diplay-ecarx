@@ -89,7 +89,7 @@ class EcarxVehicleDayNight(
 
     private val adaptapiPresent by lazy { EcarxCapabilities.classPresent(EcarxCapabilities.DEVICE) }
     private val amapPresent by lazy { AMAP_PACKAGES.any { packageInstalled(it) } }
-    private val carPresent by lazy { EcarxCapabilities.classPresent(CAR_CLASS) }
+    private val twilight = EcarxTwilightSensor(context, "Vehicle day/night property", diagnostic)
 
     private var releaseAdaptapi: (() -> Unit)? = null
     private var releaseProperty: (() -> Unit)? = null
@@ -102,7 +102,7 @@ class EcarxVehicleDayNight(
     private var firstSource: String? = null
 
     override val available: Boolean
-        get() = adaptapiPresent || carPresent || amapPresent
+        get() = adaptapiPresent || twilight.available || amapPresent
 
     override fun start(onNight: (Boolean) -> Unit): Boolean {
         stop()
@@ -114,10 +114,12 @@ class EcarxVehicleDayNight(
             main.post { if (session == generation) accept(source, night, onNight) }
         }
         val adaptapi = adaptapiPresent && startAdaptapi(deliver)
-        val property = carPresent && startProperty(session, deliver)
+        // Stands in until AdaptAPI is ready; see the class comment.
+        val property = twilight.available && twilight.start { night -> deliver(SOURCE_PROPERTY, night) }
+        if (property) releaseProperty = twilight::stop
         val started = adaptapi || property || (amapPresent && startAmapBroadcast(deliver))
         if (!started) {
-            log("Vehicle day/night backend=none adaptapi=$adaptapiPresent car=$carPresent amap=$amapPresent")
+            log("Vehicle day/night backend=none adaptapi=$adaptapiPresent car=${twilight.available} amap=$amapPresent")
         }
         return started
     }
@@ -201,66 +203,6 @@ class EcarxVehicleDayNight(
         false
     }
 
-    /** Reads and follows the twilight property until AdaptAPI is ready; see the class comment. */
-    private fun startProperty(session: Int, deliver: (String, Boolean) -> Unit): Boolean = runCatching {
-        val carType = Class.forName(CAR_CLASS)
-        val listenerType = Class.forName(PROPERTY_LISTENER)
-        val intType = Int::class.javaPrimitiveType!!
-        var car: Any? = null
-        var manager: Any? = null
-        fun report(raw: Int?, what: String) {
-            log("Vehicle day/night property $what raw=$raw +${elapsed()}ms")
-            raw?.let(EcarxDayNightMapping::fromTwilightProperty)?.let { deliver(SOURCE_PROPERTY, it) }
-        }
-        val listener = EcarxDimApi.proxy(listenerType, "EcarxTwilightListener") { method, args ->
-            if (method == "onChangeEvent") {
-                val value = args?.firstOrNull()?.let { event ->
-                    runCatching { event.javaClass.getMethod("getValue").invoke(event) as? Int }.getOrNull()
-                }
-                report(value, "changed")
-            }
-            null
-        }
-        // Car service callbacks arrive on [main], like every other state change here.
-        fun attach() {
-            if (session != generation || manager != null) return
-            val connected = car ?: return
-            val properties = runCatching {
-                connected.javaClass.getMethod("getCarManager", String::class.java).invoke(connected, "property")
-            }.getOrNull() ?: return
-            manager = properties
-            val current = runCatching {
-                properties.javaClass.getMethod("getIntProperty", intType, intType)
-                    .invoke(properties, TWILIGHT_PROPERTY, 0) as Int
-            }.getOrNull()
-            report(current, "current")
-            runCatching {
-                properties.javaClass.getMethod("registerListener", listenerType, intType, Float::class.javaPrimitiveType)
-                    .invoke(properties, listener, TWILIGHT_PROPERTY, 0f)
-            }.onFailure { log("Vehicle day/night property listen failed: ${describe(it)}") }
-        }
-        val connection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, service: IBinder?) = attach()
-            override fun onServiceDisconnected(name: ComponentName?) { manager = null }
-        }
-        val created = carType.getMethod("createCar", Context::class.java, ServiceConnection::class.java, Handler::class.java)
-            .invoke(null, appContext, connection, main) ?: return@runCatching false
-        car = created
-        releaseProperty = {
-            manager?.let { properties ->
-                runCatching { properties.javaClass.getMethod("unregisterListener", listenerType).invoke(properties, listener) }
-            }
-            manager = null
-            runCatching { created.javaClass.getMethod("disconnect").invoke(created) }
-        }
-        runCatching { created.javaClass.getMethod("connect").invoke(created) }
-        if (runCatching { created.javaClass.getMethod("isConnected").invoke(created) == true }.getOrDefault(false)) attach()
-        true
-    }.getOrElse {
-        log("Vehicle day/night backend=property failed: ${describe(it)}")
-        false
-    }
-
     private fun describe(error: Throwable): String {
         val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
         return "${cause.javaClass.simpleName}: ${cause.message}"
@@ -296,10 +238,6 @@ class EcarxVehicleDayNight(
         const val SOURCE_ADAPTAPI = "adaptapi"
         const val SOURCE_PROPERTY = "property"
         const val SOURCE_AMAP = "amap"
-        const val CAR_CLASS = "android.car.Car"
-        const val PROPERTY_LISTENER =
-            "android.car.hardware.property.CarPropertyManager\$CarPropertyEventListener"
-        const val TWILIGHT_PROPERTY = 0x21400305
         const val ADAPTAPI_CALLBACK =
             "com.ecarx.xui.adaptapi.device.daynigntmode.IDayNightMode\$IDayNightChangeCallBack"
         const val AMAP_ACTION = "AUTONAVI_STANDARD_BROADCAST_SEND"
@@ -307,5 +245,123 @@ class EcarxVehicleDayNight(
         const val AMAP_EXTRA_STATE = "EXTRA_STATE"
         const val AMAP_STATUS_PUSH = 10019
         val AMAP_PACKAGES = listOf("com.autonavi.amapauto", "com.autonavi.amapautp.yh")
+    }
+}
+
+/**
+ * The body twilight sensor as a push source: vehicle property `0x21400305` (`TwliBriSts`) through
+ * `android.car`, read once on connection and then followed. It reports day or night only, never a
+ * lux value, and ignores the driver's forced day or night preference in the head-unit settings.
+ */
+class EcarxTwilightSensor(
+    context: Context,
+    private val label: String,
+    private val diagnostic: (String) -> Unit = {},
+) : VehicleNightSource {
+    private val appContext = context.applicationContext
+    private val main = Handler(Looper.getMainLooper())
+    private val carPresent by lazy { supported(appContext) }
+
+    private var release: (() -> Unit)? = null
+    private var generation = 0
+    private var startedAt = 0L
+
+    override val available: Boolean
+        get() = carPresent
+
+    override fun start(onNight: (Boolean) -> Unit): Boolean {
+        stop()
+        val session = generation
+        startedAt = SystemClock.elapsedRealtime()
+        return runCatching { connect(session, onNight) }.getOrElse {
+            log("$label failed: ${describe(it)}")
+            false
+        }
+    }
+
+    override fun stop() {
+        generation++
+        release?.let { runCatching { it() } }
+        release = null
+    }
+
+    private fun connect(session: Int, onNight: (Boolean) -> Unit): Boolean {
+        val carType = Class.forName(CAR_CLASS)
+        val listenerType = Class.forName(PROPERTY_LISTENER)
+        val intType = Int::class.javaPrimitiveType!!
+        var car: Any? = null
+        var manager: Any? = null
+        fun report(raw: Int?, what: String) {
+            log("$label $what raw=$raw +${SystemClock.elapsedRealtime() - startedAt}ms")
+            val night = raw?.let(EcarxDayNightMapping::fromTwilightProperty) ?: return
+            main.post { if (session == generation) onNight(night) }
+        }
+        val listener = EcarxDimApi.proxy(listenerType, "EcarxTwilightListener") { method, args ->
+            if (method == "onChangeEvent") {
+                val value = args?.firstOrNull()?.let { event ->
+                    runCatching { event.javaClass.getMethod("getValue").invoke(event) as? Int }.getOrNull()
+                }
+                report(value, "changed")
+            }
+            null
+        }
+        // Car service callbacks arrive on [main], like every other state change here.
+        fun attach() {
+            if (session != generation || manager != null) return
+            val connected = car ?: return
+            val properties = runCatching {
+                connected.javaClass.getMethod("getCarManager", String::class.java).invoke(connected, "property")
+            }.getOrNull() ?: return
+            manager = properties
+            val current = runCatching {
+                properties.javaClass.getMethod("getIntProperty", intType, intType)
+                    .invoke(properties, TWILIGHT_PROPERTY, 0) as Int
+            }.getOrNull()
+            report(current, "current")
+            runCatching {
+                properties.javaClass.getMethod("registerListener", listenerType, intType, Float::class.javaPrimitiveType)
+                    .invoke(properties, listener, TWILIGHT_PROPERTY, 0f)
+            }.onFailure { log("$label listen failed: ${describe(it)}") }
+        }
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) = attach()
+            override fun onServiceDisconnected(name: ComponentName?) { manager = null }
+        }
+        val created = carType.getMethod("createCar", Context::class.java, ServiceConnection::class.java, Handler::class.java)
+            .invoke(null, appContext, connection, main) ?: return false
+        car = created
+        release = {
+            manager?.let { properties ->
+                runCatching { properties.javaClass.getMethod("unregisterListener", listenerType).invoke(properties, listener) }
+            }
+            manager = null
+            runCatching { created.javaClass.getMethod("disconnect").invoke(created) }
+        }
+        runCatching { created.javaClass.getMethod("connect").invoke(created) }
+        if (runCatching { created.javaClass.getMethod("isConnected").invoke(created) == true }.getOrDefault(false)) attach()
+        return true
+    }
+
+    private fun log(line: String) {
+        main.post { diagnostic(line) }
+    }
+
+    private fun describe(error: Throwable): String {
+        val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error
+        return "${cause.javaClass.simpleName}: ${cause.message}"
+    }
+
+    companion object {
+        /**
+         * An ECARX head unit with the platform car service. The property is ECARX-specific, so
+         * other car platforms keep their own light sensor. It may still be unreadable at runtime.
+         */
+        fun supported(context: Context): Boolean =
+            EcarxCapabilities.classPresent(CAR_CLASS) && EcarxCapabilities.detect(context).identified
+
+        private const val CAR_CLASS = "android.car.Car"
+        private const val PROPERTY_LISTENER =
+            "android.car.hardware.property.CarPropertyManager\$CarPropertyEventListener"
+        private const val TWILIGHT_PROPERTY = 0x21400305
     }
 }
