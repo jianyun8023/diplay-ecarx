@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -219,7 +220,9 @@ class EcarxVehicleDayNight(
                 deliver(SOURCE_AMAP, night)
             }
         }
-        appContext.registerReceiver(receiver, IntentFilter(AMAP_ACTION))
+        // Sent by the map app: Android 13+ needs the receiver marked exported.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) appContext.registerReceiver(receiver, IntentFilter(AMAP_ACTION), Context.RECEIVER_EXPORTED)
+        else appContext.registerReceiver(receiver, IntentFilter(AMAP_ACTION))
         this.receiver = receiver
         // This feed has no current-state query, so nothing changes until the map app announces.
         log("Vehicle day/night backend=amap waiting for the map app")

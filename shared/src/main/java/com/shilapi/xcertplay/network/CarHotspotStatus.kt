@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.IntentFilter
 import android.content.Intent
 import android.net.wifi.WifiManager
+import android.os.Build
 
 /**
  * Reads whether the head unit's own Wi-Fi hotspot is on, for the "Car hotspot" link.
@@ -26,7 +27,11 @@ object CarHotspotStatus {
         return read(
             state = { wifi?.let { WifiManager::class.java.getMethod("getWifiApState").invoke(it) as? Int } },
             enabled = { wifi?.let { WifiManager::class.java.getMethod("isWifiApEnabled").invoke(it) as? Boolean } },
-            sticky = { app.registerReceiver(null, IntentFilter(ACTION_WIFI_AP_STATE_CHANGED)) },
+            sticky = {
+                // Not a protected broadcast on every build, so Android 13+ wants the flag even for a sticky read.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) app.registerReceiver(null, IntentFilter(ACTION_WIFI_AP_STATE_CHANGED), Context.RECEIVER_EXPORTED)
+                else app.registerReceiver(null, IntentFilter(ACTION_WIFI_AP_STATE_CHANGED))
+            },
         )
     }
 

@@ -7240,6 +7240,9 @@ internal object CarPlayBackgroundSession {
     private val stopWaiters = mutableListOf<() -> Unit>()
 
     fun stop(completion: () -> Unit = {}) {
+        // A stop is the driver ending CarPlay (the host's own rebuild does not come here): a later
+        // connect with Bluetooth off must say so instead of waiting for the car's radios.
+        com.shilapi.xcertplay.network.CarRadioOutage.clear()
         val action: (((() -> Unit)) -> Unit)?
         synchronized(this) {
             if (stopping) { stopWaiters.add(completion); return }

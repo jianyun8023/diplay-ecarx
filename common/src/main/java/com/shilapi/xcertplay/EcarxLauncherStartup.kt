@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -43,7 +44,11 @@ internal object EcarxLauncherStartup {
                 if (intent.action == ACTION_FIRST_BATCH) handler.post { finish(true) }
             }
         }
-        val registered = runCatching { app.registerReceiver(receiver, IntentFilter(ACTION_FIRST_BATCH)) }.isSuccess
+        // Sent by the ECARX launcher: Android 13+ needs the receiver marked exported.
+        val registered = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) app.registerReceiver(receiver, IntentFilter(ACTION_FIRST_BATCH), Context.RECEIVER_EXPORTED)
+            else app.registerReceiver(receiver, IntentFilter(ACTION_FIRST_BATCH))
+        }.isSuccess
         if (!registered) {
             finish(false)
             return
