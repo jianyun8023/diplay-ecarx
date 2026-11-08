@@ -1531,6 +1531,22 @@ class CarPlayController(
             // waited behind it (car test 2026-11-07). Those need no radio, so they go first and the
             // wait moves to just before the iPhone is chosen.
             if (!coldStart) awaitBluetoothRadio()
+            // The car may bring Bluetooth back before its hotspot. Unless DiPlay starts the hotspot
+            // itself, wait for the car instead of failing on "hotspot off" (Mi 8 bench, 2026-11-08).
+            if (radioReturn && config.wirelessHotspotMode == WirelessHotspotMode.MANUAL &&
+                !com.shilapi.xcertplay.network.CarHotspotSettings.shouldEnable(appContext, true, WirelessHotspotMode.MANUAL)
+            ) {
+                val outcome = com.shilapi.xcertplay.network.CarHotspotReturn.await(
+                    state = { com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) },
+                    isCurrent = { !isStaleWirelessRun(generation) },
+                    timeoutMillis = RADIO_RETURN_WAIT_MILLIS,
+                    log = { debugLog("generation=$generation $it") },
+                )
+                if (outcome == com.shilapi.xcertplay.network.CarHotspotReturn.Outcome.CANCELLED) return
+            }
+            // The radios go off in no fixed order either: Bluetooth may have gone off while this run
+            // waited for the hotspot. Returns at once when it is on.
+            if (radioReturn) awaitBluetoothRadio()
             val hotspotInfo = startWirelessHotspot(generation)
             if (isStaleWirelessRun(generation)) {
                 return
