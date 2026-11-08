@@ -267,7 +267,8 @@ class CarPlayNightModeControllerTest {
         val vehicle = VehicleSource()
         val clock = Clock()
         val output = mutableListOf<Boolean>()
-        val controller = CarPlayNightModeController(Light(), clock, false, output::add, vehicle = vehicle)
+        // Noon: the schedule guess before the first reading is day, whenever the test runs.
+        val controller = CarPlayNightModeController(Light(), clock, false, output::add, timeSource = FixedTime(), vehicle = vehicle)
         controller.configure(CarPlayNightMode.VEHICLE, false, delaySeconds = 0)
         vehicle.emit(true)
         assertFalse(controller.night)
