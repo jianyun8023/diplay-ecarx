@@ -5419,6 +5419,10 @@ open class CarPlayHostActivity : ComponentActivity() {
                 runOnUiThread {
                     logPlaybackRecovery("session ended active=${activeAirPlaySession === session} " +
                         "generation=$controllerGeneration", System.identityHashCode(session), diagnosticLog)
+                    if (activeAirPlaySession === session) {
+                        MediaPowerDiagnostics.note("CarPlay session ended " +
+                            "iphonePlaying=${controller?.nowPlayingSnapshot()?.playing} ${MediaPowerDiagnostics.screenState(this@CarPlayHostActivity)}")
+                    }
                     val active = activeAirPlaySession
                     if (active != null && active !== session) {
                         // 探针或非活动握手结束时，保留当前播放会话。

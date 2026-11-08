@@ -24,7 +24,7 @@ import java.util.Locale
  *
  * Kept in memory for the whole process, because the host activity is destroyed and recreated each
  * time the screen goes dark, and also written to the host's session log while one is attached.
- * Diagnostic only: nothing here pauses, plays or changes a setting.
+ * Diagnostic only, except that the door and usage-mode readings also feed [LeaveCarPause].
  */
 internal object MediaPowerDiagnostics {
     private const val TAG = "DiPlayMediaPower"
@@ -76,7 +76,14 @@ internal object MediaPowerDiagnostics {
         }.onFailure { note("Screen display listener failed: ${it.javaClass.simpleName}") }
         note("Media power diagnostics started ${screenState(app)}")
         if (EcarxVehicleSignalProbe.supported(app)) {
-            probe = EcarxVehicleSignalProbe(app, ::note).also { it.start() }
+            val leaveCar = LeaveCarPauseSettings.policy(app, ::note)
+            probe = EcarxVehicleSignalProbe(app, ::note) { id, value ->
+                when (id) {
+                    EcarxVehicleSignalProbe.USAGE_MODE -> (value as? Int)?.let(leaveCar::onUsageMode)
+                    EcarxVehicleSignalProbe.DOOR_DRIVER ->
+                        LeaveCarPause.doorOpen(value as? ByteArray)?.let(leaveCar::onDriverDoor)
+                }
+            }.also { it.start() }
         } else {
             note("Vehicle signal probe not started: not an ECARX car service")
         }

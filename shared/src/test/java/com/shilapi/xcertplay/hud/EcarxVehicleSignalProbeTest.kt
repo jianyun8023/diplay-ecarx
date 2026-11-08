@@ -18,8 +18,12 @@ import org.robolectric.annotation.Config
 class EcarxVehicleSignalProbeTest {
     @After fun clearCar() = Car.reset()
 
+    private val values = mutableListOf<Pair<Int, Any?>>()
+
     private fun probe(logs: MutableList<String>) =
-        EcarxVehicleSignalProbe(RuntimeEnvironment.getApplication()) { logs += it }
+        EcarxVehicleSignalProbe(RuntimeEnvironment.getApplication(), diagnostic = { logs += it }) { id, value ->
+            values += id to value
+        }
 
     @Test fun logsCurrentValuesAndListensToEverySignal() {
         Car.available = true
@@ -41,6 +45,9 @@ class EcarxVehicleSignalProbeTest {
         assertTrue(logs.toString(), "Vehicle signal usageMode changed raw=2" in logs)
         assertTrue(logs.toString(), "Vehicle signal doorDriver changed raw=08012004" in logs)
         assertTrue(logs.toString(), "Vehicle signal doorPassenger error area=0" in logs)
+        // Current values and changes reach the listener; unreadable ones and errors do not.
+        assertEquals(listOf(557843202 to 13, 560993300, 557843202 to 2, 560993300),
+            values.map { (id, value) -> if (value is ByteArray) id else id to value })
 
         probe.stop()
         assertNull(properties.listener)

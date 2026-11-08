@@ -8,6 +8,11 @@
 - 设置修改立即生效，CarPlay 在后台时也立即发给 iPhone；「App 外观：自动」在 CarPlay 打开前也使用上述推测，不再跟随系统夜间。
 - 诊断报告新增各来源相对启动的耗时（`+Nms`）、首个有效值来源、推测依据（`Night guess … basis=`）与切换原因（`CarPlay switched … reason=`），导出报告即可核对。
 
+## 熄火开门时暂停音乐；黑屏与车身信号诊断（待实车验证）
+
+- 新增「熄火开门时暂停音乐」（设置 → 音频 → 车机媒体集成，仅亿咖通，默认开启）：熄火后主驾门打开时，若 iPhone 正在播放，先发暂停，再由车机断开 CarPlay。v139 报告显示车机在开门约 20 ms 后关闭热点与蓝牙。便利状态下开关门仍由原车媒体中心暂停；下次上车是否接着放不干预。
+- 诊断报告新增「Screen, car power and media commands」：屏幕广播与主屏电源状态、CarPlay 页面前后台、整车使用模式（`usageMode`）与五个车门（只读）、音频焦点、iPhone 播放状态、每条媒体命令的来源、原车媒体中心未处理的调用，以及 CarPlay 断开时是否仍在播放。v139 报告显示黑屏期间 Android 始终为 `display=ON interactive=true`，黑屏不是系统灭屏。
+
 # DiPlay ECARX v136 — 2026-11-08
 
 `versionCode 136`（代码基线 `3b74e2a3`）。v135 是同一批改动的平台签名车测包。

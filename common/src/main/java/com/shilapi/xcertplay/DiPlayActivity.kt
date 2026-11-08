@@ -2146,6 +2146,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 markReconnectNeeded()
             }
             card.addView(label(getString(R.string.settings_media_output_description), 14, MUTED))
+            // Needs the car's usage mode and driver door, so only ECARX head units offer it.
+            if (com.shilapi.xcertplay.hud.EcarxVehicleSignalProbe.supported(this)) {
+                toggle(card, getString(R.string.settings_leave_car_pause),
+                    getString(R.string.settings_leave_car_pause_description), LeaveCarPauseSettings.enabled(this)) {
+                    LeaveCarPauseSettings.setEnabled(this, it)
+                }
+            }
         }
         filteredSection(content, SettingsSection.ADVANCED_MEDIA,
             getString(R.string.settings_advanced_media), R.drawable.ic_dp_advanced) { card ->

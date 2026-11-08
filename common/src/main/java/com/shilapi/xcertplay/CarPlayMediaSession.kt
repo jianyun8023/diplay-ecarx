@@ -718,12 +718,6 @@ internal object CarPlayMediaSession {
 
     @Synchronized
     internal fun onSessionEnded(session: AirPlaySession) {
-        if (activePhoneSession === session) {
-            // Whether the music was still playing when CarPlay dropped, and what was last sent to it.
-            MediaPowerDiagnostics.note("CarPlay session ended iphonePlaying=${nowPlaying.playing} " +
-                "focusHeld=$focusHeld transientFocusInterrupted=$transientFocusInterrupted " +
-                "lastCommand=[$lastCommand] ${MediaPowerDiagnostics.screenState(appContext)}")
-        }
         if (activePhoneSession === session || connectingPhoneSession === session) releaseLocked()
         else if (voiceKeySession === session) releaseVoiceKeyLocked()
     }

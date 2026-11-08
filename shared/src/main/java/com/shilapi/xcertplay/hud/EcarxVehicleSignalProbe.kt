@@ -19,6 +19,8 @@ import java.lang.reflect.InvocationTargetException
 class EcarxVehicleSignalProbe(
     context: Context,
     private val diagnostic: (String) -> Unit,
+    /** Every value read or reported, by property id, on the car service handler (main). */
+    private val onValue: (Int, Any?) -> Unit = { _, _ -> },
 ) {
     internal class Signal(val id: Int, val name: String, val type: Class<*>)
 
@@ -51,6 +53,7 @@ class EcarxVehicleSignalProbe(
                     val id = runCatching { event.javaClass.getMethod("getPropertyId").invoke(event) as? Int }.getOrNull()
                     val value = runCatching { event.javaClass.getMethod("getValue").invoke(event) }.getOrNull()
                     diagnostic("Vehicle signal ${nameOf(id)} changed raw=${render(value)}")
+                    if (id != null) onValue(id, value)
                 }
                 "onErrorEvent" -> diagnostic("Vehicle signal ${nameOf(args?.firstOrNull() as? Int)} error " +
                     "area=${args?.getOrNull(1)}")
@@ -72,6 +75,7 @@ class EcarxVehicleSignalProbe(
                     .map { value -> value?.let { runCatching { it.javaClass.getMethod("getValue").invoke(it) }.getOrNull() } }
                 diagnostic("Vehicle signal ${signal.name} current " +
                     current.fold({ "raw=${render(it)}" }, { "failed: ${describe(it)}" }))
+                current.getOrNull()?.let { onValue(signal.id, it) }
                 runCatching { register.invoke(properties, listener, signal.id, 0f) }
                     .onFailure { diagnostic("Vehicle signal ${signal.name} listen failed: ${describe(it)}") }
             }
@@ -111,10 +115,13 @@ class EcarxVehicleSignalProbe(
         private val INT = Int::class.javaObjectType
         private val BYTES = ByteArray::class.java
 
+        const val USAGE_MODE = 557843202
+        const val DOOR_DRIVER = 560993300
+
         internal val SIGNALS = listOf(
             // UsgModSts: 0 abandon, 1 inactive, 2 convenience, 11 active, 13 driving.
-            Signal(557843202, "usageMode", INT),
-            Signal(560993300, "doorDriver", BYTES),
+            Signal(USAGE_MODE, "usageMode", INT),
+            Signal(DOOR_DRIVER, "doorDriver", BYTES),
             Signal(560993301, "doorDriverRear", BYTES),
             Signal(560993302, "doorPassenger", BYTES),
             Signal(560993303, "doorPassengerRear", BYTES),
