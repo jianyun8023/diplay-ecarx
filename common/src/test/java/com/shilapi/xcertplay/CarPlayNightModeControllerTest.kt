@@ -65,15 +65,21 @@ class CarPlayNightModeControllerTest {
         fun emit(night: Boolean) { receiver?.invoke(night) }
     }
 
+    private class FixedTime(var minuteOfDay: Int = 12 * 60) : NightTimeSource {
+        override fun snapshot() = NightTimeSnapshot(minuteOfDay, 60_000L)
+    }
+
     private class VehicleFixture(
         initialNight: Boolean = false,
         val vehicle: VehicleSource = VehicleSource(),
         delaySeconds: Int = 2,
+        val time: FixedTime = FixedTime(),
     ) {
         val clock = Clock()
         val output = mutableListOf<Boolean>()
+        val diagnostics = mutableListOf<String>()
         val controller = CarPlayNightModeController(
-            Light(), clock, initialNight, output::add, vehicle = vehicle,
+            Light(), clock, initialNight, output::add, time, vehicle, diagnostics::add,
         )
         init {
             controller.configure(CarPlayNightMode.VEHICLE, initialNight, delaySeconds = delaySeconds)
@@ -90,6 +96,29 @@ class CarPlayNightModeControllerTest {
         assertFalse(f.controller.night)
         assertEquals(listOf(true, false), f.output)
         assertTrue(f.clock.tasks.isEmpty())
+    }
+
+    @Test fun silentVehicleUsesTheScheduleUntilTheHeadUnitAnswers() {
+        // Android reports night (as on the target head unit), but it is midday.
+        val f = VehicleFixture(initialNight = true)
+        assertFalse(f.controller.night)
+        assertEquals(listOf(false), f.output)
+        assertEquals(listOf("Vehicle day/night not reported yet; schedule guess night=false"), f.diagnostics)
+        f.vehicle.emit(true)
+        assertTrue(f.controller.night)
+        // A known head-unit decision survives pause and resume instead of a new guess.
+        f.controller.pause()
+        f.time.minuteOfDay = 12 * 60 + 1
+        f.controller.resume(true)
+        assertTrue(f.controller.night)
+        assertEquals(1, f.diagnostics.size)
+    }
+
+    @Test fun silentVehicleAtNightGuessesNight() {
+        val f = VehicleFixture(initialNight = false, time = FixedTime(22 * 60))
+        assertTrue(f.controller.night)
+        f.vehicle.emit(false)
+        assertFalse(f.controller.night)
     }
 
     @Test fun unavailableVehicleSourceFallsBackToSystemNight() {

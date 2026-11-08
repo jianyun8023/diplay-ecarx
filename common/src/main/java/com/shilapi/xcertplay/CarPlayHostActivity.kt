@@ -650,6 +650,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         CarPlayNightModeController(
             light = AndroidAmbientLight(this),
             vehicle = com.shilapi.xcertplay.hud.EcarxVehicleDayNight(applicationContext) { appendLog(it) },
+            diagnostic = { appendLog(it) },
             scheduler = MainThreadNightModeScheduler(),
             initialNight = darkMode,
             onNightChanged = { night ->

@@ -53,6 +53,7 @@ internal class CarPlayNightModeController(
     private val onNightChanged: (Boolean) -> Unit,
     private val timeSource: NightTimeSource = SystemNightTimeSource,
     private val vehicle: VehicleNightSource? = null,
+    private val diagnostic: (String) -> Unit = {},
 ) {
     interface LightSource {
         val available: Boolean
@@ -75,6 +76,9 @@ internal class CarPlayNightModeController(
     private var resumed = false
     private var listening = false
     private var listeningVehicle = false
+    /** The last head-unit decision in this process; null until the head unit has answered once. */
+    private var vehicleNight: Boolean? = null
+    private var loggedGuess: Boolean? = null
     private var pending: Boolean? = null
     private val transition = Runnable {
         val target = pending
@@ -145,7 +149,17 @@ internal class CarPlayNightModeController(
                 val source = vehicle
                 if (source == null || !source.available) {
                     applyNight(systemNight)
-                } else if (resumed && !listeningVehicle) {
+                    return
+                }
+                // The head unit can take seconds to answer after a cold start, and some lock
+                // Android's own theme to night. The schedule is a better guess meanwhile.
+                if (vehicleNight == null) {
+                    val guess = schedule.isNight(timeSource.snapshot().minuteOfDay)
+                    if (guess != loggedGuess) diagnostic("Vehicle day/night not reported yet; schedule guess night=$guess")
+                    loggedGuess = guess
+                    applyNight(guess)
+                }
+                if (resumed && !listeningVehicle) {
                     listeningVehicle = source.start(::onVehicleNight)
                     if (!listeningVehicle) {
                         source.stop()
@@ -162,6 +176,7 @@ internal class CarPlayNightModeController(
      */
     private fun onVehicleNight(target: Boolean) {
         if (!resumed || !listeningVehicle || mode != CarPlayNightMode.VEHICLE) return
+        vehicleNight = target
         applyNight(target)
     }
 
