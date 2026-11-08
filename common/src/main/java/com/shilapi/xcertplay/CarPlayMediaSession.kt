@@ -176,6 +176,7 @@ internal object CarPlayMediaSession {
 
     /** The iPhone started or stopped playing; may run on any thread. */
     private fun onIphonePlaying(expected: CarPlayController, playing: Boolean) {
+        MediaPowerDiagnostics.note("iPhone playing=$playing ${MediaPowerDiagnostics.screenState(appContext)}")
         if (playing) mainHandler.post {
             synchronized(this) {
                 if (controller === expected && mediaAudioActive) regainFocusLocked(onIphonePlaybackResume = true)
@@ -478,6 +479,8 @@ internal object CarPlayMediaSession {
         }
         if (!current) return
         Log.i(TAG, "audio focus change=$change")
+        MediaPowerDiagnostics.note("Audio focus change=$change iphonePlaying=${synchronized(this) { nowPlaying.playing }} " +
+            MediaPowerDiagnostics.screenState(appContext))
         WheelKeyLog.note("media keys audio focus change=$change")
         // Resolve the matching sink and invoke it outside the media-key monitor. An abandoned
         // request must never mute a newer controller, and these owners must not nest locks.
@@ -586,6 +589,8 @@ internal object CarPlayMediaSession {
             lastCommand = "source=$source index=$index sent=$sent atEpochMs=${System.currentTimeMillis()}"
         }
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
+        MediaPowerDiagnostics.note("Media command source=$source index=$index sent=$sent " +
+            "iphonePlaying=${synchronized(this) { nowPlaying.playing }}")
         WheelKeyLog.note("media key $source -> CarPlay $index sent=$sent")
     }
 

@@ -324,6 +324,8 @@ class CarPlayController(
     private val wirelessHandoffRequested = AtomicBoolean(false)
     private val wirelessTunnelReady = AtomicBoolean(false)
     private val wirelessActiveReported = AtomicBoolean(false)
+    /** The next wireless run follows the car turning its hotspot off and may wait for its radio to return. */
+    private val awaitRadioReturn = AtomicBoolean(false)
     /** Set when the handoff fell back and kept Bluetooth as the only iAP2 channel. */
     private val wirelessHandoffFellBack = AtomicBoolean(false)
     private val wirelessGeneration = AtomicInteger(0)
@@ -1457,6 +1459,9 @@ class CarPlayController(
     }
 
     private fun runWireless(generation: Int) {
+        val radioReturn = awaitRadioReturn.getAndSet(false)
+        // Until RFCOMM starts, a failure belongs to this bring-up even while the old session winds down.
+        var bluetoothLinkStarted = false
         try {
             sampleWirelessStart(CarPlayStartupTimeline.Stage.WIRELESS_RUN_START, generation)
             debugLog("wireless bring-up generation=$generation starting")
@@ -1500,8 +1505,11 @@ class CarPlayController(
             firstTcpWatchdog = watchdog
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
-            // Only cold-start workers may wait for an OEM radio that is still OFF.
-            // The observation never enables Bluetooth and remains cancellable.
+            // Only cold-start workers, and the restart after the car turned its hotspot off, may wait
+            // for an OEM radio that is still OFF. The observation never enables Bluetooth and remains
+            // cancellable. Engine off then the driver door turns hotspot and Bluetooth off together;
+            // waking the screen turns them back on, which a run that gave up at once never saw, so
+            // CarPlay stayed down until the driver reconnected (v140 car report, 2026-11-08).
             val coldStart = android.os.SystemClock.elapsedRealtime() in
                 0 until BluetoothAdapterRestore.EARLY_BOOT_WINDOW_MILLIS
             fun awaitBluetoothRadio() {
@@ -1509,7 +1517,11 @@ class CarPlayController(
                     appContext,
                     isCurrent = { !isStaleWirelessRun(generation) },
                     log = { debugLog(it) },
-                    passiveBootWait = coldStart,
+                    passiveWaitMillis = when {
+                        radioReturn -> RADIO_RETURN_WAIT_MILLIS
+                        coldStart -> BluetoothAdapterRestore.PASSIVE_BOOT_WAIT_MILLIS
+                        else -> 0L
+                    },
                 )
                 sampleWirelessStart(CarPlayStartupTimeline.Stage.BLUETOOTH_READY, generation)
             }
@@ -1799,6 +1811,7 @@ class CarPlayController(
                             throw error
                         }
                         bootstrapAttempt = attempt
+                        bluetoothLinkStarted = true
                         when (preconnected) {
                             is RfcommPreconnect.Outcome.Adopted -> preconnected.socket
                             is RfcommPreconnect.Outcome.Failed -> throw preconnected.error
@@ -2056,7 +2069,7 @@ class CarPlayController(
                 tunnelActive = wirelessTunnelChannel != null,
                 sessionActive = activeSession != null,
             )
-            if ((wirelessActiveReported.get() || handoffInProgress) && error !is Error) {
+            if (bluetoothLinkStarted && (wirelessActiveReported.get() || handoffInProgress) && error !is Error) {
                 debugLog(
                     "wireless RFCOMM control ended during or after the tunnel handoff: ${error.message} " +
                         "(active=${wirelessActiveReported.get()} handoffInProgress=$handoffInProgress)",
@@ -3064,6 +3077,7 @@ class CarPlayController(
                 onApLost = {
                     if (!isStaleWirelessRun(generation)) {
                         debugLog("generation=$generation car hotspot stopped; restarting wireless")
+                        awaitRadioReturn.set(true)
                         restartWireless()
                     }
                 },
@@ -4011,6 +4025,8 @@ class CarPlayController(
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
         /** Above the boot hotspot start's 30 s budget. */
         private const val HOTSPOT_HEAD_START_WAIT_MILLIS = 35_000L
+        /** The driver may come back to the car any time; the wait ends early on disconnect. */
+        private const val RADIO_RETURN_WAIT_MILLIS = 30 * 60_000L
         /** Elapsed may step back by a fraction of a second between updates (130690 -> 130552 on v129). */
         private const val PLAYBACK_ELAPSED_JITTER_MILLIS = 2_000L
         // Measured connects: 147–1714ms. Leave >4x headroom, without spending 15s on each dead socket.

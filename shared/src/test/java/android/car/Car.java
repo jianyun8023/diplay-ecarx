@@ -10,14 +10,19 @@ import android.os.Handler;
 public final class Car {
     public static boolean available;
     public static Car last;
+    /** Property values the next car's manager starts with. */
+    public static final java.util.Map<Integer, Object> seeded = new java.util.HashMap<>();
     public final CarPropertyManager properties = new CarPropertyManager();
     public boolean connected;
     public boolean disconnected;
     private final ServiceConnection connection;
 
-    private Car(ServiceConnection connection) { this.connection = connection; }
+    private Car(ServiceConnection connection) {
+        this.connection = connection;
+        properties.values.putAll(seeded);
+    }
 
-    public static void reset() { available = false; last = null; }
+    public static void reset() { available = false; last = null; seeded.clear(); }
 
     public static Car createCar(Context context, ServiceConnection connection, Handler handler) {
         if (!available) return null;

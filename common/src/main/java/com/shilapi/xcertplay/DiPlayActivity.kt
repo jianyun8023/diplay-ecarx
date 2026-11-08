@@ -2146,6 +2146,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 markReconnectNeeded()
             }
             card.addView(label(getString(R.string.settings_media_output_description), 14, MUTED))
+            // The door and engine triggers need the car's signals, so only ECARX head units offer them.
+            if (com.shilapi.xcertplay.hud.EcarxVehicleSignalProbe.supported(this)) {
+                for ((trigger, title, description) in listOf(
+                    Triple(MusicPauseTrigger.DOOR, R.string.settings_music_pause_door, R.string.settings_music_pause_door_description),
+                    Triple(MusicPauseTrigger.ENGINE_OFF, R.string.settings_music_pause_engine_off, R.string.settings_music_pause_engine_off_description),
+                )) {
+                    toggle(card, getString(title), getString(description), MusicPauseSettings.enabled(this, trigger)) {
+                        MusicPauseSettings.setEnabled(this, trigger, it)
+                    }
+                }
+            }
         }
         filteredSection(content, SettingsSection.ADVANCED_MEDIA,
             getString(R.string.settings_advanced_media), R.drawable.ic_dp_advanced) { card ->
@@ -5055,6 +5066,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine(WheelKeyService.report(appContext))
         WheelKeyLog.report(WheelKeyService.connected()).forEach { appendLine(it) }
         appendLine(com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.diagnosticReport())
+        appendLine()
+        MediaPowerDiagnostics.report().forEach { appendLine(it) }
         appendLine()
         appendLine(UpdateAvailability.report(appContext, System.currentTimeMillis()))
         appendLine()

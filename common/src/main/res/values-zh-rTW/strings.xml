@@ -897,6 +897,10 @@
     <string name="settings_media_output_android">HY 代理</string>
     <string name="settings_media_output_ecarx">DiPlay 直接接管</string>
     <string name="settings_media_output_description">由 DiPlay 直接處理儀表歌曲和媒體控制，或交給 HY。選擇 DiPlay 時需關閉 HY 的媒體接管。下次連線 CarPlay 生效。</string>
+    <string name="settings_music_pause_door">打開駕駛座車門時暫停音樂</string>
+    <string name="settings_music_pause_door_description">不論是否熄火。原車不會因此暫停。立即生效。</string>
+    <string name="settings_music_pause_engine_off">車輛熄火時暫停音樂</string>
+    <string name="settings_music_pause_engine_off_description">原車熄火後會繼續播放，直到打開駕駛座車門。立即生效。</string>
     <string name="settings_hy_siri_key">HY Siri 按鍵</string>
     <string name="settings_hy_siri_key_description">在 HY 方向盤設定中選擇對應的模擬按鍵組。Android 9 授予讀取系統記錄權限後，DiPlay 在背景也能喚醒 Siri，前景應用程式同時收到按鍵。</string>
     <string name="settings_hy_siri_background">實體按鍵無障礙服務</string>

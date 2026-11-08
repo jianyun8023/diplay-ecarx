@@ -267,7 +267,8 @@ public object CarBluetoothProfileGuard {
         context: Context,
         isCurrent: () -> Boolean,
         log: (String) -> Unit = logcat,
-        passiveBootWait: Boolean = false,
+        /** How long an OFF radio may be watched for the system to turn it on; 0 rejects it at once. */
+        passiveWaitMillis: Long = 0L,
     ) {
         if (!isCurrent()) throw java.io.InterruptedIOException("Bluetooth startup cancelled")
         val app = context.applicationContext
@@ -277,15 +278,14 @@ public object CarBluetoothProfileGuard {
         val ownedPause = recoveryNeeded && appliedMode(app) == MODE_ADAPTER
         if (recoveryNeeded) restore(app, log)
         val initialState = radio.state
-        // On a real cold boot the OEM may keep the radio OFF until its service starts.
-        // Observe it briefly without calling enable(); outside this window an OFF radio
-        // still means the driver must enable Bluetooth manually.
+        // On a real cold boot, or while the car powers its radios back up after turning them off,
+        // the OEM keeps the radio OFF until its service starts. Observe it without calling
+        // enable(); otherwise an OFF radio still means the driver must enable Bluetooth manually.
         val observeBootRadio = BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
-            passiveBootWait, initialState, ownedPause,
+            passiveWaitMillis > 0, initialState, ownedPause,
         )
         if (observeBootRadio) {
-            log("BT guard connect: early boot Bluetooth OFF; passively waiting for system STATE_ON " +
-                "budgetMs=${BluetoothAdapterRestore.PASSIVE_BOOT_WAIT_MILLIS}")
+            log("BT guard connect: Bluetooth OFF; passively waiting for system STATE_ON budgetMs=$passiveWaitMillis")
         }
         val waitStarted = System.nanoTime()
         val outcome = try {
@@ -297,8 +297,7 @@ public object CarBluetoothProfileGuard {
                     state = { radio.state },
                     requestEnable = null, // The guard worker alone issues any authorized enable.
                     isCurrent = isCurrent,
-                    timeoutMillis = if (observeBootRadio) BluetoothAdapterRestore.PASSIVE_BOOT_WAIT_MILLIS
-                        else 5_000L,
+                    timeoutMillis = if (observeBootRadio) passiveWaitMillis else 5_000L,
                 )
             }
         } catch (error: RuntimeException) {

@@ -939,6 +939,10 @@
     <string name="settings_media_output_android">HY proxy</string>
     <string name="settings_media_output_ecarx">DiPlay direct</string>
     <string name="settings_media_output_description">DiPlay handles the cluster music information and media controls directly, or delegates them to HY. With DiPlay selected, disable HY media takeover. Applies at the next CarPlay connection.</string>
+    <string name="settings_music_pause_door">Pause music when the driver door opens</string>
+    <string name="settings_music_pause_door_description">Whether or not the engine is running. The car itself does not pause for this. Takes effect at once.</string>
+    <string name="settings_music_pause_engine_off">Pause music when the engine stops</string>
+    <string name="settings_music_pause_engine_off_description">The car itself keeps playing after the engine stops, until the driver door opens. Takes effect at once.</string>
     <string name="settings_hy_siri_key">HY Siri key</string>
     <string name="settings_hy_siri_key_description">In HY, assign the matching simulated-key pair. On Android 9, system log access lets Siri respond in the background while the foreground app also receives the key.</string>
     <string name="settings_hy_siri_background">Accessibility service for hardware keys</string>

@@ -702,6 +702,15 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var controlRunningCount = 0
     private var lossSinceControlRunning = false
     private var sessionLog: SessionLogFile? = null
+    /** Screen and car power events reach this host's log on the main thread, as every other line does. */
+    private val mediaPowerLog: (String) -> Unit = { line -> mainHandler.post { appendLog(line) } }
+
+    /** A media button this screen sends, noted with who asked for it so a report can tell them apart. */
+    private fun sendHostMedia(target: CarPlayController?, index: Int, source: String): Boolean {
+        val sent = target?.sendMediaButton(index) == true
+        MediaPowerDiagnostics.note("Media command source=$source index=$index sent=$sent")
+        return sent
+    }
     private var gestureFingerCount = 3
     private var settingsGestureHint: TextView? = null
     private var gestureSequenceActive = false
@@ -852,7 +861,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 return
             }
             logPlaybackRecovery("AutoPlay enqueue schedule=$autoPlaySchedule index=${CarPlayMediaButton.PLAY}")
-            val sent = controller?.sendMediaButton(CarPlayMediaButton.PLAY) == true
+            val sent = sendHostMedia(controller, CarPlayMediaButton.PLAY, "autoplay")
             logPlaybackRecovery("AutoPlay queued schedule=$autoPlaySchedule accepted=$sent")
         }
     }
@@ -995,6 +1004,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         airPlayIdentity = AirPlayPersistence.loadIdentity(this)
         loadPersistedSettings()
         AirPlayPersistence.preferences(this).registerOnSharedPreferenceChangeListener(nightSettingsListener)
+        MediaPowerDiagnostics.attach(mediaPowerLog)
+        MediaPowerDiagnostics.start(this)
         locationPermissionAvailable = hasFineLocationPermission()
         setContentView(buildContentView())
         applyFullscreenMode()
@@ -1355,6 +1366,8 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        MediaPowerDiagnostics.note("Host started sessionActive=${activeAirPlaySession != null} " +
+            MediaPowerDiagnostics.screenState(this))
         // Back in front: failures are visible again and retry as usual.
         attemptKeptInBackground = false
         if (!forwarded && AirPlayPersistence.loadWirelessEnabled(this)) {
@@ -1526,7 +1539,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 CarPlayMediaSession.isMediaCenterActive(controller)) {
                 WheelZoomKeys.Action.CONSUME
             } else {
-                val sent = controller?.sendMediaButton(CarPlayMediaButton.PLAY_PAUSE) == true
+                val sent = sendHostMedia(controller, CarPlayMediaButton.PLAY_PAUSE, "assigned-wheel-key")
                 appendLog("Media: assigned wheel key ${event.keyCode} -> CarPlay play/pause sent=$sent")
                 WheelZoomKeys.Action.CONSUME
             }
@@ -1639,7 +1652,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     val sent = when {
                         press.isSiri -> CarPlayMediaSession.onExternalSiriKey(event.keyCode)
                         press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true
-                        press.isMedia -> ctrl?.sendMediaButton(press.mediaIndex!!) == true
+                        press.isMedia -> sendHostMedia(ctrl, press.mediaIndex!!, "ecarx-key")
                         else -> false
                     }
                     if (debugLogsEnabled) appendLog("SWKey: ${press.action.prefKey} key=${event.keyCode} sent=$sent")
@@ -1662,7 +1675,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             // once, on the press. The release is swallowed rather than passed on, or the car's own
             // player would receive an unpaired key.
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                val sent = controller?.sendMediaButton(mediaPress) == true
+                val sent = sendHostMedia(controller, mediaPress, "wheel-key")
                 appendLog("Media: wheel key ${event.keyCode} -> CarPlay $mediaPress sent=$sent")
             }
             return true
@@ -1794,7 +1807,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val sent = when {
             press.isSiri -> CarPlayMediaSession.onExternalSiriKey(keyCode)
             press.isCall -> ctrl?.sendTelephonyPress(press.callIndex!!) == true
-            press.isMedia -> ctrl?.sendMediaButton(press.mediaIndex!!) == true
+            press.isMedia -> sendHostMedia(ctrl, press.mediaIndex!!, "ecarx-sw-key")
             else -> false
         }
         if (debugLogsEnabled) appendLog("SWKey: ${press.action.prefKey} key=$keyCode sent=$sent")
@@ -1828,6 +1841,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
         logThemeState(ThemeModeDiagnostics.Source.STOP, resources.configuration)
         appendLog("Cluster lifecycle: host stopped ${CarPlayBackgroundSession.clusterDiagnostics(controller)}")
+        MediaPowerDiagnostics.note("Host stopped sessionActive=${activeAirPlaySession != null} " +
+            MediaPowerDiagnostics.screenState(this))
         mainHandler.removeCallbacks(pollConfiguration)
         super.onStop()
         centerMap.onHostStopped(schedule = !isFinishing && !isChangingConfigurations)
@@ -1893,6 +1908,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         AppAppearanceRuntime.clearHost(this)
         nightModeController.pause()
         AirPlayPersistence.preferences(this).unregisterOnSharedPreferenceChangeListener(nightSettingsListener)
+        MediaPowerDiagnostics.detach(mediaPowerLog)
         pictureBinding?.close()
         pictureBinding = null
         removeVideoSurfaceProbe()
@@ -5403,6 +5419,10 @@ open class CarPlayHostActivity : ComponentActivity() {
                 runOnUiThread {
                     logPlaybackRecovery("session ended active=${activeAirPlaySession === session} " +
                         "generation=$controllerGeneration", System.identityHashCode(session), diagnosticLog)
+                    if (activeAirPlaySession === session) {
+                        MediaPowerDiagnostics.note("CarPlay session ended " +
+                            "iphonePlaying=${controller?.nowPlayingSnapshot()?.playing} ${MediaPowerDiagnostics.screenState(this@CarPlayHostActivity)}")
+                    }
                     val active = activeAirPlaySession
                     if (active != null && active !== session) {
                         // 探针或非活动握手结束时，保留当前播放会话。

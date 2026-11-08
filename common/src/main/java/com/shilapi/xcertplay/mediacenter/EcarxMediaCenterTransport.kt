@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
 import android.os.IBinder
+import com.shilapi.xcertplay.MediaPowerDiagnostics
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import java.lang.reflect.Method
@@ -185,7 +186,11 @@ internal class EcarxMediaCenterTransport(
             "onPlay" -> command(CarPlayMediaButton.PLAY)
             "onPause" -> command(CarPlayMediaButton.PAUSE)
             "onSourceSelected" -> (args?.firstOrNull() as? Number)?.toInt() == SOURCE && command(SELECT_SOURCE)
-            else -> defaultValue(method.returnType)
+            else -> {
+                // A call DiPlay does not act on, kept visible so a report shows what the car asked for.
+                if (method.name.startsWith("on")) MediaPowerDiagnostics.note("Media center call ${method.name} not handled")
+                defaultValue(method.returnType)
+            }
         }
     }
 
