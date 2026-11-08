@@ -1,6 +1,28 @@
 plugins {
     id 'com.android.library'
 }
+
+abstract class LicenseAssetsTask extends Sync {
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDirectory()
+}
+
+def licenseAssets = tasks.register('prepareLicenseAssets', LicenseAssetsTask) {
+    outputDirectory.set(layout.buildDirectory.dir('generated/licenseAssets'))
+    into outputDirectory
+    into('licenses') {
+        from(rootProject.file('LICENSE')) { rename { 'GPL-3.0.txt' } }
+        from(rootProject.file('NOTICE.md'))
+        from(rootProject.file('docs/THIRD_PARTY_NOTICES.md'))
+        from(rootProject.file('docs/licenses/DiAuto-AGPL-3.0.txt')) { rename { 'AGPL-3.0.txt' } }
+        from(rootProject.file('docs/licenses/dependencies'))
+        from(rootProject.file('docs/licenses/SOURCE.txt'))
+        from('src/main/jni/speexdsp/COPYING') { rename { 'SpeexDSP-COPYING.txt' } }
+        from('src/main/java/org/concentus/LICENSE') { rename { 'Concentus-LICENSE.txt' } }
+        from('src/main/jniLibs/NOTICE.md') { rename { 'NATIVE-NOTICE.md' } }
+    }
+}
+
 android {
     namespace = 'com.shilapi.xcertplay.shared'
     compileSdk = 37
@@ -31,12 +53,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 }
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.assets.addGeneratedSourceDirectory(licenseAssets) { task -> task.outputDirectory }
+    }
+}
 dependencies {
-    compileOnly files('libs/ecarx.adapterapi.jar')
     implementation libs.androidx.app
     implementation libs.bouncycastle
     implementation libs.jmdns
     testImplementation libs.junit
     testImplementation 'org.robolectric:robolectric:4.17'
-    testImplementation files('libs/ecarx.adapterapi.jar')
 }

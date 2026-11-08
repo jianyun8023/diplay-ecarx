@@ -36,6 +36,7 @@ jobs:
             common/build/reports/tests/
             common/build/reports/album-artwork-ui/
             common/build/reports/foreground-layout-ui/
+            common/build/reports/open-source-ui/
             mobile/build/reports/lint-results-debug.html
             samples/home/build/reports/tests/
             samples/home/build/reports/lint-results-debug.html
@@ -77,34 +78,51 @@ jobs:
           test -n "$ANDROID_KEY_PASSWORD"
           unset DIPLAY_AUTH_ASSETS_DIR
           ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --stacktrace
-      - name: Verify and prepare APK
+      - name: Verify APK and prepare licenses and source
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --min-sdk-version 28 mobile/build/outputs/apk/release/mobile-release.apk
+          mkdir -p release-apk
           python3 - <<'PY'
           from pathlib import Path
-          from zipfile import ZipFile
+          from zipfile import ZipFile, ZIP_DEFLATED
 
           apk = Path('mobile/build/outputs/apk/release/mobile-release.apk')
           with ZipFile(apk) as archive:
               assert not any('offline-mfi/' in name or Path(name).suffix.lower() in {
                   '.pk8', '.p7b', '.pem', '.key', '.p12', '.pfx', '.jks', '.keystore',
               } for name in archive.namelist()), 'Release APK must contain no authentication credentials'
+              required = {
+                  'GPL-3.0.txt': Path('LICENSE'),
+                  'AGPL-3.0.txt': Path('docs/licenses/DiAuto-AGPL-3.0.txt'),
+                  'NOTICE.md': Path('NOTICE.md'),
+                  'THIRD_PARTY_NOTICES.md': Path('docs/THIRD_PARTY_NOTICES.md'),
+                  'SOURCE.txt': Path('docs/licenses/SOURCE.txt'),
+              }
+              for name, source in required.items():
+                  assert archive.read('assets/licenses/' + name) == source.read_bytes(), name
+              with ZipFile('release-apk/DiPlay-licenses.zip', 'w', ZIP_DEFLATED) as licenses:
+                  for name in sorted(archive.namelist()):
+                      if name.startswith('assets/licenses/') and not name.endswith('/'):
+                          licenses.writestr(name.removeprefix('assets/'), archive.read(name))
           PY
-          mkdir -p release-apk
           cp mobile/build/outputs/apk/release/mobile-release.apk release-apk/DiPlay-release.apk
+          git archive --format=tar.gz --prefix=DiPlay-source/ --output=release-apk/DiPlay-source.tar.gz HEAD
+          release_source_revision=$(git rev-parse HEAD)
+          printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$release_source_revision" > release-apk/SOURCE-REVISION.txt
           cd release-apk
-          sha256sum DiPlay-release.apk > SHA256SUMS.txt
+          sha256sum DiPlay-release.apk DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DiPlay-signed-release
           path: release-apk/*
           if-no-files-found: error
-      - name: Attach APK to published Release
+      - name: Attach APK, licenses and source to published Release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" release-apk/DiPlay-release.apk release-apk/SHA256SUMS.txt
+        run: gh release upload "$RELEASE_TAG" release-apk/*
       - name: Remove signing keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/android-release.p12"

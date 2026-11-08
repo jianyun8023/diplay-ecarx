@@ -6,8 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
-import com.ecarx.xui.adaptapi.device.Device
-import com.ecarx.xui.adaptapi.device.daynigntmode.IDayNightMode
+import java.lang.reflect.Proxy
 
 /**
  * Push source for the head unit's resolved day/night state (`night = true`).
@@ -60,7 +59,7 @@ object EcarxDayNightMapping {
  * Fallback backend: the car AMap standard broadcast. It has no current-state query, so the first
  * delivery waits for the map app to announce a change.
  *
- * The SDK is compile-only. Every failure keeps CarPlay on the configured fallback instead of throwing.
+ * Vendor interfaces are resolved at runtime. Every failure keeps CarPlay on the configured fallback.
  */
 class EcarxVehicleDayNight(context: Context) : VehicleNightSource {
     private val appContext = context.applicationContext
@@ -97,24 +96,33 @@ class EcarxVehicleDayNight(context: Context) : VehicleNightSource {
     }
 
     private fun startAdaptapi(onNight: (Boolean) -> Unit): Boolean = runCatching {
-        val mode = Device.create(appContext)?.dayNightMode
+        val deviceType = Class.forName(EcarxCapabilities.DEVICE)
+        val device = deviceType.getMethod("create", Context::class.java).invoke(null, appContext)
             ?: return@runCatching false
-        val callback = object : IDayNightMode.IDayNightChangeCallBack {
-            override fun onDayNightChanged(value: Int) {
-                EcarxDayNightMapping.fromAdaptapiDayNight(value)?.let { night ->
-                    main.post { onNight(night) }
-                }
+        val getMode = deviceType.getMethod("getDayNightMode")
+        val mode = getMode.invoke(device) ?: return@runCatching false
+        val modeType = getMode.returnType
+        val callbackType = Class.forName(ADAPTAPI_CALLBACK, true, modeType.classLoader)
+        val callback = Proxy.newProxyInstance(callbackType.classLoader, arrayOf(callbackType)) { proxy, method, args ->
+            when (method.name) {
+                "onDayNightChanged" -> (args?.firstOrNull() as? Int)
+                    ?.let(EcarxDayNightMapping::fromAdaptapiDayNight)?.let { night ->
+                        main.post { onNight(night) }
+                    }
+                // Only resolved appearance matters, not the user's auto/day/night preference.
+                "onDayNightModeChange" -> null
+                "toString" -> return@newProxyInstance "EcarxDayNightCallback"
+                "hashCode" -> return@newProxyInstance System.identityHashCode(proxy)
+                "equals" -> return@newProxyInstance proxy === args?.firstOrNull()
             }
-
-            // Only resolved appearance matters, not the user's auto/day/night preference.
-            override fun onDayNightModeChange(value: Int) {}
+            null
         }
-        val ok = mode.registerDayNightModeCallBack(callback)
+        val ok = modeType.getMethod("registerDayNightModeCallBack", callbackType).invoke(mode, callback) as Boolean
         if (!ok) return@runCatching false
-        releaseAdaptapi = { mode.unregisterDayNigntModeCallBack(callback) }
+        releaseAdaptapi = { modeType.getMethod("unregisterDayNigntModeCallBack", callbackType).invoke(mode, callback) }
         // The callback only fires on changes; read the resolved state once so CarPlay matches
         // the head unit without waiting for the next transition.
-        val current = runCatching { mode.dayNight }.getOrDefault(0)
+        val current = runCatching { modeType.getMethod("getDayNight").invoke(mode) as Int }.getOrDefault(0)
         EcarxDayNightMapping.fromAdaptapiDayNight(current)?.let { night ->
             main.post { onNight(night) }
         }
@@ -140,6 +148,8 @@ class EcarxVehicleDayNight(context: Context) : VehicleNightSource {
         runCatching { appContext.packageManager.getPackageInfo(pkg, 0) }.isSuccess
 
     private companion object {
+        const val ADAPTAPI_CALLBACK =
+            "com.ecarx.xui.adaptapi.device.daynigntmode.IDayNightMode\$IDayNightChangeCallBack"
         const val AMAP_ACTION = "AUTONAVI_STANDARD_BROADCAST_SEND"
         const val AMAP_KEY_TYPE = "KEY_TYPE"
         const val AMAP_EXTRA_STATE = "EXTRA_STATE"

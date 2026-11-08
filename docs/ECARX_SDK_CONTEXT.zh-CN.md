@@ -2,9 +2,17 @@
 
 本说明记录 PR #13 的后续核对和麦克风生命周期补充。目标是本项目的领克 01 / 820A / 753、Android 9 车机；接口存在、服务连接、请求被接受和硬件实际可用是不同的证据。
 
-## PR #13 改了什么
+## 当前集成方式
 
-PR #13 将 DIM/navigation、方控、日夜跟随和音场读取改为 AdaptAPI 编译库直调。库保持 `compileOnly`，运行实现由车机提供。GKUI Policy 声明保留在 `sdk/ecarx-policy`，应用继续反射使用 Policy，不打包厂商类。
+DIM/navigation、方控、日夜跟随和音场读取已恢复为运行时反射与动态代理。仓库不再附带或依赖 `ecarx.adapterapi.jar`；编译和单测均不需要厂商 JAR，运行实现由车机提供。缺少接口或方法时保留现有诊断与回退。
+
+单测使用 `src/test` 内独立编写的最小接口夹具和调用记录器，不打包进 APK。未使用的 GKUI Policy 恢复声明模块已删除；应用继续反射访问车机提供的 Policy。
+
+运行时接口的使用条件及历史提交中的旧 JAR、Policy 恢复声明仍属后续核对范围。移除工作树中的文件不会清除 Git 历史中的副本。
+
+## PR #13 的历史核对
+
+PR #13 曾将上述适配改为 AdaptAPI 编译库直调，依赖方式为 `compileOnly`。以下核对记录保留为运行时接口的依据，不代表当前仍使用编译库。
 
 2026-10-31 的实际 framework dump 中，AdaptAPI 是 **1.1.18.9**。旧应用中附带的 **1.1.17** 声明不能代替这个运行库。实际 `INavigationInfo` 有 15 个 getter，包括 `getDayNightMode`、`getExtensionInfo`。对 PR #13 提交 `d559c506` 的编译产物逐一核对，28 处厂商方法直调和 5 个应用实现的厂商回调/数据接口均匹配实际 DEX；DIM 的单方法显示回调也与运行接口一致。这是二进制接口核对，不是新一轮实车验收。
 
@@ -54,6 +62,8 @@ Policy 初始化回调按进程只注册一次。SDK 会长期保存初始化回
 关键方法：`PolicyAPI.get/createPolicyAPI`、`PolicyAPIImpl.init/initPolicy/getAudioPolicy`、`RemoteAudioPolicyImpl.requestMic/releaseMic`；服务端为前述 `af`、`d`、`m`。原厂导航的 `NaviDashboardManager` 也直接使用 DIM 接口和 `ILaneInfo[]`，与 PR #13 的调用方式相符。
 
 ## 验证边界
+
+`EcarxDimApiTest`、`EcarxLaneGuidanceFlowTest` 验证导航数据 getter、回调、车道数组与空值清理、ETA 单位、启停事件和绕过 SDK 缓存的仪表恢复；`EcarxVehicleDayNightTest`、`EcarxSwKeyInterceptTest` 验证订阅、回调身份、重绑与释放；`AudioDiagnosticSnapshotTest` 验证只读音场查询和缺类回退。
 
 `MicrophoneCaptureLifecycleTest` 使用独立 GKUI ABI fixture，验证初始化、延迟授权、撤回/恢复、挂断时取消、迟到回调、拒绝/不支持、超时和释放。fixture 的策略对象在初始化前也存在；不得把“非空”伪装成“服务已连接”。普通 Android 缺厂商类的回退由 `EcarxCapabilitiesTest` 验证。
 

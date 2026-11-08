@@ -26,7 +26,7 @@ class EcarxCapabilitiesTest {
         assertFalse(EcarxCapabilities.dimMediaPresent())
     }
 
-    @Test fun compileOnlySdkDoesNotBreakStartupWithoutVendorClasses() {
+    @Test fun runtimeAdaptersDoNotBreakStartupWithoutVendorClasses() {
         val night = EcarxVehicleDayNight(context)
         assertFalse(night.available)
         assertFalse(night.start { fail("No vehicle source should deliver") })
@@ -35,6 +35,9 @@ class EcarxCapabilitiesTest {
             override fun onKeyPressed(keyCode: Int) = false
             override fun onKeyReleased(keyCode: Int) = false
         }))
+        val type = Class.forName("com.shilapi.xcertplay.hud.EcarxDimApi")
+        assertNull(type.getMethod("createDimInteraction", android.content.Context::class.java)
+            .invoke(type.getField("INSTANCE").get(null), context))
     }
 
     @Test fun microphoneArbitrationDoesNotBlockRecordingWithoutVendorClasses() {

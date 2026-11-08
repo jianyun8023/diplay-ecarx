@@ -37,6 +37,8 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 
 同套件名稱、同簽章且版本號不低於已安裝版本時覆蓋升級，保留設定；Actions 公開發佈包不內建 MFi 認證，全新安裝或清除資料後需另行設定。不要先解除安裝。
 
+開發參考：[建置說明](BUILD.md)與 [SDK 適配說明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。ECARX 介面透過執行時反射及動態代理存取，編譯與單元測試不需要廠商 JAR。
+
 基於 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分介面改編自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。許可與第三方聲明見 [LICENSE](LICENSE) 及 [相關說明](docs/THIRD_PARTY_NOTICES.md)。
 
 CarPlay 及相關標識屬於 Apple；本專案與 Apple、領克、億咖通無隸屬或背書關係。

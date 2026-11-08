@@ -1,10 +1,10 @@
 > **存檔：上游 DiPlay 面向比亞迪 DiLink 的繁體中文說明，僅作歷史參考。**
-> 本倉庫是領克 05 / 億咖通 ECARX 移植版，權威說明見 [`../README.md`](../README.md)。
+> 本倉庫是領克 01 / 億咖通 ECARX 移植版，權威說明見 [`../README.md`](../README.md)。
 > 下面描述的機型範圍（BYD）與開關與本移植版不通用。
 
 # DiPlay
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md)
+[English](../README.md) · [简体中文](../README.zh-CN.md) · [繁體中文](../README.zh-TW.md)
 
 為相容的比亞迪 Android 車機提供有線與無線 CarPlay，採用熟悉的 DiAuto 介面。DiPlay 是獨立應用程式，正式版套件名稱為 `com.shihab.diplay`。
 
@@ -12,7 +12,7 @@
 
 [下載與繁體中文網站](https://shihabal3amri.github.io/DiPlay/zh-Hant/) · [0.2.21 版本](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.21) · [回報問題](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
 
-![DiPlay 主畫面](site/assets/home.png)
+![DiPlay 主畫面](screenshots/upstream-diplay-home.png)
 
 ## 開始使用
 
@@ -24,7 +24,7 @@
 2. 無線模式可選車載熱點、Wi-Fi Direct 或現有 Wi-Fi／同一區域網路；有線模式請使用支援資料傳輸的 USB 連接埠與傳輸線。
 3. 在 iPhone 上接受 CarPlay 提示。連線前先關閉其他手機投影應用程式。
 
-完整步驟請見[安裝與連線指南](docs/INSTALL.zh-TW.md)。
+完整步驟請見[安裝與連線指南](INSTALL.zh-TW.md)。
 
 ## 切換為繁體中文
 
@@ -45,20 +45,20 @@ Android 13 以上會與 Android 的個別應用程式語言設定同步；Androi
 - 本機診斷報告匯出，只有在你選擇分享後才會傳送。
 - 實驗性選項預設關閉，請停車後依說明測試。
 
-[英文版本說明](docs/RELEASE-NOTES-0.2.21.md)與[驗證紀錄](docs/VALIDATION.md)記錄完整變更、已知限制及尚待實車測試的項目。自動化測試通過不代表所有車型、iOS、Siri 或通話情境都已驗證。
+[英文版本說明](RELEASE-NOTES-0.2.21.md)與[驗證紀錄](VALIDATION.md)記錄完整變更、已知限制及尚待實車測試的項目。自動化測試通過不代表所有車型、iOS、Siri 或通話情境都已驗證。
 
 ## 繁體中文文件
 
 | 文件 | 內容 |
 | --- | --- |
-| [安裝與連線](docs/INSTALL.zh-TW.md) | 首次使用、權限、USB、熱點及 Wi-Fi 模式 |
-| [設定與疑難排解](docs/SETTINGS.zh-TW.md) | 設定分類、重新連線、畫面與聲音、診斷回報 |
-| [隱私權與診斷](docs/PRIVACY.zh-TW.md) | 資料儲存、權限、報告分享及更新檢查 |
-| [從原始碼建置](docs/BUILD.zh-TW.md) | Windows／Android Studio、建置環境、APK 路徑及認證素材 |
-| [翻譯維護](docs/LOCALIZATION.zh-TW.md) | 臺灣用語、資源檢查與文件同步方式 |
-| [本次繁體中文驗證紀錄](docs/VALIDATION.zh-TW.md) | 測試、建置結果及完整 CI 的未解失敗 |
+| [安裝與連線](INSTALL.zh-TW.md) | 首次使用、權限、USB、熱點及 Wi-Fi 模式 |
+| [設定與疑難排解](SETTINGS.zh-TW.md) | 設定分類、重新連線、畫面與聲音、診斷回報 |
+| [隱私權與診斷](PRIVACY.zh-TW.md) | 資料儲存、權限、報告分享及更新檢查 |
+| [從原始碼建置](BUILD.zh-TW.md) | Windows／Android Studio、建置環境、APK 路徑及認證素材 |
+| [翻譯維護](LOCALIZATION.zh-TW.md) | 臺灣用語、資源檢查與文件同步方式 |
+| [本次繁體中文驗證紀錄](VALIDATION.zh-TW.md) | 測試、建置結果及完整 CI 的未解失敗 |
 
-進階車型整合可參考[比亞迪導航](docs/BYD_NAVIGATION.md)、[Wi-Fi Direct 舊版限制](docs/ANDROID9_WIFI_DIRECT.md)及[現有 Wi-Fi 指南](docs/EXISTING_WIFI.md)；這些深入文件目前為英文。
+進階車型整合可參考[比亞迪導航](https://github.com/shihabal3amri/DiPlay/blob/v0.2.21/docs/BYD_NAVIGATION.md)、[Wi-Fi Direct 舊版限制](ANDROID9_WIFI_DIRECT.md)及[現有 Wi-Fi 指南](EXISTING_WIFI.md)；這些深入文件目前為英文。
 
 ## 相容性與公開預覽版限制
 
@@ -70,10 +70,10 @@ Wi-Fi Direct 在 Android 7.0–9 使用依賴韌體的舊版路徑，無法驗�
 
 ## 回報問題
 
-重現問題後，開啟 **設定 → 診斷 → 儲存診斷報告**，記錄故障時間並檢查 TXT 內容，再附到[相關問題](https://github.com/shihabal3amri/DiPlay/issues)或[新增問題](https://github.com/shihabal3amri/DiPlay/issues/new/choose)。請提供車型／車機、Android／DiLink／完整韌體版本、iPhone／iOS、連線方式、相關設定與重現步驟。不要公開熱點密碼或認證檔案。詳見[診斷回報步驟](docs/SETTINGS.zh-TW.md#匯出診斷報告與回報問題)。
+重現問題後，開啟 **設定 → 診斷 → 儲存診斷報告**，記錄故障時間並檢查 TXT 內容，再附到[相關問題](https://github.com/shihabal3amri/DiPlay/issues)或[新增問題](https://github.com/shihabal3amri/DiPlay/issues/new/choose)。請提供車型／車機、Android／DiLink／完整韌體版本、iPhone／iOS、連線方式、相關設定與重現步驟。不要公開熱點密碼或認證檔案。詳見[診斷回報步驟](SETTINGS.zh-TW.md#匯出診斷報告與回報問題)。
 
 ## 原始碼與授權
 
-專案基於 [xcertplay](https://github.com/shilapi/xcertplay)（GPL-3.0）。主畫面、設定介面及網站改編自 [DiAuto](https://github.com/shihabal3amri/DiAuto)（AGPL-3.0）；相關授權位於 `docs/licenses`。散布修改版本時請保留[第三方聲明與授權](docs/THIRD_PARTY_NOTICES.md)。CarPlay 與其圖示屬於 Apple Inc.；專案不代表 Apple 或比亞迪的認可。
+專案基於 [xcertplay](https://github.com/shilapi/xcertplay)（GPL-3.0）。主畫面、設定介面及網站改編自 [DiAuto](https://github.com/shihabal3amri/DiAuto)（AGPL-3.0）；相關授權位於 `docs/licenses`。散布修改版本時請保留[第三方聲明與授權](THIRD_PARTY_NOTICES.md)。CarPlay 與其圖示屬於 Apple Inc.；專案不代表 Apple 或比亞迪的認可。
 
-一般原始碼／CI 建置預設不包含執行時認證素材；獨立連線測試需要外部素材。Git 與公開原始碼壓縮檔排除認證私密金鑰、Android 簽章金鑰及本機設定；將認證素材打包進 APK 後，接收者仍可擷取。詳見[建置指南](docs/BUILD.zh-TW.md)。
+一般原始碼／CI 建置預設不包含執行時認證素材；獨立連線測試需要外部素材。Git 與公開原始碼壓縮檔排除認證私密金鑰、Android 簽章金鑰及本機設定；將認證素材打包進 APK 後，接收者仍可擷取。詳見[建置指南](BUILD.zh-TW.md)。

@@ -1,8 +1,8 @@
-# 构建 DiPlay 领克 05 移植版
+# 构建 DiPlay 领克 01 / ECARX 753 移植版
 
 > 通用流程（模块选择、Android Studio 用法、单元测试与 lint）见上游文档 [`docs/BUILD.md`](docs/BUILD.md)。
 > **本文只讲本移植版特有的那几件事**——尤其是签名与 MFi 身份，这两件决定了产物能不能用。
-> 所有命令都在仓库根目录（有 `gradlew` 与 `settings.gradle.kts` 的那层）执行。
+> Gradle 命令在仓库根目录（有 `gradlew` 与 `settings.gradle.kts` 的那层）执行；凭据下载、转换与证书核对在仓库外的同一目录完成。
 
 ---
 
@@ -10,11 +10,13 @@
 
 | 输入 | 必需？ | 不给会怎样 |
 | --- | --- | --- |
-| **签名密钥**（AOSP 默认 platform 密钥） | 想要系统级权限就必需 | 能编译、能装，但**平台级权限全被拒**，车机交互功能全废 |
-| **MFi 运行时身份**（`identity.pk8` + `certificate.p7b`） | **必需** | 能编译、能装，但**与 iPhone 认证不过 ⇒ CarPlay 连不上** |
+| **Android 签名密钥** | Release 签名必需；车机平台权限需匹配该车机平台证书 | 普通 Debug 可用默认调试签名构建，但不具备相同平台签名的权限 |
+| **MFi 运行时认证后端** | 独立 CarPlay 连接必需，源码编译和单测不需要 | 公开 APK 默认不内置身份；新安装需另行配置认证身份或支持的硬件认证后端 |
 | 平台工具链（JDK / SDK / Build-Tools） | 必需 | 编不过 |
 
 **本仓库（源码）不含上面任何一项。** 三者都要你自己准备，且**都不能提交进 Git**。
+
+ECARX 接口通过运行时反射和动态代理调用。编译和单测**不需要厂商 JAR、私有 Maven 仓库或额外 SDK 下载**；车机提供运行实现。未使用的 GKUI Policy 恢复声明模块已删除。见 [SDK 说明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。
 
 ---
 
@@ -25,9 +27,9 @@
 | JDK | **Temurin 25.0.4.1+1**（必须 25） |
 | Android SDK Platform | `platforms;android-37.0` |
 | Android SDK Build-Tools | **36.0.0** |
-| Android SDK Platform-Tools | 37.0.1（含 `adb`、`apksigner`、`aapt2`、`dexdump`） |
+| Android SDK Platform-Tools | 含开发端 `adb`；`apksigner`、`aapt2`、`dexdump` 位于 Build-Tools |
 | Gradle | 9.5.0（用仓库自带 wrapper，不要另装） |
-| 工程配置 | AGP 9.3.0 / Kotlin 2.2.10 / `compileSdk 37` / `minSdk 28` |
+| 工程配置 | AGP 9.3.0（内置 Kotlin）/ `compileSdk 37` / `minSdk 24`；生产目标仍为 Android 9 / API 28 |
 
 ★ **不需要 NDK。** 上游要求 NDK 28.2.13676358，但本移植版已把原生库改成**预编译 `.so`**（见
 `shared/src/main/jniLibs/`，随仓库提供），并移除了 `ndkBuild` / `ndkVersion` 配置——省掉几 GB 下载。
@@ -47,9 +49,8 @@ java -version    # 输出必须显示 25
 
 ### 为什么
 
-本车机固件指纹带 **`test-keys`**，说明**厂商没有替换 AOSP 的默认 platform 密钥**。因此只要用同一把默认密钥
-签名，证书就与车机 `framework-res` 完全一致，清单里保护级别含 `signature` 的权限会被自动授予。
-**没有这条，本应用的车机交互能力（ECARX XUI、仪表投送、音频仲裁、蓝牙策略）全部失效。**
+目标车机的平台证书已与下面给出的 AOSP 默认 platform 证书指纹核对。`test-keys` 字样本身不足以证明平台签名相同；应比较该车机的实际证书。
+只有证书匹配，才满足相应 `signature` 权限的签名条件；其他权限、服务及硬件是否可用仍需在应用诊断中核对。
 
 > ⚠️ 该密钥对**是公开的**，就在 AOSP 源码树里，任何人都能取得。所以「保密」在这里毫无意义；
 > 但也因此：**只在你自己的车机上这么用**。
@@ -58,6 +59,8 @@ java -version    # 输出必须显示 25
 
 AOSP 源码树中的位置：`build/target/product/security/platform.pk8`（私钥，PKCS#8 DER）与
 `platform.x509.pem`（证书）。
+
+以下下载、转换和指纹核对命令在仓库外执行，完成后回到仓库根目录运行 Gradle。
 
 ```sh
 # 规范来源（aosp-mirror 只读镜像）
@@ -102,8 +105,9 @@ SHA256: C8:A2:E9:BC:CF:59:7C:2F:B6:DC:66:BE:E2:93:FC:13:F2:FC:47:EC:77:BC:6B:2B:
 
 ### 为什么必需
 
-CarPlay 需要一套 **MFi accessory 身份**才能与 iPhone 完成认证。构建时它被注入到 APK 的
-`assets/offline-mfi/`，应用首次启动会把它从 assets 复制到私有目录使用。**缺少它，CarPlay 无法连接。**
+CarPlay 需要可用的认证后端。下面是可选的离线身份输入：只有显式设置 `DIPLAY_AUTH_ASSETS_DIR` 时，构建才把它加入 APK 的 `assets/offline-mfi/`。**普通源码构建及当前公开 Actions Release 均不注入这些文件。**
+
+全新安装或清除应用数据后，需要另行配置认证；同包名、同签名覆盖升级可继续使用私有目录里原有的有效身份。身份和签名密钥应位于仓库外，并由提供者核对其使用、再分发权限。
 
 ### 目录结构
 
@@ -123,32 +127,30 @@ runtime-assets/
 | **实体 MFi 芯片 + CH341 I2C 桥** | 上游作者的开源转接板：<https://github.com/shilapi/ch341-to-mfi-chip> |
 | **板载 I2C 直连 MFi 芯片** | 直接把芯片接在车机的 `/dev/i2c-N` 上 |
 | **Remote MFi 服务** | 把一台远程服务当作 MFi 芯片调用（上游 README 的 `Remote MFI` 一节） |
-| **离线身份文件** | 即上面那两个文件。上游公开版 APK 内嵌的是一套**实验性身份，来源为公开的 Carlinkit 固件** |
+| **离线身份文件** | 即上面那两个文件。上游部分历史实验包曾使用公开 Carlinkit 固件中恢复的身份；当前本仓库公开 APK 不内置它们 |
 
-> ⚠️ **关于「离线身份文件」**：它不是本项目新申请的身份，**也不保密**——任何拿到内嵌该身份的 APK 的人
-> 都能把私钥提取出来（上游已在 README 中明确披露）。它不随本仓库分发，需要你自己准备。
-> **一旦你用它构建并分发 APK，就等于公开分发这套身份**；且 Apple 有权吊销，
-> **吊销后所有使用同一身份的设备（包括你自己的车）会同时失效。**
+> **本地身份输入的边界**：确认所提供文件的来源与使用权限。任何拿到内置身份的 APK 的人都能提取其私钥；分享这样的 APK 同时也会分享身份。上游历史实验身份的来源说明不代表所有本地输入均来自该固件，也不授予再分发许可。
 
-### 构建闸门（为什么缺文件会直接失败）
+### 构建检查
 
-上游/本移植版的 Gradle 配置里有两道有意设下的闸：
+当前 `mobile/build.gradle.kts` 的行为是：
 
-1. `:mobile:assembleStandaloneDebug` 与 `:mobile:assembleRelease` 会检查
-   `DIPLAY_AUTH_ASSETS_DIR` 下的两个文件是否存在且非空——**缺任何一个，任务直接失败**。
+1. `:mobile:assembleStandaloneDebug` 要求显式设置 `DIPLAY_AUTH_ASSETS_DIR`，并检查两个身份文件存在且非空。
+   `:mobile:assembleDebug` 和 `:mobile:assembleRelease` 不要求身份输入；Release 仍需要 Android 签名配置。
 2. `rejectBundledCredentials` 白名单：APK 打包时会拒绝白名单之外的一切凭据容器
    （`*.pk8` / `*.p7b` / `*.key` / …），防止凭据被误塞进仓库或产物。
 
-⇒ 这是刻意的设计，**不要为了绕开它去改 Gradle**。
+普通源码构建不需要绕过这些检查；保持身份环境变量未设置即可。
 
 ---
 
 ## 4. 第三步：构建
 
 ```sh
-export DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets
+# 公开 Release / 源码构建不内置认证身份
+unset DIPLAY_AUTH_ASSETS_DIR
 
-# 平台签名 release（推荐）
+# Release：使用与已安装车测包一致的平台签名
 export ANDROID_KEYSTORE_PATH=/absolute/path/to/platform.jks
 export ANDROID_KEYSTORE_PASSWORD=android
 export ANDROID_KEY_ALIAS=aosp-platform
@@ -156,8 +158,12 @@ export ANDROID_KEY_PASSWORD=android
 ./gradlew :mobile:assembleRelease
 # → mobile/build/outputs/apk/release/mobile-release.apk
 
-# 或先做一个带复制的 debug 版做链路测试
-./gradlew :mobile:assembleStandaloneDebug
+# 普通源码 Debug
+./gradlew :mobile:assembleDebug
+# → mobile/build/outputs/apk/debug/mobile-debug.apk
+
+# 仅在本地独立车测时显式注入身份
+DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneDebug
 # → mobile/build/outputs/apk/debug/mobile-debug.apk
 ```
 
@@ -184,7 +190,7 @@ BT="$ANDROID_HOME/build-tools/36.0.0"
 "$BT/aapt2.exe" dump badging mobile/build/outputs/apk/release/mobile-release.apk \
     | grep -E "^package|uses-permission.*(BLUETOOTH|car\.|ecarx|cevt)"
 
-# ③ 身份文件是否真的进去了（两个文件都应在）
+# ③ 公开源码构建应无身份文件；显式本地车测包才应包含所选两个文件
 unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep -i offline-mfi
 
 # ④ 确认产物里没有夹带私钥
@@ -204,11 +210,9 @@ unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep -iE "\.jks|\
 1. **安装校验的是 APK 内的证书链，不是私钥。** 私钥只在签名那一刻用一次，**从不随 APK 分发**。
    ⇒ 「别人没有签名私钥」不影响本项目的 APK 安装。
 2. **平台级权限取决于「证书是否等于 `framework-res` 的证书」**，与密钥是否保密无关。
-3. **换证书就不能覆盖安装。** 同一签名系列内可以覆盖升级（保留设置）；证书一变，
-   系统视为另一个应用，必须先 `adb uninstall com.shihab.diplay`。
+3. **换证书就不能覆盖安装。** 同一包名应继续使用原签名以保留设置和私有认证数据；签名不同的包不能直接覆盖。不要为解决签名不匹配而先卸载现有应用。
 
-因此：用 AOSP 默认 platform 密钥签名后，产物**能装、权限齐全**；换任何其他密钥，
-**能装、但平台级权限全无**。
+因此，应以本车实际平台证书与应用诊断中的授权状态为准，保持升级时签名一致。签名匹配不能证明某个厂商服务或硬件接口已经实现。
 
 ---
 
@@ -219,7 +223,7 @@ unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep -iE "\.jks|\
 | 能装但车机交互功能全无 | 没用 platform 密钥签名 ⇒ 见第 2 节 |
 | 能装但 CarPlay 连不上 | 缺 MFi 身份，或身份文件不对 ⇒ 见第 3 节 |
 | `assembleStandaloneDebug` 报缺少认证文件 | `DIPLAY_AUTH_ASSETS_DIR` 路径不对，或两个文件缺失/为空 |
-| 覆盖安装被拒（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`） | 证书变了 ⇒ 先 `adb uninstall com.shihab.diplay` |
+| 覆盖安装被拒（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`） | 使用与现有应用一致的签名重新构建，保留已安装应用和数据 |
 | Gradle 报 Kotlin 编译错误但源码没问题 | 增量缓存损坏 ⇒ `./gradlew --stop` 后删 `build/` |
 | `dexdump` / `apktool` 无输出 | 路径含中文 ⇒ 换纯 ASCII 路径 |
 | Gradle 同步卡在下载 | 国内网络 ⇒ 配 Maven 镜像 |
@@ -242,9 +246,10 @@ unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep -iE "\.jks|\
 ## 9. 交付前检查清单
 
 - [ ] `apksigner verify --print-certs` 的 SHA-256 = `C8:A2:E9:BC:…:2A:B8`
-- [ ] `unzip -l` 里 `assets/offline-mfi/` 两个文件都在
+- [ ] 公开 Release 的 `unzip -l` 中没有 `assets/offline-mfi/` 或任何认证身份；显式本地车测包的两个文件与外部输入一致
 - [ ] `unzip -l` 里**没有** `.jks` / `.keystore` / `.p12` / `.pem`
 - [ ] 版本号已递增（`versionCode` / `versionName`），且与上一个发布版本不同
-- [ ] 与上一版做类清单对比：**新增类可以，删除类必须为 0**（否则是回归）
+- [ ] 复核类型增删符合本次改动；不打包厂商实现或测试夹具
 - [ ] `git status` 干净、`.gitattributes` 已钉死换行符
-- [ ] 若发布预编译 APK：已在 Release 说明中**明确写出它内嵌了实验性 MFi 身份**
+- [ ] Release 说明准确声明实际认证输入；当前公开构建不内置 MFi 身份
+- [ ] 随二进制提供源码归档、GPL/AGPL 许可全文及适用第三方声明；APK 已打包 `assets/licenses/`，可从「关于 → 许可证与源码」离线查看。Actions 发布附件包含 `DiPlay-licenses.zip`、`DiPlay-source.tar.gz`、`SOURCE-REVISION.txt` 与校验和；本地修改包还须提供实际使用的修改后源码，见 [第三方声明](docs/THIRD_PARTY_NOTICES.md)

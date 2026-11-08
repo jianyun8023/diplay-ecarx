@@ -45,6 +45,10 @@ class EcarxSwKeyInterceptTest {
                 override fun onKeyReleased(keyCode: Int) = true
             }))
         val callback = checkNotNull(Input.instance.callback)
+        assertEquals(System.identityHashCode(callback), callback.hashCode())
+        assertEquals(callback, callback)
+        assertNotEquals(callback, Any())
+        assertTrue(callback.toString().isNotBlank())
         assertTrue(callback.onKeyPressed(200231))
         handle.release()
         assertFalse(callback.onKeyPressed(200231))
