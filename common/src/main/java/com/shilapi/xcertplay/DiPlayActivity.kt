@@ -224,6 +224,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var exportButton: Button? = null
     private var rootScroll: ScrollView? = null
     private var settingsRailScroll: ScrollView? = null
+    // Kept across renders so a rebuilt rail starts at the spacing that last fitted.
+    private var settingsRailSpacing = SettingsLayoutPolicy.RailSpacing(SettingsLayoutPolicy.RAIL_ITEM_DP, SettingsLayoutPolicy.RAIL_GAP_DP)
     private var reconnectBar: View? = null
     private var readinessCard: LinearLayout? = null
     private var searchIndexSink: MutableList<String>? = null
@@ -813,7 +815,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         rail?.doOnLayout {
             if (settingsRailScroll !== rail) return@doOnLayout
             previousRailScrollY?.let { rail.scrollTo(0, it) }
-            val destinations = (rail.getChildAt(0) as ViewGroup).getChildAt(0) as ViewGroup
+            val destinations = settingsRailDestinations() ?: return@doOnLayout
             val selected = (0 until destinations.childCount)
                 .map(destinations::getChildAt).firstOrNull { it.isSelected }
             if (selected != null) {
@@ -1116,6 +1118,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         addView(space(24))
         addView(reconnectBar(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(SETTINGS_BLOCK_GAP_DP) })
         val split = row().apply { gravity = Gravity.TOP }
+        // Hidden system bars or the head unit's dock change the height the rail gets.
+        split.addOnLayoutChangeListener { view, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) view.post { fitSettingsRail(bottom - top) }
+        }
         // The rail scrolls on its own only when the window is too short for every destination.
         split.addView(ScrollView(this@DiPlayActivity).apply {
             addView(column().apply {
@@ -1134,10 +1140,28 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         background = rounded(SURFACE, BORDER)
         setPadding(dp(12), dp(12), dp(12), dp(12))
         SettingsCategory.entries.forEach { category ->
-            addView(settingsRailDestination(category), matchButton(0, 52).apply {
-                bottomMargin = if (category == SettingsCategory.entries.last()) 0 else dp(8)
+            addView(settingsRailDestination(category), matchButton(0, settingsRailSpacing.itemDp).apply {
+                bottomMargin = if (category == SettingsCategory.entries.last()) 0 else dp(settingsRailSpacing.gapDp)
             })
         }
+    }
+
+    private fun settingsRailDestinations(): ViewGroup? =
+        ((settingsRailScroll?.getChildAt(0) as? ViewGroup)?.getChildAt(0)) as? ViewGroup
+
+    /** Fits every destination into the [heightPx] the rail now gets, so none sits behind the dock. */
+    private fun fitSettingsRail(heightPx: Int) {
+        val destinations = settingsRailDestinations() ?: return
+        val spacing = SettingsLayoutPolicy.railSpacing(heightPx / resources.displayMetrics.density, destinations.childCount)
+        if (spacing == settingsRailSpacing && destinations.getChildAt(0)?.layoutParams?.height == dp(spacing.itemDp)) return
+        settingsRailSpacing = spacing
+        for (index in 0 until destinations.childCount) {
+            (destinations.getChildAt(index).layoutParams as LinearLayout.LayoutParams).apply {
+                height = dp(spacing.itemDp)
+                bottomMargin = if (index == destinations.childCount - 1) 0 else dp(spacing.gapDp)
+            }
+        }
+        destinations.requestLayout()
     }
 
     private fun settingsRailDestination(category: SettingsCategory): View {
