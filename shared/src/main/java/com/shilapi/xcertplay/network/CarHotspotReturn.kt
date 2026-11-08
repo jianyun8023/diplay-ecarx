@@ -49,10 +49,10 @@ internal object CarHotspotReturn {
 /**
  * Process-wide memory that the car turned its radios off (hotspot lost). The host rebuilds the
  * controller 15 s after the tunnel drops, and that new controller must keep waiting for the car
- * instead of failing on Bluetooth or the hotspot. Cleared once a session is active again, and it
- * lapses with the wait budget.
+ * instead of failing on Bluetooth or the hotspot. Cleared once a session is active again or the
+ * driver stops CarPlay, and it lapses with the wait budget.
  */
-internal object CarRadioOutage {
+object CarRadioOutage {
     @Volatile private var markedAt = 0L
 
     fun mark(nowMillis: Long = android.os.SystemClock.elapsedRealtime()) { markedAt = nowMillis.coerceAtLeast(1L) }
