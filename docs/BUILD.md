@@ -180,7 +180,7 @@ and uploads the same files as the `DiPlay-signed-release` Actions artifact witho
 The released tag must include the updated `.github/workflows/android.yml`.
 Creating a release branch, pushing a tag alone, or saving an unpublished draft does not publish an APK.
 Increment `mobile`'s `versionCode` before each new version; the workflow uses the checked-out source value.
-Version 134 supersedes the existing v133 vehicle package.
+Version 136 supersedes the existing v135 vehicle package.
 
 Configure these repository Actions secrets:
 
