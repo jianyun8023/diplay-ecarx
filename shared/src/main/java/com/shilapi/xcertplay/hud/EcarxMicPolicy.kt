@@ -7,7 +7,7 @@ import android.util.Log
 import java.lang.reflect.Proxy
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** GKUI Policy lifecycle; see sdk/ecarx-policy/README.zh-CN.md for the target's server limitation. */
+/** GKUI Policy lifecycle; see docs/ECARX_SDK_CONTEXT.zh-CN.md for the target's server limitation. */
 internal object EcarxMicPolicy {
     private const val TAG = "DiPlay-Ecarx-Mic"
     private const val READY_TIMEOUT_MS = 1_500L

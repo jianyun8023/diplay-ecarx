@@ -79,12 +79,7 @@ internal class CarPlayNightModeController(
     private val transition = Runnable {
         val target = pending
         pending = null
-        val listeningNow = when (mode) {
-            CarPlayNightMode.AMBIENT -> listening
-            CarPlayNightMode.VEHICLE -> listeningVehicle
-            else -> false
-        }
-        if (target != null && resumed && listeningNow) applyNight(target)
+        if (target != null && resumed && listening && mode == CarPlayNightMode.AMBIENT) applyNight(target)
     }
     private val scheduleTick = object : Runnable {
         override fun run() {
@@ -161,14 +156,13 @@ internal class CarPlayNightModeController(
         }
     }
 
-    /** Vehicle deliveries arrive on the main thread and only on real head-unit decisions. */
+    /**
+     * Vehicle deliveries arrive on the main thread and only on real head-unit decisions, which the
+     * head unit has already debounced. The ambient delay is not applied on top of them.
+     */
     private fun onVehicleNight(target: Boolean) {
         if (!resumed || !listeningVehicle || mode != CarPlayNightMode.VEHICLE) return
-        if (target == night) {
-            requestTransition(null)
-            return
-        }
-        requestTransition(target)
+        applyNight(target)
     }
 
     private fun onLux(lux: Float) {

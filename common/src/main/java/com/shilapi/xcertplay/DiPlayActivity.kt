@@ -34,6 +34,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.text.util.Linkify
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -2344,7 +2345,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun about(content: LinearLayout) {
         settingsPageTitle(content, getString(R.string.about_diplay), getString(R.string.carplay_at_home_in_your_car))
-        section(content, getString(R.string.about_public_preview_prefix, version())) { card ->
+        section(content, getString(R.string.about_ecarx_edition_version, version())) { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
             if (UpdateAvailability.ENABLED) {
                 card.addView(updateRow())
@@ -2359,6 +2360,23 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
+            card.addView(button(getString(R.string.settings_open_source_licenses), false) {
+                val files = assets.list("licenses").orEmpty().sorted().toTypedArray()
+                appDialogBuilder().setTitle(R.string.settings_open_source_licenses)
+                    .setItems(files) { _, index ->
+                        val text = assets.open("licenses/${files[index]}").bufferedReader().use { it.readText() }
+                        val body = label(text, 14, TEXT).apply {
+                            setPadding(dp(SETTINGS_BLOCK_GAP_DP), dp(SETTINGS_BLOCK_GAP_DP),
+                                dp(SETTINGS_BLOCK_GAP_DP), dp(SETTINGS_BLOCK_GAP_DP))
+                            setTextIsSelectable(true)
+                            Linkify.addLinks(this, Linkify.WEB_URLS)
+                        }
+                        appDialogBuilder().setTitle(files[index])
+                            .setView(ScrollView(appDialogContext()).apply { addView(body) })
+                            .setPositiveButton(R.string.close, null).show()
+                    }
+                    .setPositiveButton(R.string.close, null).show()
+            }, matchButton(SETTINGS_BLOCK_GAP_DP, 60))
         }
     }
 

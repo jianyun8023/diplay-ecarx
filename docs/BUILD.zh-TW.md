@@ -120,7 +120,9 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 .\gradlew.bat :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintRelease :mobile:assembleRelease
 ```
 
-Linux／macOS 使用 `./gradlew`。輸出為 `mobile/build/outputs/apk/release/mobile-release.apk`，包含你提供的配件身分，接收者可從 APK 擷取。APK 不含 Android 簽章私密金鑰。公開版本採用的實驗性身分及授權見[第三方聲明](THIRD_PARTY_NOTICES.md)。
+Linux／macOS 使用 `./gradlew`。輸出為 `mobile/build/outputs/apk/release/mobile-release.apk`。只有明確設定 `DIPLAY_AUTH_ASSETS_DIR` 才會加入外部配件身分；接收者可從 APK 擷取該身分。公開 Actions Release 不注入 MFi 身分，APK 也不含 Android 簽章私密金鑰。詳見[第三方聲明](THIRD_PARTY_NOTICES.md)。
+
+APK 的 `assets/licenses/` 包含 GPL、AGPL、元件授權全文、版權聲明及原始碼取得方式，可在「關於 → 授權與原始碼」離線閱讀。Actions 發布附件同時提供 `DiPlay-licenses.zip`、`DiPlay-source.tar.gz`、`SOURCE-REVISION.txt` 及 `SHA256SUMS.txt`；原始碼壓縮檔與 APK 使用同一提交。自行修改的版本須另提供實際使用的修改後原始碼。預編譯原生程式庫與保留原始碼的對應關係仍待核對，不能以附上倉庫壓縮檔取代此項驗證。
 
 公開原始碼壓縮檔應對應 release tag，排除認證身分、簽章金鑰、本機設定及建置輸出。不要使用已退役的 `build-beta.py` 作為建置流程。
 

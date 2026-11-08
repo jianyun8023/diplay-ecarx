@@ -24,9 +24,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Test, lint and build without authentication assets
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :mobile:assembleDebug --stacktrace
+      - name: Prepare Debug APK and matching source
+        run: |
+          mkdir -p source-apk
+          cp mobile/build/outputs/apk/debug/mobile-debug.apk source-apk/DiPlay-debug.apk
+          git archive --format=tar.gz --prefix=DiPlay-source/ --output=source-apk/DiPlay-source.tar.gz HEAD
+          debug_source_revision=$(git rev-parse HEAD)
+          printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$debug_source_revision" > source-apk/SOURCE-REVISION.txt
+          cd source-apk
+          sha256sum DiPlay-debug.apk DiPlay-source.tar.gz SOURCE-REVISION.txt > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DiPlay-Android-TV-source-only
-          path: mobile/build/outputs/apk/debug/*.apk
+          path: source-apk/*
           if-no-files-found: error
           retention-days: 7

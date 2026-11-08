@@ -85,7 +85,7 @@
     <string name="home_public_preview">公开预览\u0020·\u0020%1$s</string>
     <string name="choose_iphone_prefix">选择 iPhone ·\u0020</string>
     <string name="audio_saved_value">已保存：%1$d</string>
-    <string name="about_public_preview_prefix">公开预览\u0020·\u0020%1$s</string>
+    <string name="about_ecarx_edition_version">领克适配专版\u0020·\u0020%1$s</string>
     <string name="msg_car_hotspot_connect">DiPlay 通过车机热点“%1$s”连接。请在车机设置中开启热点后连接。</string>
     <string name="edit_saved_hotspot_prefix">编辑已保存的热点 ·\u0020</string>
     <string name="status_ready_for_prefix">已准备连接：</string>
@@ -107,7 +107,7 @@
     <string name="allow_nearby_devices_so_diplay_can_connect_to_your_paired">请允许 DiPlay 访问附近的设备，以连接已配对的 iPhone。</string>
     <string name="allow_precise_location_for_diplay_in_the_head_unit_s_app_p">请在车机应用权限中允许 DiPlay 使用精确位置信息。</string>
     <string name="allow_the_connection_permission_to_continue">请授予连接权限以继续</string>
-    <string name="an_independent_carplay_receiver_for_android_head_units_wir">面向 Android 车机的独立 CarPlay 接收器。有线和无线连接均在车机上运行，并使用本地认证。普通 iPhone 无需越狱、Mac、转接器或登录即可连接。\n\n此预览版使用实验性配件身份，仍在测试与不同 iPhone 和车机的兼容性。本产品未经 Apple 认证。</string>
+    <string name="an_independent_carplay_receiver_for_android_head_units_wir">面向 Android 车机的独立 CarPlay 接收器，支持有线和无线连接。\n\n公开构建不内置 MFi 配件身份，独立连接需另行提供认证身份。兼容性取决于 iPhone 和车机。本项目未经 Apple 认证。</string>
     <string name="android_9_compatibility">Android 9 兼容性</string>
     <string name="app_name">DiPlay</string>
     <string name="app_permissions">应用权限</string>
@@ -299,7 +299,7 @@
     <string name="preparing_mfi_authentication">正在准备 MFi 认证</string>
     <string name="ready">就绪</string>
     <string name="ready_when_you_are">一切就绪</string>
-    <string name="receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay">接收器基于采用 GPL-3.0 许可的 xcertplay。DiPlay 界面沿用采用 AGPL-3.0 许可的 DiAuto 设计。\n\n项目包含 AndroidX、Bouncy Castle、JmDNS 和 SLF4J。本版本附有源代码和许可声明。\n\nCarPlay 和 CarPlay 图标归 Apple Inc. 所有。DiPlay 是独立项目。</string>
+    <string name="receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay">接收器基于 xcertplay（GPL-3.0），界面改编自 DiAuto（AGPL-3.0）。\n\nCarPlay 和 CarPlay 图标归 Apple Inc. 所有。DiPlay 是独立项目。</string>
     <string name="reconnecting_to_your_iphone">正在重新连接 iPhone…</string>
     <string name="remote">远程</string>
     <string name="remote_server_address_contains_u_0000">远程服务器地址包含 U+0000</string>
@@ -904,4 +904,5 @@
     <string name="settings_hy_siri_grant_success">权限已授予，请重新连接 CarPlay 以启用后台唤醒。</string>
     <string name="settings_hy_siri_grant_failed">尚未取得系统日志权限。后台识别 HY 按键需要车机签名版本。</string>
     <string name="vpn_authorization_platform_missing">VPN 授权不可用：车机尚未授予所需权限。请安装车机签名版本，返回 DiPlay 后重试。</string>
+    <string name="settings_open_source_licenses">许可证与源码</string>
 </resources>

@@ -12,7 +12,7 @@ import java.util.Set;
  *
  * The fixture classes in this package reproduce the binary names and signatures that
  * `EcarxDimApi` calls on the head unit. Every fake records the calls it
- * receives here, and the payloads handed in (the app's typed implementations of the
+ * receives here, and the payloads handed in (the app's dynamic proxies of the
  * `I*Info` interfaces) are read back getter by getter so a test can assert the exact field
  * mapping the cluster service would see.
  */

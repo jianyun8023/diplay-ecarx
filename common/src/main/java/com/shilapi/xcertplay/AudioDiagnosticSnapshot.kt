@@ -2,7 +2,6 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.media.AudioManager
-import com.ecarx.xui.adaptapi.audio.audiofx.Audio
 
 /** Read-only OEM sound-stage evidence; device IDs and seat optimization are not per-track seat routes. */
 internal object AudioDiagnosticSnapshot {
@@ -79,8 +78,12 @@ internal object AudioDiagnosticSnapshot {
             }.getOrElse { "OEM sound stage: query=$key unavailable=${it.javaClass.simpleName}" })
         }
         append(runCatching {
-            val audio = Audio.create(context) ?: error("Audio API unavailable")
-            val seat = audio.audioState.soundStageOptimizedSeat
+            val type = Class.forName("com.ecarx.xui.adaptapi.audio.audiofx.Audio", false, context.classLoader)
+            val audio = type.getMethod("create", Context::class.java).invoke(null, context)
+                ?: error("Audio API unavailable")
+            val state = type.getMethod("getAudioState").invoke(audio)
+            val seat = Class.forName("com.ecarx.xui.adaptapi.audio.audiofx.IAudioState", false, context.classLoader)
+                .getMethod("getSoundStageOptimizedSeat").invoke(state)
             "OEM sound-stage API: available=true reportedSeat=$seat (SDK may default to 119; compare raw response)"
         }.getOrElse { "OEM sound-stage API: unavailable=${it.javaClass.simpleName}" })
     }

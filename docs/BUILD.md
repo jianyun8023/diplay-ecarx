@@ -31,10 +31,15 @@ Install these tools:
 - Android SDK Platform 37 (`platforms;android-37.0`).
 - Android SDK Build-Tools 36.0.0.
 - Android SDK Platform-Tools.
-- Android NDK 28.2.13676358.
+- Android NDK 28.2.13676358 only when rebuilding the native sources. Ordinary APK builds use the checked-in prebuilt libraries.
 
 Use the Gradle wrapper included in this repository.
 The first build needs an internet connection to download dependencies.
+ECARX adapters resolve the head unit's interfaces through reflection and dynamic proxies.
+No ECARX compilation JAR, private Maven repository or vendor SDK download is needed for builds or tests.
+The unused recovered GKUI Policy declaration module has been removed.
+The test fixtures cannot catch a misspelled vendor method. To check the adapters' method names and signatures against a head-unit AdaptAPI JAR you keep outside the repository, add `-PecarxAdaptapiJar=<path>` to `:shared:testDebugUnitTest`. Without it, `EcarxAdaptapiAbiTest` is skipped.
+See [the SDK context](ECARX_SDK_CONTEXT.zh-CN.md) for the runtime contract and remaining provenance limits.
 
 1. Open the repository root in Android Studio.
 2. Install the Android SDK packages with **Tools → SDK Manager**.
@@ -193,6 +198,18 @@ No MFi secrets are required or uploaded. Keep the same signing identity for upda
 The public source archive matches the release tag.
 It excludes runtime identities, signing keys, local configuration, and build output.
 The retired `build-beta.py` helper is no longer part of the build procedure.
+
+APKs include GPL, AGPL, component license texts, copyright notices and source information in
+`assets/licenses/`. In the main app, open **About → Licenses and source** to read them offline.
+The Android release workflow attaches `DiPlay-licenses.zip`, `DiPlay-source.tar.gz`,
+`SOURCE-REVISION.txt` and `SHA256SUMS.txt` beside the APK. The source archive is generated from the
+same commit as the APK; the revision file identifies that commit. Manual Actions builds include
+the same files in the `DiPlay-signed-release` artifact.
+
+When distributing a locally modified build, provide the source actually used, including local
+changes. Check the remaining native source correspondence limits in [the notices](THIRD_PARTY_NOTICES.md)
+and [the native provenance record](../shared/src/main/jniLibs/NOTICE.md); attaching the repository
+archive does not establish correspondence for extracted native binaries.
 
 ## Correct build problems
 

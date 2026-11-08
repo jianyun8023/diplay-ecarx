@@ -47,7 +47,7 @@ public interface INaviInteraction {
         int getLaneBackIconId();
         Bitmap getLaneBackIcon();
     }
-    // Compilation SDK getters; older target firmware reads only its original 13 getters.
+    // Target-runtime getters; older firmware reads only its original 13 getters.
     interface INavigationInfo {
         int getDayNightMode();
         Bundle getExtensionInfo();

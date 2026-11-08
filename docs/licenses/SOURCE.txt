@@ -1,0 +1,33 @@
+Source code and distribution information
+
+Project repository:
+https://github.com/jianyun8023/diplay-ecarx
+
+Releases:
+https://github.com/jianyun8023/diplay-ecarx/releases
+
+Public Release builds distribute these files together:
+- DiPlay-release.apk
+- DiPlay-licenses.zip: the license texts and copyright notices also included in the APK.
+- DiPlay-source.tar.gz: the repository source and build files from the same commit as the APK.
+- SOURCE-REVISION.txt: the repository and exact commit used for that build.
+- SHA256SUMS.txt: checksums for these files.
+
+Manual signed builds from the Android checks workflow provide the same files in
+the DiPlay-signed-release artifact. The Android TV source APK workflow includes
+the Debug APK, DiPlay-source.tar.gz, SOURCE-REVISION.txt and SHA256SUMS.txt;
+its license texts and notices are included in the APK.
+In the repository, BUILD.md and docs/BUILD.md describe the build procedure. The
+Gradle wrapper, version catalog, dependency declarations and native build scripts
+are included in the source archive. Native source correspondence limitations are
+documented in NATIVE-NOTICE.md; supplying an archive does not resolve them.
+
+For a locally modified build, provide the source tree actually used, including
+local changes and build instructions. The repository default branch or an older
+commit alone does not identify the source of such a build. Runtime authentication
+and Android signing keys are external inputs and are not part of the public source.
+
+Receiver code retains GPL-3.0. DiAuto-derived UI retains AGPL-3.0-only.
+GPL-3.0.txt, AGPL-3.0.txt, NOTICE.md and THIRD_PARTY_NOTICES.md describe the
+applicable terms and attribution. Component-specific licenses remain applicable;
+the project licenses do not grant trademark or third-party image rights.

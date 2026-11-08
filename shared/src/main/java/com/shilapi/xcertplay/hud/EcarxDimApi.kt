@@ -3,9 +3,8 @@ package com.shilapi.xcertplay.hud
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
-import com.ecarx.xui.adaptapi.diminteraction.DimInteraction
-import com.ecarx.xui.adaptapi.diminteraction.INaviInteraction
 import java.lang.reflect.Modifier
+import java.lang.reflect.Proxy
 
 /**
  * AdaptAPI access and cache-bypassing recovery through the firmware navigation manager.
@@ -27,8 +26,8 @@ internal object EcarxDimApi {
     const val DEFAULT_SCREEN_ID = 1
 
     // Snapshot values differ from notifyNavigationStatus's START=2 / END=3 lifecycle events.
-    const val NAVIGATION_SNAPSHOT_ACTIVE = INaviInteraction.NAVIGATION_STATUS_SUCCEED
-    const val NAVIGATION_SNAPSHOT_IDLE = INaviInteraction.NAVIGATION_STATUS_UNNAVI
+    const val NAVIGATION_SNAPSHOT_ACTIVE = 1
+    const val NAVIGATION_SNAPSHOT_IDLE = 0
 
     data class EcarxResult(val ok: Boolean, val reason: String) {
         companion object {
@@ -38,8 +37,8 @@ internal object EcarxDimApi {
     }
 
     /** App-owned handles keep vendor types out of the always-loaded HUD bridge's fields. */
-    class DimHandle internal constructor(internal val api: DimInteraction)
-    class NaviHandle internal constructor(internal val api: INaviInteraction)
+    class DimHandle internal constructor(internal val api: Any)
+    class NaviHandle internal constructor(internal val api: Any)
 
     /** Snapshot status uses ACTIVE=1 / IDLE=0; omitted numeric fields are submitted as zero. */
     data class Guidance(
@@ -57,14 +56,15 @@ internal object EcarxDimApi {
     data class Lane(val number: Int, val iconId: Int)
 
     fun createDimInteraction(context: Context): DimHandle? = runCatching {
-        DimInteraction.create(context)?.let(::DimHandle)
+        Class.forName(EcarxCapabilities.DIM_INTERACTION)
+            .getMethod("create", Context::class.java).invoke(null, context)?.let(::DimHandle)
     }.getOrElse {
         report("DimInteraction.create failed: ${describe(it)}")
         null
     }
 
     fun naviInteraction(dim: DimHandle): NaviHandle? = runCatching {
-        dim.api.naviInteraction?.let(::NaviHandle)
+        call(dim.api, "getNaviInteraction")?.let(::NaviHandle)
     }.getOrElse {
         report("getNaviInteraction failed: ${describe(it)}")
         null
@@ -76,15 +76,23 @@ internal object EcarxDimApi {
         screenId: Int = DEFAULT_SCREEN_ID,
         packageName: String = "",
     ): EcarxResult = dispatch("setPresentationToDimSwitch($screenId,\"$packageName\",\"$packageName\",$show)") {
-        dim.api.setPresentationToDimSwitch(screenId, packageName, packageName, show)
+        call(dim.api, "setPresentationToDimSwitch",
+            arrayOf(Int::class.javaPrimitiveType!!, String::class.java, String::class.java, Boolean::class.javaPrimitiveType!!),
+            screenId, packageName, packageName, show)
     }
 
     fun registerInteractionCallback(dim: DimHandle, label: String, onOption: (Int) -> Unit): Any? = runCatching {
-        val callback = DimInteraction.IInteractionCallback { option ->
-            report("callback dim.$label onShowPresentationOptionChanged([$option])")
-            onOption(option)
+        val type = Class.forName(EcarxCapabilities.DIM_CALLBACK)
+        val callback = proxy(type, "EcarxDimCallback($label)") { method, args ->
+            if (method == "onShowPresentationOptionChanged") {
+                (args?.firstOrNull() as? Int)?.let { option ->
+                    report("callback dim.$label onShowPresentationOptionChanged([$option])")
+                    onOption(option)
+                }
+            }
+            null
         }
-        dim.api.registerInteractionCallback(callback)
+        call(dim.api, "registerInteractionCallback", arrayOf(type), callback)
         callback
     }.getOrElse {
         report("registerInteractionCallback failed: ${describe(it)}")
@@ -92,17 +100,20 @@ internal object EcarxDimApi {
     }
 
     fun registerNavigationInteractionCallback(navi: NaviHandle, label: String, onAction: ((Int) -> Unit)? = null): Any? = runCatching {
-        val callback = object : INaviInteraction.INavigationInteractionCallback {
-            override fun onDoInteractionAction(action: Int, address: INaviInteraction.IAddress?) {
-                report("callback navi.$label onDoInteractionAction(action=$action hasAddress=${address != null})")
-                onAction?.invoke(action)
+        val type = Class.forName(EcarxCapabilities.NAVI_CALLBACK)
+        val callback = proxy(type, "EcarxNavigationCallback($label)") { method, args ->
+            when (method) {
+                "onDoInteractionAction" -> (args?.firstOrNull() as? Int)?.let { action ->
+                    report("callback navi.$label onDoInteractionAction(action=$action hasAddress=${args?.getOrNull(1) != null})")
+                    onAction?.invoke(action)
+                }
+                "onSearchAddress" -> if (NavigationOutputs.debugLogsEnabled()) {
+                    report("callback navi.$label onSearchAddress([${args?.firstOrNull()}])")
+                }
             }
-
-            override fun onSearchAddress(query: String?) {
-                if (NavigationOutputs.debugLogsEnabled()) report("callback navi.$label onSearchAddress([$query])")
-            }
+            null
         }
-        navi.api.registerNavigationInteractionCallback(callback)
+        call(navi.api, "registerNavigationInteractionCallback", arrayOf(type), callback)
         callback
     }.getOrElse {
         report("registerNavigationInteractionCallback failed: ${describe(it)}")
@@ -110,28 +121,29 @@ internal object EcarxDimApi {
     }
 
     fun updateNavigationInfo(navi: NaviHandle, guidance: Guidance): EcarxResult = dispatch("updateNavigationInfo") {
-        navi.api.updateNavigationInfo(object : INaviInteraction.INavigationInfo {
-            override fun getNavigationTurnId() = guidance.turnId
-            override fun getDistanceToNextGuidancePoint() = guidance.distanceToNextMeters.coerceAtLeast(0L)
-            override fun getDistanceToDestination() = guidance.distanceToDestinationMeters.coerceAtLeast(0L)
-            override fun getETA() = guidance.etaRemainingSeconds.coerceAtLeast(0).toLong()
-            override fun getDrivingDirection() = guidance.drivingDirection
-            override fun getNavigationStatus() = guidance.status
-            override fun getMuteState() = guidance.muteState
-            override fun getDayNightMode() = guidance.dayNightMode
-            override fun getNextGuidancePointName() = guidance.nextGuidancePointName
-            // The OEM app sends drawings through updateTurnByTurnArrow, not this getter.
-            override fun getNavigationTurnSVG() = ""
-            override fun getLaneInfo(): Array<INaviInteraction.ILaneInfo>? = null
-            override fun getExtensionInfo(): android.os.Bundle? = null
-            override fun getHighwayExitInfo(): INaviInteraction.IHighwayExitInfo? = null
-            override fun getRoadCameraInfo(): INaviInteraction.IRoadCamera? = null
-            override fun getServiceAreaInfo(): INaviInteraction.IServiceArea? = null
-        })
+        val type = Class.forName(EcarxCapabilities.NAVI_INFO)
+        val info = proxy(type, "EcarxNavigationInfo") { method, _ ->
+            when (method) {
+                "getNavigationTurnId" -> guidance.turnId
+                "getDistanceToNextGuidancePoint" -> guidance.distanceToNextMeters.coerceAtLeast(0L)
+                "getDistanceToDestination" -> guidance.distanceToDestinationMeters.coerceAtLeast(0L)
+                "getETA" -> guidance.etaRemainingSeconds.coerceAtLeast(0).toLong()
+                "getDrivingDirection" -> guidance.drivingDirection
+                "getNavigationStatus" -> guidance.status
+                "getMuteState" -> guidance.muteState
+                "getDayNightMode" -> guidance.dayNightMode
+                "getNextGuidancePointName" -> guidance.nextGuidancePointName
+                // The OEM app sends drawings through updateTurnByTurnArrow, not this getter.
+                "getNavigationTurnSVG" -> ""
+                "getLaneInfo", "getExtensionInfo", "getHighwayExitInfo", "getRoadCameraInfo", "getServiceAreaInfo" -> null
+                else -> UNHANDLED
+            }
+        }
+        call(navi.api, "updateNavigationInfo", arrayOf(type), info)
     }
 
     fun updateTurnByTurnArrow(navi: NaviHandle, arrow: Int): EcarxResult = dispatch("updateTurnByTurnArrow($arrow)") {
-        navi.api.updateTurnByTurnArrow(arrow)
+        call(navi.api, "updateTurnByTurnArrow", arrayOf(Int::class.javaPrimitiveType!!), arrow)
     }
 
     /** Recovery must bypass AdaptAPI caches, which are updated before its swallowed Binder errors. */
@@ -172,11 +184,11 @@ internal object EcarxDimApi {
 
     /** The String overload is the SVG channel used by the factory navigation app. */
     fun updateTurnByTurnArrow(navi: NaviHandle, svg: String): EcarxResult = dispatch("updateTurnByTurnArrow(svg ${svg.length}B)") {
-        navi.api.updateTurnByTurnArrow(svg)
+        call(navi.api, "updateTurnByTurnArrow", arrayOf(String::class.java), svg)
     }
 
     fun updateTurnByTurnArrow(navi: NaviHandle, arrow: Bitmap): EcarxResult = dispatch("updateTurnByTurnArrow(Bitmap)") {
-        navi.api.updateTurnByTurnArrow(arrow)
+        call(navi.api, "updateTurnByTurnArrow", arrayOf(Bitmap::class.java), arrow)
     }
 
     /** Firmware capability diagnostics still inspect the actual runtime method surface. */
@@ -190,58 +202,71 @@ internal object EcarxDimApi {
     }
 
     fun updateDistanceToNextGuidancePoint(navi: NaviHandle, meters: Long): EcarxResult = dispatch("updateDistanceToNextGuidancePoint(${meters.toInt()})") {
-        navi.api.updateDistanceToNextGuidancePoint(meters.toInt())
+        call(navi.api, "updateDistanceToNextGuidancePoint", arrayOf(Int::class.javaPrimitiveType!!), meters.toInt())
     }
 
     fun updateDistanceToDestination(navi: NaviHandle, meters: Long): EcarxResult = dispatch("updateDistanceToDestination(${meters.toInt()})") {
-        navi.api.updateDistanceToDestination(meters.toInt())
+        call(navi.api, "updateDistanceToDestination", arrayOf(Int::class.javaPrimitiveType!!), meters.toInt())
     }
 
     fun updateEta(navi: NaviHandle, remainingSeconds: Int): EcarxResult = dispatch("updateETA($remainingSeconds)") {
-        navi.api.updateETA(remainingSeconds)
+        call(navi.api, "updateETA", arrayOf(Int::class.javaPrimitiveType!!), remainingSeconds)
     }
 
     fun updateNextGuidancePointName(navi: NaviHandle, name: String): EcarxResult = dispatch("updateNextGuidancePointName") {
-        navi.api.updateNextGuidancePointName(name)
+        call(navi.api, "updateNextGuidancePointName", arrayOf(String::class.java), name)
     }
 
     /** The 753 type-3 implementation reads only the first name; this is not a selectable address. */
     fun updateDestinationName(navi: NaviHandle, name: String): EcarxResult = dispatch("updateDestinationName(${if (name.isEmpty()) "clear" else "present"})") {
-        val addresses = if (name.isEmpty()) emptyList() else listOf(object : INaviInteraction.IAddress {
-            override fun getAddressName() = name
-            override fun getCityName() = ""
-            override fun getFullAddress() = ""
-            override fun getDistance() = -1L
-            override fun getLatitude() = Double.NaN
-            override fun getLongitude() = Double.NaN
-        })
-        navi.api.updateAddresses(INaviInteraction.TYPE_DESTINATION, addresses)
+        val addresses = if (name.isEmpty()) emptyList() else {
+            val type = Class.forName("${EcarxCapabilities.NAVI_INTERACTION}\$IAddress")
+            listOf(proxy(type, "EcarxDestination") { method, _ ->
+                when (method) {
+                    "getAddressName" -> name
+                    "getCityName", "getFullAddress" -> ""
+                    "getDistance" -> -1L
+                    "getLatitude", "getLongitude" -> Double.NaN
+                    else -> UNHANDLED
+                }
+            })
+        }
+        call(navi.api, "updateAddresses", arrayOf(Int::class.javaPrimitiveType!!, List::class.java), 3, addresses)
     }
 
     fun updateLaneInfo(navi: NaviHandle, lanes: List<Lane>): EcarxResult = dispatch("updateLaneInfo(${lanes.size})") {
-        navi.api.updateLaneInfo(lanes.map { lane ->
-            object : INaviInteraction.ILaneInfo {
-                override fun getLaneNumber() = lane.number
-                override fun getLaneBackIconId() = lane.iconId
-                override fun getLaneBackIcon(): Bitmap? = null
-            }
-        }.toTypedArray())
+        val type = Class.forName(EcarxCapabilities.LANE_INFO)
+        val values = java.lang.reflect.Array.newInstance(type, lanes.size)
+        lanes.forEachIndexed { index, lane ->
+            java.lang.reflect.Array.set(values, index, proxy(type, "EcarxLaneInfo") { method, _ ->
+                when (method) {
+                    "getLaneNumber" -> lane.number
+                    "getLaneBackIconId" -> lane.iconId
+                    "getLaneBackIcon" -> null
+                    else -> UNHANDLED
+                }
+            })
+        }
+        call(navi.api, "updateLaneInfo", arrayOf(values.javaClass), values)
     }
 
     /** The 753 navigation plugin sends one null argument to clear the lane strip. */
-    fun clearLaneInfo(navi: NaviHandle): EcarxResult = dispatch("updateLaneInfo(null)") { navi.api.updateLaneInfo(null) }
+    fun clearLaneInfo(navi: NaviHandle): EcarxResult = dispatch("updateLaneInfo(null)") {
+        val type = java.lang.reflect.Array.newInstance(Class.forName(EcarxCapabilities.LANE_INFO), 0).javaClass
+        call(navi.api, "updateLaneInfo", arrayOf(type), null)
+    }
 
-    fun notifyTurnByTurnStarted(navi: NaviHandle): EcarxResult = dispatch("notifyTurnByTurnStarted") { navi.api.notifyTurnByTurnStarted() }
+    fun notifyTurnByTurnStarted(navi: NaviHandle): EcarxResult = dispatch("notifyTurnByTurnStarted") { call(navi.api, "notifyTurnByTurnStarted") }
 
-    fun notifyTurnByTurnStopped(navi: NaviHandle): EcarxResult = dispatch("notifyTurnByTurnStopped") { navi.api.notifyTurnByTurnStopped() }
+    fun notifyTurnByTurnStopped(navi: NaviHandle): EcarxResult = dispatch("notifyTurnByTurnStopped") { call(navi.api, "notifyTurnByTurnStopped") }
 
-    fun notifyNavigationStarted(navi: NaviHandle): EcarxResult = notifyNavigationStatus(navi, INaviInteraction.NAVIGATION_STATUS_START)
+    fun notifyNavigationStarted(navi: NaviHandle): EcarxResult = notifyNavigationStatus(navi, 2)
 
-    fun notifyNavigationEnded(navi: NaviHandle): EcarxResult = notifyNavigationStatus(navi, INaviInteraction.NAVIGATION_STATUS_END)
+    fun notifyNavigationEnded(navi: NaviHandle): EcarxResult = notifyNavigationStatus(navi, 3)
 
     /** This firmware re-sends ongoing navigation even when the mute value is unchanged. */
     fun updateMuteState(navi: NaviHandle, state: Int): EcarxResult = dispatch("updateMuteState($state)") {
-        navi.api.updateMuteState(state)
+        call(navi.api, "updateMuteState", arrayOf(Int::class.javaPrimitiveType!!), state)
     }
 
     /** Older firmware omits this from the interface even when an implementation exposes it. */
@@ -251,7 +276,7 @@ internal object EcarxDimApi {
         return dispatch("notifyNavigationStatus($status)") { method.invoke(navi.api, status) }
     }
 
-    fun showPresentationOption(dim: DimHandle): Int? = runCatching { dim.api.showPresentationOption }.getOrNull()
+    fun showPresentationOption(dim: DimHandle): Int? = runCatching { call(dim.api, "getShowPresentationOption") as? Int }.getOrNull()
 
     /** No compilation library has been recovered for this optional firmware extension. */
     fun dimProtocolManager(context: Context): Any? = runCatching {
@@ -270,6 +295,48 @@ internal object EcarxDimApi {
 
     private inline fun dispatch(label: String, action: () -> Unit): EcarxResult = runCatching { action() }
         .fold({ EcarxResult.ok(label) }, { EcarxResult.failed("$label threw ${describe(it)}") })
+
+    private fun call(target: Any, name: String, types: Array<Class<*>> = emptyArray(), vararg args: Any?): Any? =
+        target.javaClass.getMethod(name, *types).also { it.isAccessible = true }.invoke(target, *args)
+
+    /** Returned by a data proxy for a getter it does not know, such as one added by newer firmware. */
+    internal val UNHANDLED = Any()
+    private val reportedUnhandled = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    internal fun proxy(type: Class<*>, label: String, value: (String, Array<out Any?>?) -> Any?): Any =
+        Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { proxy, method, args ->
+            when (method.name) {
+                "toString" -> label
+                "hashCode" -> System.identityHashCode(proxy)
+                "equals" -> proxy === args?.firstOrNull()
+                else -> when (val result = value(method.name, args)) {
+                    // Vendor code dereferences getter results, so an unknown getter gets an empty
+                    // value instead of null and is reported once for the diagnostic report.
+                    UNHANDLED -> {
+                        if (reportedUnhandled.add("$label.${method.name}")) {
+                            report("unhandled getter $label.${method.name}: ${method.returnType.simpleName}")
+                        }
+                        emptyValue(method.returnType)
+                    }
+                    null -> if (method.returnType.isPrimitive) emptyValue(method.returnType) else null
+                    else -> result
+                }
+            }
+        }
+
+    private fun emptyValue(type: Class<*>): Any? = when (type) {
+        java.lang.Boolean.TYPE -> false
+        java.lang.Byte.TYPE -> 0.toByte()
+        java.lang.Short.TYPE -> 0.toShort()
+        java.lang.Integer.TYPE -> 0
+        java.lang.Long.TYPE -> 0L
+        java.lang.Float.TYPE -> 0f
+        java.lang.Double.TYPE -> 0.0
+        java.lang.Character.TYPE -> '\u0000'
+        String::class.java -> ""
+        List::class.java, Collection::class.java -> emptyList<Any>()
+        else -> if (type.isArray) java.lang.reflect.Array.newInstance(type.componentType, 0) else null
+    }
 
     private fun describe(error: Throwable): String {
         val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error

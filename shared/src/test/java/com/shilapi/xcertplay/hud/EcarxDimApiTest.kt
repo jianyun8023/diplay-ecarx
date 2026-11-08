@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.hud
 
 import android.cevt.dimsupportservice.DimSupportManager
+import com.ecarx.xui.adaptapi.diminteraction.DimInteraction
 import com.ecarx.xui.adaptapi.diminteraction.FixtureLog
 import com.ecarx.xui.adaptapi.diminteraction.INaviInteraction
 import com.ecarx.xui.adaptapi.diminteraction.NaviFixture
@@ -10,6 +11,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -19,8 +21,83 @@ class EcarxDimApiTest {
         fun notifyNavigationStatus(status: Int) = FixtureLog.capture("notifyNavigationStatus", "status", status)
     }
 
-    @Before fun setup() { FixtureLog.reset(); DimSupportManager.reset() }
-    @After fun cleanup() { FixtureLog.reset(); DimSupportManager.reset() }
+    @Before fun setup() { DimInteraction.reset() }
+    @After fun cleanup() { DimInteraction.reset() }
+
+    @Test fun callbacksForwardOptionsAndActionsAndKeepObjectIdentity() {
+        val dim = checkNotNull(EcarxDimApi.createDimInteraction(RuntimeEnvironment.getApplication()))
+        val navi = checkNotNull(EcarxDimApi.naviInteraction(dim))
+        var option: Int? = null
+        val actions = mutableListOf<Int>()
+        val dimCallback = checkNotNull(EcarxDimApi.registerInteractionCallback(dim, "test") { option = it })
+        val naviCallback = checkNotNull(EcarxDimApi.registerNavigationInteractionCallback(navi, "test") { actions += it })
+        assertSame(dimCallback, DimInteraction.instance().callback)
+        assertSame(naviCallback, DimInteraction.navi.callback)
+        DimInteraction.instance().callback.onShowPresentationOptionChanged(2)
+        DimInteraction.navi.callback.onDoInteractionAction(42, null)
+        DimInteraction.navi.callback.onSearchAddress(null)
+        assertEquals(2, option)
+        assertEquals(listOf(42), actions)
+        for (callback in listOf(dimCallback, naviCallback)) {
+            assertEquals(System.identityHashCode(callback), callback.hashCode())
+            assertEquals(callback, callback)
+            assertNotEquals(callback, Any())
+            assertTrue(callback.toString().isNotBlank())
+        }
+    }
+
+    @Test fun navigationPayloadIncludesTheOptionalRuntimeGetters() {
+        val navi = EcarxDimApi.NaviHandle(object : NaviFixture() {
+            override fun updateNavigationInfo(info: INaviInteraction.INavigationInfo) {
+                assertEquals(2, info.dayNightMode)
+                assertNull(info.extensionInfo)
+                super.updateNavigationInfo(info)
+            }
+        })
+        val result = EcarxDimApi.updateNavigationInfo(navi, EcarxDimApi.Guidance(dayNightMode = 2))
+        assertTrue(result.reason, result.ok)
+        val payload = FixtureLog.calls().single().payload
+        assertEquals(0L, payload["getETA"])
+        assertEquals("", payload["getNavigationTurnSVG"])
+        for (getter in listOf("getLaneInfo", "getHighwayExitInfo", "getRoadCameraInfo", "getServiceAreaInfo")) {
+            assertNull(payload[getter])
+        }
+    }
+
+    interface FutureInfo {
+        fun getLabel(): String
+        fun getLanes(): Array<INaviInteraction.ILaneInfo>
+        fun getItems(): List<String>
+        fun getCount(): Int
+        fun getKnownNull(): String?
+    }
+
+    @Test fun unknownGettersReturnEmptyValuesAndAreReportedOnce() {
+        val reports = mutableListOf<String>()
+        EcarxDimApi.attachReport { reports += it }
+        val info = EcarxDimApi.proxy(FutureInfo::class.java, "FutureInfo") { method, _ ->
+            if (method == "getKnownNull") null else EcarxDimApi.UNHANDLED
+        } as FutureInfo
+        assertEquals("", info.getLabel())
+        assertEquals(0, info.getLanes().size)
+        assertEquals(emptyList<String>(), info.getItems())
+        assertEquals(0, info.getCount())
+        assertNull(info.getKnownNull())
+        info.getLabel()
+        assertEquals(1, reports.count { it == "unhandled getter FutureInfo.getLabel: String" })
+        assertTrue(reports.none { "getKnownNull" in it })
+        EcarxDimApi.attachReport {}
+    }
+
+    @Test fun reflectiveFailuresReportTheVendorCauseAndMissingMethods() {
+        FixtureLog.failOnce("updateETA")
+        val failure = EcarxDimApi.updateEta(EcarxDimApi.NaviHandle(NaviFixture()), 600)
+        assertFalse(failure.ok)
+        assertTrue(failure.reason, failure.reason.contains("IllegalStateException: fixture failure: updateETA"))
+        val missing = EcarxDimApi.updateEta(EcarxDimApi.NaviHandle(Any()), 600)
+        assertFalse(missing.ok)
+        assertTrue(missing.reason, missing.reason.contains("NoSuchMethodException"))
+    }
 
     @Test fun managerRefreshReachesTheFirmwareEvenWhenSdkCachedAnInternallyFailedArrow() {
         val target = NaviFixture()

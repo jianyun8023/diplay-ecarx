@@ -4,7 +4,7 @@
 
 ## 語系與用語
 
-主要應用程式繁體中文資源位於 `common/src/main/res/values-zh-rTW/` 及 `shared/src/main/res/values-zh-rTW/`，分散於多個 XML，不只 `strings.xml`。選用的 Home 與地圖範例資源位於 `samples/home/src/main/res/values-zh-rTW/` 及 `samples/maphost/src/main/res/values-zh-rTW/`，依系統語言顯示。主要應用程式語言代碼維持 `zh-TW`，網站使用 `zh-Hant`。語言選單維持 **繁體中文**，網站註明臺灣用語。
+主要應用程式繁體中文資源位於 `common/src/main/res/values-zh-rTW/` 及 `shared/src/main/res/values-zh-rTW/`，分散於多個 XML，不只 `strings.xml`。選用的 Home 與地圖範例資源位於 `samples/home/src/main/res/values-zh-rTW/` 及 `samples/maphost/src/main/res/values-zh-rTW/`，依系統語言顯示。主要應用程式語言代碼維持 `zh-TW`，語言選單維持 **繁體中文**。舊靜態下載網站已退役。
 
 | English | 繁體中文 |
 | --- | --- |
@@ -28,14 +28,8 @@
 
 `TraditionalChineseTranslationsTest` 檢查 common/shared 與兩個範例的完整可翻譯 string 資源鍵、重複名稱與格式參數。`SettingsTranslationsTest` 檢查各語系的 `settings_*`。`AppLocaleTest` 已涵蓋新舊 Android、臺灣／香港／澳門及 `Hant` 選擇。`AdaptiveSettingsUiTest` 也檢查繁體中文在窄視窗、完整設定頁、高密度及 1.3 倍字體下是否省略文字；Home 的返回操作測試同時驗證繁體中文編輯及應用程式清單操作。這些檢查不能取代人工校訂與實車測試。
 
-## 文件與網站同步
+## 文件同步
 
 繁體中文文件使用 `.zh-TW.md` 後綴，入口為 `README.zh-TW.md`。來源文件或功能變更時，同步更新中文步驟，並確認選單名稱與 `values-zh-rTW` 一致。深入英文文件尚未翻譯時，明確標示英文連結；不要將較舊版本的驗證紀錄寫成新版本保證。
 
-網站內容來源為 `site/content.json` 的 `zh-Hant` 區塊，透過以下指令產生靜態 HTML：
-
-```sh
-python scripts/build_site.py
-```
-
-網站的安裝、隱私及說明入口指向繁體中文文件。修改 JSON 後一併提交產生的 `site/zh-Hant/index.html`；產生頁面不代表已發布網站。推送與網站部署依專案的發布流程處理。
+舊靜態下載網站、產生器及 Pages 自動部署已移除，不再維護網站語系。上游 README 存檔中的網站連結僅為歷史參考。

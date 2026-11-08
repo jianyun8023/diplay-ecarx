@@ -37,7 +37,7 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 同包名、同签名且版本号不低于已安装版本时覆盖升级，保留设置；Actions 公开发布包不内置 MFi 认证，全新安装或清除数据后需另行配置。不要先卸载。
 
-开发参考：[753 车机 ADB 依赖与平台权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
+开发参考：[构建说明](BUILD.md)、[753 车机 ADB 依赖与平台权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。ECARX 接口通过运行时反射和动态代理访问，编译与单测不需要厂商 JAR；见 [SDK 适配说明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。
 
 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分界面改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。许可与第三方声明见 [LICENSE](LICENSE) 和 [相关说明](docs/THIRD_PARTY_NOTICES.md)。
 

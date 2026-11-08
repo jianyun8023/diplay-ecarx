@@ -1,6 +1,9 @@
 package com.shilapi.xcertplay
 
 import android.media.AudioManager
+import com.ecarx.xui.adaptapi.audio.audiofx.Audio
+import com.ecarx.xui.adaptapi.audio.audiofx.IAudioState
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -12,6 +15,35 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], manifest = Config.NONE)
 class AudioDiagnosticSnapshotTest {
     private val context get() = RuntimeEnvironment.getApplication()
+
+    @After fun clearAudioFixture() { Audio.instance = null }
+
+    @Test fun readsTheRuntimeSoundStageInterfaceWithoutChangingAudioMode() {
+        var reads = 0
+        Audio.instance = Audio(object : IAudioState {
+            override fun getSoundStageOptimizedSeat(): Int { reads++; return 103 }
+        })
+        val manager = context.getSystemService(AudioManager::class.java)
+        val mode = manager.mode
+        val report = AudioDiagnosticSnapshot.report(context) { _, _ -> null }
+        assertTrue(report, report.contains("OEM sound-stage API: available=true reportedSeat=103"))
+        assertEquals(1, reads)
+        assertEquals(mode, manager.mode)
+    }
+
+    @Test fun missingRuntimeClassesLeaveTheRestOfTheAudioReportAvailable() {
+        val isolated = object : android.content.ContextWrapper(context) {
+            override fun getClassLoader(): ClassLoader = object : ClassLoader(context.classLoader) {
+                override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                    if (name.startsWith("com.ecarx.")) throw ClassNotFoundException(name)
+                    return super.loadClass(name, resolve)
+                }
+            }
+        }
+        val report = AudioDiagnosticSnapshot.report(isolated) { _, _ -> null }
+        assertTrue(report, report.contains("OEM sound-stage API: unavailable=ClassNotFoundException"))
+        assertTrue(report.contains("Available audio outputs:"))
+    }
 
     @Test fun readsOemSeatEvidenceWithoutTurningInvalidResponsesIntoAllSeats() {
         for ((response, mode) in listOf("audask_seatopt=00" to "off", "audask_seatopt=01" to "front",

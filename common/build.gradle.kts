@@ -31,7 +31,6 @@ android {
 }
 
 dependencies {
-    compileOnly(files(rootProject.file("shared/libs/ecarx.adapterapi.jar")))
     api(project(":shared"))
     implementation(libs.androidx.activity)
     implementation(libs.androidx.core.ktx)

@@ -38,19 +38,30 @@ class EcarxVehicleDayNightTest {
 
     @Test fun readsResolvedStateAndListensUntilTheExactCallbackIsReleased() {
         val mode = Mode().also { Device.mode = it }
-        val source = EcarxVehicleDayNight(RuntimeEnvironment.getApplication())
+        val logs = mutableListOf<String>()
+        val source = EcarxVehicleDayNight(RuntimeEnvironment.getApplication()) { logs += it }
         val values = mutableListOf<Boolean>()
         assertTrue(source.start { values += it })
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(true), values)
         val callback = checkNotNull(mode.callback)
-        callback.onDayNightModeChange(1)
+        assertEquals(System.identityHashCode(callback), callback.hashCode())
+        assertEquals(callback, callback)
+        assertNotEquals(callback, Any())
+        assertTrue(callback.toString().isNotBlank())
+        assertTrue(logs.toString(), logs.contains("Vehicle day/night backend=adaptapi current=2 preference=0"))
         callback.onDayNightChanged(0)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(true), values)
         callback.onDayNightChanged(1)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(true, false), values)
+        // A preference change re-reads the resolved state instead of waiting for another push.
+        mode.current = 2
+        callback.onDayNightModeChange(2)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(listOf(true, false, true), values)
+        assertTrue(logs.toString(), logs.contains("Vehicle day/night preference raw=2 current=2"))
         source.stop()
         source.stop()
         assertEquals(1, mode.releases)
