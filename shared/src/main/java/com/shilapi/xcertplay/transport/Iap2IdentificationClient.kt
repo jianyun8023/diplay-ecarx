@@ -58,6 +58,7 @@ data class Iap2IdentificationConfig(
     val chargingConnectors: EvChargingConnectors = EvChargingConnectors.CCS2_TYPE2,
     /** Also offer wheel speed ($PASCD) in the location component; needs [locationInformationEnabled]. */
     val vehicleSpeedEnabled: Boolean = false,
+    val ultraExperiment: com.shilapi.xcertplay.airplay.CarPlayUltraExperiment? = null,
 ) {
     constructor(
         name: String,
@@ -363,6 +364,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                         void(2)
                         u8(3, config.carPlayUsbInterfaceNumber)
                         void(4)
+                        optionalString(6, config.ultraExperiment?.asset?.assetId)
                     }
                 } else {
                     group(17) {
@@ -380,6 +382,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                         u16(3, 1)
                         void(4)
                         void(5)
+                        optionalString(6, config.ultraExperiment?.asset?.assetId)
                     }
                 }
                 if (config.vehicleStatusEnabled) electricVehicleComponents(config.manufacturer, config.chargingConnectors)

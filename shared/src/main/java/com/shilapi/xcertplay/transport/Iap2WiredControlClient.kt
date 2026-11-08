@@ -173,6 +173,8 @@ class Iap2WiredControlClient(
                 deviceIdentifier = endpoint.deviceIdentifier,
                 publicKey = endpoint.publicKey,
                 sourceVersion = endpoint.sourceVersion,
+                sdkVersion = endpoint.ultraExperiment?.sdkVersion,
+                clusterAsset = endpoint.ultraExperiment?.asset,
             )
 
         fun carPlayAvailabilitySummary(payload: ByteArray): String {
@@ -202,6 +204,7 @@ class Iap2WiredCarPlayEndpoint(
     val publicKey: String,
     val sourceVersion: String,
     val deviceIdentifier: String? = null,
+    val ultraExperiment: com.shilapi.xcertplay.airplay.CarPlayUltraExperiment? = null,
 ) {
     /** A stable copy so a caller cannot mutate a validated endpoint before it is encoded. */
     val ipv6Addresses: List<String> = ipv6Addresses.toList()

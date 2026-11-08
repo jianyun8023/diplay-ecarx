@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * as the iAP tunnel: ChaCha20-Poly1305 frames with a 2-byte little-endian length, carrying packages
  * with a 32-byte header (size, 12-byte type such as "sync"/"rply", 4-byte command, 8-byte sequence
  * number) and a body. Each "sync" is answered with an empty "rply", as AirPlay data streams expect;
- * the bodies are not needed to play.
+ * video settings needs only the acknowledgement; UI Sync uses [onCommand] for encrypted replies.
  */
 class VideoSettingsChannel(
     private val readKey: ByteArray,
@@ -22,6 +22,9 @@ class VideoSettingsChannel(
     private val expectedPeer: InetAddress,
     private val log: (String) -> Unit,
 ) : Closeable {
+    var onCommand: ((ByteArray) -> List<ByteArray>)? = null
+    var onPoll: (() -> List<ByteArray>)? = null
+
     private val closed = AtomicBoolean(false)
     private var server: ServerSocket? = null
     private var socket: Socket? = null
@@ -54,11 +57,12 @@ class VideoSettingsChannel(
     private fun run(sock: Socket) {
         val input = sock.getInputStream()
         val output = sock.getOutputStream()
+        if (onPoll != null) sock.soTimeout = 200
         val buffer = ByteArray(16 * 1024)
         var ciphertext = ByteArray(0)
         var plaintext = ByteArray(0)
         while (!closed.get()) {
-            val read = input.read(buffer)
+            val read = try { input.read(buffer) } catch (_: java.net.SocketTimeoutException) { 0 }
             if (read < 0) return
             ciphertext += buffer.copyOf(read)
             var offset = 0
@@ -74,6 +78,8 @@ class VideoSettingsChannel(
             }
             ciphertext = ciphertext.copyOfRange(offset, ciphertext.size)
             plaintext = handlePackages(plaintext, output)
+            // Keep notifications on the socket thread so ciphertext counters and writes stay ordered.
+            onPoll?.invoke()?.forEach { send(output, "asyn", ByteArray(8), it) }
         }
     }
 
@@ -83,20 +89,30 @@ class VideoSettingsChannel(
             val size = u32(buffer, offset)
             if (size < HEADER || size > MAX_PACKAGE) throw IllegalStateException("bad package size $size")
             if (buffer.size - offset < size) break
-            if (ascii(buffer, offset + 4, 12) == "sync") reply(output, buffer.copyOfRange(offset + 20, offset + 28))
+            val kind = ascii(buffer, offset + 4, 12)
+            if (kind == "sync") send(output, "rply", buffer.copyOfRange(offset + 20, offset + 28), ByteArray(0))
+            if (kind != "rply" && size > HEADER) {
+                onCommand?.invoke(buffer.copyOfRange(offset + HEADER, offset + size))?.forEach {
+                    send(output, "asyn", ByteArray(8), it)
+                }
+            }
             offset += size
         }
         return buffer.copyOfRange(offset, buffer.size)
     }
 
-    private fun reply(output: OutputStream, seq: ByteArray) {
-        val header = ByteArray(HEADER)
-        header[3] = HEADER.toByte()
-        "rply".toByteArray(Charsets.US_ASCII).copyInto(header, 4)
+    private fun send(output: OutputStream, kind: String, seq: ByteArray, body: ByteArray) {
+        val header = java.nio.ByteBuffer.allocate(HEADER).putInt(HEADER + body.size).array()
+        kind.toByteArray(Charsets.US_ASCII).copyInto(header, 4)
+        if (body.isNotEmpty()) "cmnd".toByteArray(Charsets.US_ASCII).copyInto(header, 16)
         seq.copyInto(header, 20)
-        val aad = byteArrayOf((header.size and 0xff).toByte(), (header.size shr 8).toByte())
-        val sealed = AirPlayCrypto.chachaSeal(writeKey, AirPlayCrypto.nonce64(writeCounter++), header, aad)
-        output.write(aad + sealed)
+        val packet = header + body
+        for (offset in packet.indices step 1024) {
+            val fragment = packet.copyOfRange(offset, minOf(offset + 1024, packet.size))
+            val aad = byteArrayOf((fragment.size and 0xff).toByte(), (fragment.size shr 8).toByte())
+            val sealed = AirPlayCrypto.chachaSeal(writeKey, AirPlayCrypto.nonce64(writeCounter++), fragment, aad)
+            output.write(aad + sealed)
+        }
         output.flush()
     }
 

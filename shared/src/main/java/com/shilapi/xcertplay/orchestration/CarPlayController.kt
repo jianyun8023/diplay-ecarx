@@ -1744,11 +1744,12 @@ class CarPlayController(
             }
 
             val wirelessIdentification = Iap2WirelessIdentification(hostBluetoothMac, hotspotInfo.ssid)
-            val bootstrapIdentification = config.identification.forWirelessLink(
+            val identification = config.identification.copy(ultraExperiment = airPlayConfig.ultraExperiment)
+            val bootstrapIdentification = identification.forWirelessLink(
                 Iap2WirelessLinkRole.BLUETOOTH_BOOTSTRAP,
                 wirelessIdentification,
             )
-            val runtimeIdentification = config.identification.forWirelessLink(
+            val runtimeIdentification = identification.forWirelessLink(
                 Iap2WirelessLinkRole.RUNTIME_TUNNEL,
                 wirelessIdentification,
             )
@@ -1763,6 +1764,7 @@ class CarPlayController(
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
                 accessPointBssid = hotspotInfo.accessPointBssid,
+                ultraExperiment = airPlayConfig.ultraExperiment,
             )
             wirelessRuntimeIdentification = runtimeIdentification
             wirelessAirPlayEndpoint = endpoint
@@ -2879,6 +2881,7 @@ class CarPlayController(
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
                 deviceIdentifier = ncmHostMac.macString(),
+                ultraExperiment = airPlayConfig.ultraExperiment,
             )
             onStatus(CarPlayStatus.RunningControl)
             wiredSessionActive = false
@@ -2932,7 +2935,7 @@ class CarPlayController(
                     "vehicleStatus=${config.identification.vehicleStatusEnabled}",
             )
             val result = Iap2WiredControlClient(csm, Iap2MfiAuthenticationClient(mfi)).run(
-                identification = config.identification,
+                identification = config.identification.copy(ultraExperiment = airPlayConfig.ultraExperiment),
                 endpoint = endpoint,
                 availableCurrentMilliAmps = config.availableCurrentMilliAmps,
                 timeoutMillis = controlLoopTimeoutMillis(),

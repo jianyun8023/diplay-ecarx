@@ -938,6 +938,21 @@ object AirPlayPersistence {
             .apply()
     }
 
+    /** Hidden bench input, read only by debug builds at the next connection. */
+    fun loadUltraExperiment(context: Context): com.shilapi.xcertplay.airplay.CarPlayUltraExperiment? {
+        if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return null
+        val file = File(context.filesDir, "ultra-experiment.txt")
+        if (!file.isFile) return null
+        return com.shilapi.xcertplay.airplay.CarPlayUltraExperiment.parse(file.readText()).also {
+            if (it == null) android.util.Log.w("DiPlay", "Ultra experiment: invalid configuration; disabled")
+        }
+    }
+
+    private val benchVehicle by lazy { com.shilapi.xcertplay.airplay.SimulatedVehicle() }
+
+    fun loadSimulatedVehicle(context: Context): com.shilapi.xcertplay.airplay.SimulatedVehicle? =
+        if (loadUltraExperiment(context) != null && File(context.filesDir, "ultra-bench.enabled").isFile) benchVehicle else null
+
     fun loadClusterMapEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)
 

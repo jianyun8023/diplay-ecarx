@@ -102,8 +102,14 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        val intent = Intent(ACTION)
-        val info = packageManager.queryIntentServices(intent, 0).firstOrNull { it.serviceInfo.packageName in DIPLAY_PACKAGES }?.serviceInfo
+        // A locally renamed debug build (for example a bench package) can be picked by name.
+        val requested = intent.getStringExtra("diplayPackage")?.takeIf {
+            it in DIPLAY_PACKAGES || it.startsWith("com.shihab.diplay.")
+        }
+        val intent = Intent(ACTION).apply { requested?.let { setPackage(it) } }
+        val info = packageManager.queryIntentServices(intent, 0).firstOrNull {
+            it.serviceInfo.packageName == requested || it.serviceInfo.packageName in DIPLAY_PACKAGES
+        }?.serviceInfo
         if (info == null) {
             show(getString(R.string.maphost_not_installed))
             return

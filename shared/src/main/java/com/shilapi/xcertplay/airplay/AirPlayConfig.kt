@@ -105,8 +105,13 @@ data class AirPlayConfig(
      * restricted the same way, because the iPhone picks one format for both directions.
      */
     val callAtCallRate: Boolean = false,
+    val ultraExperiment: CarPlayUltraExperiment? = null,
+    val simulatedVehicle: SimulatedVehicle? = null,
 )
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */
+internal val AirPlayConfig.mainDisplayUuid: String get() = ultraExperiment?.mainPanel ?: AirPlayInfoPlist.MAIN_UUID
+internal val AirPlayConfig.clusterDisplayUuid: String get() = ultraExperiment?.clusterPanel ?: AirPlayInfoPlist.ALT_UUID
+
 internal val AirPlayConfig.bufferedAudioOutputEnabled: Boolean
     get() = mainBufferedAudio && !disableAudioOutput

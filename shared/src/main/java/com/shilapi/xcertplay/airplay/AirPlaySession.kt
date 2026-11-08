@@ -146,6 +146,9 @@ class AirPlaySession(
     val controllerId: String? get() = pairVerify.verifiedControllerId
     val sharedSecret: ByteArray? get() = pairVerify.shared?.copyOf()
     val videoInCar: Boolean get() = config.videoInCar
+    internal val ultraExperiment get() = config.ultraExperiment
+    internal val clusterDisplayUuid get() = config.clusterDisplayUuid
+    internal val vehicleState by lazy { config.simulatedVehicle?.let { CarPlayVehicleState(it, ::debugLog) } }
     private val videoPlaybackAvailability = VideoPlaybackAvailability { allowed ->
         sendCommand(
             linkedMapOf(
@@ -204,7 +207,7 @@ class AirPlaySession(
             val content = synchronized(clusterContentLock) { clusterContent } ?: return false
             if (!shown) {
                 val sent = sendCommand(mapOf("type" to "stopUI",
-                    "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID)))
+                    "params" to mapOf("uuid" to config.clusterDisplayUuid)))
                 return synchronized(clusterContentLock) {
                     val current = clusterContent ?: return false
                     if (closed.get() || current.stream != content.stream) {
@@ -266,7 +269,7 @@ class AirPlaySession(
 
     private fun showClusterUrl(content: ClusterContent, url: String): Boolean {
         if (closed.get() || clusterStream != content.stream) return false
-        val uuid = AirPlayInfoPlist.ALT_UUID
+        val uuid = config.clusterDisplayUuid
         val uiSent = sendCommand(mapOf("type" to "showUI", "params" to mapOf("uuid" to uuid, "url" to url)))
         val sent = uiSent && clusterStream == content.stream && !closed.get() &&
             sendCommand(mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to uuid)))
@@ -314,7 +317,7 @@ class AirPlaySession(
         linkedMapOf(
             "type" to "changeMapZoomLevel",
             "params" to linkedMapOf(
-                "uuid" to AirPlayInfoPlist.ALT_UUID,
+                "uuid" to config.clusterDisplayUuid,
                 "zoomDirection" to if (zoomIn) ZOOM_DIRECTION_IN else ZOOM_DIRECTION_OUT,
             ),
         ),
@@ -322,7 +325,7 @@ class AirPlaySession(
 
     /** Moves CarPlay on the main screen to one of its declared view areas, without reconnecting. */
     fun showViewArea(index: Int): Boolean =
-        sendCommand(AirPlayInfoPlist.viewAreaCommand(index, config.main.viewAreas?.size ?: 1))
+        sendCommand(AirPlayInfoPlist.viewAreaCommand(index, config.main.viewAreas?.size ?: 1, config.mainDisplayUuid))
 
     fun sendCommand(command: Map<String, Any?>): Boolean = synchronized(eventWriteLock) {
         sendCommandLocked(command)
@@ -682,6 +685,7 @@ class AirPlaySession(
                         "videoPlaybackAllowed=${if (config.videoInCar) VideoInCar.allowed else "not-offered"}",
                 )
                 debugLog("airplay /info displays=${info["displays"]}")
+                if (config.ultraExperiment != null) debugLog("airplay /info displayPanels=${info["displayPanels"]}")
                 RtspMessage.Response(
                     headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
                     body = BplistCodec.encode(info),
@@ -1142,6 +1146,8 @@ internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): Li
     features.add("iAPChannel")
     features.add("viewAreas")
     if (config.cluster != null) features.add("altScreen")
+    if (config.ultraExperiment?.layout != null && proposed.orEmpty().contains("uiSync")) features.add("uiSync")
+    if (config.simulatedVehicle != null && proposed.orEmpty().contains(CarPlayVehicleState.FEATURE)) features.add(CarPlayVehicleState.FEATURE)
     if (config.main.useIphoneCornerMask && proposed.orEmpty().contains("cornerMasks")) features.add("cornerMasks")
     if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
     if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)

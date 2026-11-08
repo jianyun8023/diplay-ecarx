@@ -93,6 +93,8 @@ class CarPlayMediaEngine(
     private val pendingMicrophone = ConcurrentHashMap<StreamKey, MicrophoneConfig>()
     private val audioCaptures = ConcurrentHashMap<StreamKey, AudioPacketCapture>()
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
+    private val uiSyncChannels = ConcurrentHashMap<AirPlaySession, VideoSettingsChannel>()
+    private val vehicleChannels = ConcurrentHashMap<Pair<AirPlaySession, String>, VideoSettingsChannel>()
     private val videoSettingsChannels = ConcurrentHashMap<AirPlaySession, VideoSettingsChannel>()
     private val bufferedStreams = ConcurrentHashMap<AirPlaySession, BufferedStream>()
     private val microphoneScheduler by lazy {
@@ -162,7 +164,7 @@ class CarPlayMediaEngine(
             if (streams[streamKey] === screen) {
                 // The cluster asks for a keyframe of its own screen; the plain command is the main screen's.
                 val command = if (type == STREAM_TYPE_ALT_SCREEN) {
-                    mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID))
+                    mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to session.clusterDisplayUuid))
                 } else {
                     mapOf("type" to "forceKeyFrame")
                 }
@@ -396,6 +398,44 @@ class CarPlayMediaEngine(
     override fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
         val uuid = (stream["clientTypeUUID"] as? String)?.uppercase() ?: return null
         if (session.videoInCar) videoDataStream(session, uuid, stream)?.let { return it }
+        if ((uuid == CarPlayVehicleState.HIGH || uuid == CarPlayVehicleState.NORMAL) && session.vehicleState != null) {
+            val shared = session.sharedSecret ?: return null
+            val seed = unsignedPlistDecimal(stream["seed"]) ?: return null
+            val peer = session.remoteAddress ?: return null
+            fun key(label: String) = AirPlayCrypto.hkdfSha512(shared,
+                "DataStream-Salt$seed".toByteArray(Charsets.US_ASCII), label.toByteArray(Charsets.US_ASCII), 32)
+            val state = requireNotNull(session.vehicleState)
+            val channel = VideoSettingsChannel(key(DATASTREAM_OUTPUT_KEY), key(DATASTREAM_INPUT_KEY), peer) {
+                session.logDebug("Vehicle state transport: $it")
+            }
+            channel.onCommand = state::handle
+            if (uuid == CarPlayVehicleState.HIGH) channel.onPoll = state::updates
+            val port = channel.listen(session.localAddress ?: InetAddress.getByName("::"))
+            vehicleChannels.put(session to uuid, channel)?.close()
+            session.logDebug("Vehicle state listening priority=${if (uuid == CarPlayVehicleState.HIGH) "high" else "normal"} port=$port; simulated only")
+            return linkedMapOf<String, Any?>("type" to STREAM_TYPE_DATA, "streamID" to nextRemoteControlStreamId++, "dataPort" to port).apply {
+                stream["streamConnectionID"]?.let { this["streamConnectionID"] = unsignedPlistInteger(it) }
+            }
+        }
+        if (uuid == CarPlayUiSync.UUID && session.ultraExperiment?.layout != null) {
+            val shared = session.sharedSecret ?: return null
+            val seed = unsignedPlistDecimal(stream["seed"]) ?: return null
+            val peer = session.remoteAddress ?: return null
+            fun key(label: String) = AirPlayCrypto.hkdfSha512(shared,
+                "DataStream-Salt$seed".toByteArray(Charsets.US_ASCII), label.toByteArray(Charsets.US_ASCII), 32)
+            val experiment = requireNotNull(session.ultraExperiment)
+            val sync = CarPlayUiSync(experiment.clusterPanel, requireNotNull(experiment.layout), session::logDebug)
+            val channel = VideoSettingsChannel(key(DATASTREAM_OUTPUT_KEY), key(DATASTREAM_INPUT_KEY), peer) {
+                session.logDebug("UI Sync transport: $it")
+            }
+            channel.onCommand = sync::handle
+            val port = channel.listen(session.localAddress ?: InetAddress.getByName("::"))
+            uiSyncChannels.put(session, channel)?.close()
+            session.logDebug("UI Sync listening port=$port")
+            return linkedMapOf<String, Any?>("type" to STREAM_TYPE_DATA, "streamID" to nextRemoteControlStreamId++, "dataPort" to port).apply {
+                stream["streamConnectionID"]?.let { this["streamConnectionID"] = unsignedPlistInteger(it) }
+            }
+        }
         if (uuid != IAP_DATASTREAM_UUID) return null
         val shared = session.sharedSecret ?: return null
         val seed = unsignedPlistDecimal(stream["seed"]) ?: return null
@@ -573,6 +613,8 @@ class CarPlayMediaEngine(
         clearPendingIapTunnel(session)
         retireBuffered(session)
         videoSettingsChannels.remove(session)?.close()
+        uiSyncChannels.remove(session)?.close()
+        vehicleChannels.keys.filter { it.first === session }.forEach { vehicleChannels.remove(it)?.close() }
         val sessionStreams = streams.keys.filter {
             it.session === session && it.type != BufferedAudioStream.STREAM_TYPE
         }

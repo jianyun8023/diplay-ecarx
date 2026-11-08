@@ -4849,6 +4849,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun createAirPlayConfig(size: DisplaySize): AirPlayConfig {
+        val ultra = AirPlayPersistence.loadUltraExperiment(this)
+        if (ultra != null) MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
         // The home settings page can change the name while this host stays alive.
         if (!menuOpen) oemLabel = AirPlayPersistence.loadOemLabel(this)
         val alignedSize = evenDisplaySize(size)
@@ -5019,7 +5021,16 @@ open class CarPlayHostActivity : ComponentActivity() {
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             sourceVersion = "950.7.1",
             main = declared,
-            cluster = clusterDisplayConfig(),
+            cluster = if (ultra == null) clusterDisplayConfig() else AirPlayDisplayConfig(
+                widthPixels = 1920, heightPixels = 720, widthPhysicalMm = 311, heightPhysicalMm = 116,
+                fps = 30, features = 0, primaryInputDevice = 0,
+                initialUrl = CarPlayClusterDisplay.Content.INSTRUMENTS.url,
+            ),
+            ultraExperiment = ultra?.also {
+                appendLog("Ultra experiment: theme=${it.asset.assetId}:${it.asset.assetVersion}:${it.sdkVersion} " +
+                    "panels=${it.mainPanel},${it.clusterPanel}; display only, no vehicle telemetry")
+            },
+            simulatedVehicle = if (ultra != null) AirPlayPersistence.loadSimulatedVehicle(this) else null,
             rightHandDrive = rightHandDrive,
             hevc = sessionHevc,
             microphone = microphoneAvailable,
