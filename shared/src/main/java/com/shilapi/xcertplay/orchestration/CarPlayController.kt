@@ -324,7 +324,7 @@ class CarPlayController(
     private val wirelessHandoffRequested = AtomicBoolean(false)
     private val wirelessTunnelReady = AtomicBoolean(false)
     private val wirelessActiveReported = AtomicBoolean(false)
-    /** The next wireless run follows the car turning its hotspot off and may wait for its radio to return. */
+    /** The next wireless run follows the car turning its hotspot off and may wait for its radios to return. */
     private val awaitRadioReturn = AtomicBoolean(false)
     /** Set when the handoff fell back and kept Bluetooth as the only iAP2 channel. */
     private val wirelessHandoffFellBack = AtomicBoolean(false)
@@ -425,6 +425,7 @@ class CarPlayController(
                 }
             }
             activeSession = session
+            com.shilapi.xcertplay.network.CarRadioOutage.clear()
             NavigationOutputs.onSessionActive(debugLogs = { uiListener?.debugLogsEnabled == true }, requestExit = ::requestNavigationExit, newSession = replacement, replacePrevious = previousSession != null && replacement) { !closed && activeSession === session && !session.isClosed }
             clusterOutputStateListener?.invoke()
             if (replacement) restoreDashboardContent(session)
@@ -1459,7 +1460,9 @@ class CarPlayController(
     }
 
     private fun runWireless(generation: Int) {
-        val radioReturn = awaitRadioReturn.getAndSet(false)
+        // The host rebuilds the whole stack 15 s after the tunnel drops, so a new controller must
+        // still know the car turned its radios off.
+        val radioReturn = awaitRadioReturn.getAndSet(false) or com.shilapi.xcertplay.network.CarRadioOutage.active()
         // Until RFCOMM starts, a failure belongs to this bring-up even while the old session winds down.
         var bluetoothLinkStarted = false
         try {
@@ -3094,6 +3097,7 @@ class CarPlayController(
                     if (!isStaleWirelessRun(generation)) {
                         debugLog("generation=$generation car hotspot stopped; restarting wireless")
                         awaitRadioReturn.set(true)
+                        com.shilapi.xcertplay.network.CarRadioOutage.mark()
                         restartWireless()
                     }
                 },
@@ -4042,7 +4046,7 @@ class CarPlayController(
         /** Above the boot hotspot start's 30 s budget. */
         private const val HOTSPOT_HEAD_START_WAIT_MILLIS = 35_000L
         /** The driver may come back to the car any time; the wait ends early on disconnect. */
-        private const val RADIO_RETURN_WAIT_MILLIS = 30 * 60_000L
+        private const val RADIO_RETURN_WAIT_MILLIS = com.shilapi.xcertplay.network.CarRadioOutage.BUDGET_MILLIS
         /** Elapsed may step back by a fraction of a second between updates (130690 -> 130552 on v129). */
         private const val PLAYBACK_ELAPSED_JITTER_MILLIS = 2_000L
         // Measured connects: 147–1714ms. Leave >4x headroom, without spending 15s on each dead socket.

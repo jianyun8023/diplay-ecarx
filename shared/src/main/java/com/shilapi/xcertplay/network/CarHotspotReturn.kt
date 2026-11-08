@@ -45,3 +45,23 @@ internal object CarHotspotReturn {
 
     private const val POLL_MILLIS = 500L
 }
+
+/**
+ * Process-wide memory that the car turned its radios off (hotspot lost). The host rebuilds the
+ * controller 15 s after the tunnel drops, and that new controller must keep waiting for the car
+ * instead of failing on Bluetooth or the hotspot. Cleared once a session is active again, and it
+ * lapses with the wait budget.
+ */
+internal object CarRadioOutage {
+    @Volatile private var markedAt = 0L
+
+    fun mark(nowMillis: Long = android.os.SystemClock.elapsedRealtime()) { markedAt = nowMillis.coerceAtLeast(1L) }
+
+    fun clear() { markedAt = 0L }
+
+    fun active(nowMillis: Long = android.os.SystemClock.elapsedRealtime(), budgetMillis: Long = BUDGET_MILLIS): Boolean =
+        markedAt > 0L && nowMillis - markedAt < budgetMillis
+
+    /** Matches the controller's 30-minute radio-return wait. */
+    const val BUDGET_MILLIS = 30 * 60_000L
+}

@@ -35,4 +35,15 @@ class CarHotspotReturnTest {
         var checks = 0
         assertEquals(CarHotspotReturn.Outcome.CANCELLED, await(listOf(false), current = { ++checks < 3 }))
     }
+
+    @Test fun theOutageOutlivesAControllerAndEndsWithASessionOrTheBudget() {
+        CarRadioOutage.clear()
+        assertEquals(false, CarRadioOutage.active(nowMillis = 1_000L))
+        CarRadioOutage.mark(nowMillis = 1_000L)
+        // The host's rebuilt controller 15 s later still sees it.
+        assertEquals(true, CarRadioOutage.active(nowMillis = 16_000L))
+        assertEquals(false, CarRadioOutage.active(nowMillis = 1_000L + CarRadioOutage.BUDGET_MILLIS))
+        CarRadioOutage.clear()
+        assertEquals(false, CarRadioOutage.active(nowMillis = 16_000L))
+    }
 }
