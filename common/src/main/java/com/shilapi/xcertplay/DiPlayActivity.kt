@@ -5056,6 +5056,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         WheelKeyLog.report(WheelKeyService.connected()).forEach { appendLine(it) }
         appendLine(com.shilapi.xcertplay.hud.EcarxSwKeyIntercept.diagnosticReport())
         appendLine()
+        MediaPowerDiagnostics.report().forEach { appendLine(it) }
+        appendLine()
         appendLine(UpdateAvailability.report(appContext, System.currentTimeMillis()))
         appendLine()
         appendLine("Platform permission build: Android 9 native grants")
