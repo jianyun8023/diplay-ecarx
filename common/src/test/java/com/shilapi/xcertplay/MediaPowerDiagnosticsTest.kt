@@ -49,17 +49,12 @@ class MediaPowerDiagnosticsTest {
     }
 
     @Test fun recordsScreenBroadcastsAfterStart() {
-        MusicPauseSettings.setEnabled(context, MusicPauseTrigger.SCREEN_OFF, true)
         MediaPowerDiagnostics.start(context)
         context.sendBroadcast(Intent(Intent.ACTION_SCREEN_OFF))
-        context.sendBroadcast(Intent(Intent.ACTION_SHUTDOWN))
-        context.sendBroadcast(Intent(Intent.ACTION_SCREEN_ON))
         shadowOf(Looper.getMainLooper()).idle()
         val events = MediaPowerDiagnostics.report()
         assertTrue(events.toString(), events.any { it.contains("Media power diagnostics started display=") })
         assertTrue(events.toString(), events.any { it.contains("Screen broadcast SCREEN_OFF display=") })
-        // Screen off and shutdown reach the pause setting; without a session nothing is sent.
-        assertEquals(events.toString(), 2, events.count { it.endsWith("Music pause trigger=screen_off skipped iphonePlaying=null") })
         // Robolectric is not an ECARX car service.
         assertTrue(events.toString(), events.any { it.contains("Vehicle signal probe not started") })
     }

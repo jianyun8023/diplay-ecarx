@@ -45,25 +45,23 @@ class MusicPauseTest {
         assertEquals(1, pauses)
     }
 
-    @Test fun pausesWhenTheScreenTurnsOff() {
-        policy.onScreenOff()
-        assertEquals(listOf("Music pause trigger=screen_off sent=true"), logs)
-    }
-
     @Test fun leavesMusicThatIsNotPlayingAndHonoursEachSetting() {
+        policy.onDriverDoor(false)
         playing = false
-        policy.onScreenOff()
+        policy.onDriverDoor(true)
+        policy.onDriverDoor(false)
         playing = null
-        policy.onScreenOff()
+        policy.onDriverDoor(true)
+        policy.onDriverDoor(false)
         playing = true
         enabled -= MusicPauseTrigger.DOOR
-        policy.onDriverDoor(false)
         policy.onDriverDoor(true)
-        policy.onScreenOff()
+        policy.onUsageMode(13)
+        policy.onUsageMode(1)
         assertEquals(1, pauses)
-        assertEquals(listOf("Music pause trigger=screen_off skipped iphonePlaying=false",
-            "Music pause trigger=screen_off skipped iphonePlaying=null", "Music pause trigger=door off",
-            "Music pause trigger=screen_off sent=true"), logs)
+        assertEquals(listOf("Music pause trigger=door skipped iphonePlaying=false",
+            "Music pause trigger=door skipped iphonePlaying=null", "Music pause trigger=door off",
+            "Music pause trigger=engine_off sent=true"), logs)
     }
 
     @Test fun readsTheDriverDoorBytesTheCarReports() {

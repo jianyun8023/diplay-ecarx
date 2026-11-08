@@ -24,8 +24,7 @@ import java.util.Locale
  *
  * Kept in memory for the whole process, because the host activity is destroyed and recreated each
  * time the screen goes dark, and also written to the host's session log while one is attached.
- * Diagnostic only, except that the screen broadcasts and the door and usage-mode readings also
- * feed [MusicPause].
+ * Diagnostic only, except that the door and usage-mode readings also feed [MusicPause].
  */
 internal object MediaPowerDiagnostics {
     private const val TAG = "DiPlayMediaPower"
@@ -35,14 +34,12 @@ internal object MediaPowerDiagnostics {
     private var sink: ((String) -> Unit)? = null
     private var appContext: Context? = null
     private var probe: EcarxVehicleSignalProbe? = null
-    private var musicPause: MusicPause? = null
     private var lastDisplayState: Int? = null
     private val main = Handler(Looper.getMainLooper())
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             note("Screen broadcast ${intent.action?.substringAfterLast('.')} ${screenState(context)}")
-            if (intent.action == Intent.ACTION_SCREEN_OFF || intent.action == Intent.ACTION_SHUTDOWN) musicPause?.onScreenOff()
         }
     }
 
@@ -71,7 +68,6 @@ internal object MediaPowerDiagnostics {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
-                addAction(Intent.ACTION_SHUTDOWN)
             }, ContextCompat.RECEIVER_EXPORTED)
         }.onFailure { note("Screen broadcast register failed: ${it.javaClass.simpleName}") }
         runCatching {
@@ -79,8 +75,8 @@ internal object MediaPowerDiagnostics {
             app.getSystemService(DisplayManager::class.java)?.registerDisplayListener(displayListener, main)
         }.onFailure { note("Screen display listener failed: ${it.javaClass.simpleName}") }
         note("Media power diagnostics started ${screenState(app)}")
-        val pause = MusicPauseSettings.policy(app, ::note).also { musicPause = it }
         if (EcarxVehicleSignalProbe.supported(app)) {
+            val pause = MusicPauseSettings.policy(app, ::note)
             probe = EcarxVehicleSignalProbe(app, ::note) { id, value ->
                 when (id) {
                     EcarxVehicleSignalProbe.USAGE_MODE -> (value as? Int)?.let(pause::onUsageMode)
@@ -142,7 +138,6 @@ internal object MediaPowerDiagnostics {
         sink = null
         probe?.stop()
         probe = null
-        musicPause = null
         appContext?.let { app ->
             runCatching { app.unregisterReceiver(screenReceiver) }
             runCatching { app.getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(displayListener) }

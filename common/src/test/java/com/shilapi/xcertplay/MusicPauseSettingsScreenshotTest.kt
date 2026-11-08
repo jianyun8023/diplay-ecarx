@@ -23,7 +23,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.util.ReflectionHelpers
 
-/** The three music pause switches in Audio on the current 1920×1080 ECARX head unit. */
+/** The two music pause switches in Audio on the current 1920×1080 ECARX head unit. */
 @RunWith(RobolectricTestRunner::class)
 // SDK 33 ships the platform car service, like the head unit.
 @Config(sdk = [33])
@@ -75,13 +75,13 @@ class MusicPauseSettingsScreenshotTest {
         }
     }
 
-    @Test fun otherHeadUnitsOnlyOfferTheScreenSwitch() {
+    @Test fun otherHeadUnitsDoNotOfferThem() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         try {
             val page = render(activity)
             val shown = TITLES.filter { (_, name) -> views(page).any { it is TextView && it.text == activity.getString(name) } }
-            assertEquals(listOf(MusicPauseTrigger.SCREEN_OFF), shown.map { it.first })
+            assertEquals(emptyList<MusicPauseTrigger>(), shown.map { it.first })
         } finally {
             activity.finish()
         }
@@ -91,7 +91,6 @@ class MusicPauseSettingsScreenshotTest {
         val TITLES = listOf(
             MusicPauseTrigger.DOOR to R.string.settings_music_pause_door,
             MusicPauseTrigger.ENGINE_OFF to R.string.settings_music_pause_engine_off,
-            MusicPauseTrigger.SCREEN_OFF to R.string.settings_music_pause_screen_off,
         )
     }
 

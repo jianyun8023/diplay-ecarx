@@ -901,8 +901,6 @@
     <string name="settings_music_pause_door_description">不論是否熄火。原車不會因此暫停。立即生效。</string>
     <string name="settings_music_pause_engine_off">車輛熄火時暫停音樂</string>
     <string name="settings_music_pause_engine_off_description">原車熄火後會繼續播放，直到打開駕駛座車門。立即生效。</string>
-    <string name="settings_music_pause_screen_off">車機息屏時暫停音樂</string>
-    <string name="settings_music_pause_screen_off_description">僅在 Android 關閉螢幕或關機時觸發。億咖通車機熄火後的黑屏由原車繪製，不算息屏。立即生效。</string>
     <string name="settings_hy_siri_key">HY Siri 按鍵</string>
     <string name="settings_hy_siri_key_description">在 HY 方向盤設定中選擇對應的模擬按鍵組。Android 9 授予讀取系統記錄權限後，DiPlay 在背景也能喚醒 Siri，前景應用程式同時收到按鍵。</string>
     <string name="settings_hy_siri_background">實體按鍵無障礙服務</string>
