@@ -30,7 +30,7 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 只显示导航提示和歌曲信息时，保持「整屏镜像到仪表」关闭。设置修改后，按界面提示重新连接。
 
-**高德地图显示到仪表，需要 iPhone 使用 iOS 17.4 或更新版本。**
+**仪表地图需要 iPhone 使用 iOS 17.4 或更新版本**：仪表上的箭头、距离、车道走 iOS 17.4 起的导航元数据通道；地图画面系统自 iOS 16.4 起支持，高德另要求 iOS 17.4 及以上、iPhone 12 或更新机型。
 
 自动热点会关闭车机连接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍须开启。关闭保护项后，若 CarPlay 正使用热点，车机 Wi-Fi 延至下次车辆启动恢复。开机配置齐全时可直达 CarPlay，v134 会先等原车桌面服务，最多 5 秒。
 
@@ -72,7 +72,7 @@ The guide covers **dev v134 (2026-11-07, `7619ee32`)**, compared with the previo
 
 Keep “Mirror the full screen to the instrument cluster” off when you only want navigation and song information. After changing settings, reconnect when prompted.
 
-**Amap's instrument-cluster map requires iOS 17.4 or later on the iPhone.**
+**The instrument-cluster map requires iOS 17.4 or later on the iPhone**: turn-by-turn, distance and lane prompts use the navigation-metadata channel added in iOS 17.4; the cluster map picture itself is supported from iOS 16.4, while Amap additionally requires iOS 17.4 and iPhone 12 or later.
 
 Automatic hotspot startup keeps the car's Wi-Fi client off; leave iPhone Wi-Fi on. Turning protection off restores the car's previous Wi-Fi choice, at the next vehicle start if CarPlay is using the hotspot. A configured boot can open CarPlay directly; v134 first waits up to five seconds for the original launcher services.
 
