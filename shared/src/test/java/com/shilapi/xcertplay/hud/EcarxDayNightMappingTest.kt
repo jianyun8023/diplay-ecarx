@@ -27,4 +27,11 @@ class EcarxDayNightMappingTest {
         assertNull(EcarxDayNightMapping.fromAmapState(10019))
         assertNull(EcarxDayNightMapping.fromAmapState(-1))
     }
+
+    @Test fun twilightPropertyMapsDayAndNightOnly() {
+        assertEquals(false, EcarxDayNightMapping.fromTwilightProperty(1))
+        assertEquals(true, EcarxDayNightMapping.fromTwilightProperty(0))
+        assertNull(EcarxDayNightMapping.fromTwilightProperty(2))
+        assertNull(EcarxDayNightMapping.fromTwilightProperty(-1))
+    }
 }

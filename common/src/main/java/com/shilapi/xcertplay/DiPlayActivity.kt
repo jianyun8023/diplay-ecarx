@@ -1399,7 +1399,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.DISPLAY))
     }
 
-    private fun nightModeLabels() = CarPlayNightMode.entries.map { mode ->
+    private fun nightModeChoices() = carPlayNightModeChoices(AirPlayPersistence.isEcarxHeadUnit(this))
+
+    private fun nightModeLabels(modes: List<CarPlayNightMode>) = modes.map { mode ->
         getString(when (mode) {
             CarPlayNightMode.SYSTEM -> R.string.carplay_night_system
             CarPlayNightMode.AMBIENT -> R.string.carplay_night_ambient
@@ -1411,8 +1413,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun appearanceControl(parent: LinearLayout) {
-        val modes = CarPlayNightMode.entries
-        choice(parent, getString(R.string.carplay_night_mode), nightModeLabels(),
+        val modes = nightModeChoices()
+        choice(parent, getString(R.string.carplay_night_mode), nightModeLabels(modes),
             modes.indexOf(AirPlayPersistence.loadCarPlayNightMode(this)), reconnects = false) { index ->
             AirPlayPersistence.saveCarPlayNightMode(this, modes[index])
         }
@@ -1988,8 +1990,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 handler.post { checkForAppearanceChange() }
             }
             card.addView(label(getString(R.string.settings_app_appearance_description), 14, MUTED))
-            val nightModes = CarPlayNightMode.entries
+            val nightModes = nightModeChoices()
             val nightMode = AirPlayPersistence.loadCarPlayNightMode(this)
+            // Outside light prefers the car's body twilight sensor; the lux threshold only applies
+            // to Android's own light sensor, which this head unit does not have.
+            val outsideUsesTwilight = com.shilapi.xcertplay.hud.EcarxTwilightSensor.supported(this)
             val ambientControls = column().apply {
                 visibility = if (nightMode == CarPlayNightMode.AMBIENT) View.VISIBLE else View.GONE
             }
@@ -2002,7 +2007,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             choice(
                 card,
                 getString(R.string.carplay_night_mode),
-                nightModeLabels(),
+                nightModeLabels(nightModes),
                 nightModes.indexOf(nightMode),
                 reconnects = false,
             ) { index ->
@@ -2012,17 +2017,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 scheduleControls.visibility = if (nightModes[index] == CarPlayNightMode.SCHEDULE) View.VISIBLE else View.GONE
                 handler.post(::checkForAppearanceChange)
             }
-            val sentenceSeparator = if (resources.configuration.locales[0].language == "zh") "" else " "
-            card.addView(label(getString(R.string.carplay_night_hint) + sentenceSeparator +
-                getString(R.string.carplay_night_time_note), 14, MUTED).apply {
+            card.addView(label(getString(R.string.carplay_night_time_note), 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))
             })
-            ambientControls.addView(label(getString(R.string.carplay_night_ambient_hint), 14, MUTED).apply {
+            val outsideHint = if (outsideUsesTwilight) R.string.settings_carplay_night_outside_twilight_hint
+            else R.string.carplay_night_ambient_hint
+            ambientControls.addView(label(getString(outsideHint), 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))
             })
-            ambientLightThresholdControl(ambientControls)
+            if (!outsideUsesTwilight) ambientLightThresholdControl(ambientControls)
             nightDelaySettingControl(ambientControls, R.string.ambient_delay_title, R.string.ambient_delay_hint,
-                0..60, 2, R.string.ambient_delay_summary, { AirPlayPersistence.loadAmbientDelaySeconds(this) },
+                0..60, 0, R.string.ambient_delay_summary, { AirPlayPersistence.loadAmbientDelaySeconds(this) },
                 save = { AirPlayPersistence.saveAmbientDelaySeconds(this, it) })
             card.addView(ambientControls)
             vehicleControls.addView(label(getString(R.string.carplay_night_vehicle_hint), 14, MUTED).apply {

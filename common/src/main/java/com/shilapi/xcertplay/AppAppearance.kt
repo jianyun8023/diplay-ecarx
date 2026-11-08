@@ -23,6 +23,7 @@ internal fun resolveAppNight(
     systemNight: Boolean,
     minuteOfDay: Int,
     hostNight: Boolean?,
+    recentNight: Boolean? = null,
 ): Boolean = when (appearance) {
     AppAppearance.DARK -> true
     AppAppearance.LIGHT -> false
@@ -30,9 +31,10 @@ internal fun resolveAppNight(
         CarPlayNightMode.DAY -> false
         CarPlayNightMode.NIGHT -> true
         CarPlayNightMode.SCHEDULE -> schedule.isNight(minuteOfDay)
-        // Chrome only has the Android night signal outside a live session, so the vehicle
-        // push source falls back the same way ambient does.
-        CarPlayNightMode.SYSTEM, CarPlayNightMode.AMBIENT, CarPlayNightMode.VEHICLE -> systemNight
+        CarPlayNightMode.SYSTEM -> systemNight
+        // Outside a live host the follow modes have no source; use the same guess the host
+        // starts from, because ECARX locks Android's theme to night.
+        CarPlayNightMode.AMBIENT, CarPlayNightMode.VEHICLE -> recentNight ?: schedule.isNight(minuteOfDay)
     }
 }
 
@@ -41,14 +43,16 @@ internal fun shouldDeferAppearanceRender(windowKeyLearning: Boolean, serviceKeyL
 
 internal fun Context.resolveAppNightNow(hostNight: Boolean? = AppAppearanceRuntime.hostNight()): Boolean {
     val now = Calendar.getInstance()
+    val carPlayMode = AirPlayPersistence.loadCarPlayNightMode(this)
     return resolveAppNight(
         appearance = AirPlayPersistence.loadAppAppearance(this),
-        carPlayMode = AirPlayPersistence.loadCarPlayNightMode(this),
+        carPlayMode = carPlayMode,
         schedule = AirPlayPersistence.loadCarPlayNightSchedule(this),
         systemNight = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
             Configuration.UI_MODE_NIGHT_YES,
         minuteOfDay = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE),
         hostNight = hostNight,
+        recentNight = AirPlayPersistence.loadRecentNight(this, carPlayMode, now.timeInMillis),
     )
 }
 
