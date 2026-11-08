@@ -24,9 +24,9 @@
 
 ## 0. 快速索引
 
-![v106 实车设置概览](screenshots/05-settings-home.png)
+![v141 实车设置概览](screenshots/30-car-overview-v142.png)
 
-本页浅色截图来自 v106 实车，显示当时保存的设置值，不代表各功能均已验收。
+本页实车截图来自 2026-11-08 的 v141/v142（1920×1080，含车机底部 Dock），显示当时保存的设置值，不代表各功能均已验收；标注「模拟器示意」或 1920×1080 自动化渲染的图不是车机拍摄。
 
 | 我想…… | 看这一节 |
 | --- | --- |
@@ -92,7 +92,7 @@ DiPlay 启动时探测两类信息，然后**决定显示哪些卡片**：
 3. 按屏幕提示完成配置并保存。
 4. 回到主界面连接 iPhone。
 
-![v134 连接方式设置（模拟器示意）](screenshots/15-connection-v134.png)
+![v142 实车连接设置](screenshots/31-car-connection-v142.png)
 
 **怎么确认生效**：出现 CarPlay 画面即成功。连接期间界面会依次显示热点准备、握手、等待首个画面。
 
@@ -111,7 +111,7 @@ DiPlay 启动时探测两类信息，然后**决定显示哪些卡片**：
 | 打开 DiPlay 时连接 | 进入 DiPlay 就自动连上一次选中的 iPhone |
 | 已选 iPhone 重连蓝牙时自动连接 | 车机唤醒后，选中的 iPhone 连上蓝牙时尝试打开 DiPlay 并启动无线 CarPlay；可能受车机后台启动限制 |
 
-![v134 自动连接设置（模拟器示意）](screenshots/20-auto-connect-v134.png)
+![v142 实车自动连接设置](screenshots/32-car-auto-connect-v142.png)
 
 **边界**：自动连接的目标是**设置里选中的那台 iPhone**，不是"上次实际连上的那台"。
 
@@ -224,7 +224,7 @@ DiPlay 启动时探测两类信息，然后**决定显示哪些卡片**：
 
 **边界**：可用性取决于手机地图是否提供车道数据以及车机固件是否支持显示，不同车型表现可能不同。没有有效车道数据时不绘制车道，避免显示过期内容。
 
-![v134 仪表导航设置（模拟器示意）](screenshots/18-navigation-v134.png)
+![v142 实车导航设置](screenshots/36-car-navigation-v142.png)
 
 导航提示与初始仪表地图分别控制；通常无需开启整屏镜像。
 
@@ -252,6 +252,8 @@ DiPlay 启动时探测两类信息，然后**决定显示哪些卡片**：
 
 ![高级仪表设置（1920×1080）](screenshots/issue14-cluster-advanced.png)
 
+![v142 实车高级设置：仪表显示](screenshots/39-car-advanced-cluster-v142.png)
+
 仪表菜单与三指交替操作、隐藏后的中控布局、顶部提示和车道连续性，仍需原车验收。
 
 ### 3.5 仪表安全区
@@ -278,7 +280,7 @@ v106 曾通过 MQTT 距离主题纠偏，一轮实车压力 Mock 仅确认当时
 
 **在哪开**：**设置 → 音频 → 车机媒体集成**
 
-![v106 实车音频设置](screenshots/08-audio-settings.png)
+![v142 实车音频设置（两个暂停开关已手动开启）](screenshots/34-car-audio-v142.png)
 
 ![音频页：车机媒体集成](screenshots/settings-media-integration.png)
 
@@ -371,7 +373,7 @@ v106 曾通过 MQTT 距离主题纠偏，一轮实车压力 Mock 仅确认当时
 
 **在哪开**：**设置 → 音频 → 音频路由 → 导航声音跟随 iPhone 和车机**。识别为 ECARX 时默认开启，覆盖升级后的未设置值也用此默认；更改后下次连接生效。
 
-![v134 导航声音设置（模拟器示意）](screenshots/17-audio-v134.png)
+![v142 实车音频路由设置](screenshots/35-car-audio-routing-v142.png)
 
 | iPhone 地图的播报方式 | 声音通路与调节 |
 | --- | --- |
@@ -392,7 +394,7 @@ v106 曾通过 MQTT 距离主题纠偏，一轮实车压力 Mock 仅确认当时
 
 **在哪开**：设置 → 车辆 → 方向盘按键 → **方向盘唤醒 Siri**。默认开启，关闭后不再接管 Siri 按键，下级选项隐藏。CarPlay 未连接或通话中不接管。
 
-![v134 方向盘 Siri 设置（模拟器示意）](screenshots/19-wheel-v134.png)
+![v142 实车方向盘按键设置](screenshots/37-car-wheel-v142.png)
 
 两种媒体集成方式下，这一块长得不一样：
 
@@ -463,7 +465,7 @@ v106 曾通过 MQTT 距离主题纠偏，一轮实车压力 Mock 仅确认当时
 
 **在哪开**：**设置 → 显示 → 显示与性能 → 「CarPlay 日夜模式」**
 
-![实车显示设置](screenshots/07-display-settings.png)
+![v142 实车显示设置（跟随车外光线）](screenshots/33-car-display-v142.png)
 
 ![选择「跟随车外光线」时的显示设置（1920×1080）](screenshots/21-display-daynight-v138.png)
 
@@ -516,7 +518,7 @@ v134 的独立仪表地图窗口不再获取焦点，避免其在 CarPlay 后出
 
 **怎么用**：**设置 → 诊断 → 保存诊断报告**。报告包含连接、仪表、媒体、按键的关键判定行，可在没有 ADB 的车机上直接导出。
 
-![实车诊断设置](screenshots/11-diagnostics-settings.png)
+![v142 实车诊断设置](screenshots/38-car-diagnostics-v142.png)
 
 可保存到默认位置、选择保存位置，或在手机上取得报告；导出后确认拿到文件。复现前可开「调试日志」补充细节。普通模式会合并重复握手、音频、权限与 MQTT 记录，健康统计降低频率，关键变化与失败仍保留；日志变少不代表没有发生播报。报告不会自动上传。
 
