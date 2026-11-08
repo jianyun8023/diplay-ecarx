@@ -135,7 +135,8 @@ internal object EcarxDimApi {
                 "getNextGuidancePointName" -> guidance.nextGuidancePointName
                 // The OEM app sends drawings through updateTurnByTurnArrow, not this getter.
                 "getNavigationTurnSVG" -> ""
-                else -> null
+                "getLaneInfo", "getExtensionInfo", "getHighwayExitInfo", "getRoadCameraInfo", "getServiceAreaInfo" -> null
+                else -> UNHANDLED
             }
         }
         call(navi.api, "updateNavigationInfo", arrayOf(type), info)
@@ -226,7 +227,7 @@ internal object EcarxDimApi {
                     "getCityName", "getFullAddress" -> ""
                     "getDistance" -> -1L
                     "getLatitude", "getLongitude" -> Double.NaN
-                    else -> null
+                    else -> UNHANDLED
                 }
             })
         }
@@ -241,7 +242,8 @@ internal object EcarxDimApi {
                 when (method) {
                     "getLaneNumber" -> lane.number
                     "getLaneBackIconId" -> lane.iconId
-                    else -> null
+                    "getLaneBackIcon" -> null
+                    else -> UNHANDLED
                 }
             })
         }
@@ -297,25 +299,44 @@ internal object EcarxDimApi {
     private fun call(target: Any, name: String, types: Array<Class<*>> = emptyArray(), vararg args: Any?): Any? =
         target.javaClass.getMethod(name, *types).also { it.isAccessible = true }.invoke(target, *args)
 
-    private fun proxy(type: Class<*>, label: String, value: (String, Array<out Any?>?) -> Any?): Any =
+    /** Returned by a data proxy for a getter it does not know, such as one added by newer firmware. */
+    internal val UNHANDLED = Any()
+    private val reportedUnhandled = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    internal fun proxy(type: Class<*>, label: String, value: (String, Array<out Any?>?) -> Any?): Any =
         Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { proxy, method, args ->
             when (method.name) {
                 "toString" -> label
                 "hashCode" -> System.identityHashCode(proxy)
                 "equals" -> proxy === args?.firstOrNull()
-                else -> value(method.name, args) ?: when (method.returnType) {
-                    java.lang.Boolean.TYPE -> false
-                    java.lang.Byte.TYPE -> 0.toByte()
-                    java.lang.Short.TYPE -> 0.toShort()
-                    java.lang.Integer.TYPE -> 0
-                    java.lang.Long.TYPE -> 0L
-                    java.lang.Float.TYPE -> 0f
-                    java.lang.Double.TYPE -> 0.0
-                    java.lang.Character.TYPE -> '\u0000'
-                    else -> null
+                else -> when (val result = value(method.name, args)) {
+                    // Vendor code dereferences getter results, so an unknown getter gets an empty
+                    // value instead of null and is reported once for the diagnostic report.
+                    UNHANDLED -> {
+                        if (reportedUnhandled.add("$label.${method.name}")) {
+                            report("unhandled getter $label.${method.name}: ${method.returnType.simpleName}")
+                        }
+                        emptyValue(method.returnType)
+                    }
+                    null -> if (method.returnType.isPrimitive) emptyValue(method.returnType) else null
+                    else -> result
                 }
             }
         }
+
+    private fun emptyValue(type: Class<*>): Any? = when (type) {
+        java.lang.Boolean.TYPE -> false
+        java.lang.Byte.TYPE -> 0.toByte()
+        java.lang.Short.TYPE -> 0.toShort()
+        java.lang.Integer.TYPE -> 0
+        java.lang.Long.TYPE -> 0L
+        java.lang.Float.TYPE -> 0f
+        java.lang.Double.TYPE -> 0.0
+        java.lang.Character.TYPE -> '\u0000'
+        String::class.java -> ""
+        List::class.java, Collection::class.java -> emptyList<Any>()
+        else -> if (type.isArray) java.lang.reflect.Array.newInstance(type.componentType, 0) else null
+    }
 
     private fun describe(error: Throwable): String {
         val cause = (error as? java.lang.reflect.InvocationTargetException)?.targetException ?: error

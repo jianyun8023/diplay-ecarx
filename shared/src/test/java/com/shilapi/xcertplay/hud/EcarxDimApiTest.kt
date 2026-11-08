@@ -64,6 +64,31 @@ class EcarxDimApiTest {
         }
     }
 
+    interface FutureInfo {
+        fun getLabel(): String
+        fun getLanes(): Array<INaviInteraction.ILaneInfo>
+        fun getItems(): List<String>
+        fun getCount(): Int
+        fun getKnownNull(): String?
+    }
+
+    @Test fun unknownGettersReturnEmptyValuesAndAreReportedOnce() {
+        val reports = mutableListOf<String>()
+        EcarxDimApi.attachReport { reports += it }
+        val info = EcarxDimApi.proxy(FutureInfo::class.java, "FutureInfo") { method, _ ->
+            if (method == "getKnownNull") null else EcarxDimApi.UNHANDLED
+        } as FutureInfo
+        assertEquals("", info.getLabel())
+        assertEquals(0, info.getLanes().size)
+        assertEquals(emptyList<String>(), info.getItems())
+        assertEquals(0, info.getCount())
+        assertNull(info.getKnownNull())
+        info.getLabel()
+        assertEquals(1, reports.count { it == "unhandled getter FutureInfo.getLabel: String" })
+        assertTrue(reports.none { "getKnownNull" in it })
+        EcarxDimApi.attachReport {}
+    }
+
     @Test fun reflectiveFailuresReportTheVendorCauseAndMissingMethods() {
         FixtureLog.failOnce("updateETA")
         val failure = EcarxDimApi.updateEta(EcarxDimApi.NaviHandle(NaviFixture()), 600)

@@ -81,26 +81,14 @@ class CarPlayNightModeControllerTest {
         }
     }
 
-    @Test fun vehiclePushAppliesAfterTheDelayAndDebouncesFlips() {
-        val f = VehicleFixture(delaySeconds = 2)
+    @Test fun vehiclePushAppliesAtOnceWithoutTheAmbientDelay() {
+        val f = VehicleFixture(delaySeconds = 5)
         f.vehicle.emit(true)
-        f.clock.advance(1_999)
-        assertFalse(f.controller.night)
-        // Reverting to the current state cancels the armed flip instead of re-arming it.
-        f.vehicle.emit(false)
-        f.vehicle.emit(true)
-        f.clock.advance(2_000)
         assertTrue(f.controller.night)
-        assertEquals(listOf(true), f.output)
-    }
-
-    @Test fun vehiclePushMatchingCurrentStateCancelsThePendingFlip() {
-        val f = VehicleFixture(delaySeconds = 2)
         f.vehicle.emit(true)
-        f.clock.advance(1_000)
         f.vehicle.emit(false)
-        f.clock.advance(10_000)
         assertFalse(f.controller.night)
+        assertEquals(listOf(true, false), f.output)
         assertTrue(f.clock.tasks.isEmpty())
     }
 

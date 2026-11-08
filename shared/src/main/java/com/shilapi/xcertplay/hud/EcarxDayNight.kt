@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
-import java.lang.reflect.Proxy
 
 /**
  * Push source for the head unit's resolved day/night state (`night = true`).
@@ -61,7 +60,10 @@ object EcarxDayNightMapping {
  *
  * Vendor interfaces are resolved at runtime. Every failure keeps CarPlay on the configured fallback.
  */
-class EcarxVehicleDayNight(context: Context) : VehicleNightSource {
+class EcarxVehicleDayNight(
+    context: Context,
+    private val diagnostic: (String) -> Unit = {},
+) : VehicleNightSource {
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
 
@@ -83,7 +85,10 @@ class EcarxVehicleDayNight(context: Context) : VehicleNightSource {
             amapPresent && startAmapBroadcast(onNight) -> true
             else -> false
         }
-        if (!started) this.onNight = null
+        if (!started) {
+            this.onNight = null
+            log("Vehicle day/night backend=none adaptapi=$adaptapiPresent amap=$amapPresent")
+        }
         return started
     }
 
@@ -103,46 +108,71 @@ class EcarxVehicleDayNight(context: Context) : VehicleNightSource {
         val mode = getMode.invoke(device) ?: return@runCatching false
         val modeType = getMode.returnType
         val callbackType = Class.forName(ADAPTAPI_CALLBACK, true, modeType.classLoader)
-        val callback = Proxy.newProxyInstance(callbackType.classLoader, arrayOf(callbackType)) { proxy, method, args ->
-            when (method.name) {
-                "onDayNightChanged" -> (args?.firstOrNull() as? Int)
-                    ?.let(EcarxDayNightMapping::fromAdaptapiDayNight)?.let { night ->
-                        main.post { onNight(night) }
-                    }
-                // Only resolved appearance matters, not the user's auto/day/night preference.
-                "onDayNightModeChange" -> null
-                "toString" -> return@newProxyInstance "EcarxDayNightCallback"
-                "hashCode" -> return@newProxyInstance System.identityHashCode(proxy)
-                "equals" -> return@newProxyInstance proxy === args?.firstOrNull()
+        // Resolve release first: a callback that cannot be unregistered must not be registered.
+        val unregister = modeType.getMethod("unregisterDayNigntModeCallBack", callbackType)
+        val getDayNight = runCatching { modeType.getMethod("getDayNight") }.getOrNull()
+        fun readCurrent(): Int = getDayNight?.let { runCatching { it.invoke(mode) as Int }.getOrNull() } ?: 0
+        fun deliver(raw: Int) {
+            EcarxDayNightMapping.fromAdaptapiDayNight(raw)?.let { night -> main.post { onNight(night) } }
+        }
+        val callback = EcarxDimApi.proxy(callbackType, "EcarxDayNightCallback") { method, args ->
+            val value = args?.firstOrNull() as? Int
+            when (method) {
+                "onDayNightChanged" -> value?.let {
+                    log("Vehicle day/night changed raw=$it")
+                    deliver(it)
+                }
+                // A preference change (auto/day/night) may not be followed by onDayNightChanged on
+                // this firmware, so read the resolved state again instead of trusting the push.
+                "onDayNightModeChange" -> {
+                    val current = readCurrent()
+                    log("Vehicle day/night preference raw=$value current=$current")
+                    deliver(current)
+                }
             }
             null
         }
         val ok = modeType.getMethod("registerDayNightModeCallBack", callbackType).invoke(mode, callback) as Boolean
-        if (!ok) return@runCatching false
-        releaseAdaptapi = { modeType.getMethod("unregisterDayNigntModeCallBack", callbackType).invoke(mode, callback) }
+        if (!ok) {
+            log("Vehicle day/night backend=adaptapi register=refused")
+            return@runCatching false
+        }
+        releaseAdaptapi = { unregister.invoke(mode, callback) }
         // The callback only fires on changes; read the resolved state once so CarPlay matches
         // the head unit without waiting for the next transition.
-        val current = runCatching { modeType.getMethod("getDayNight").invoke(mode) as Int }.getOrDefault(0)
-        EcarxDayNightMapping.fromAdaptapiDayNight(current)?.let { night ->
-            main.post { onNight(night) }
-        }
+        val current = readCurrent()
+        val preference = runCatching { modeType.getMethod("getDayNightMode").invoke(mode) }.getOrNull()
+        log("Vehicle day/night backend=adaptapi current=$current preference=$preference")
+        deliver(current)
         true
-    }.getOrDefault(false)
+    }.getOrElse {
+        val cause = (it as? java.lang.reflect.InvocationTargetException)?.targetException ?: it
+        log("Vehicle day/night backend=adaptapi failed: ${cause.javaClass.simpleName}: ${cause.message}")
+        false
+    }
 
     private fun startAmapBroadcast(onNight: (Boolean) -> Unit): Boolean = runCatching {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 val extras = intent.extras ?: return
                 if (extras.getInt(AMAP_KEY_TYPE, -1) != AMAP_STATUS_PUSH) return
-                val night = EcarxDayNightMapping.fromAmapState(extras.getInt(AMAP_EXTRA_STATE, -1))
-                    ?: return
+                val state = extras.getInt(AMAP_EXTRA_STATE, -1)
+                log("Vehicle day/night amap state=$state")
+                val night = EcarxDayNightMapping.fromAmapState(state) ?: return
                 onNight(night)
             }
         }
         appContext.registerReceiver(receiver, IntentFilter(AMAP_ACTION))
         this.receiver = receiver
+        // This feed has no current-state query, so nothing changes until the map app announces.
+        log("Vehicle day/night backend=amap waiting for the map app")
         true
     }.getOrDefault(false)
+
+    /** Vendor callbacks arrive on Binder threads; the diagnostic sink is main-thread only. */
+    private fun log(line: String) {
+        main.post { diagnostic(line) }
+    }
 
     private fun packageInstalled(pkg: String): Boolean =
         runCatching { appContext.packageManager.getPackageInfo(pkg, 0) }.isSuccess

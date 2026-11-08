@@ -38,6 +38,7 @@ The first build needs an internet connection to download dependencies.
 ECARX adapters resolve the head unit's interfaces through reflection and dynamic proxies.
 No ECARX compilation JAR, private Maven repository or vendor SDK download is needed for builds or tests.
 The unused recovered GKUI Policy declaration module has been removed.
+The test fixtures cannot catch a misspelled vendor method. To check the adapters' method names and signatures against a head-unit AdaptAPI JAR you keep outside the repository, add `-PecarxAdaptapiJar=<path>` to `:shared:testDebugUnitTest`. Without it, `EcarxAdaptapiAbiTest` is skipped.
 See [the SDK context](ECARX_SDK_CONTEXT.zh-CN.md) for the runtime contract and remaining provenance limits.
 
 1. Open the repository root in Android Studio.

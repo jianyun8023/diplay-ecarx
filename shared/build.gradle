@@ -47,7 +47,16 @@ android {
         // Geely/Lynk head-unit input API (com.geely.inputservice); declarations in src/main/aidl.
         aidl true
     }
-    testOptions { unitTests.includeAndroidResources = true }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        // Optional: a head-unit AdaptAPI JAR kept outside the repository, for EcarxAdaptapiAbiTest.
+        unitTests.all {
+            def adaptapiJar = findProperty('ecarxAdaptapiJar') ?: System.getenv('ECARX_ADAPTAPI_JAR') ?: ''
+            systemProperty 'ecarx.adaptapi.jar', adaptapiJar
+            // Some vendor classes lack stack map frames; the ABI test only reads their signatures.
+            if (adaptapiJar) jvmArgs '-XX:+UnlockDiagnosticVMOptions', '-XX:-BytecodeVerificationRemote'
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
