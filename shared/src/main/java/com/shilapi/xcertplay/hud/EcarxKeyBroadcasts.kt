@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.util.Log
 
 /**
@@ -67,7 +68,9 @@ object EcarxKeyBroadcasts {
             priority = Int.MAX_VALUE
             addCategory(Intent.CATEGORY_DEFAULT)
         }
-        context.registerReceiver(receiver, filter)
+        // Sent by the head unit's key service: Android 13+ needs the receiver marked exported.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        else context.registerReceiver(receiver, filter)
         Log.i(TAG, "voice broadcast receiver registered priority=MAX")
         return receiver
     }
@@ -83,7 +86,9 @@ object EcarxKeyBroadcasts {
             }
         }
         val filter = IntentFilter(ACTION_CALL).apply { priority = IntentFilter.SYSTEM_HIGH_PRIORITY }
-        context.registerReceiver(receiver, filter)
+        // Sent by the head unit's key service: Android 13+ needs the receiver marked exported.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+        else context.registerReceiver(receiver, filter)
         Log.i(TAG, "call key receiver registered priority=${filter.priority}")
         return receiver
     }
