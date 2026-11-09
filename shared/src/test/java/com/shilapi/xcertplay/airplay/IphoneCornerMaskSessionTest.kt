@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.net.Socket
 import org.junit.Assert.*
 import org.junit.Test
@@ -13,9 +15,9 @@ class IphoneCornerMaskSessionTest {
     private val sample = ByteArray(96) { it.toByte() }
 
     private fun session(native: Boolean, received: MutableList<Pair<ByteArray, Int>>,
-        connecting: (AirPlaySession) -> Unit = {}): AirPlaySession =
+        socket: Socket = Socket(), connecting: (AirPlaySession) -> Unit = {}): AirPlaySession =
         AirPlaySession(
-            socket = Socket(),
+            socket = socket,
             config = AirPlayConfig("test", "02:00:00:00:00:02", "02:00:00:00:00:01", "366.0",
                 main = AirPlayDisplayConfig(1280, 720, mainDisplayCornerMasks = true,
                     useIphoneCornerMask = native)),
@@ -56,18 +58,37 @@ class IphoneCornerMaskSessionTest {
         }
     }
 
+    /**
+     * Without a peer the event listener closed the session in the background, and the repeated
+     * SETUP passed only when that close won the race; otherwise the second timing listener threw
+     * "NtpClock is already running" (CI). A connected peer keeps the session open throughout.
+     */
     @Test fun firstNonStreamSetupReportsConnectingOnce() {
-        val seen = mutableListOf<AirPlaySession>()
-        val session = session(false, mutableListOf()) { seen += it }
-        try {
-            handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
-            assertTrue(seen.isEmpty())
-            handle(session, "SETUP", emptyMap())
-            assertEquals(listOf(session), seen)
-            handle(session, "SETUP", emptyMap())
-            handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
-            assertEquals(listOf(session), seen)
-        } finally { session.close() }
+        val loopback = InetAddress.getLoopbackAddress()
+        ServerSocket(0, 1, loopback).use { server ->
+            Socket(loopback, server.localPort).use { phone ->
+                server.accept().use { accepted ->
+                    val seen = mutableListOf<AirPlaySession>()
+                    val session = session(false, mutableListOf(), accepted) { seen += it }
+                    try {
+                        handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
+                        assertTrue(seen.isEmpty())
+                        val first = ports(handle(session, "SETUP", emptyMap()))
+                        assertEquals(listOf(session), seen)
+                        // A repeated SETUP reuses the open listeners instead of failing the session.
+                        assertEquals(first, ports(handle(session, "SETUP", emptyMap())))
+                        handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
+                        assertEquals(listOf(session), seen)
+                        assertFalse(session.isClosed)
+                    } finally { session.close() }
+                }
+            }
+        }
+    }
+
+    private fun ports(response: RtspMessage.Response): Pair<Any?, Any?> {
+        val body = BplistCodec.decode(response.body) as Map<*, *>
+        return body["timingPort"] to body["eventPort"]
     }
 
     @Test fun receivesRuntimeMaskUpdateAndIgnoresMalformedOrOversizedData() {
