@@ -38,6 +38,11 @@ android {
         }
     }
 
+    // Car-test release builds set one resource value (car_test_experiments).
+    buildFeatures {
+        resValues = true
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".hudtest"

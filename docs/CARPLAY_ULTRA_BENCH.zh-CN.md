@@ -40,10 +40,44 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 
 ## 开关与隔离
 
-- 只有 debuggable 构建读取应用私有目录 `files/ultra-experiment.txt`；正式包不读，默认关闭，下次连接生效。
-- 只有同时存在 `files/ultra-bench.enabled` 才声明模拟车辆能力；只有主题配置时只做显示层。
+- 只有 debuggable 构建和车测 release 包（`-PcarTestLabel=…`）读取 `ultra-experiment.txt`；公开 Release 不读，默认关闭，下次连接生效。文件可放在应用私有目录 `files/`，或 `adb push` 可写的 `/sdcard/Android/data/<包名>/files/`（车测包不可 debug，只能用后者）。
+- 只有同时存在 `ultra-bench.enabled` 才声明模拟车辆能力；只有主题配置时只做显示层。
 - 原车风格仪表 `UltraBenchActivity` 只在 debug 源集。
 - 仓库不含任何车厂主题素材或主题 ID；主题由 iPhone 按 ID 从 Apple 公共资源目录下载。测试用主题 ID、设备与命令放在本地工作区，不进仓库。
+
+## 实车测试：探针与 A/B 开关
+
+以下标记文件与 `ultra-experiment.txt` 放在同一目录，同样只在 debug 或车测包中读取，下次连接 CarPlay 生效：
+
+| 文件 | 作用 | 日志 |
+| --- | --- | --- |
+| `frame-probe.enabled` | 中控画面探针，不依赖 Ultra；每 5 s 记录绘制占比与范围，每 30 s 一张 32×18 亮度图 | `Frame probe main 64x36 view=… canvas=… drawn=…% box=x0,y0..x1,y1 mean=…`、`Frame map main 32x18` |
+| `ultra-no-corner-masks.enabled` | 主题会话中控显式声明 `cornerMasks=false`（原来不声明，iPhone 使用主题默认圆角） | `Ultra A/B main cornerMasks=false` |
+| `ultra-main-8x3.enabled` | 主题会话中控声明 8:3 画布（1920 宽对应 1920×720），画面在窗口内等比居中，触摸跟随 | `Ultra A/B main canvas 1920x1080 -> 1920x720 …` |
+
+`box` 是 iPhone 实际绘制区域占画布的百分比；静止画面码率很低不代表黑屏，以 `box` 为准。亮度图只用空格和 `.:-=+*#%@`，不会被报告脱敏规则当作十六进制删掉。开启后的连接会先记录 `Debug probes: frameProbe=… ultraNoCornerMasks=… ultraMain8x3=…`。
+
+车辆数据开关（设置 → 高级）会在可用性变化时记录一行：`Vehicle state ECARX availability connected=… present=[…] missing=[…] tires=n/4 climate=n/13 volume=n/4 radio=…`。转速等高频信号的原始值每 30 s 最多记一条（`Vehicle signal engineRpm changed raw=…`）。另一份领克 05 实车记录称 VHAL 的转速、胎压恒为空；这一行能直接确认本车是否同样如此。
+
+每轮只改一个变量，否则无法归因：
+
+1. 基线：Ultra 关闭，只放 `frame-probe.enabled`。预期 `box=0,0..100,100`。
+2. 主题：加 `ultra-experiment.txt`。记录 `box` 是否只到约 66%，目视四角是否圆角。
+3. 圆角：在第 2 轮基础上加 `ultra-no-corner-masks.enabled`。只看圆角是否消失，`box` 应与第 2 轮相同。
+4. 画布：删掉圆角标记，改加 `ultra-main-8x3.enabled`。`box` 接近 `0,0..100,100` 说明 iPhone 按我们声明的尺寸绘制；仍是上部 2/3 说明主题自身就是这样绘制。
+5. 仪表组件：`ultra-experiment.txt` 不写 zone 行（`activeComponents` 为空），与只写地图 zone 的版本对比仪表上的组件。
+
+```sh
+P=com.shihab.diplay   # 车测包与正式包同包名
+D=/sdcard/Android/data/$P/files
+adb shell mkdir -p $D
+adb push ultra-experiment.txt $D/
+adb shell touch $D/frame-probe.enabled
+adb shell rm -f $D/ultra-no-corner-masks.enabled $D/ultra-main-8x3.enabled
+adb shell ls $D
+```
+
+改完标记后断开再连接 CarPlay（不要重启车机），然后导出诊断报告。
 
 ## 配置格式
 
