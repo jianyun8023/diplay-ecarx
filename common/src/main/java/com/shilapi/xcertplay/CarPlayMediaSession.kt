@@ -561,10 +561,15 @@ internal object CarPlayMediaSession {
 
     private fun publishHyDisplayLocked() {
         if (outputMode != MediaSessionMode.ANDROID || session?.isActive != true) return
+        val context = appContext ?: return
+        // Off: HY reads only the standard session. Forget the last send so turning it on resends at once.
+        if (!MediaSessionSettings.hyArtworkBroadcast(context)) {
+            lastHyPublication = null
+            return
+        }
         val retained = controller?.nowPlayingSnapshot() ?: return
         // A decode may reach the main loop before the queued metadata for the next song.
         if (metadataChanged(nowPlaying, retained) || nowPlaying.playing != retained.playing) return
-        val context = appContext ?: return
         // A connecting session has no phone metadata yet; do not clear HY's current source.
         if (nowPlaying == CarPlayNowPlaying()) return
         val uri = artworkUri

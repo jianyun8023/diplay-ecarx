@@ -6,7 +6,7 @@ import android.net.Uri
 import android.util.Log
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 
-/** HY dashboard updates its ECARX source; only the HY coexistence mode may send this protocol. */
+/** HY dashboard updates its ECARX source; only ANDROID mode with the HY artwork switch on may send it. */
 internal object HyMediaDisplay {
     fun publish(context: Context, nowPlaying: CarPlayNowPlaying, artworkUri: Uri?) {
         // HY 3.6.1 polls bitmap rowBytes and misses same-size covers; its dashboard accepts a URI.

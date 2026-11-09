@@ -936,9 +936,11 @@
     <string name="settings_hotspot_probe_denied">Permission denied.</string>
     <string name="settings_hotspot_probe_unsupported">API or configuration unsupported.</string>
     <string name="settings_media_output_mode">Car media integration</string>
-    <string name="settings_media_output_android">HY proxy</string>
+    <string name="settings_media_output_android">Android standard</string>
     <string name="settings_media_output_ecarx">DiPlay direct</string>
-    <string name="settings_media_output_description">DiPlay handles the cluster music information and media controls directly, or delegates them to HY. With DiPlay selected, disable HY media takeover. Applies at the next CarPlay connection.</string>
+    <string name="settings_media_output_description">DiPlay handles the cluster music information and media controls directly, or publishes a standard Android media session for the head unit or HY to read. With DiPlay selected, disable HY media takeover. Applies at the next CarPlay connection.</string>
+    <string name="settings_hy_artwork_broadcast">Send covers to HY</string>
+    <string name="settings_hy_artwork_broadcast_description">Also send HY its dashboard broadcast with the song and cover. Turn it on when the HY cluster cover does not change between songs; turn it off to use only the standard media session. Applies immediately.</string>
     <string name="settings_music_pause_door">Pause music when the driver door opens</string>
     <string name="settings_music_pause_door_description">Whether or not the engine is running. The car itself does not pause for this. Takes effect at once.</string>
     <string name="settings_music_pause_engine_off">Pause music when the engine stops</string>

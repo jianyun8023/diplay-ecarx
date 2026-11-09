@@ -2,8 +2,9 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 
-// Keep the stored boolean and enum order: ANDROID delegates vehicle media to HY; ECARX is direct.
-// Both publish a standard Android session, and the choice takes effect at the next connection.
+// Keep the stored boolean and enum order: ANDROID leaves vehicle media to a standard-session reader
+// such as HY; ECARX is direct. Both publish a standard Android session, and the choice takes effect at
+// the next connection.
 internal enum class MediaSessionMode { ANDROID, ECARX }
 
 /**
@@ -24,6 +25,7 @@ internal enum class HySiriKey(val value: Int, val label: String, vararg val code
 internal object MediaSessionSettings {
     const val PREFS = "diplay_media_session"
     private const val KEY_VOICE_PRESS = "voice_key_press"
+    private const val KEY_HY_ARTWORK = "hy_artwork_broadcast"
 
     fun wheelSiriEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("wheel_siri_enabled", true)
@@ -49,6 +51,14 @@ internal object MediaSessionSettings {
     fun setMode(context: Context, mode: MediaSessionMode) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean("ecarx", mode == MediaSessionMode.ECARX).apply()
+    }
+
+    /** Whether ANDROID mode also sends HY its dashboard broadcast; read per publish, so it applies at once. */
+    fun hyArtworkBroadcast(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_HY_ARTWORK, true)
+
+    fun setHyArtworkBroadcast(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_HY_ARTWORK, enabled).apply()
     }
 
     fun voiceKeyPress(context: Context): VoiceKeyPress {

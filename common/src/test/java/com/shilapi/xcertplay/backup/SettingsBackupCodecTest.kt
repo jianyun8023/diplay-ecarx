@@ -266,4 +266,15 @@ class SettingsBackupCodecTest {
         assertEquals(true, prefs("diplay_car_hotspot").getBoolean("auto_enable", false))
         assertFalse(airplay.contains("identity_private"))
     }
+
+    @Test
+    fun hyArtworkBroadcastSwitchRoundTrips() {
+        prefs("diplay_media_session").edit().putBoolean("hy_artwork_broadcast", false).commit()
+        val exported = SettingsBackupCodec.export(context, "0.2.30")
+        val settings = JSONObject(String(exported)).getJSONObject("settings")
+        assertFalse(settings.getJSONObject("diplay_media_session").getBoolean("hy_artwork_broadcast"))
+        prefs("diplay_media_session").edit().clear().commit()
+        SettingsBackupCodec.import(context, exported)
+        assertFalse(prefs("diplay_media_session").getBoolean("hy_artwork_broadcast", true))
+    }
 }
