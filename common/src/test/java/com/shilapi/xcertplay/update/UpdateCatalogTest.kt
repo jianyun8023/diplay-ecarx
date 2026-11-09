@@ -12,15 +12,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class UpdateCatalogTest {
-    private fun manifest(tag: String = "v137", apk: String = "DiPlay-release.apk", notes: String = "- Fix reconnect") =
+    private fun manifest(tag: String = "v137", apk: String = "DiPlay-v137-release.apk", notes: String = "- Fix reconnect") =
         JSONObject().put("tag", tag).put("apk", apk).put("notes", notes).toString()
 
     @Test
     fun buildsGithubUrlsFromTheTag() {
         val release = UpdateCatalog.parse(manifest())!!
         assertEquals("v137", release.tagName)
-        assertEquals("DiPlay-release.apk", release.apkName)
-        assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/DiPlay-release.apk", release.apkUrl)
+        assertEquals("DiPlay-v137-release.apk", release.apkName)
+        assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/DiPlay-v137-release.apk", release.apkUrl)
         assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/SHA256SUMS.txt", release.checksumsUrl)
         assertEquals("• Fix reconnect", release.notes)
     }

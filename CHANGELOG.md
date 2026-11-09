@@ -1,5 +1,12 @@
 # 未发布 — 2026-11-09
 
+## 安装包文件名带版本号
+
+- 构建产物改名为 `DiPlay-v<versionCode>-release.apk`／`DiPlay-v<versionCode>-debug.apk`（原为 `mobile-release.apk`／`mobile-debug.apk`），GitHub Release 附件同名（原为 `DiPlay-release.apk`），下载后一眼可见版本。CI 校验文件名与 versionCode 一致。
+- 应用内更新从 `update.json` 读取文件名，已安装的 v143、v144 照常更新。
+
+# v144 — 2026-11-09
+
 ## 更新说明按纯文本显示
 
 - v143 的「关于」页把 Release 正文的 Markdown 原样显示（`###`、`**`、反引号、链接地址）。现在 CI 生成 `update.json` 时就转为纯文本（`scripts/release_notes_plain.py`）：去掉标题符号、强调符号、代码标记和链接地址，列表改为「•」，多余空行合并，文字内容不变。说明由已安装的旧版显示，所以已装 v143 的用户检查 v144 时也能看到干净的说明。

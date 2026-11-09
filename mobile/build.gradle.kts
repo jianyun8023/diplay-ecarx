@@ -17,7 +17,7 @@ android {
         minSdk = 24
         targetSdk = 37
         // ECARX release sequence; upstream baseline is v0.2.22.
-        versionCode = 144
+        versionCode = 145
         versionName = "0.2"
         testInstrumentationRunner = "com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation"
 
@@ -59,6 +59,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 }
+
+// APKs are named DiPlay-v<versionCode>-<buildType>.apk, the name the GitHub Release carries.
+base.archivesName = "DiPlay-v${android.defaultConfig.versionCode}"
 
 dependencies {
     implementation(project(":common"))
