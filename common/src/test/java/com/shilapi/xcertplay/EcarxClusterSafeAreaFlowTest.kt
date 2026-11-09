@@ -41,7 +41,8 @@ class EcarxClusterSafeAreaFlowTest {
     private lateinit var settings: DiPlayActivity
     private val hosts = mutableListOf<CarPlayHostActivity>()
     private val original = SafeAreaRect(300, 100, 1500, 620)
-    private val defaultInsets = AirPlayInsets(top = 115, bottom = 180, left = 672, right = 691)
+    private val defaultRect = SafeAreaRect(494, 273, 1426, 620)
+    private val defaultInsets = AirPlayInsets(top = 273, bottom = 100, left = 494, right = 494)
 
     @Before fun setUp() {
         settings = Robolectric.buildActivity(DiPlayActivity::class.java).get()
@@ -73,7 +74,7 @@ class EcarxClusterSafeAreaFlowTest {
         assertTrue(entry.text.toString().endsWith(settings.getString(R.string.settings_ecarx_cluster_safe_area_default)))
         entry.performClick()
         assertTrue(dialog().isShowing)
-        assertEquals(SafeAreaRect(672, 115, 1229, 540), editor().currentRectForSource())
+        assertEquals(defaultRect, editor().currentRectForSource())
         assertNull(AirPlayPersistence.loadClusterSafeAreaRect(settings))
         assertEquals(defaultInsets, config().cluster!!.safeArea)
     }
@@ -138,13 +139,13 @@ class EcarxClusterSafeAreaFlowTest {
         assertNull(shadowOf(settings).nextStartedActivity)
     }
 
-    @Test fun resetIsOnlyADraftUntilSavedAndRestoresTheExactOriginalDefault() {
+    @Test fun resetIsOnlyADraftUntilSavedAndRestoresTheDefault() {
         AirPlayPersistence.saveClusterSafeAreaRect(settings, original)
         val owner = backgroundSession()
         val entry = entry()
         entry.performClick()
         action(R.string.reset).performClick()
-        assertEquals(SafeAreaRect(672, 115, 1229, 540), editor().currentRectForSource())
+        assertEquals(defaultRect, editor().currentRectForSource())
         assertEquals(original, AirPlayPersistence.loadClusterSafeAreaRect(settings))
         dialog().cancel()
         assertEquals(original, AirPlayPersistence.loadClusterSafeAreaRect(settings))
@@ -164,10 +165,10 @@ class EcarxClusterSafeAreaFlowTest {
         AirPlayPersistence.saveClusterSafeAreaRect(settings, original)
         entry().performClick()
         action(R.string.reset).performClick()
-        dragLeft(editor(), from = 336f, to = 300f)
+        dragLeft(editor(), from = 247f, to = 230f)
         action(R.string.save).performClick()
-        assertEquals(SafeAreaRect(600, 116, 1230, 540), AirPlayPersistence.loadClusterSafeAreaRect(settings))
-        assertEquals(600, config().cluster!!.safeArea!!.left)
+        assertEquals(SafeAreaRect(460, 274, 1426, 620), AirPlayPersistence.loadClusterSafeAreaRect(settings))
+        assertEquals(460, config().cluster!!.safeArea!!.left)
     }
 
     @Test fun mainMappingAndWindowDimensionsCannotChangeThePhysicalClusterMapping() {

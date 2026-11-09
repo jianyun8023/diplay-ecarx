@@ -4094,8 +4094,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun openClusterSafeAreaEditor(setting: Button) {
         clusterSafeAreaDialog?.dismiss()
         val saved = AirPlayPersistence.loadClusterSafeAreaRect(this)
-        // Match the physical stream's existing default, including its pixel rounding.
-        val insets = checkNotNull(CarPlayClusterDisplay.config(1920, 720, scalePercent = 100).safeArea)
+        val insets = CarPlayClusterDisplay.ECARX_SAFE_AREA
         val defaultRect = SafeAreaRect(insets.left, insets.top, 1920 - insets.right, 720 - insets.bottom)
         var useDefault = saved == null
         val editor = SafeAreaEditorView(this, palette).apply {

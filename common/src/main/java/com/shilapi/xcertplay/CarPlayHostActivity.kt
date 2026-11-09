@@ -1397,12 +1397,13 @@ open class CarPlayHostActivity : ComponentActivity() {
                 heightPixels = EcarxClusterSession.HEIGHT,
                 scalePercent = 100,
                 content = AirPlayPersistence.loadClusterContent(this),
-                baseSafeArea = CarPlayClusterDisplay.SAFE_AREA_PERCENT,
             )
-            val rect = AirPlayPersistence.loadClusterSafeAreaRect(this)
-            return (if (rect == null) config else config.copy(safeArea = AirPlaySafeArea.toInsets(
-                rect, EcarxClusterSession.WIDTH, EcarxClusterSession.HEIGHT, config.widthPixels, config.heightPixels,
-            ))).also {
+            val safeArea = AirPlayPersistence.loadClusterSafeAreaRect(this)?.let { rect ->
+                AirPlaySafeArea.toInsets(
+                    rect, EcarxClusterSession.WIDTH, EcarxClusterSession.HEIGHT, config.widthPixels, config.heightPixels,
+                )
+            } ?: CarPlayClusterDisplay.ECARX_SAFE_AREA
+            return config.copy(safeArea = safeArea).also {
                 appendLog(
                     "Cluster: requesting ${it.widthPixels}x${it.heightPixels} (8:3) " +
                         "instrument-cluster stream for display ${EcarxClusterSession.DISPLAY_ID}, " +

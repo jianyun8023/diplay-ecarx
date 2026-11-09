@@ -29,13 +29,12 @@ object CarPlayClusterDisplay {
         content == Content.TURN_CARD || content == Content.INSTRUMENTS
 
     /**
-     * Where the car marker goes, as percent of the panel (left, top, right, bottom). Measured on the
-     * reference cluster with a calibration grid. In "Full screen navi" the head unit draws a status
-     * row, turn/ADAS icons, the ADAS lane view (from x 68 %), speed and power readouts and a bottom band
-     * over the map; "Small screen navi" crops the panel to a centre window of about x 31–68 %,
-     * y 16–89 %. This centre area is clear in both modes, so no per-mode setting is needed.
+     * Centre area from the original calibration grid, also used to size the local turn card.
      */
     val SAFE_AREA_PERCENT = AirPlayInsets(top = 16, bottom = 25, left = 35, right = 36)
+
+    // On the V3 1920×720 layout, the left ADAS panel limits the width of the centered rectangle.
+    val ECARX_SAFE_AREA = AirPlayInsets(top = 273, bottom = 100, left = 494, right = 494)
 
     /** Balanced margins for virtual full-screen/16:9 streams (e.g. desktop cards/widgets). */
     val VIRTUAL_SAFE_AREA_PERCENT = AirPlayInsets(top = 8, bottom = 8, left = 8, right = 8)
