@@ -1,4 +1,40 @@
-# 未发布 — 2026-11-08
+# 未发布 — 2026-11-09
+
+## 安装包文件名带版本号
+
+- 构建产物改名为 `DiPlay-v<versionCode>-release.apk`／`DiPlay-v<versionCode>-debug.apk`（原为 `mobile-release.apk`／`mobile-debug.apk`），GitHub Release 附件同名（原为 `DiPlay-release.apk`），下载后一眼可见版本。CI 校验文件名与 versionCode 一致。
+- 应用内更新从 `update.json` 读取文件名，已安装的 v143、v144 照常更新。
+
+## 有线 CarPlay 不再每次读取都新建 USB 请求
+
+- 有线连接的 USBMUX 读取原来每次都新建一个 `UsbRequest`，并分配 64 KiB 直接缓冲区，用完即释放。车机上约每秒 14 次，系统每次都记一对 `UsbRequestJNI: init`／`close`。10-31 实车日志一小时约 10 万行，占全部日志的两成，还平白增加内存分配和 GC。现在整个连接只用一个请求和一个缓冲区，断开时释放。
+- 超时读取仍是先取消、再取回、保留已到的数据（#610、#301 的修复不变）。读取正在进行时断开，请求交给读取线程释放，不会在仍在排队时被释放。
+
+## iPhone 重复发送 SETUP 不再断开会话
+
+- 同一会话中第二次非媒体流 SETUP 会再开一个时钟监听，抛出「NtpClock is already running」，整个控制连接随之断开。现在重复 SETUP 返回已打开的时钟、事件和保活端口。
+- 修正 `IphoneCornerMaskSessionTest`：原测试只在后台关闭会话先完成时才通过，最近 CI 失败多数由它引起。
+
+# v144 — 2026-11-09
+
+## 更新说明按纯文本显示
+
+- v143 的「关于」页把 Release 正文的 Markdown 原样显示（`###`、`**`、反引号、链接地址）。现在 CI 生成 `update.json` 时就转为纯文本（`scripts/release_notes_plain.py`）：去掉标题符号、强调符号、代码标记和链接地址，列表改为「•」，多余空行合并，文字内容不变。说明由已安装的旧版显示，所以已装 v143 的用户检查 v144 时也能看到干净的说明。
+- 应用解析 `update.json` 时再做同样的转换，防止以后的正文混入 Markdown。
+
+## 可查看本版更新说明
+
+- 「设置 › 关于」新增「本版更新说明」：点开后读取当前版本自己 Release 附带的 `update.json`（`releases/download/v<versionCode>/update.json`），与检查更新共用下载来源和自动切换。读到后缓存，再次查看无需联网；升级后改读新版本的说明。没有在 GitHub 发布的版本（如本地自打的包）读不到时，提示检查网络或更换来源，并说明此类版本没有说明。
+
+# v143 — 2026-11-09
+
+## 公开 Release 可应用内更新；MFi 身份留在磁盘，可在设置中导入
+
+- 应用内更新改读本仓库 `jianyun8023/diplay-ecarx` 的 Release，只对 Release 包名 `com.shihab.diplay` 开启（`.hudtest` 调试包是另一个应用，不提示）。Release tag 按 `v<versionCode>` 解释，比已安装的 versionCode 大才提示；CI 发布时校验 tag 与 APK 的 versionCode 一致。
+- 检查更新显示更新说明：CI 发布时把 Release 正文写进附件 `update.json`，应用从 `releases/latest/download/update.json` 读取（不再调用 `api.github.com`）。v134 及更早的 Release 没有这个文件，从下一个 Release 起生效。
+- 「设置 › 关于 › 下载来源」：自动（默认，先试上次可用的来源，再试 GitHub 直连，再依次试 ghfast.top、gh-proxy.com 与自定义加速站）、GitHub 直连、指定加速站，或自定义 https 前缀。下载完成后先核对 SHA-256，再确认安装包与本应用包名相同、签名相同且版本更新，不符则不交给安装器。
+- 新增 `:mobile:assembleStandaloneRelease`：本地用 Release 包名打带身份的首装包。首次打开后身份写入 `no_backup/offline-mfi/`，之后的公开包（不含身份）覆盖升级继续使用它。
+- 「设置 › 高级 › MFi 证书与签名目标」选「本地离线」时显示身份状态，并可导入 `identity.pk8` 与 `certificate.p7b`：先校验私钥与证书匹配，再原子替换；不匹配时保留原身份。没有身份时首页提示去导入，不再只说重装。
 
 ## 熄火下车后点亮屏幕自动重连：补上热点与重建（小米 8 台架已验证）
 

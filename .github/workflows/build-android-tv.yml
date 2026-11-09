@@ -27,13 +27,13 @@ jobs:
       - name: Prepare Debug APK and matching source
         run: |
           mkdir -p source-apk
-          cp mobile/build/outputs/apk/debug/mobile-debug.apk source-apk/DiPlay-debug.apk
+          cp mobile/build/outputs/apk/debug/DiPlay-v*-debug.apk source-apk/
           git archive --format=tar.gz --prefix=DiPlay-source/ --output=source-apk/DiPlay-source.tar.gz HEAD
           debug_source_revision=$(git rev-parse HEAD)
           printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$debug_source_revision" > source-apk/SOURCE-REVISION.txt
           cd source-apk
-          sha256sum DiPlay-debug.apk DiPlay-source.tar.gz SOURCE-REVISION.txt > SHA256SUMS.txt
+          sha256sum DiPlay-v*-debug.apk DiPlay-source.tar.gz SOURCE-REVISION.txt > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DiPlay-Android-TV-source-only

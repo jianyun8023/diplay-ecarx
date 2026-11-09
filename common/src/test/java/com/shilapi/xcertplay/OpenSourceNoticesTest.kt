@@ -77,6 +77,7 @@ class OpenSourceNoticesTest {
         shadowOf(activity.packageManager).installPackage(PackageInfo().apply {
             packageName = activity.packageName
             versionName = "0.2"
+            setLongVersionCode(144)
         })
         val content = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -88,6 +89,10 @@ class OpenSourceNoticesTest {
         root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
         root.layout(0, 0, 1920, 1080)
+        val version = views(content).filterIsInstance<TextView>().single {
+            it.text.toString() == activity.getString(R.string.about_ecarx_edition_version, "0.2 (v144)")
+        }
+        assertTrue(version.getLocalVisibleRect(Rect()))
         val entry = views(content).filterIsInstance<Button>().single {
             it.text.toString() == activity.getString(R.string.settings_open_source_licenses)
         }
@@ -104,6 +109,7 @@ class OpenSourceNoticesTest {
         }
         val folder = File("build/reports/open-source-ui").apply { mkdirs() }
         val bitmap = Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
+        root.scrollTo(0, 0)
         root.draw(Canvas(bitmap))
         File(folder, "about-current-head-unit.png").outputStream().use {
             assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))

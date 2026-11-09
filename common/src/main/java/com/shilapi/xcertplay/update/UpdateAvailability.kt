@@ -4,13 +4,19 @@ import android.content.Context
 
 /** Durable metadata only. APK downloads always remain an explicit foreground action. */
 internal object UpdateAvailability {
-    // Upstream releases must stay disabled until this fork has its own update channel.
-    const val ENABLED = false
+    /** The CI release package. The `.hudtest` debug package is another app, so a release APK cannot upgrade it. */
+    internal const val RELEASE_PACKAGE = "com.shihab.diplay"
     private const val PREFERENCES = "diplay_update_availability"
     private const val TAG = "tag"
     private const val APK_NAME = "apk_name"
     private const val APK_URL = "apk_url"
     private const val CHECKSUMS_URL = "checksums_url"
+    private const val NOTES = "notes"
+    private const val INSTALLED_TAG = "installed_tag"
+    private const val INSTALLED_NOTES = "installed_notes"
+    private const val MIRROR = "mirror"
+    private const val CUSTOM_MIRROR = "custom_mirror"
+    private const val LAST_WORKING_ROUTE = "last_working_route"
     private const val LAST_ATTEMPT_MILLIS = "last_attempt_millis"
     private const val BACKGROUND_CHECKS = "background_checks"
     private const val LAST_RESULT = "last_result"
@@ -23,23 +29,30 @@ internal object UpdateAvailability {
     private fun preferences(context: Context) =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
+    internal fun enabled(packageName: String): Boolean = packageName == RELEASE_PACKAGE
+
+    fun enabled(context: Context): Boolean = enabled(context.packageName)
+
     fun backgroundChecksEnabled(context: Context): Boolean =
-        ENABLED && preferences(context).getBoolean(BACKGROUND_CHECKS, true)
+        enabled(context) && preferences(context).getBoolean(BACKGROUND_CHECKS, true)
 
     fun saveBackgroundChecksEnabled(context: Context, enabled: Boolean) {
         preferences(context).edit().putBoolean(BACKGROUND_CHECKS, enabled).apply()
     }
 
-    fun available(context: Context, installedVersion: String): UpdateRelease? {
-        if (!ENABLED) return null
+    fun available(context: Context, installedBuild: Long): UpdateRelease? =
+        if (enabled(context)) cached(context, installedBuild) else null
+
+    internal fun cached(context: Context, installedBuild: Long): UpdateRelease? {
         val values = preferences(context)
         val release = UpdateRelease(
             tagName = values.getString(TAG, null) ?: return null,
             apkName = values.getString(APK_NAME, null) ?: return null,
             apkUrl = values.getString(APK_URL, null) ?: return null,
             checksumsUrl = values.getString(CHECKSUMS_URL, null) ?: return null,
+            notes = values.getString(NOTES, null).orEmpty(),
         )
-        if (UpdateVersion.isNewer(release.tagName, installedVersion)) return release
+        if (UpdateVersion.isNewer(release.tagName, installedBuild)) return release
         clear(context)
         return null
     }
@@ -50,6 +63,7 @@ internal object UpdateAvailability {
             .putString(APK_NAME, release.apkName)
             .putString(APK_URL, release.apkUrl)
             .putString(CHECKSUMS_URL, release.checksumsUrl)
+            .putString(NOTES, release.notes)
             .apply()
     }
 
@@ -59,7 +73,40 @@ internal object UpdateAvailability {
             .remove(APK_NAME)
             .remove(APK_URL)
             .remove(CHECKSUMS_URL)
+            .remove(NOTES)
             .apply()
+    }
+
+    /** The notes of the installed build, once read; null until then and again after an upgrade. */
+    fun installedNotes(context: Context, installedBuild: Long): String? {
+        val values = preferences(context)
+        return values.getString(INSTALLED_NOTES, null)?.takeIf { values.getString(INSTALLED_TAG, null) == "v$installedBuild" }
+    }
+
+    fun saveInstalledNotes(context: Context, release: UpdateRelease) {
+        preferences(context).edit().putString(INSTALLED_TAG, release.tagName).putString(INSTALLED_NOTES, release.notes).apply()
+    }
+
+    /** [UpdateMirror.AUTO], [UpdateMirror.DIRECT] or a mirror prefix. */
+    fun mirror(context: Context): String = preferences(context).getString(MIRROR, null) ?: UpdateMirror.AUTO
+
+    fun customMirror(context: Context): String? = preferences(context).getString(CUSTOM_MIRROR, null)
+
+    fun saveMirror(context: Context, choice: String) {
+        val edit = preferences(context).edit().putString(MIRROR, choice)
+        if (choice != UpdateMirror.AUTO && choice != UpdateMirror.DIRECT && choice !in UpdateMirror.BUILT_IN) {
+            edit.putString(CUSTOM_MIRROR, choice)
+        }
+        edit.apply()
+    }
+
+    fun routes(context: Context): List<String> {
+        val values = preferences(context)
+        return UpdateMirror.routes(mirror(context), values.getString(LAST_WORKING_ROUTE, null), customMirror(context))
+    }
+
+    fun recordWorkingRoute(context: Context, route: String) {
+        preferences(context).edit().putString(LAST_WORKING_ROUTE, route).apply()
     }
 
     fun shouldCheck(context: Context, nowMillis: Long): Boolean {
@@ -85,6 +132,7 @@ internal object UpdateAvailability {
         fun age(key: String) = values.getLong(key, 0L).takeIf { it > 0L }
             ?.let { "${(nowMillis - it).coerceAtLeast(0L) / 60_000} min ago" } ?: "never"
         return "Update check: background=${if (backgroundChecksEnabled(context)) "on" else "off"}; " +
+            "source=${mirror(context)} (last working ${values.getString(LAST_WORKING_ROUTE, null) ?: "none"}); " +
             "lastSuccess=${age(LAST_ATTEMPT_MILLIS)}; cachedRelease=${values.getString(TAG, null) ?: "none"}; " +
             "lastResult=${values.getString(LAST_RESULT, null) ?: "none"} (${age(LAST_RESULT_MILLIS)}); " +
             "lastInstall=${values.getString(LAST_INSTALL, null) ?: "none"} (${age(LAST_INSTALL_MILLIS)})"

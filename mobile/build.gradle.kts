@@ -17,7 +17,7 @@ android {
         minSdk = 24
         targetSdk = 37
         // ECARX release sequence; upstream baseline is v0.2.22.
-        versionCode = 136
+        versionCode = 145
         versionName = "0.2"
         testInstrumentationRunner = "com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation"
 
@@ -62,10 +62,12 @@ android {
     }
 }
 
+// APKs are named DiPlay-v<versionCode>-<buildType>.apk, the name the GitHub Release carries.
+base.archivesName = "DiPlay-v${android.defaultConfig.versionCode}"
+
 dependencies {
     implementation(project(":common"))
     implementation(project(":shared"))
-    implementation(libs.androidx.app.projected)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
 }
@@ -114,4 +116,10 @@ tasks.register("assembleStandaloneDebug") {
     group = "build"
     description = "Build a standalone car-test APK with explicitly provisioned authentication."
     dependsOn(verifyStandaloneAuthentication, "assembleDebug")
+}
+tasks.register("assembleStandaloneRelease") {
+    group = "build"
+    description = "Build a release-package APK with explicitly provisioned authentication, for a first install " +
+        "that public GitHub releases then upgrade."
+    dependsOn(verifyStandaloneAuthentication, "assembleRelease")
 }

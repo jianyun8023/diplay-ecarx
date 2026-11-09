@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
@@ -53,7 +54,14 @@ class HomeActivity : ComponentActivity() {
             addView(LinearLayout(context).apply {
                 addView(pill(getString(R.string.home_apps)) { showApps(true) }, weighted())
                 addView(pill("CarPlay") { mapPanel.openCarPlay() }, weighted())
-                addView(pill(getString(R.string.home_byd_home)) { openBydHome() }, weighted())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    addView(pill(getString(R.string.home_byd_home)) { openBydHome() }, weighted())
+                } else {
+                    addView(pill(getString(R.string.home_system_home)) {
+                        startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }, weighted())
+                }
             }, LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(16) })
         }
         editButton = pill(getString(R.string.home_edit)) { setEditing(!board.editing) }
@@ -92,7 +100,7 @@ class HomeActivity : ComponentActivity() {
                 when {
                     appsOverlay.visibility == View.VISIBLE -> showApps(false)
                     board.editing -> setEditing(false)
-                    // Home has nowhere to go back to.
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.R -> finish()
                 }
             }
         })
@@ -210,8 +218,15 @@ class HomeActivity : ComponentActivity() {
     }
 }
 
-/** Keeps its child at a fixed width:height ratio, as wide as it may be. */
-class AspectFrame(context: Context, private val ratio: Float) : FrameLayout(context) {
+/** Keeps its child at the requested width:height ratio, as wide as it may be. */
+class AspectFrame(context: Context, ratio: Float) : FrameLayout(context) {
+    var ratio = ratio
+        set(value) {
+            if (field == value) return
+            field = value
+            requestLayout()
+        }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         var width = MeasureSpec.getSize(widthMeasureSpec)
         var height = (width / ratio).toInt()

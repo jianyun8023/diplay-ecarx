@@ -1,0 +1,26 @@
+<resources>
+    <string name="home_apps">应用</string>
+    <string name="home_byd_home">比亚迪桌面</string>
+    <string name="home_system_home">系统桌面</string>
+    <string name="home_edit">编辑</string>
+    <string name="home_done">完成</string>
+    <string name="home_widgets">小组件</string>
+    <string name="home_add">＋ 添加</string>
+    <string name="home_close">关闭</string>
+    <string name="home_byd_unavailable">无法打开比亚迪桌面</string>
+    <string name="home_no_widgets">没有已安装的小组件</string>
+    <string name="home_add_widget">添加小组件</string>
+    <string name="home_allow_widgets">允许小组件</string>
+    <string name="home_allow_widgets_description">此车机没有小组件授权界面。请通过 ADB 为 DiPlay Home 授权一次：\n\nadb shell appwidget grantbind --package %1$s --user 0</string>
+    <string name="home_remove_widget">移除小组件</string>
+    <string name="home_widget_consent_unavailable">此系统无法打开小组件授权界面。</string>
+    <string name="home_map_stopped">DiPlay 已停止</string>
+    <string name="home_map_not_installed">尚未安装 DiPlay</string>
+    <string name="home_map_connecting">正在连接 DiPlay…</string>
+    <string name="home_map_refused">DiPlay 拒绝连接</string>
+    <string name="home_map_missing">DiPlay 未提供地图</string>
+    <string name="home_map_disabled">请在 DiPlay 中开启\n「与其他启动器共享实时地图」</string>
+    <string name="home_map_unsupported">更新 DiPlay 后即可在此设备上显示实时地图。</string>
+    <string name="home_map_waiting">等待 CarPlay 地图</string>
+    <string name="home_map_error">DiPlay 无法显示地图</string>
+</resources>

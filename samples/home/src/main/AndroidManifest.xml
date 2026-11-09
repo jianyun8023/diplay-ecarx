@@ -15,6 +15,7 @@
             android:name=".HomeActivity"
             android:clearTaskOnLaunch="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode|keyboard|keyboardHidden|navigation"
+            android:enabled="@bool/home_system_entry_enabled"
             android:excludeFromRecents="true"
             android:exported="true"
             android:launchMode="singleTask"
@@ -33,5 +34,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Keep the existing system-home component on Android 11+, with only an app shortcut on older systems. -->
+        <activity-alias
+            android:name=".HomeShortcut"
+            android:enabled="@bool/home_shortcut_enabled"
+            android:exported="true"
+            android:targetActivity=".HomeActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

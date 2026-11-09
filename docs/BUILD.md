@@ -10,10 +10,9 @@ Select `mobile` to build the main DiPlay app.
 
 | Gradle module | Purpose | Debug APK |
 | --- | --- | --- |
-| `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/mobile-debug.apk` |
+| `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk` |
 | `:maphost` | Sample application that displays a map from DiPlay | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
 | `:home` | Optional DiPlay Home launcher | `samples/home/build/outputs/apk/debug/home-debug.apk` |
-| `:automotive` | Separate Android Automotive application inherited from xcertplay | `automotive/build/outputs/apk/debug/automotive-debug.apk` |
 
 The `:common` and `:shared` modules are libraries.
 The applications use these libraries.
@@ -75,7 +74,7 @@ For a source build without runtime authentication assets:
 Check that this file exists:
 
 ```text
-mobile/build/outputs/apk/debug/mobile-debug.apk
+mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk
 ```
 
 The debug application ID is `com.shihab.diplay.hudtest`.
@@ -134,7 +133,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 ```
 
 The task stops if either required file is absent or empty.
-Its APK output is `mobile/build/outputs/apk/debug/mobile-debug.apk`.
+Its APK output is `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk`.
 Check both files in the APK against your selected local inputs:
 
 - `assets/offline-mfi/identity.pk8`.
@@ -163,7 +162,7 @@ Run the release checks and build:
 ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintRelease :mobile:assembleRelease
 ```
 
-The output is `mobile/build/outputs/apk/release/mobile-release.apk`.
+The output is `mobile/build/outputs/apk/release/DiPlay-v<versionCode>-release.apk`.
 The APK excludes the Android signing key.
 An in-place update can reuse valid MFi files already installed in the app's private directory.
 A fresh install or cleared app data needs separately provisioned authentication or a supported hardware authenticator.
@@ -174,7 +173,7 @@ That opt-in embeds the runtime identity in the APK, where recipients can extract
 
 The Android checks workflow runs tests, lint and source-only Debug builds on `dev`/`main` pushes and pull requests.
 Publishing a GitHub Release also runs those checks, then signs the main Release APK and attaches
-`DiPlay-release.apk` and `SHA256SUMS.txt` to that Release. A manually dispatched run builds the selected ref
+`DiPlay-v<versionCode>-release.apk` and `SHA256SUMS.txt` to that Release. A manually dispatched run builds the selected ref
 and uploads the same files as the `DiPlay-signed-release` Actions artifact without publishing a Release.
 
 The released tag must include the updated `.github/workflows/android.yml`.

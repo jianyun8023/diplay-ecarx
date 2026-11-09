@@ -83,14 +83,16 @@ class WidgetBoard(private val activity: Activity, private val column: LinearLayo
             @Suppress("DEPRECATION")
             activity.startActivityForResult(consent, REQUEST_BIND)
         } catch (_: ActivityNotFoundException) {
-            // Some head units have no consent screen; the owner allows binding once over adb.
             pendingId = null
             host.deleteAppWidgetId(id)
+            val message = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                activity.getString(R.string.home_widget_consent_unavailable)
+            } else {
+                activity.getString(R.string.home_allow_widgets_description, activity.packageName)
+            }
             AlertDialog.Builder(activity)
                 .setTitle(R.string.home_allow_widgets)
-                .setMessage(
-                    activity.getString(R.string.home_allow_widgets_description, activity.packageName),
-                )
+                .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)
                 .show()
         }

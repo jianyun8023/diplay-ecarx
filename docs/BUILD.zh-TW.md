@@ -8,10 +8,9 @@
 
 | Gradle 模組 | 用途 | Debug APK |
 | --- | --- | --- |
-| `:mobile` | 車機使用的主要 DiPlay 應用程式 | `mobile/build/outputs/apk/debug/mobile-debug.apk` |
+| `:mobile` | 車機使用的主要 DiPlay 應用程式 | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk` |
 | `:home` | 選用的 DiPlay Home 啟動器 | `samples/home/build/outputs/apk/debug/home-debug.apk` |
 | `:maphost` | 接收 DiPlay 地圖的範例應用程式 | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
-| `:automotive` | 從 xcertplay 繼承的獨立 Android Automotive 應用程式 | `automotive/build/outputs/apk/debug/automotive-debug.apk` |
 
 `:common` 與 `:shared` 是共用函式庫。要安裝主程式，請選 **mobile**；如果裝到「DiPlay map host」，表示選錯模組或 APK。單獨執行 `assembleDebug` 可能建置多個應用程式。
 
@@ -100,7 +99,7 @@ Linux／macOS：
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneDebug
 ```
 
-任一必要檔案缺少或為空時，任務會停止；建置也會拒絕非預期的憑證容器。輸出為 `mobile/build/outputs/apk/debug/mobile-debug.apk`。請確認 APK 中的 `assets/offline-mfi/identity.pk8` 與 `assets/offline-mfi/certificate.p7b` 符合選定素材。使用相同簽章更新既有測試程式，才能保留設定。
+任一必要檔案缺少或為空時，任務會停止；建置也會拒絕非預期的憑證容器。輸出為 `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk`。請確認 APK 中的 `assets/offline-mfi/identity.pk8` 與 `assets/offline-mfi/certificate.p7b` 符合選定素材。使用相同簽章更新既有測試程式，才能保留設定。
 
 ## 正式版建置
 
@@ -120,7 +119,7 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 .\gradlew.bat :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintRelease :mobile:assembleRelease
 ```
 
-Linux／macOS 使用 `./gradlew`。輸出為 `mobile/build/outputs/apk/release/mobile-release.apk`。只有明確設定 `DIPLAY_AUTH_ASSETS_DIR` 才會加入外部配件身分；接收者可從 APK 擷取該身分。公開 Actions Release 不注入 MFi 身分，APK 也不含 Android 簽章私密金鑰。詳見[第三方聲明](THIRD_PARTY_NOTICES.md)。
+Linux／macOS 使用 `./gradlew`。輸出為 `mobile/build/outputs/apk/release/DiPlay-v<versionCode>-release.apk`。只有明確設定 `DIPLAY_AUTH_ASSETS_DIR` 才會加入外部配件身分；接收者可從 APK 擷取該身分。公開 Actions Release 不注入 MFi 身分，APK 也不含 Android 簽章私密金鑰。詳見[第三方聲明](THIRD_PARTY_NOTICES.md)。
 
 APK 的 `assets/licenses/` 包含 GPL、AGPL、元件授權全文、版權聲明及原始碼取得方式，可在「關於 → 授權與原始碼」離線閱讀。Actions 發布附件同時提供 `DiPlay-licenses.zip`、`DiPlay-source.tar.gz`、`SOURCE-REVISION.txt` 及 `SHA256SUMS.txt`；原始碼壓縮檔與 APK 使用同一提交。自行修改的版本須另提供實際使用的修改後原始碼。預編譯原生程式庫與保留原始碼的對應關係仍待核對，不能以附上倉庫壓縮檔取代此項驗證。
 
