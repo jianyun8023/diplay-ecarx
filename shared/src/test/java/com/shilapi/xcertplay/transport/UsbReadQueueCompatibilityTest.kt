@@ -228,18 +228,24 @@ object UsbQueueReplay {
     /** The next completion carries no bytes, as a cancelled read does. */
     var emptyCompletion = false
     var cancels = 0
+    var initializes = 0
+    var closes = 0
     fun reset() {
         outcomes.clear(); sizes.clear(); buffers.clear(); request = null; buffer = null
         queueException = null; timeout = false; onQueue = null
         transfer = null; transferOffset = 0; completedBytes.clear(); untimedWaits = 0
         timeouts = 0; cancelResult = true; emptyCompletion = false; cancels = 0
+        initializes = 0; closes = 0
     }
 }
 
 @Implements(UsbRequest::class)
 class CompatibilityUsbRequestShadow {
     @RealObject lateinit var request: UsbRequest
-    @Implementation fun initialize(connection: UsbDeviceConnection, endpoint: UsbEndpoint) = true
+    @Implementation fun initialize(connection: UsbDeviceConnection, endpoint: UsbEndpoint): Boolean {
+        UsbQueueReplay.initializes += 1
+        return true
+    }
     @Implementation(minSdk = 26) fun queue(buffer: ByteBuffer): Boolean {
         UsbQueueReplay.sizes.add(buffer.remaining())
         UsbQueueReplay.buffers.add(buffer)
@@ -261,7 +267,9 @@ class CompatibilityUsbRequestShadow {
         UsbQueueReplay.cancels += 1
         return UsbQueueReplay.cancelResult
     }
-    @Implementation fun close() = Unit
+    @Implementation fun close() {
+        UsbQueueReplay.closes += 1
+    }
 }
 
 @Implements(UsbDeviceConnection::class)

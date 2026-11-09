@@ -5,6 +5,11 @@
 - 构建产物改名为 `DiPlay-v<versionCode>-release.apk`／`DiPlay-v<versionCode>-debug.apk`（原为 `mobile-release.apk`／`mobile-debug.apk`），GitHub Release 附件同名（原为 `DiPlay-release.apk`），下载后一眼可见版本。CI 校验文件名与 versionCode 一致。
 - 应用内更新从 `update.json` 读取文件名，已安装的 v143、v144 照常更新。
 
+## 有线 CarPlay 不再每次读取都新建 USB 请求
+
+- 有线连接的 USBMUX 读取原来每次都新建一个 `UsbRequest`，并分配 64 KiB 直接缓冲区，用完即释放。车机上约每秒 14 次，系统每次都记一对 `UsbRequestJNI: init`／`close`。10-31 实车日志一小时约 10 万行，占全部日志的两成，还平白增加内存分配和 GC。现在整个连接只用一个请求和一个缓冲区，断开时释放。
+- 超时读取仍是先取消、再取回、保留已到的数据（#610、#301 的修复不变）。读取正在进行时断开，请求交给读取线程释放，不会在仍在排队时被释放。
+
 # v144 — 2026-11-09
 
 ## 更新说明按纯文本显示

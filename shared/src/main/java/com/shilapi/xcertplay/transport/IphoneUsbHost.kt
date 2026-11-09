@@ -458,6 +458,11 @@ class Iap2UsbSession internal constructor(
     private var closed = false
     private var failure: IphoneUsbException? = null
     private var pendingRead: UsbRequest? = null
+    // One request and buffer serve every read. A fresh pair per read cost a JNI init/close (each
+    // logged by the platform) and a 64 KiB direct allocation about 14 times a second while wired.
+    // A read that returns normally leaves the request idle: completed, or cancelled and drained.
+    private var readRequest: UsbRequest? = null
+    private val readBuffer = ByteBuffer.allocateDirect(USBMUX_READ_CHUNK_BYTES)
     private val readQueuePolicy = UsbReadQueuePolicy.forCurrentPlatform()
     private val requests = UsbRequestQueue(connection, "usbmux-read-reaper")
 
@@ -477,21 +482,34 @@ class Iap2UsbSession internal constructor(
     fun read(timeoutMillis: Long): ByteArray? = synchronized(readLock) {
         checkOpen()
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
-        val request = UsbRequest()
-        var initialized = false
-        try {
-            if (!request.initialize(connection, inEndpoint)) {
-                throw IphoneUsbException.DeviceUnavailable(
-                    "Android could not initialize USBMUX read request (${requestDiagnostics(timeoutMillis)})",
-                )
+        val buffer = readBuffer
+        // Published as pendingRead under the same lock that close() takes, so close() leaves the
+        // request to this reader instead of freeing it.
+        val request = try {
+            synchronized(stateLock) {
+                checkOpenLocked()
+                (readRequest ?: UsbRequest().also {
+                    if (!it.initialize(connection, inEndpoint)) {
+                        it.close()
+                        throw IphoneUsbException.DeviceUnavailable(
+                            "Android could not initialize USBMUX read request (${requestDiagnostics(timeoutMillis)})",
+                        )
+                    }
+                    readRequest = it
+                }).also { pendingRead = it }
             }
-            initialized = true
-            val buffer = ByteBuffer.allocateDirect(USBMUX_READ_CHUNK_BYTES)
+        } catch (error: RuntimeException) {
+            throw failSession("USBMUX read failed", error)
+        }
+        var queued = false
+        var idle = false
+        try {
+            buffer.clear()
             val queueResult = synchronized(stateLock) {
                 checkOpenLocked()
-                pendingRead = request
                 readQueuePolicy.queue(buffer, ::checkOpenLocked) { requests.queue(request, it) }
             }
+            queued = queueResult.queued
             if (!queueResult.queued) {
                 throw IphoneUsbException.DeviceUnavailable(
                     "Android could not queue USBMUX read request (${requestDiagnostics(timeoutMillis)} " +
@@ -509,7 +527,7 @@ class Iap2UsbSession internal constructor(
             val completed = try {
                 requests.await(timeoutMillis)
             } catch (_: TimeoutException) {
-                return@synchronized drainTimedOutRead(request, buffer)
+                return@synchronized drainTimedOutRead(request, buffer).also { idle = true }
             }
             if (completed == null) {
                 throw failSession("Android returned no USBMUX read request")
@@ -517,6 +535,7 @@ class Iap2UsbSession internal constructor(
             if (completed !== request) {
                 throw failSession("Android completed an unexpected USB request")
             }
+            idle = true
             return@synchronized ByteArray(buffer.position()).also {
                 buffer.flip()
                 buffer.get(it)
@@ -526,23 +545,28 @@ class Iap2UsbSession internal constructor(
         } catch (error: RuntimeException) {
             throw failSession("USBMUX read failed", error)
         } finally {
-            synchronized(stateLock) {
+            if (queued && !idle) runCatching { request.cancel() }
+            val closeRequest = synchronized(stateLock) {
                 if (pendingRead === request) pendingRead = null
+                closed.also { if (it) readRequest = null }
             }
-            if (initialized) request.cancel()
-            request.close()
+            if (closeRequest) request.close()
         }
     }
 
     override fun close() {
-        val requestToCancel = synchronized(stateLock) {
+        val requestToCancel: UsbRequest?
+        val idleRequest: UsbRequest?
+        synchronized(stateLock) {
             if (closed) return
             closed = true
-            pendingRead
+            requestToCancel = pendingRead
+            idleRequest = if (pendingRead == null) readRequest.also { readRequest = null } else null
         }
         requestToCancel?.cancel()
         requests.close()
         connection.close()
+        idleRequest?.close()
     }
 
     private fun checkOpen() {
