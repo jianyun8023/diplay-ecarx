@@ -28,6 +28,7 @@ class UpdateCatalogTest {
     @Test
     fun manifestIsReadFromTheLatestReleaseOnGithub() {
         assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/latest/download/update.json", UpdateCatalog.MANIFEST_URL)
+        assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v143/update.json", UpdateCatalog.manifestUrl("v143"))
     }
 
     @Test

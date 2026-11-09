@@ -17,13 +17,17 @@ internal data class UpdateRelease(
  */
 internal object UpdateCatalog {
     internal const val REPOSITORY = "https://github.com/jianyun8023/diplay-ecarx"
-    internal const val MANIFEST_URL = "$REPOSITORY/releases/latest/download/update.json"
+    internal const val MANIFEST_FILE = "update.json"
+    internal const val MANIFEST_URL = "$REPOSITORY/releases/latest/download/$MANIFEST_FILE"
     internal const val CHECKSUMS_FILE = "SHA256SUMS.txt"
     // Long notes are cut so a careless release body cannot fill the About page.
     internal const val MAXIMUM_NOTES_CHARS = 4000
     private val TAG = Regex("v\\d{1,9}")
     // The name becomes a file in the cache folder, so it can hold no path.
     private val APK_NAME = Regex("[A-Za-z0-9][A-Za-z0-9._-]*\\.apk")
+
+    /** The manifest attached to the release of [tag]; it carries that build's own notes. */
+    internal fun manifestUrl(tag: String) = "$REPOSITORY/releases/download/$tag/$MANIFEST_FILE"
 
     /** Returns the release that the manifest describes, or null when it is incomplete or unsafe. */
     internal fun parse(json: String): UpdateRelease? {

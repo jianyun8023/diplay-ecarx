@@ -928,4 +928,7 @@
     <string name="settings_update_source_invalid">請輸入 https 加速站前綴，例如 https://mirror.example/</string>
     <string name="settings_update_source_description">自動：先試上次可用的來源，再試 GitHub 直連，最後依序試加速站。加速站只轉發下載，簽章與本應用程式不同的安裝檔不會被安裝。</string>
     <string name="settings_update_check_failed">無法連線 GitHub 或加速站。請稍後重試，或更換下載來源。</string>
+    <string name="settings_installed_notes">本版更新說明</string>
+    <string name="settings_installed_notes_loading">正在載入更新說明…</string>
+    <string name="settings_installed_notes_failed">未能取得本版更新說明。請檢查網路或更換下載來源；未在 GitHub 發布的版本沒有說明。</string>
 </resources>
