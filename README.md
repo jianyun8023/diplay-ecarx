@@ -8,7 +8,7 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 连接、日常设置和排错，见 [车主使用说明（含设置图）](docs/USER-GUIDE.zh-CN.md)。功能细节和验证范围见 [详细说明](docs/FEATURES.zh-CN.md)。
 
-说明已对齐 **dev v134（2026-11-07，`7619ee32`）**，对照上一版用户手册 v122。导航声音、自动热点保护、开机服务与短按 Siri 的新实现仍待实车复测。
+各文档开头标注其适用版本：车主使用说明对齐 v142 车测包，详细说明以 v134 为基线。导航声音、自动热点保护、开机服务与短按 Siri 的新实现仍待实车复测。
 
 | 功能 | 需要开启的设置 |
 | --- | --- |
@@ -50,7 +50,7 @@ DiPlay brings iPhone navigation, music, Siri and calls to the Lynk & Co head uni
 
 For connection, everyday settings and troubleshooting, see the [owner's guide with settings screenshots](docs/USER-GUIDE.zh-CN.md). Behavior and validation limits are in the [detailed feature guide](docs/FEATURES.zh-CN.md). Both guides are in Simplified Chinese.
 
-The guide covers **dev v134 (2026-11-07, `7619ee32`)**, compared with the previous v122 manual. The new navigation sound, hotspot protection, boot service order and short-press Siri behavior still need vehicle testing.
+Each guide states the version it covers: the owner's guide follows the v142 car-test build, the feature guide the v134 baseline. The new navigation sound, hotspot protection, boot service order and short-press Siri behavior still need vehicle testing.
 
 | Feature | Settings |
 | --- | --- |
