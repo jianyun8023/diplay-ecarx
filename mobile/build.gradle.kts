@@ -66,7 +66,6 @@ base.archivesName = "DiPlay-v${android.defaultConfig.versionCode}"
 dependencies {
     implementation(project(":common"))
     implementation(project(":shared"))
-    implementation(libs.androidx.app.projected)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
 }

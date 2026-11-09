@@ -25,7 +25,6 @@ dependencyResolutionManagement {
 rootProject.name = "xcertplay"
 include(":common")
 include(":mobile")
-include(":automotive")
 include(":shared")
 include(":maphost")
 project(":maphost").projectDir = file("samples/maphost")

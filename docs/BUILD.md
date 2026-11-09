@@ -13,7 +13,6 @@ Select `mobile` to build the main DiPlay app.
 | `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk` |
 | `:maphost` | Sample application that displays a map from DiPlay | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
 | `:home` | Optional DiPlay Home launcher | `samples/home/build/outputs/apk/debug/home-debug.apk` |
-| `:automotive` | Separate Android Automotive application inherited from xcertplay | `automotive/build/outputs/apk/debug/automotive-debug.apk` |
 
 The `:common` and `:shared` modules are libraries.
 The applications use these libraries.

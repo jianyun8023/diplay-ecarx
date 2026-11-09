@@ -11,7 +11,6 @@
 | `:mobile` | 車機使用的主要 DiPlay 應用程式 | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk` |
 | `:home` | 選用的 DiPlay Home 啟動器 | `samples/home/build/outputs/apk/debug/home-debug.apk` |
 | `:maphost` | 接收 DiPlay 地圖的範例應用程式 | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
-| `:automotive` | 從 xcertplay 繼承的獨立 Android Automotive 應用程式 | `automotive/build/outputs/apk/debug/automotive-debug.apk` |
 
 `:common` 與 `:shared` 是共用函式庫。要安裝主程式，請選 **mobile**；如果裝到「DiPlay map host」，表示選錯模組或 APK。單獨執行 `assembleDebug` 可能建置多個應用程式。
 

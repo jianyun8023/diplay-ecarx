@@ -22,7 +22,7 @@ class SupportedUiLanguagesTest {
     }
 
     @Test fun noRemovedTranslationDirectoriesRemainInAnyAppModule() {
-        for (module in listOf(".", "../shared", "../mobile", "../automotive", "../samples/home", "../samples/maphost")) {
+        for (module in listOf(".", "../shared", "../mobile", "../samples/home", "../samples/maphost")) {
             val folders = File(module, "src/main/res").listFiles().orEmpty().filter {
                 it.isDirectory && it.name.matches(Regex("values-[a-z]{2}(-r[A-Z]{2})?"))
             }.map { it.name }.toSet()
