@@ -117,6 +117,7 @@ internal enum class SettingsSection {
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
     ECARX_CLUSTER_DISPLAY,
+    ECARX_VEHICLE_CONTROLS,
     ADVANCED_MEDIA,
     MEDIA_OUTPUT,
     CAR_BUTTON,
@@ -156,6 +157,7 @@ internal object SettingsInformationArchitecture {
             SettingsSection.EXTERNAL_CONTROLLER,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ECARX_CLUSTER_DISPLAY,
+            SettingsSection.ECARX_VEHICLE_CONTROLS,
             SettingsSection.ADVANCED_MEDIA,
             SettingsSection.NAVIGATION_WHEEL,
         ),
@@ -2324,6 +2326,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     AirPlayPersistence.saveCarBluetoothAudio(this, it)
                     mediaYieldToggle.isEnabled = !it
                     reconnectIfRunning()
+                }
+            }
+        }
+        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) {
+            filteredSection(content, SettingsSection.ECARX_VEHICLE_CONTROLS,
+                getString(R.string.settings_ecarx_vehicle_controls), R.drawable.ic_dp_vehicle) { card ->
+                toggle(card, getString(R.string.settings_ecarx_vehicle_controls_enable),
+                    getString(R.string.settings_ecarx_vehicle_controls_description),
+                    AirPlayPersistence.loadEcarxVehicleControls(this)) {
+                    AirPlayPersistence.saveEcarxVehicleControls(this, it)
+                    markReconnectNeeded()
                 }
             }
         }

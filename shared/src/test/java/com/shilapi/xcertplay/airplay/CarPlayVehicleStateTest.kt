@@ -8,9 +8,34 @@ class CarPlayVehicleStateTest {
         "pluginData" to CarPlayOpack.encode(mapOf("command" to command, "transactionID" to 7, "values" to values))))
     private fun payload(bytes: ByteArray) = CarPlayOpack.decode(CarPlayOpack.decode(bytes)["pluginData"] as ByteArray)
 
+    @Test fun unavailableSubscribedValuesReportErrorsAndRecoverWithoutSimulatedFallback() {
+        val values = mutableMapOf<Long, Any>()
+        var closed = false
+        val source = object : CarPlayVehicleSource {
+            override val name = "real car"
+            override fun configuration() = emptyList<Map<String, Any>>()
+            override fun values() = values.toMap()
+            override fun write(id: Long, value: Any) = false
+            override fun close() { closed = true }
+        }
+        val protocol = CarPlayVehicleState(source) {}
+        val response = payload(protocol.handle(message("registerRequest", listOf(520))).single())
+        assertEquals(mapOf(520L to -6727L), response["errors"])
+        assertTrue(protocol.updates().isEmpty())
+        values[520] = 22.5
+        assertEquals(mapOf(520L to 22.5), payload(protocol.updates().single())["values"])
+        values.clear()
+        assertEquals(mapOf(520L to -6727L), payload(protocol.updates().single())["errors"])
+        assertTrue(protocol.updates().isEmpty())
+        values[520] = 22.5
+        assertEquals(mapOf(520L to 22.5), payload(protocol.updates().single())["values"])
+        protocol.close()
+        assertTrue(closed)
+    }
+
     @Test fun phoneReadsSubscribesAndWritesTheSameSimulatedVehicleWithRangeChecks() {
         val car = SimulatedVehicle()
-        val protocol = CarPlayVehicleState(car) {}
+        val protocol = CarPlayVehicleState(SimulatedVehicleState(car)) {}
         val initial = payload(protocol.handle(message("registerRequest", listOf(520, 1538, 2562, 9999))).single())
         assertEquals(22.0, (initial["values"] as Map<*, *>)[520L])
         assertEquals(-6727L, (initial["errors"] as Map<*, *>)[9999L])
@@ -36,7 +61,7 @@ class CarPlayVehicleStateTest {
 
     @Test fun radioCommandsChangeOnlyTheSimulatorAndRejectInvalidFrequencies() {
         val car = SimulatedVehicle()
-        val protocol = CarPlayVehicleState(car) {}
+        val protocol = CarPlayVehicleState(SimulatedVehicleState(car)) {}
         val bad = payload(protocol.handle(message("controlRequest", mapOf(4365 to mapOf("frequency" to 120000)))).single())
         assertEquals(-6735L, (bad["errors"] as Map<*, *>)[4365L])
         protocol.handle(message("controlRequest", mapOf(4365 to mapOf("frequency" to 90500, "sourceIdentifier" to "FM"))))

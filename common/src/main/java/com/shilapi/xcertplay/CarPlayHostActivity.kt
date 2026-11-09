@@ -5030,7 +5030,13 @@ open class CarPlayHostActivity : ComponentActivity() {
                 appendLog("Ultra experiment: theme=${it.asset.assetId}:${it.asset.assetVersion}:${it.sdkVersion} " +
                     "panels=${it.mainPanel},${it.clusterPanel}; display only, no vehicle telemetry")
             },
-            simulatedVehicle = if (ultra != null) AirPlayPersistence.loadSimulatedVehicle(this) else null,
+            vehicleStateSource = if (AirPlayPersistence.loadEcarxVehicleControls(this)) {
+                val app = applicationContext
+                { log -> if (com.shilapi.xcertplay.hud.EcarxVehicleState.supported(app))
+                    com.shilapi.xcertplay.hud.EcarxVehicleState.create(app, log) else null }
+            } else AirPlayPersistence.loadSimulatedVehicle(this)?.let { vehicle ->
+                { _ -> com.shilapi.xcertplay.airplay.SimulatedVehicleState(vehicle) }
+            },
             rightHandDrive = rightHandDrive,
             hevc = sessionHevc,
             microphone = microphoneAvailable,

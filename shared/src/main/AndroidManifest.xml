@@ -41,6 +41,8 @@
     <uses-permission android:name="ecarx.oem.permission.OPENAPI_NAVI_PERMISSION" />
     <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
     <uses-permission android:name="android.car.permission.CAR_CONTROL_AUDIO_VOLUME" />
+    <!-- ENGINE_RPM uses the engine permission separately from vendor properties. -->
+    <uses-permission android:name="android.car.permission.CAR_ENGINE_DETAILED" />
     <!--
       Signature-level on Android 9. This build is signed with the head unit's platform key, so the
       grant lands; without it a BluetoothProfile policy write raises SecurityException, which the

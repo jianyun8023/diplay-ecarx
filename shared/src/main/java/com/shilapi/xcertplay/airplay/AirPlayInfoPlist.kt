@@ -28,7 +28,7 @@ object AirPlayInfoPlist {
     fun features(config: AirPlayConfig): Long =
         if (config.disableAudioOutput) CARPLAY_FEATURES_NO_AUDIO else CARPLAY_FEATURES
 
-    fun build(config: AirPlayConfig): Map<String, Any?> {
+    fun build(config: AirPlayConfig, vehicleStateInfo: Map<String, Any>? = null): Map<String, Any?> {
         val mainUuid = config.mainDisplayUuid
         val clusterUuid = config.clusterDisplayUuid
         val displays = arrayListOf(
@@ -57,7 +57,7 @@ object AirPlayInfoPlist {
         }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
-        config.simulatedVehicle?.let { info["vehicleStateProtocolInfo"] = CarPlayVehicleState(it) {}.info() }
+        vehicleStateInfo?.let { info["vehicleStateProtocolInfo"] = it }
         config.ultraExperiment?.let { ultra ->
             if (ultra.layout != null) info["uiSyncInfo"] = emptyMap<String, Any?>()
             requireNotNull(config.cluster) { "Ultra experiment requires a cluster video stream" }

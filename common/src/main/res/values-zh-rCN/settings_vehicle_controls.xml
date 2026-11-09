@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_ecarx_vehicle_controls_enable">启用</string>
+    <string name="settings_ecarx_vehicle_controls">CarPlay 车辆与空调（实验性）</string>
+    <string name="settings_ecarx_vehicle_controls_description">向 iPhone 提供真实车辆数据和原车空调控制。车辆 App 是否显示取决于 iPhone 支持情况，下次连接 CarPlay 生效。</string>
+</resources>

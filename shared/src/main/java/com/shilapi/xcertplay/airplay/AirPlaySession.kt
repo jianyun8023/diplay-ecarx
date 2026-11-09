@@ -126,6 +126,7 @@ class AirPlaySession(
     // Only the controller's single touch thread calls sendTouch.
     private val touchSlots = AirPlayTouchSlots(AirPlayHid.TOUCH_CONTACTS)
     private val ntp = NtpClock()
+    private var timingPort: Int? = null
     private var keepAliveSocket: DatagramSocket? = null
     private var keepAliveThread: Thread? = null
     private val eventWriteLock = Any()
@@ -148,7 +149,18 @@ class AirPlaySession(
     val videoInCar: Boolean get() = config.videoInCar
     internal val ultraExperiment get() = config.ultraExperiment
     internal val clusterDisplayUuid get() = config.clusterDisplayUuid
-    internal val vehicleState by lazy { config.simulatedVehicle?.let { CarPlayVehicleState(it, ::debugLog) } }
+    // Opened on first /info or SETUP, not per accepted socket: the source binds car and radio services.
+    private val vehicleStateLock = Any()
+    private var vehicleStateOpened = false
+    private var vehicleStateValue: CarPlayVehicleState? = null
+    internal val vehicleState: CarPlayVehicleState?
+        get() = synchronized(vehicleStateLock) {
+            if (!vehicleStateOpened && !closed.get()) {
+                vehicleStateOpened = true
+                vehicleStateValue = config.vehicleStateSource?.invoke(::debugLog)?.let { CarPlayVehicleState(it, ::debugLog) }
+            }
+            vehicleStateValue
+        }
     private val videoPlaybackAvailability = VideoPlaybackAvailability { allowed ->
         sendCommand(
             linkedMapOf(
@@ -179,6 +191,11 @@ class AirPlaySession(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        val openedVehicleState = synchronized(vehicleStateLock) {
+            vehicleStateOpened = true
+            vehicleStateValue.also { vehicleStateValue = null }
+        }
+        runCatching { openedVehicleState?.close() }.onFailure { debugLog("Vehicle state close failed: $it") }
         releaseNavigationExit("session-closed")
         navigationExitTimer.shutdownNow()
         mainScreenToken = null
@@ -665,7 +682,7 @@ class AirPlaySession(
                 else RtspMessage.Response(headers = mapOf("Content-Type" to OCTET_CONTENT_TYPE), body = body)
             }
             path.endsWith("/info") -> {
-                val info = AirPlayInfoPlist.build(config)
+                val info = AirPlayInfoPlist.build(config, vehicleState?.info())
                 if (request.body.isNotEmpty()) {
                     val requestInfo = try {
                         BplistCodec.decode(request.body).toString()
@@ -771,7 +788,7 @@ class AirPlaySession(
         if (dict["keepAliveLowPower"] == true || dict["keepAliveLowPower"] == 1L) {
             response["keepAlivePort"] = openKeepAlive()
         }
-        val features = setupEnabledFeatures(config, dict["features"] as? List<*>)
+        val features = setupEnabledFeatures(config, dict["features"] as? List<*>, vehicleState != null)
         val videoPlaybackEnabled = VideoInCar.FEATURE in features
         val videoDelivery = videoPlaybackAvailability.setFeatureEnabled(videoPlaybackEnabled)
         debugLog("airplay video playback negotiated=$videoPlaybackEnabled availability=$videoDelivery")
@@ -929,12 +946,15 @@ class AirPlaySession(
     }
 
     private fun openTiming(peerPort: Int): Int {
+        timingPort?.let { return it }
         val port = ntp.listen()
+        timingPort = port
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
         return port
     }
 
     private fun openKeepAlive(): Int {
+        keepAliveSocket?.let { return it.localPort }
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
         socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
@@ -958,6 +978,7 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
+        eventServer?.let { return it.localPort }
         val server = ServerSocket(0, 50, InetAddress.getByName("::"))
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
@@ -968,6 +989,7 @@ class AirPlaySession(
         videoPlaybackAvailability.setEventReady(false)
         videoPlaybackAvailability.setFeatureEnabled(false)
         ntp.close()
+        timingPort = null
         safeClose(keepAliveSocket)
         keepAliveSocket = null
         keepAliveThread?.interrupt()
@@ -1140,14 +1162,14 @@ internal fun findIphoneCornerMask(value: Any?, depth: Int = 0): ByteArray? {
     }
 }
 
-internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> {
+internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?, vehicleStateAvailable: Boolean = false): List<String> {
     val features = mutableListOf<String>()
     if (config.hevc) features.add("hevc")
     features.add("iAPChannel")
     features.add("viewAreas")
     if (config.cluster != null) features.add("altScreen")
     if (config.ultraExperiment?.layout != null && proposed.orEmpty().contains("uiSync")) features.add("uiSync")
-    if (config.simulatedVehicle != null && proposed.orEmpty().contains(CarPlayVehicleState.FEATURE)) features.add(CarPlayVehicleState.FEATURE)
+    if (vehicleStateAvailable && proposed.orEmpty().contains(CarPlayVehicleState.FEATURE)) features.add(CarPlayVehicleState.FEATURE)
     if (config.main.useIphoneCornerMask && proposed.orEmpty().contains("cornerMasks")) features.add("cornerMasks")
     if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
     if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)

@@ -412,7 +412,7 @@ class CarPlayMediaEngine(
             if (uuid == CarPlayVehicleState.HIGH) channel.onPoll = state::updates
             val port = channel.listen(session.localAddress ?: InetAddress.getByName("::"))
             vehicleChannels.put(session to uuid, channel)?.close()
-            session.logDebug("Vehicle state listening priority=${if (uuid == CarPlayVehicleState.HIGH) "high" else "normal"} port=$port; simulated only")
+            session.logDebug("Vehicle state listening priority=${if (uuid == CarPlayVehicleState.HIGH) "high" else "normal"} port=$port")
             return linkedMapOf<String, Any?>("type" to STREAM_TYPE_DATA, "streamID" to nextRemoteControlStreamId++, "dataPort" to port).apply {
                 stream["streamConnectionID"]?.let { this["streamConnectionID"] = unsignedPlistInteger(it) }
             }

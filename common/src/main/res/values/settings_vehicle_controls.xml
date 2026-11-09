@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_ecarx_vehicle_controls_enable">Enable</string>
+    <string name="settings_ecarx_vehicle_controls">CarPlay vehicle and climate (experimental)</string>
+    <string name="settings_ecarx_vehicle_controls_description">Send live vehicle data and factory climate controls to the iPhone. Vehicle apps require iPhone support. Applies at the next CarPlay connection.</string>
+</resources>

@@ -45,8 +45,8 @@ class EcarxVehicleSignalProbeTest {
         assertTrue(logs.toString(), "Vehicle signal usageMode changed raw=2" in logs)
         assertTrue(logs.toString(), "Vehicle signal doorDriver changed raw=08012004" in logs)
         assertTrue(logs.toString(), "Vehicle signal doorPassenger error area=0" in logs)
-        // Current values and changes reach the listener; unreadable ones and errors do not.
-        assertEquals(listOf(557843202 to 13, 560993300, 557843202 to 2, 560993300),
+        // Errors invalidate a previously received reading.
+        assertEquals(listOf(557843202 to 13, 560993300, 557843202 to 2, 560993300, 560993302 to null),
             values.map { (id, value) -> if (value is ByteArray) id else id to value })
 
         probe.stop()
@@ -56,6 +56,18 @@ class EcarxVehicleSignalProbeTest {
 
     @Test fun reportsAMissingCarService() {
         assertFalse(probe(mutableListOf()).start())
+    }
+
+    @Test fun ignoresUnavailablePayloadsAndCallbacksAfterStop() {
+        Car.available = true
+        val probe = probe(mutableListOf())
+        assertTrue(probe.start())
+        val listener = Car.last!!.properties.listener!!
+        listener.onChangeEvent(CarPropertyValue(557843202, 13, 1))
+        assertEquals(listOf(557843202 to null), values)
+        probe.stop()
+        listener.onChangeEvent(CarPropertyValue(557843202, 13))
+        assertEquals(1, values.size)
     }
 
     @Test fun rendersValuesForTheReport() {

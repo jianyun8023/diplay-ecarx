@@ -22,16 +22,19 @@ class EcarxVehicleSignalProbe(
     /** Every value read or reported, by property id, on the car service handler (main). */
     private val onValue: (Int, Any?) -> Unit = { _, _ -> },
 ) {
-    internal class Signal(val id: Int, val name: String, val type: Class<*>)
+    internal class Signal(val id: Int, val name: String, val type: Class<*>, val rate: Float = 0f)
 
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private var release: (() -> Unit)? = null
 
     /** Returns false when the car service cannot be reached; the reason is logged. */
-    fun start(): Boolean {
+    fun start(): Boolean = start(SIGNALS, {}, {})
+
+    internal fun start(signals: List<Signal>, onConnected: (Any) -> Unit, onDisconnected: () -> Unit): Boolean {
         stop()
-        return runCatching { connect() }.getOrElse {
+        return runCatching { connect(signals, onConnected, onDisconnected) }.getOrElse {
+            stop()
             diagnostic("Vehicle signal probe failed: ${describe(it)}")
             false
         }
@@ -42,27 +45,36 @@ class EcarxVehicleSignalProbe(
         release = null
     }
 
-    private fun connect(): Boolean {
+    private fun connect(signals: List<Signal>, onConnected: (Any) -> Unit, onDisconnected: () -> Unit): Boolean {
         val listenerType = Class.forName(PROPERTY_LISTENER)
         val intType = Int::class.javaPrimitiveType!!
         var car: Any? = null
         var manager: Any? = null
+        var stopped = false
+        fun value(event: Any): Any? = if (event.javaClass.getMethod("getStatus").invoke(event) == 0)
+            event.javaClass.getMethod("getValue").invoke(event) else null
         val listener = EcarxDimApi.proxy(listenerType, "EcarxVehicleSignalListener") { method, args ->
             when (method) {
                 "onChangeEvent" -> args?.firstOrNull()?.let { event ->
                     val id = runCatching { event.javaClass.getMethod("getPropertyId").invoke(event) as? Int }.getOrNull()
-                    val value = runCatching { event.javaClass.getMethod("getValue").invoke(event) }.getOrNull()
-                    diagnostic("Vehicle signal ${nameOf(id)} changed raw=${render(value)}")
-                    if (id != null) onValue(id, value)
+                    if (!stopped && id != null && signals.any { it.id == id }) {
+                        val raw = runCatching { value(event) }.getOrNull()
+                        diagnostic("Vehicle signal ${nameOf(id)} changed raw=${render(raw)}")
+                        onValue(id, raw)
+                    }
                 }
-                "onErrorEvent" -> diagnostic("Vehicle signal ${nameOf(args?.firstOrNull() as? Int)} error " +
-                    "area=${args?.getOrNull(1)}")
+                "onErrorEvent" -> {
+                    val id = args?.firstOrNull() as? Int
+                    diagnostic("Vehicle signal ${nameOf(id)} error area=${args?.getOrNull(1)}")
+                    if (!stopped && id != null && signals.any { it.id == id }) onValue(id, null)
+                }
             }
             null
         }
         fun attach() {
-            if (manager != null) return
+            if (stopped || manager != null) return
             val connected = car ?: return
+            onConnected(connected)
             val properties = runCatching {
                 connected.javaClass.getMethod("getCarManager", String::class.java).invoke(connected, "property")
             }.getOrNull() ?: return diagnostic("Vehicle signal probe: no property manager")
@@ -70,20 +82,22 @@ class EcarxVehicleSignalProbe(
             val read = properties.javaClass.getMethod("getProperty", Class::class.java, intType, intType)
             val register = properties.javaClass.getMethod("registerListener", listenerType, intType,
                 Float::class.javaPrimitiveType)
-            for (signal in SIGNALS) {
+            for (signal in signals) {
                 val current = runCatching { read.invoke(properties, signal.type, signal.id, 0) }
-                    .map { value -> value?.let { runCatching { it.javaClass.getMethod("getValue").invoke(it) }.getOrNull() } }
+                    .map { event -> event?.let(::value) }
                 diagnostic("Vehicle signal ${signal.name} current " +
                     current.fold({ "raw=${render(it)}" }, { "failed: ${describe(it)}" }))
                 current.getOrNull()?.let { onValue(signal.id, it) }
-                runCatching { register.invoke(properties, listener, signal.id, 0f) }
+                runCatching { check(register.invoke(properties, listener, signal.id, signal.rate) == true) { "listener refused" } }
                     .onFailure { diagnostic("Vehicle signal ${signal.name} listen failed: ${describe(it)}") }
             }
         }
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) = attach()
             override fun onServiceDisconnected(name: ComponentName?) {
+                if (stopped) return
                 manager = null
+                onDisconnected()
                 diagnostic("Vehicle signal probe: car service disconnected")
             }
         }
@@ -92,10 +106,12 @@ class EcarxVehicleSignalProbe(
             .invoke(null, appContext, connection, main) ?: return false
         car = created
         release = {
+            stopped = true
             manager?.let { properties ->
                 runCatching { properties.javaClass.getMethod("unregisterListener", listenerType).invoke(properties, listener) }
             }
             manager = null
+            onDisconnected()
             runCatching { created.javaClass.getMethod("disconnect").invoke(created) }
         }
         runCatching { created.javaClass.getMethod("connect").invoke(created) }

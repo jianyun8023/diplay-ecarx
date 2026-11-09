@@ -106,7 +106,7 @@ data class AirPlayConfig(
      */
     val callAtCallRate: Boolean = false,
     val ultraExperiment: CarPlayUltraExperiment? = null,
-    val simulatedVehicle: SimulatedVehicle? = null,
+    val vehicleStateSource: (((String) -> Unit) -> CarPlayVehicleSource?)? = null,
 )
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */

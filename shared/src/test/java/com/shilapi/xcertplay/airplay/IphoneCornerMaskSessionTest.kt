@@ -15,7 +15,9 @@ class IphoneCornerMaskSessionTest {
     private fun session(native: Boolean, received: MutableList<Pair<ByteArray, Int>>,
         connecting: (AirPlaySession) -> Unit = {}): AirPlaySession =
         AirPlaySession(
-            socket = Socket(),
+            socket = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use {
+                Socket(it.inetAddress, it.localPort)
+            },
             config = AirPlayConfig("test", "02:00:00:00:00:02", "02:00:00:00:00:01", "366.0",
                 main = AirPlayDisplayConfig(1280, 720, mainDisplayCornerMasks = true,
                     useIphoneCornerMask = native)),
@@ -62,9 +64,10 @@ class IphoneCornerMaskSessionTest {
         try {
             handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
             assertTrue(seen.isEmpty())
-            handle(session, "SETUP", emptyMap())
+            val setup = mapOf("keepAliveLowPower" to true)
+            val first = BplistCodec.decode(handle(session, "SETUP", setup).body)
             assertEquals(listOf(session), seen)
-            handle(session, "SETUP", emptyMap())
+            assertEquals(first, BplistCodec.decode(handle(session, "SETUP", setup).body))
             handle(session, "SETUP", mapOf("streams" to emptyList<Any>()))
             assertEquals(listOf(session), seen)
         } finally { session.close() }

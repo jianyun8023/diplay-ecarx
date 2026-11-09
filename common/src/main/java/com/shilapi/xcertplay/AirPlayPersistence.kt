@@ -950,6 +950,13 @@ object AirPlayPersistence {
 
     private val benchVehicle by lazy { com.shilapi.xcertplay.airplay.SimulatedVehicle() }
 
+    fun loadEcarxVehicleControls(context: Context): Boolean =
+        preferences(context).getBoolean("ecarx_vehicle_controls", false)
+
+    fun saveEcarxVehicleControls(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean("ecarx_vehicle_controls", enabled).apply()
+    }
+
     fun loadSimulatedVehicle(context: Context): com.shilapi.xcertplay.airplay.SimulatedVehicle? =
         if (loadUltraExperiment(context) != null && File(context.filesDir, "ultra-bench.enabled").isFile) benchVehicle else null
 

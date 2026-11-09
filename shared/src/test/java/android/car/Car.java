@@ -10,6 +10,7 @@ import android.os.Handler;
 public final class Car {
     public static boolean available;
     public static Car last;
+    public static Object audio;
     /** Property values the next car's manager starts with. */
     public static final java.util.Map<Integer, Object> seeded = new java.util.HashMap<>();
     public final CarPropertyManager properties = new CarPropertyManager();
@@ -22,7 +23,7 @@ public final class Car {
         properties.values.putAll(seeded);
     }
 
-    public static void reset() { available = false; last = null; seeded.clear(); }
+    public static void reset() { available = false; last = null; audio = null; seeded.clear(); }
 
     public static Car createCar(Context context, ServiceConnection connection, Handler handler) {
         if (!available) return null;
@@ -39,5 +40,13 @@ public final class Car {
 
     public void disconnect() { connected = false; disconnected = true; }
 
-    public Object getCarManager(String name) { return "property".equals(name) ? properties : null; }
+    public void serviceDisconnected() {
+        connected = false;
+        connection.onServiceDisconnected(new ComponentName("android.car", "CarService"));
+    }
+
+    public Object getCarManager(String name) {
+        if ("property".equals(name)) return properties;
+        return "audio".equals(name) ? audio : null;
+    }
 }

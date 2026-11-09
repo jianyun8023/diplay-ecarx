@@ -140,3 +140,9 @@ PR [#23](https://github.com/jianyun8023/diplay-ecarx/pull/23) 提交后，已从
 下一步使用应用现有入口验证：连接设置中的“设置 USB 与地图权限”，以及方向盘服务中的“启用方向盘按键服务”；随后回到权限检查点击“刷新”。若明确执行后仍未通过，记录页面提示并导出诊断报告，检查授权操作的 `verified`／`failed` 和方向盘服务绑定结果。权限检查页面本身只读，不会因打开或刷新自动启用功能。
 
 本次只更新文档与 issue／PR 的实车证据，不改应用代码、不重跑单测，也不重新构建 APK。完整重启、关闭调试后的自动连接及各原生接口效果继续保留为待验收项。
+
+## 10. 2026-11-09 实验性车辆数据权限
+
+CarPlay 车辆与空调实验增加 `android.car.permission.CAR_ENGINE_DETAILED` 声明，用于通过 `CarPropertyManager` 读取发动机转速。固件 `PropertyHalServiceIds` 将 `ENGINE_RPM` 单独归入此权限，已有 `CAR_VENDOR_EXTENSION` 不能替代。实车 `CarService.apk` 将其声明为 `signature|privileged`（`protectionLevel=0x12`），不走运行时危险权限弹窗。实车属性表包含该 Float 属性，采样范围为 1–10 Hz，应用请求 5 Hz。
+
+四轮胎压继续使用已有 `CAR_VENDOR_EXTENSION`；音量组控制继续使用已有 `CAR_CONTROL_AUDIO_VOLUME`。不新增 ADB、shell 授权或共享 system UID。新增转速权限在本次代码中已声明，实际安装授予及转速回读尚未实车验收；拒绝访问时记录失败并显示不可用，不以模拟值补齐。第 9 节的历史权限截图不能证明这项新增权限已经授予。
