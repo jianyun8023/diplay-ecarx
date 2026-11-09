@@ -292,7 +292,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             openProjection(); finish(); return
         }
         scheduleBackgroundUpdateChecks()
-        updates.availableUpdate = UpdateAvailability.available(this, buildNumber())
+        updates.availableUpdate = UpdateAvailability.available(this, appBuildNumber())
         enforceInterfaceSize()
         refreshAppearance()
         rememberLaunchAppearance()
@@ -465,7 +465,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // The background check runs two minutes after opening, usually while CarPlay is in front: what it
         // found shows when DiPlay comes back, not only after the activity is created again.
-        updates.availableUpdate = UpdateAvailability.available(this, buildNumber())
+        updates.availableUpdate = UpdateAvailability.available(this, appBuildNumber())
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch &&
             (page == "home" || page == "settings" || page == "connection" || page == "setup")) render()
@@ -2392,7 +2392,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (backupServer == null || endpoint == null) {
             val created = SettingsBackupServer(
                 page = backupPageHtml(),
-                export = { SettingsBackupCodec.export(this, version()) },
+                export = { SettingsBackupCodec.export(this, appVersionName()) },
                 import = { SettingsBackupCodec.import(this, it) },
                 report = { diagnosticReportText(applicationContext).toByteArray(Charsets.UTF_8) },
                 codePage = assets.open("settings-code.html").use { it.readBytes() },
@@ -2560,7 +2560,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun installedNotesRow(card: LinearLayout) {
-        val build = buildNumber()
+        val build = appBuildNumber()
         val notes = UpdateAvailability.installedNotes(this, build)
         if (!updates.installedNotesShown || (notes == null && !updates.installedNotesLoading)) {
             if (updates.installedNotesShown) {
@@ -4907,7 +4907,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     /** The text of a diagnostic report. It reads the session logs, so call it off the main thread. */
     private fun diagnosticReportText(appContext: Context): String = buildString {
-        appendLine("DiPlay ${version()} · private beta diagnostic report")
+        appendLine("DiPlay ${appVersionName()} · private beta diagnostic report")
         appendLine(LastConnectionProblem.report(appContext))
         appendLine("Report createdAtEpochMs=${System.currentTimeMillis()}")
         appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
@@ -5143,9 +5143,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         return grid
     }
-    private fun displayVersion() = "${version()} (v${buildNumber()})"
-    private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
-    private fun buildNumber() = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
+    private fun displayVersion() = "${appVersionName()} (v${appBuildNumber()})"
     private fun languageSettings(content: LinearLayout) {
         filteredSection(content, SettingsSection.LANGUAGE,
             getString(R.string.language_section_title), R.drawable.ic_dp_language) { card ->

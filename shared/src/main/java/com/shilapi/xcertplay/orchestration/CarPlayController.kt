@@ -3589,9 +3589,6 @@ class CarPlayController(
         }
     }
 
-    private fun diagnosticFailureClass(error: Throwable): String =
-        error.javaClass.simpleName.take(80).replace(Regex("[^A-Za-z0-9_$]"), "?")
-
     private fun elapsedMillis(startedNanos: Long): Long =
         ((System.nanoTime() - startedNanos) / 1_000_000L).coerceAtLeast(0)
 

@@ -24,8 +24,11 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
 
-// Measured connects: 147–1714ms; leave room for a slow head unit.
+// Measured connects: 147–1714ms. Leave >4x headroom, without spending 15s on each dead socket.
 internal const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 8_000L
+
+internal fun diagnosticFailureClass(error: Throwable): String =
+    error.javaClass.simpleName.take(80).replace(Regex("[^A-Za-z0-9_$]"), "?")
 
 /** Bluetooth target selection and the blocking RFCOMM connect; cancellation belongs to the caller. */
 internal class WirelessBluetoothConnection(
@@ -110,34 +113,19 @@ internal class WirelessBluetoothConnection(
      * and the caller rethrows the original failure unchanged.
      */
     fun wirelessBluetoothFallback(adapter: BluetoothAdapter, tried: BluetoothDevice): BluetoothDevice? {
-        val bonded = adapter.bondedDevices.orEmpty()
-        val candidates = ArrayList<BluetoothDevice>(2)
-        for (device in bonded) {
-            val name = device.name ?: continue
-            if (!name.contains("iPhone", ignoreCase = true)) continue
-            if (device.address.equals(tried.address, ignoreCase = true)) continue
-            candidates.add(device)
+        val candidates = adapter.bondedDevices.orEmpty().filter { device ->
+            device.name?.contains("iPhone", ignoreCase = true) == true &&
+                !device.address.equals(tried.address, ignoreCase = true)
         }
         if (candidates.isEmpty()) return null
-        val live = ArrayList<BluetoothDevice>(2)
-        for (device in candidates) {
-            if (isBluetoothDeviceConnected(device)) live.add(device)
-        }
-        if (live.isEmpty()) {
+        val live = candidates.filter(::isBluetoothDeviceConnected).ifEmpty {
             // A head unit is the sink side of the phone's audio and calls, so the link that proves
             // "this iPhone is in the car" can sit in a hidden profile that `isConnected` misses.
             val byProfile = connectedBluetoothDevices(adapter)
-            for (device in candidates) {
-                for (connected in byProfile) {
-                    if (connected.address.equals(device.address, ignoreCase = true)) {
-                        live.add(device)
-                        break
-                    }
-                }
-            }
+            candidates.filter { device -> byProfile.any { it.address.equals(device.address, ignoreCase = true) } }
         }
         // Two live iPhones is exactly the ambiguity the caller must not resolve by guessing.
-        return if (live.size == 1) live.single() else null
+        return live.singleOrNull()
     }
 
     fun connectBluetoothSocket(
@@ -229,7 +217,7 @@ internal class WirelessBluetoothConnection(
                     "cachedIap2Service=${uuids?.any { it.uuid == service } ?: "unknown"}",
             )
         } catch (error: RuntimeException) {
-            connectionDiagnostic("Bluetooth snapshot point=$point unavailable failureClass=${error.javaClass.simpleName.take(80).replace(Regex("[^A-Za-z0-9_$]"), "?")}")
+            connectionDiagnostic("Bluetooth snapshot point=$point unavailable failureClass=${diagnosticFailureClass(error)}")
         }
     }
 

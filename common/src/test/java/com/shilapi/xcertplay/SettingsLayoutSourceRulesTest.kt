@@ -6,11 +6,15 @@ import org.junit.Test
 
 /** Source scan for the "Settings layout" rules in AGENTS.md. */
 class SettingsLayoutSourceRulesTest {
-    private val sources = File("src/main/java/com/shilapi/xcertplay").listFiles { f -> f.extension == "kt" }!!
+    private val dir = File("src/main/java/com/shilapi/xcertplay")
+    private val sources = dir.listFiles { f -> f.extension == "kt" }!!
+    // The Settings screen is split across these files; CarPlay projection screens are out of scope.
+    private val settingsSources = listOf("DiPlayActivity.kt", "DiPlayControls.kt", "DiPlayUpdates.kt")
+        .map { File(dir, it) }
 
     @Test fun blockGapsUseTheNamedConstant() {
         val literal = Regex("""(bottom|top)Margin = dp\((16|18|20)\)""")
-        assertEquals(emptyList<String>(), hits(File(sources.first().parentFile, "DiPlayActivity.kt"), literal))
+        assertEquals(emptyList<String>(), settingsSources.flatMap { hits(it, literal) })
     }
 
     @Test fun sizesAreNotPixelConstants() {

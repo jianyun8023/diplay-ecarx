@@ -2,6 +2,7 @@
 // UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -19,6 +20,12 @@ import com.shilapi.xcertplay.update.UpdateRelease
 import com.shilapi.xcertplay.update.UpdateReleaseLookup
 import java.io.File
 import java.io.IOException
+
+internal fun Context.appVersionName(): String =
+    packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
+
+internal fun Context.appBuildNumber(): Long =
+    androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
 
 /** Update downloads and verified installation for one launcher lifetime. */
 internal class DiPlayUpdates(
@@ -43,7 +50,7 @@ internal class DiPlayUpdates(
 
     fun showInstalledNotes() {
         installedNotesShown = true
-        val build = buildNumber()
+        val build = appBuildNumber()
         if (UpdateAvailability.installedNotes(this, build) != null || installedNotesLoading) return render(false)
         installedNotesLoading = true
         render(false)
@@ -97,7 +104,7 @@ internal class DiPlayUpdates(
     }
 
     private fun latestRelease(): UpdateRelease? {
-        val lookup = UpdateReleaseLookup.latest(buildNumber(), userAgent(), UpdateAvailability.routes(this))
+        val lookup = UpdateReleaseLookup.latest(appBuildNumber(), userAgent(), UpdateAvailability.routes(this))
         updateRoute = lookup.route
         UpdateAvailability.recordWorkingRoute(this, lookup.route)
         return lookup.release
@@ -144,7 +151,7 @@ internal class DiPlayUpdates(
                 if (!UpdateChecksums.matches(expected, release.apkName, actual)) {
                     throw IOException("Checksum mismatch for ${release.apkName}")
                 }
-                UpdateApkIdentity.verify(packageManager, apkFile, packageName, buildNumber())
+                UpdateApkIdentity.verify(packageManager, apkFile, packageName, appBuildNumber())
                 apkFile
             }.onFailure { directory.deleteRecursively() }
             val saved = outcome.getOrNull()?.let { UpdateApkExport.copy(applicationContext, it) }
@@ -228,8 +235,6 @@ internal class DiPlayUpdates(
         }
     }
 
-    private fun userAgent() = "DiPlay/${version()}"
+    private fun userAgent() = "DiPlay/${appVersionName()}"
 
-    private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
-    private fun buildNumber() = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
 }
