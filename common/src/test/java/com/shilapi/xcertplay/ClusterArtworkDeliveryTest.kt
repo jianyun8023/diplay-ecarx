@@ -31,6 +31,8 @@ class ClusterArtworkDeliveryTest {
     @After fun clean() {
         CarPlayMediaSession.detach(controller)
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences(MediaSessionSettings.PREFS, 0).edit().clear().commit()
+        set("lastHyPublication", null)
         idle()
     }
 
@@ -105,5 +107,21 @@ class ClusterArtworkDeliveryTest {
         set("outputMode", MediaSessionMode.ECARX)
         call("publishHyDisplayLocked")
         assertTrue(shadowOf(context).broadcastIntents.isEmpty())
+    }
+
+    @Test fun hyArtworkSwitchOffLeavesOnlyTheStandardSessionAndOnResendsAtOnce() {
+        val song = CarPlayNowPlaying(title = "A", playing = true, artworkTransferId = 7)
+        seed(song)
+        set("session", MediaSession(context, "test").apply { isActive = true })
+        set("outputMode", MediaSessionMode.ANDROID)
+        `when`(controller.nowPlayingSnapshot()).thenReturn(song)
+        MediaSessionSettings.setHyArtworkBroadcast(context, false)
+        call("publishHyDisplayLocked")
+        assertTrue(shadowOf(context).broadcastIntents.isEmpty())
+        MediaSessionSettings.setHyArtworkBroadcast(context, true)
+        call("publishHyDisplayLocked")
+        val sent = shadowOf(context).broadcastIntents.single()
+        assertEquals("com.hyphp.hywebview.HyMediaReceiver", sent.action)
+        assertEquals("A", sent.getStringExtra("getTrackName"))
     }
 }

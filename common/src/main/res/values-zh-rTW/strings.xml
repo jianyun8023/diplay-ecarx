@@ -894,9 +894,11 @@
     <string name="settings_hotspot_probe_denied">介面拒絕存取，權限不足。</string>
     <string name="settings_hotspot_probe_unsupported">介面或配置不受支援。</string>
     <string name="settings_media_output_mode">車機媒體整合</string>
-    <string name="settings_media_output_android">HY 代理</string>
+    <string name="settings_media_output_android">Android 標準</string>
     <string name="settings_media_output_ecarx">DiPlay 直接接管</string>
-    <string name="settings_media_output_description">由 DiPlay 直接處理儀表歌曲和媒體控制，或交給 HY。選擇 DiPlay 時需關閉 HY 的媒體接管。下次連線 CarPlay 生效。</string>
+    <string name="settings_media_output_description">由 DiPlay 直接處理儀表歌曲和媒體控制，或發佈標準 Android 媒體工作階段，交給車機或 HY 讀取。選擇 DiPlay 時需關閉 HY 的媒體接管。下次連線 CarPlay 生效。</string>
+    <string name="settings_hy_artwork_broadcast">給 HY 補發封面通知</string>
+    <string name="settings_hy_artwork_broadcast_description">額外向 HY 傳送歌曲和封面的儀表廣播。HY 儀表切歌後封面不更新時開啟；關閉則只使用標準媒體工作階段。立即生效。</string>
     <string name="settings_music_pause_door">打開駕駛座車門時暫停音樂</string>
     <string name="settings_music_pause_door_description">不論是否熄火。原車不會因此暫停。立即生效。</string>
     <string name="settings_music_pause_engine_off">車輛熄火時暫停音樂</string>

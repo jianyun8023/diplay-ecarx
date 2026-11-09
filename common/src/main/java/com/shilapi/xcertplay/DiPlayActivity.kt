@@ -2112,9 +2112,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 getString(R.string.settings_media_output_android),
             ), modes.indexOf(MediaSessionSettings.mode(this)), reconnects = false) {
                 MediaSessionSettings.setMode(this, modes[it])
+                render()
                 markReconnectNeeded()
             }
             card.addView(label(getString(R.string.settings_media_output_description), 14, MUTED))
+            if (MediaSessionSettings.mode(this) == MediaSessionMode.ANDROID) {
+                toggle(card, getString(R.string.settings_hy_artwork_broadcast),
+                    getString(R.string.settings_hy_artwork_broadcast_description),
+                    MediaSessionSettings.hyArtworkBroadcast(this)) {
+                    MediaSessionSettings.setHyArtworkBroadcast(this, it)
+                }
+            }
             // The door and engine triggers need the car's signals, so only ECARX head units offer them.
             if (com.shilapi.xcertplay.hud.EcarxVehicleSignalProbe.supported(this)) {
                 for ((trigger, title, description) in listOf(
@@ -4942,7 +4950,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine("CarPlay screen: ${CarPlayScreen.report(appContext)}")
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine(ConnectionDiagnostics.report(appContext))
-        appendLine("Media integration savedMode=${MediaSessionSettings.mode(appContext)}")
+        appendLine("Media integration savedMode=${MediaSessionSettings.mode(appContext)} " +
+            "hyArtworkBroadcast=${MediaSessionSettings.hyArtworkBroadcast(appContext)}")
         appendLine("Wheel Siri enabled=${MediaSessionSettings.wheelSiriEnabled(appContext)} " +
             "voicePress=${MediaSessionSettings.voiceKeyPress(appContext)} hyKey=${MediaSessionSettings.hySiriKey(appContext)}")
         appendLine(CarPlayMediaSession.mediaCenterDiagnosticReport())

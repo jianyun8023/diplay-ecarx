@@ -71,9 +71,10 @@ object SettingsBackupCodec {
         "carplay_picture" to Policy.Allow(PICTURE_KEYS, types = PICTURE_KEYS.associateWith { KeyType.INT }),
         "diplay_car_hotspot" to Policy.Allow(CAR_HOTSPOT_KEYS, types = CAR_HOTSPOT_KEYS.associateWith { KeyType.BOOLEAN }),
         "diplay_media_session" to Policy.Allow(
-            setOf("ecarx", "wheel_siri_enabled", "voice_key_press", "hy_siri_key"),
+            setOf("ecarx", "wheel_siri_enabled", "voice_key_press", "hy_siri_key", "hy_artwork_broadcast"),
             types = mapOf("ecarx" to KeyType.BOOLEAN, "wheel_siri_enabled" to KeyType.BOOLEAN,
-                "voice_key_press" to KeyType.INT, "hy_siri_key" to KeyType.INT)),
+                "voice_key_press" to KeyType.INT, "hy_siri_key" to KeyType.INT,
+                "hy_artwork_broadcast" to KeyType.BOOLEAN)),
     )
 
     private enum class KeyType { BOOLEAN, INT }
