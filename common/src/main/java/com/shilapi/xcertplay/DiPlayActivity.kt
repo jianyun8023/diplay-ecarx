@@ -2141,6 +2141,16 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         filteredSection(content, SettingsSection.EXPERIMENTAL_DISPLAY,
             getString(R.string.settings_experimental_display), R.drawable.ic_dp_display) { card ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                toggle(card, getString(R.string.launcher_map_sharing),
+                    getString(R.string.launcher_map_sharing_description),
+                    AirPlayPersistence.loadLauncherMapSharing(this)) {
+                    AirPlayPersistence.saveLauncherMapSharing(this, it)
+                    if (!AirPlayPersistence.isEcarxHeadUnit(this) && !AirPlayPersistence.loadClusterMapEnabled(this)) {
+                        markReconnectNeeded()
+                    }
+                }
+            }
             if (!com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified || AirPlayPersistence.loadHarmanFullscreen(this)) toggle(card, getString(R.string.settings_harman_fullscreen_experimental),
                 getString(R.string.settings_harman_fullscreen_experimental_description),
                 AirPlayPersistence.loadHarmanFullscreen(this)) { enabled ->

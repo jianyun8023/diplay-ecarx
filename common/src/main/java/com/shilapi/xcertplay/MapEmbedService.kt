@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
+import android.os.Parcelable
 import android.os.RemoteException
 import android.util.Log
 import android.view.Gravity
@@ -29,13 +30,13 @@ import com.shilapi.xcertplay.host.R
  * Lets another app, such as a car launcher, show the live dashboard map (CarPlay stream 111)
  * inside its own screen. The app binds with [ACTION], sends [MSG_ATTACH] with its SurfaceView's
  * host token and size, and gets back a SurfaceControlViewHost.SurfacePackage to put into that
- * SurfaceView; the map then lives in the launcher's layout. Each attached view gets its own decoder.
- * Off until the driver allows it in DiPlay. Android 11+. See docs/LAUNCHER_INTEGRATION.md.
+ * SurfaceView. Android 9 and 10 launchers can send their Surface directly instead. Each attached
+ * view gets its own decoder. Off until the driver allows it in DiPlay.
  */
 class MapEmbedService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val messenger = Messenger(Handler(Looper.getMainLooper()) { handle(it); true })
-    private val embeds = HashMap<IBinder, Embed>()
+    private val embeds = HashMap<IBinder, Attachment>()
     private var nextId = 0
     private var destroyed = false
     private var stopObservingSharing: (() -> Unit)? = null
@@ -63,9 +64,12 @@ class MapEmbedService : Service() {
 
     private fun revokeSharing() {
         if (destroyed) return
-        val attached = embeds.values.toList()
+        val attached = embeds.toMap()
         embeds.clear()
-        attached.forEach { it.sharingDisabled() }
+        attached.forEach { (binder, embed) ->
+            embed.release()
+            send(Messenger(binder), MSG_ERROR, Bundle().apply { putString(KEY_ERROR, ERROR_DISABLED) })
+        }
     }
 
     private fun handle(message: Message) {
@@ -73,51 +77,71 @@ class MapEmbedService : Service() {
         val caller = packageManager.getNameForUid(message.sendingUid) ?: "uid ${message.sendingUid}"
         when (message.what) {
             MSG_ATTACH -> attach(client, caller, message.sendingUid, message.data)
-            MSG_RESIZE -> embeds[client.binder]?.resize(message.data.getInt(KEY_WIDTH), message.data.getInt(KEY_HEIGHT))
+            MSG_RESIZE -> embeds[client.binder]?.resize?.invoke(message.data.getInt(KEY_WIDTH), message.data.getInt(KEY_HEIGHT))
             MSG_DETACH -> embeds.remove(client.binder)?.release()
         }
     }
 
     private fun attach(client: Messenger, caller: String, uid: Int, data: Bundle) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            refuse(client, caller, ERROR_UNSUPPORTED)
-            return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return refuse(client, caller, ERROR_UNSUPPORTED)
+        if (!AirPlayPersistence.loadLauncherMapSharing(this)) return refuse(client, caller, ERROR_DISABLED)
+        val hostToken = data.getBinder(KEY_HOST_TOKEN)
+        @Suppress("DEPRECATION")
+        val directSurface = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            data.getParcelable<Parcelable>(KEY_SURFACE) as? Surface
+                ?: return refuse(client, caller, ERROR_UNSUPPORTED)
+        } else null
+        if (directSurface?.isValid == false) {
+            directSurface.release()
+            return refuse(client, caller, ERROR_BAD_REQUEST)
         }
-        val error = when {
-            !AirPlayPersistence.loadLauncherMapSharing(this) -> ERROR_DISABLED
-            data.getBinder(KEY_HOST_TOKEN) == null -> ERROR_BAD_REQUEST
-            else -> null
-        }
-        if (error != null) {
-            refuse(client, caller, error)
-            return
-        }
+        if (directSurface == null && hostToken == null) return refuse(client, caller, ERROR_BAD_REQUEST)
         embeds.remove(client.binder)?.release()
         if (embeds.size >= MAX_EMBEDS || embeds.values.count { it.uid == uid } >= MAX_EMBEDS_PER_UID) {
-            refuse(client, caller, ERROR_TOO_MANY)
-            return
+            directSurface?.release()
+            return refuse(client, caller, ERROR_TOO_MANY)
         }
-        val display = getSystemService(DisplayManager::class.java)?.getDisplay(data.getInt(KEY_DISPLAY_ID))
-        if (display == null) {
-            send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, ERROR_BAD_REQUEST) })
-            return
+        val key = "launcher:${nextId++}"
+        val response = streamState(MapMirrors.streamActive)
+        val attachment = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val display = getSystemService(DisplayManager::class.java)?.getDisplay(data.getInt(KEY_DISPLAY_ID))
+                ?: return refuse(client, caller, ERROR_BAD_REQUEST)
+            val embed = Embed(createDisplayContext(display), client, key, hostToken!!, display,
+                data.getInt(KEY_WIDTH), data.getInt(KEY_HEIGHT))
+            response.putParcelable(KEY_SURFACE_PACKAGE, embed.surfacePackage)
+            Attachment(uid, embed::resize, embed::release)
+        } else {
+            val surface = directSurface!!
+            val streamListener: (Boolean) -> Unit = { active -> sendStreamState(client, active) }
+            val aspectListener: () -> Unit = { sendStreamState(client, MapMirrors.streamActive) }
+            MapMirrors.addStreamListener(streamListener)
+            MapMirrors.addAspectListener(aspectListener)
+            MapMirrors.set(key, surface)
+            Attachment(uid) {
+                MapMirrors.removeStreamListener(streamListener)
+                MapMirrors.removeAspectListener(aspectListener)
+                MapMirrors.set(key, null)
+                surface.release()
+            }
         }
-        val embed = Embed(
-            createDisplayContext(display), client, uid, "launcher:${nextId++}",
-            data.getBinder(KEY_HOST_TOKEN)!!, display, data.getInt(KEY_WIDTH), data.getInt(KEY_HEIGHT),
-        )
-        embeds[client.binder] = embed
+        embeds[client.binder] = attachment
         runCatching { client.binder.linkToDeath({ main.post { embeds.remove(client.binder)?.release() } }, 0) }
         Log.i(TAG, "$caller shows the map ${data.getInt(KEY_WIDTH)}x${data.getInt(KEY_HEIGHT)}")
-        send(client, MSG_ATTACHED, Bundle().apply {
-            putParcelable(KEY_SURFACE_PACKAGE, embed.surfacePackage)
-            putBoolean(KEY_STREAM_ACTIVE, MapMirrors.streamActive)
-        })
+        send(client, MSG_ATTACHED, response)
     }
 
     private fun refuse(client: Messenger, caller: String, error: String) {
         Log.w(TAG, "$caller asked for the map: $error")
         send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, error) })
+    }
+
+    private fun sendStreamState(client: Messenger, active: Boolean) {
+        send(client, MSG_STREAM_STATE, streamState(active))
+    }
+
+    private fun streamState(active: Boolean) = Bundle().apply {
+        putBoolean(KEY_STREAM_ACTIVE, active)
+        putFloat(KEY_STREAM_ASPECT, MapMirrors.streamAspect.toFloat())
     }
 
     private fun send(client: Messenger, what: Int, data: Bundle) {
@@ -128,12 +152,17 @@ class MapEmbedService : Service() {
         }
     }
 
+    private class Attachment(
+        val uid: Int,
+        val resize: ((Int, Int) -> Unit)? = null,
+        val release: () -> Unit,
+    )
+
     /** One map in one launcher view. Main thread. */
     @RequiresApi(Build.VERSION_CODES.R)
     private inner class Embed(
         context: Context,
         private val client: Messenger,
-        val uid: Int,
         private val key: String,
         hostToken: IBinder,
         display: android.view.Display,
@@ -174,7 +203,7 @@ class MapEmbedService : Service() {
         }
         private val streamListener: (Boolean) -> Unit = { active ->
             waiting.visibility = if (active) TextView.GONE else TextView.VISIBLE
-            send(client, MSG_STREAM_STATE, Bundle().apply { putBoolean(KEY_STREAM_ACTIVE, active) })
+            sendStreamState(client, active)
         }
         private val root = FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
@@ -208,10 +237,6 @@ class MapEmbedService : Service() {
             host.release()
         }
 
-        fun sharingDisabled() {
-            release()
-            send(client, MSG_ERROR, Bundle().apply { putString(KEY_ERROR, ERROR_DISABLED) })
-        }
     }
 
     companion object {
@@ -237,15 +262,17 @@ class MapEmbedService : Service() {
         const val MSG_ERROR = 199 // KEY_ERROR
 
         const val KEY_HOST_TOKEN = "hostToken"
+        const val KEY_SURFACE = "surface"
         const val KEY_DISPLAY_ID = "displayId"
         const val KEY_WIDTH = "width"
         const val KEY_HEIGHT = "height"
         const val KEY_SURFACE_PACKAGE = "surfacePackage"
         const val KEY_STREAM_ACTIVE = "streamActive"
+        const val KEY_STREAM_ASPECT = "streamAspect"
         const val KEY_ERROR = "error"
 
         const val ERROR_DISABLED = "disabled" // the driver has not allowed sharing in DiPlay
-        const val ERROR_UNSUPPORTED = "unsupported" // Android 10 or older
+        const val ERROR_UNSUPPORTED = "unsupported" // older Android requires a client-owned Surface
         const val ERROR_BAD_REQUEST = "bad_request"
         const val ERROR_TOO_MANY = "too_many" // this app or all apps already show the most maps allowed
 

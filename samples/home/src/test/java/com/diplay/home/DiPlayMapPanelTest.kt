@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -62,4 +63,25 @@ class DiPlayMapPanelTest {
     @Test fun bindsTheDebugBuild() = assertBinds("com.shihab.diplay.hudtest")
 
     @Test fun bindsTheAutomotiveBuild() = assertBinds("com.shilapi.xcertplay")
+
+    @Test @Config(sdk = [28])
+    fun legacyHomeBindsTheMapWithoutAutomaticallyOpeningCarPlay() {
+        answerMapService("com.shihab.diplay")
+        var bound: ComponentName? = null
+        val context = object : ContextWrapper(app) {
+            override fun bindService(service: Intent, conn: ServiceConnection, flags: Int): Boolean {
+                bound = service.component
+                return true
+            }
+        }
+        val panel = DiPlayMapPanel(context)
+        panel.start()
+        assertEquals(ComponentName("com.shihab.diplay", "com.shihab.diplay.MapEmbedService"), bound)
+        assertNull(shadowOf(app).nextStartedActivity)
+        panel.openCarPlay()
+        assertEquals(
+            ComponentName("com.shihab.diplay", "com.shilapi.xcertplay.CarPlayHostActivity"),
+            shadowOf(app).nextStartedActivity.component,
+        )
+    }
 }

@@ -520,7 +520,7 @@
     <string name="center_map_usage_missing">使用情况访问：未启用。请在系统设置中开启，或使用权限设置。</string>
     <string name="center_map_no_permission_screen">此车机没有对应的权限设置页面，请使用 DiPlay 的权限设置。</string>
     <string name="launcher_map_sharing">与其他启动器共享实时地图</string>
-    <string name="launcher_map_sharing_description">支持 DiPlay 的启动器可以在自己的主屏幕中显示实时仪表盘地图。默认关闭，因为开启后车机上的任何应用都可以请求该地图。详见 docs/LAUNCHER_INTEGRATION.md。</string>
+    <string name="launcher_map_sharing_description">开启后，车机上的应用可以请求 CarPlay 实时地图。没有独立仪表屏的设备需重新连接 CarPlay。</string>
     <string name="usb_auto_confirm_status_on">USB 弹窗自动确认：已开启</string>
     <string name="usb_auto_confirm_dialog_msg">是否启用 USB 自动确认、使用情况访问和悬浮窗权限？现有无障碍服务会保留。</string>
     <string name="usb_auto_confirm_active_hint">✓ 无障碍服务已激活（连接 iPhone 时将自动确认）</string>

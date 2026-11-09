@@ -1,0 +1,4 @@
+<resources>
+    <bool name="home_system_entry_enabled">false</bool>
+    <bool name="home_shortcut_enabled">true</bool>
+</resources>

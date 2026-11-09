@@ -558,7 +558,7 @@
     <string name="center_map_usage_missing">Usage Access is not allowed. Enable it in system settings or use permission setup.</string>
     <string name="center_map_no_permission_screen">This head unit has no permission settings screen. Use permission setup in DiPlay.</string>
     <string name="launcher_map_sharing">Share the live map with other launchers</string>
-    <string name="launcher_map_sharing_description">Launchers that support DiPlay can show the live dashboard map inside their own home screen. Off by default, because any app on the head unit could then ask for the map. See docs/LAUNCHER_INTEGRATION.md.</string>
+    <string name="launcher_map_sharing_description">Allows apps on the head unit to request the live CarPlay map. On devices without an instrument-cluster display, the change applies at the next CarPlay connection.</string>
     <string name="usb_auto_confirm_status_on">USB Dialog Auto-Confirm: Enabled</string>
     <string name="usb_auto_confirm_dialog_msg">Enable automatic USB confirmation, Usage Access and permission to draw over other apps? Existing accessibility services are preserved.</string>
     <string name="usb_auto_confirm_active_hint">✓ Accessibility Service is active (USB prompt will be auto-confirmed)</string>

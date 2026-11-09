@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.SurfaceTexture
 import android.os.Binder
 import android.os.Bundle
 import android.os.Handler
@@ -10,6 +11,7 @@ import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.view.Display
+import android.view.Surface
 import android.view.SurfaceControlViewHost
 import android.view.View
 import org.junit.Assert.*
@@ -33,6 +35,58 @@ class MapEmbedSurfaceControlHostShadow {
     @Implementation fun relayout(width: Int, height: Int) = Unit
     @Implementation fun getSurfacePackage(): SurfaceControlViewHost.SurfacePackage? = null
     @Implementation fun release() { releases++ }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
+@LooperMode(LooperMode.Mode.PAUSED)
+class MapEmbedDirectSurfaceTest {
+    @Test fun directSurfaceRequiresConsentAndFollowsTheMapLifecycle() {
+        val controller = Robolectric.buildService(MapEmbedService::class.java).create()
+        val service = controller.get()
+        val replies = mutableListOf<Message>()
+        val client = Messenger(Handler(Looper.getMainLooper()) { replies += Message.obtain(it); true })
+        val endpoint = Messenger(service.onBind(Intent(MapEmbedService.ACTION)))
+        val looper = shadowOf(Looper.getMainLooper())
+        val texture = SurfaceTexture(0)
+        val surface = Surface(texture)
+        fun attach() {
+            endpoint.send(Message.obtain(null, MapEmbedService.MSG_ATTACH).apply {
+                replyTo = client
+                data = Bundle().apply { putParcelable(MapEmbedService.KEY_SURFACE, surface) }
+            })
+            looper.idle()
+        }
+        try {
+            attach()
+            assertEquals(MapEmbedService.ERROR_DISABLED, replies.last().data.getString(MapEmbedService.KEY_ERROR))
+            assertFalse(MapMirrors.launcherShowsMap)
+
+            AirPlayPersistence.saveLauncherMapSharing(service, true)
+            attach()
+            assertEquals(MapEmbedService.MSG_ATTACHED, replies.last().what)
+            assertTrue(MapMirrors.launcherShowsMap)
+
+            MapMirrors.streamAspect = MapMirrors.VIRTUAL_STREAM_ASPECT
+            MapMirrors.setStreamActive(true)
+            looper.idle()
+            assertEquals(MapEmbedService.MSG_STREAM_STATE, replies.last().what)
+            assertTrue(replies.last().data.getBoolean(MapEmbedService.KEY_STREAM_ACTIVE))
+            assertEquals(16f / 9, replies.last().data.getFloat(MapEmbedService.KEY_STREAM_ASPECT), 0.001f)
+
+            AirPlayPersistence.saveLauncherMapSharing(service, false)
+            looper.idle()
+            assertEquals(MapEmbedService.ERROR_DISABLED, replies.last().data.getString(MapEmbedService.KEY_ERROR))
+            assertFalse(MapMirrors.launcherShowsMap)
+        } finally {
+            controller.destroy()
+            surface.release()
+            texture.release()
+            MapMirrors.setStreamActive(false)
+            MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
+            looper.idle()
+        }
+    }
 }
 
 @RunWith(RobolectricTestRunner::class)

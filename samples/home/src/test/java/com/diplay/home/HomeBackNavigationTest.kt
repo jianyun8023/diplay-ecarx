@@ -1,5 +1,7 @@
 package com.diplay.home
 
+import android.content.Intent
+import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -16,6 +18,40 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [32, 36])
 @LooperMode(LooperMode.Mode.PAUSED)
 class HomeBackNavigationTest {
+    @Test @Config(sdk = [28, 32])
+    fun systemHomeIsOfferedOnlyOnAndroid11AndLater() {
+        val app = RuntimeEnvironment.getApplication()
+        val main = Intent(Intent.ACTION_MAIN).setPackage(app.packageName)
+        val launcher = app.packageManager.queryIntentActivities(
+            Intent(main).addCategory(Intent.CATEGORY_LAUNCHER), 0,
+        ).single()
+        val home = app.packageManager.queryIntentActivities(
+            Intent(main).addCategory(Intent.CATEGORY_HOME), 0,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            assertEquals(HomeActivity::class.java.name, launcher.activityInfo.name)
+            assertEquals(HomeActivity::class.java.name, home.single().activityInfo.name)
+        } else {
+            assertEquals("${app.packageName}.HomeShortcut", launcher.activityInfo.name)
+            assertTrue(home.isEmpty())
+        }
+    }
+
+    @Test @Config(sdk = [28])
+    fun backExitsTheManualHomeAfterClosingTheAppList() {
+        val controller = Robolectric.buildActivity(HomeActivity::class.java).setup().visible()
+        try {
+            val activity = controller.get()
+            text(activity.window.decorView, activity.getString(R.string.home_apps)).performClick()
+            activity.onBackPressedDispatcher.onBackPressed()
+            assertFalse(activity.isFinishing)
+            activity.onBackPressedDispatcher.onBackPressed()
+            assertTrue(activity.isFinishing)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun backDismissesAppsBeforeLeavingWidgetEditMode() {
         verifyBackNavigation()
     }

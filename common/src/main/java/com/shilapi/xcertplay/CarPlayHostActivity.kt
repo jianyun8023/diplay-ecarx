@@ -1481,7 +1481,8 @@ open class CarPlayHostActivity : ComponentActivity() {
                 )
             }
         }
-        if (!AirPlayPersistence.loadClusterMapEnabled(this)) return null
+        if (!AirPlayPersistence.loadClusterMapEnabled(this) &&
+            !AirPlayPersistence.loadLauncherMapSharing(this)) return null
         MapMirrors.streamAspect = MapMirrors.VIRTUAL_STREAM_ASPECT
         return CarPlayClusterDisplay.config(
             widthPixels = 1280,

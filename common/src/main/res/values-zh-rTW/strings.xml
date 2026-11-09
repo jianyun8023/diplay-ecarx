@@ -520,7 +520,7 @@
     <string name="center_map_usage_missing">使用情況存取：未啟用。請在系統設定中開啟，或使用權限設定。</string>
     <string name="center_map_no_permission_screen">此車機沒有對應的權限設定頁面，請使用 DiPlay 的權限設定。</string>
     <string name="launcher_map_sharing">與其他啟動器共用即時地圖</string>
-    <string name="launcher_map_sharing_description">支援 DiPlay 的啟動器可以在自己的主螢幕中顯示即時儀表板地圖。預設關閉，因為開啟後車機上的任何App都可以請求該地圖。詳見 docs/LAUNCHER_INTEGRATION.md。</string>
+    <string name="launcher_map_sharing_description">開啟後，車機上的 App 可以請求 CarPlay 即時地圖。沒有獨立儀表螢幕的裝置需重新連接 CarPlay。</string>
     <string name="adb_cluster_activity_label">儀表地圖</string>
     <string name="open_diplay_settings_hint">在 CarPlay 中用 %1$d 指向下滑動，以開啟快捷選單。</string>
     <string name="carplay_controls">CarPlay 操作</string>

@@ -6,7 +6,7 @@ DiPlay can put CarPlay information on a launcher's home screen in four ways:
 |---|---|---|---|
 | [Navigation widget](#1-navigation-widget) | Next turn arrow, distance, road, arrival, song | Any launcher that hosts standard Android widgets | Nothing extra |
 | [Map card](#2-map-card) | The live CarPlay map, as a card on the home screen | Any launcher, including BYD home and map home | Two permissions (see below) |
-| [Embedded map](#3-embedded-live-map-for-launcher-developers) | The live CarPlay map inside the launcher's own layout | Launchers that add support for it | Launcher code, Android 11+ |
+| [Embedded map](#3-embedded-live-map-for-launcher-developers) | The live CarPlay map inside the launcher's own layout | Launchers that add support for it | Launcher code, Android 9+ |
 | [Home-screen bubble](#4-home-screen-bubble) | The DiPlay icon as a shortcut back to CarPlay | Any launcher, including ones that list only their own cards | Display over other apps |
 
 The live map is CarPlay's instrument-cluster map: the map the iPhone draws for the dashboard. The map card and the embedded map need **CarPlay map on instrument cluster** turned on in DiPlay. Without it, the iPhone does not send that map.
@@ -61,15 +61,15 @@ The card is a separate decoder for the same stream, so the dashboard keeps its m
 
 ## 3. Embedded live map (for launcher developers)
 
-DiPlay can hand the live map to your launcher as a [`SurfaceControlViewHost.SurfacePackage`](https://developer.android.com/reference/android/view/SurfaceControlViewHost.SurfacePackage). You put it into a `SurfaceView` in your own layout. The map then scrolls, animates and resizes with your screen like any other view, while DiPlay draws it.
+On Android 11+, DiPlay returns a [`SurfaceControlViewHost.SurfacePackage`](https://developer.android.com/reference/android/view/SurfaceControlViewHost.SurfacePackage) for your `SurfaceView`. On Android 9 and 10, your launcher passes its `Surface` to DiPlay, which decodes the same CarPlay dashboard stream onto it.
 
 Requirements:
 
-- Android 11 (API 30) or newer on the head unit;
-- the driver turns on **Share the live map with other launchers** in DiPlay (off by default);
-- CarPlay connected with **CarPlay map on instrument cluster** on, for the map itself.
+- Android 9 (API 28) or newer on the head unit;
+- **Settings → Advanced → Display (experimental) → Share the live map with other launchers** turned on in DiPlay;
+- CarPlay connected and sending the dashboard map. Devices without a physical cluster must connect after enabling sharing so DiPlay requests a virtual dashboard stream.
 
-A complete working example is the sample app in [`samples/maphost`](../samples/maphost/src/main/java/com/diplay/maphost/MainActivity.kt).
+See [`samples/home`](../samples/home/src/main/java/com/diplay/home/DiPlayMapPanel.kt) for both versions, or [`samples/maphost`](../samples/maphost/src/main/java/com/diplay/maphost/MainActivity.kt) for Android 11+.
 
 ### Protocol
 
@@ -79,18 +79,18 @@ Service action: `com.shihab.diplay.action.EMBED_MAP`. The package differs betwee
 
 | Direction | `what` | Data (`Bundle`) | Meaning |
 |---|---|---|---|
-| launcher → DiPlay | `1` ATTACH | `hostToken` (IBinder, `surfaceView.getHostToken()`), `displayId` (int), `width`, `height` (int, px) | Show the map in this view |
-| launcher → DiPlay | `2` RESIZE | `width`, `height` | The view changed size |
+| launcher → DiPlay | `1` ATTACH | `hostToken` (IBinder) and `displayId` (int) on Android 11+, or `surface` (Surface from `surfaceView.holder.surface`) on Android 9–10. `width`, `height` (int, px) | Show the map in this view |
+| launcher → DiPlay | `2` RESIZE | `width`, `height` | The view changed size on Android 11+ |
 | launcher → DiPlay | `3` DETACH | — | Stop showing the map |
-| DiPlay → launcher | `101` ATTACHED | `surfacePackage` (SurfacePackage), `streamActive` (boolean) | Put this into your SurfaceView |
-| DiPlay → launcher | `102` STREAM_STATE | `streamActive` (boolean) | The map started or stopped |
-| DiPlay → launcher | `199` ERROR | `error`: `disabled`, `unsupported` or `bad_request` | The map cannot be shown |
+| DiPlay → launcher | `101` ATTACHED | `surfacePackage` (SurfacePackage, Android 11+), `streamActive` (boolean), `streamAspect` (float) | The decoder has a destination |
+| DiPlay → launcher | `102` STREAM_STATE | `streamActive` (boolean), `streamAspect` (float) | Stream state, including aspect changes on Android 9–10 |
+| DiPlay → launcher | `199` ERROR | `error`: `disabled`, `unsupported`, `bad_request` or `too_many` | The map cannot be shown |
 
 Turning sharing off releases every attached map and sends `ERROR` with `disabled` to its launcher. Treat this as a detach. Enabling sharing again requires a fresh `ATTACH`; old views do not reconnect automatically.
 
-The map is 8:3. If your view has another shape, DiPlay fills it and crops the edges, keeping the car position near the centre. While there is no map, the view shows a "waiting" text. A tap on the map opens CarPlay.
+The map is 8:3 on the 753 and 16:9 for the virtual dashboard. On Android 9 and 10, the launcher sizes the surface using `streamAspect` and handles taps and the waiting state. On Android 11+, DiPlay crops the map to the view and handles taps and the waiting state.
 
-### Steps
+### Steps for Android 11+
 
 1. Declare that you look for DiPlay (package visibility on Android 11+):
 
@@ -177,21 +177,19 @@ Behaviour:
 
 ## DiPlay Home (sample launcher)
 
-[`samples/home`](../samples/home/src/main/java/com/diplay/home/HomeActivity.kt) is a small launcher built on the public APIs above. It shows:
+[`samples/home`](../samples/home/src/main/java/com/diplay/home/HomeActivity.kt) is a separate app built on the public APIs above. On Android 9 and 10, open DiPlay Home from the app list to use the live map, CarPlay shortcut, apps and widgets. The system launcher stays in charge of Home, and DiPlay handles startup and automatic connection.
 
-- the embedded live map, with a clock above it and buttons for Apps, CarPlay and BYD home below;
-- a column of any Android widgets, including **CarPlay navigation**;
-- a full app list.
+Android 11 and later also support the default launcher option.
 
-It runs without system privileges. BYD's home stays installed, and the **BYD home** button opens it.
+DiPlay Home runs without system privileges. On BYD devices running Android 11 or later, the **BYD home** button opens the original launcher.
 
-- **Widgets.** A launcher needs the owner's consent to bind widgets. BYD head units have no consent screen, so allow it once over ADB:
+- **Widgets.** Use Android's consent screen to add widgets such as **CarPlay navigation**. For BYD launcher testing on Android 11+, if the system has no consent screen:
 
   ```bash
   adb shell appwidget grantbind --package com.diplay.home --user 0
   ```
 
-- **Making it the home screen.** Pick it as the default home app, or over ADB:
+- **Making it the home screen on Android 11+.** Pick it as the default home app, or over ADB:
 
   ```bash
   adb shell cmd package set-home-activity com.diplay.home/.HomeActivity

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
@@ -26,7 +27,11 @@ import android.widget.TextView
  */
 class DiPlayMapPanel(context: Context) : FrameLayout(context) {
     private val map = SurfaceView(context)
+    private val directFrame = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+        AspectFrame(context, DASHBOARD_ASPECT).apply { addView(map, LayoutParams(-1, -1)) }
+    } else null
     private val status = TextView(context).apply {
+        setBackgroundColor(Color.BLACK)
         setTextColor(Color.WHITE)
         textSize = 20f
         gravity = Gravity.CENTER
@@ -58,8 +63,9 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
 
     init {
         setBackgroundColor(Color.BLACK)
-        addView(map, LayoutParams(-1, -1))
+        addView(directFrame ?: map, LayoutParams(-1, -1, Gravity.CENTER))
         addView(status, LayoutParams(-1, -1))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) map.setOnClickListener { openCarPlay() }
         status.setOnClickListener { openDiPlay() }
         map.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -68,11 +74,14 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
             }
 
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                if (attached) send(MSG_RESIZE) { putInt(KEY_WIDTH, width); putInt(KEY_HEIGHT, height) }
+                if (attached && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    send(MSG_RESIZE) { putInt(KEY_WIDTH, width); putInt(KEY_HEIGHT, height) }
+                }
             }
 
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 surfaceReady = false
+                send(MSG_DETACH) {}
                 attached = false
             }
         })
@@ -92,7 +101,7 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
     }
 
     fun stop() {
-        if (attached) send(MSG_DETACH) {}
+        send(MSG_DETACH) {}
         attached = false
         if (bound) context.unbindService(connection)
         bound = false
@@ -113,9 +122,9 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
 
     private fun requestMap() {
         if (service == null || !surfaceReady || attached) return
-        val token = map.hostToken ?: return
+        val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) map.hostToken ?: return else null
         send(MSG_ATTACH) {
-            putBinder(KEY_HOST_TOKEN, token)
+            if (token != null) putBinder(KEY_HOST_TOKEN, token) else putParcelable(KEY_SURFACE, map.holder.surface)
             putInt(KEY_DISPLAY_ID, map.display.displayId)
             putInt(KEY_WIDTH, map.width)
             putInt(KEY_HEIGHT, map.height)
@@ -125,13 +134,22 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
     private fun onReply(message: Message) {
         when (message.what) {
             MSG_ATTACHED -> {
-                @Suppress("DEPRECATION")
-                val surfacePackage = message.data.getParcelable<SurfaceControlViewHost.SurfacePackage>(KEY_SURFACE_PACKAGE)
-                    ?: return show(context.getString(R.string.home_map_missing))
-                map.setChildSurfacePackage(surfacePackage)
+                if (!surfaceReady || service == null) return
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    @Suppress("DEPRECATION")
+                    val surfacePackage = message.data.getParcelable<SurfaceControlViewHost.SurfacePackage>(KEY_SURFACE_PACKAGE)
+                        ?: return show(context.getString(R.string.home_map_missing))
+                    map.setChildSurfacePackage(surfacePackage)
+                    status.visibility = GONE // DiPlay draws the waiting state inside the surface package.
+                } else {
+                    showStreamState(message.data)
+                }
                 attached = true
-                // DiPlay draws its own "waiting" text until the map streams.
-                status.visibility = GONE
+            }
+            MSG_STREAM_STATE -> {
+                if (attached && Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                    showStreamState(message.data)
+                }
             }
             MSG_ERROR -> {
                 attached = false
@@ -144,6 +162,12 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
                 )
             }
         }
+    }
+
+    private fun showStreamState(data: Bundle) {
+        val ratio = data.getFloat(KEY_STREAM_ASPECT, DASHBOARD_ASPECT)
+        if (ratio.isFinite() && ratio > 0f) directFrame?.ratio = ratio
+        if (data.getBoolean(KEY_STREAM_ACTIVE)) status.visibility = GONE else show(context.getString(R.string.home_map_waiting))
     }
 
     private fun send(what: Int, fill: Bundle.() -> Unit) {
@@ -174,12 +198,17 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
         const val MSG_RESIZE = 2
         const val MSG_DETACH = 3
         const val MSG_ATTACHED = 101
+        const val MSG_STREAM_STATE = 102
         const val MSG_ERROR = 199
         const val KEY_HOST_TOKEN = "hostToken"
+        const val KEY_SURFACE = "surface"
         const val KEY_DISPLAY_ID = "displayId"
         const val KEY_WIDTH = "width"
         const val KEY_HEIGHT = "height"
         const val KEY_SURFACE_PACKAGE = "surfacePackage"
+        const val KEY_STREAM_ACTIVE = "streamActive"
+        const val KEY_STREAM_ASPECT = "streamAspect"
+        const val DASHBOARD_ASPECT = 8f / 3
         const val KEY_ERROR = "error"
         const val ERROR_DISABLED = "disabled"
         const val ERROR_UNSUPPORTED = "unsupported"
