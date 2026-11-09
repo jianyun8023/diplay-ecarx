@@ -88,13 +88,18 @@ class SidePanelLayoutTest {
     }
 
     private fun place(width: Int, height: Int) {
-        activity.javaClass.getDeclaredMethod("placeSidePanel", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(activity, width, height)
+        owner("sidePanel").javaClass.getDeclaredMethod("placeSidePanel", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(owner("sidePanel"), width, height)
     }
 
     private fun exact(size: Int) = View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.EXACTLY)
-    private fun get(name: String): Any? = activity.javaClass.getDeclaredField(name)
-        .apply { isAccessible = true }.get(activity)
-    private fun set(name: String, value: Any?) = activity.javaClass.getDeclaredField(name)
-        .apply { isAccessible = true }.set(activity, value)
+    private fun owner(name: String): Any = if (name.startsWith("sidePanel"))
+        activity.javaClass.getDeclaredField("sidePanelUi").apply { isAccessible = true }.get(activity) else activity
+
+    private fun get(name: String): Any? = owner(name).let { target ->
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target)
+    }
+    private fun set(name: String, value: Any?) = owner(name).let { target ->
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.set(target, value)
+    }
 }

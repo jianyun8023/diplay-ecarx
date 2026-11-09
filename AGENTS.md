@@ -18,11 +18,18 @@ Run the CI command from `.github/workflows/android.yml` before you report a chan
 
 Set `ANDROID_HOME` or `local.properties` if Gradle cannot find the SDK.
 
+## Source ownership
+
+- `CarPlayHostActivity` owns the foreground session and window lifecycle. `CarPlaySidePanel` owns its panel views, gestures, animation callbacks and cleanup; the host supplies the current session geometry and actions.
+- `DiPlayActivity` owns page navigation and settings composition. `DiPlayControls` holds its custom text controls, and `DiPlayUpdates` owns update checks, downloads, verification and installation for that Activity lifetime.
+- `CarPlayController` owns session generations and resource teardown. `WirelessBluetoothConnection` selects and validates Bluetooth targets and connects RFCOMM using the caller's cancellation predicate. `CarPlayStatus` holds the status contract.
+- `AndroidMediaSink` owns stream routing and renderer lifetimes. `VideoDecoder`, `AudioRenderer` and `AudioFocusCoordinator` own decoding, playback and focus respectively. Keep codec worker ownership and release ordering with those implementations.
+
 ## Adding or moving a setting
 
 The Settings screen is grouped by driver goal, not by implementation.
-`SettingsCategory`, `SettingsSection` and `SettingsInformationArchitecture` at the top of
-`common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt` define the groups.
+`SettingsCategory`, `SettingsSection` and `SettingsInformationArchitecture` in
+`common/src/main/java/com/shilapi/xcertplay/SettingsInformationArchitecture.kt` define the groups.
 `SettingsLayoutPolicyTest` fails when a section has no category or has more than one.
 
 ### Choose the category

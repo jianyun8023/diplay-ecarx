@@ -269,11 +269,14 @@ class WirelessStartupControllerTest {
         shadowOf(adapter).setBondedDevices(setOf(phone))
         val controller = controller(chosenIphone = "00:11:22:33:44:99")
         try {
-            val selected = controller.javaClass.getDeclaredMethod("selectWirelessBluetoothDevice", BluetoothAdapter::class.java)
-                .apply { isAccessible = true }.invoke(controller, adapter)
+            val selected = bluetooth(controller).javaClass.getDeclaredMethod("selectWirelessBluetoothDevice", BluetoothAdapter::class.java)
+                .apply { isAccessible = true }.invoke(bluetooth(controller), adapter)
             assertEquals(phone, selected)
         } finally { controller.close(); controller.awaitClosed(2_000) }
     }
+
+    private fun bluetooth(controller: CarPlayController): Any = controller.javaClass.getDeclaredField("wirelessBluetooth")
+        .apply { isAccessible = true }.get(controller)
 
     private fun assertCause(cause: ConnectionFailureCause, message: String, failure: Throwable) {
         assertEquals(message, failure.message)
@@ -291,8 +294,8 @@ class WirelessStartupControllerTest {
         val controller = controller(chosenIphone = chosenIphone)
         try {
             return assertThrows(InvocationTargetException::class.java) {
-                controller.javaClass.getDeclaredMethod("selectWirelessBluetoothDevice", BluetoothAdapter::class.java)
-                    .apply { isAccessible = true }.invoke(controller, adapter)
+                bluetooth(controller).javaClass.getDeclaredMethod("selectWirelessBluetoothDevice", BluetoothAdapter::class.java)
+                    .apply { isAccessible = true }.invoke(bluetooth(controller), adapter)
             }.cause!!
         } finally { controller.close(); controller.awaitClosed(2_000) }
     }

@@ -467,15 +467,18 @@ class WirelessBootstrapLifecycleTest {
             .apply { isAccessible = true }.invoke(controller)
     }
 
+    private val bluetooth: Any get() = controller.javaClass.getDeclaredField("wirelessBluetooth")
+        .apply { isAccessible = true }.get(controller)
+
     private fun connect(socket: BluetoothSocket, isCurrent: () -> Boolean) {
-        controller.javaClass.getDeclaredMethod("connectBluetoothSocket", BluetoothSocket::class.java,
+        bluetooth.javaClass.getDeclaredMethod("connectBluetoothSocket", BluetoothSocket::class.java,
             String::class.java, Function0::class.java).apply { isAccessible = true }
-            .invoke(controller, socket, "00:11:22:33:44:01", isCurrent)
+            .invoke(bluetooth, socket, "00:11:22:33:44:01", isCurrent)
     }
 
     private fun validateTarget(adapter: BluetoothAdapter, phone: BluetoothDevice) {
-        controller.javaClass.getDeclaredMethod("validateBluetoothTarget", BluetoothAdapter::class.java,
-            BluetoothDevice::class.java).apply { isAccessible = true }.invoke(controller, adapter, phone)
+        bluetooth.javaClass.getDeclaredMethod("validateBluetoothTarget", BluetoothAdapter::class.java,
+            BluetoothDevice::class.java).apply { isAccessible = true }.invoke(bluetooth, adapter, phone)
     }
 
     private fun validationFailure(adapter: BluetoothAdapter, phone: BluetoothDevice): Throwable =
