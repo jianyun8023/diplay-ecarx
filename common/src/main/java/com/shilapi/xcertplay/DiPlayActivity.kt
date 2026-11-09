@@ -12,7 +12,6 @@ import android.app.TimePickerDialog
 import android.view.Window
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -44,7 +43,6 @@ import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
 import androidx.core.widget.doAfterTextChanged
 import androidx.core.view.doOnLayout
 import androidx.core.view.WindowCompat
@@ -55,8 +53,6 @@ import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.CarPlayClusterDisplay
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
 import com.shilapi.xcertplay.airplay.SafeAreaRect
-import com.shilapi.xcertplay.airplay.ClusterSpeedometerOverlay
-import com.shilapi.xcertplay.airplay.ClusterTurnCardOverlay
 import com.shilapi.xcertplay.backup.SettingsBackupCodec
 import com.shilapi.xcertplay.backup.SettingsBackupEndpoint
 import com.shilapi.xcertplay.backup.SettingsBackupServer
@@ -86,86 +82,21 @@ import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.settings.SettingsTheme
 import com.shilapi.xcertplay.settings.SettingsWidgets
 import com.shilapi.xcertplay.setup.SetupGuide
-import com.shilapi.xcertplay.transport.EvChargingConnectors
 import com.shilapi.xcertplay.update.BackgroundUpdateScheduler
-import com.shilapi.xcertplay.update.UpdateApkExport
 import com.shilapi.xcertplay.update.UpdateAvailability
-import com.shilapi.xcertplay.update.UpdateCatalog
-import com.shilapi.xcertplay.update.UpdateChecksums
-import com.shilapi.xcertplay.update.UpdateApkIdentity
-import com.shilapi.xcertplay.update.UpdateClient
 import com.shilapi.xcertplay.update.UpdateMirror
 import com.shilapi.xcertplay.update.UpdateRelease
-import com.shilapi.xcertplay.update.UpdateReleaseLookup
 import java.io.File
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
 
-internal enum class SettingsCategory {
-    OVERVIEW, CONNECTION, DISPLAY, AUDIO, NAVIGATION, VEHICLE, LANGUAGE, DIAGNOSTICS, ADVANCED, ABOUT,
-}
-
-/** A settings card. Every entry needs one category in [SettingsInformationArchitecture]; see AGENTS.md. */
-internal enum class SettingsSection {
-    CARPLAY_CONTROLS,
-    WHEEL_KEYS,
-    CONNECTION_SETUP,
-    DIAGNOSTICS,
-    AUTOMATIC_CONNECTION,
-    USB_CONNECTION,
-    DISPLAY_AND_PERFORMANCE,
-    EXPERIMENTAL_DISPLAY,
-    ECARX_CLUSTER_DISPLAY,
-    ADVANCED_MEDIA,
-    MEDIA_OUTPUT,
-    CAR_BUTTON,
-    AUDIO_ROUTING,
-    AUTHENTICATION,
-    EXTERNAL_CONTROLLER,
-    NAVIGATION_WHEEL,
-    LOCATION,
-    LAUNCHER_BUBBLE,
-    PERMISSIONS_AND_HELP,
-    LANGUAGE,
-}
-
-internal object SettingsInformationArchitecture {
-    val sectionsByCategory: Map<SettingsCategory, Set<SettingsSection>> = mapOf(
-        SettingsCategory.OVERVIEW to emptySet(),
-        SettingsCategory.LANGUAGE to setOf(SettingsSection.LANGUAGE),
-        SettingsCategory.ABOUT to emptySet(),
-        SettingsCategory.CONNECTION to setOf(
-            SettingsSection.CONNECTION_SETUP,
-            SettingsSection.AUTOMATIC_CONNECTION,
-            SettingsSection.USB_CONNECTION,
-            SettingsSection.PERMISSIONS_AND_HELP,
-        ),
-        SettingsCategory.DISPLAY to setOf(SettingsSection.DISPLAY_AND_PERFORMANCE),
-        SettingsCategory.AUDIO to setOf(SettingsSection.MEDIA_OUTPUT, SettingsSection.AUDIO_ROUTING),
-        SettingsCategory.NAVIGATION to setOf(SettingsSection.LOCATION),
-        SettingsCategory.VEHICLE to setOf(
-            SettingsSection.CARPLAY_CONTROLS,
-            SettingsSection.WHEEL_KEYS,
-            SettingsSection.CAR_BUTTON,
-        ),
-        SettingsCategory.DIAGNOSTICS to setOf(SettingsSection.DIAGNOSTICS),
-        SettingsCategory.ADVANCED to setOf(
-            SettingsSection.LAUNCHER_BUBBLE,
-            SettingsSection.AUTHENTICATION,
-            SettingsSection.EXTERNAL_CONTROLLER,
-            SettingsSection.EXPERIMENTAL_DISPLAY,
-            SettingsSection.ECARX_CLUSTER_DISPLAY,
-            SettingsSection.ADVANCED_MEDIA,
-            SettingsSection.NAVIGATION_WHEEL,
-        ),
-    )
-}
-
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
+    internal val updates = DiPlayUpdates(this) { aboutOnly ->
+        if (!aboutOnly || (page == "settings" && settingsCategory == SettingsCategory.ABOUT)) render()
+    }
     private val hySiriKeys = HySiriKeys()
     private var hySiriBackgroundExpanded = false
     private val handler = Handler(Looper.getMainLooper())
@@ -244,27 +175,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var pendingScrollY: Int? = null
     private var pendingRailScrollY: Int? = null
     private var pendingRailFocus = false
-    private var availableUpdate: UpdateRelease? = null
-    private var updateSavedPath: String? = null
-    private var updateSavedUri: Uri? = null
-    /** Runs the check of the public update copy; tests run it inline. */
-    internal var updateInstallWorker: (Runnable) -> Unit = { Thread(it, "diplay-update-install").start() }
-    @Volatile private var updateStage = UpdateStage.IDLE
     @Volatile private var backupServer: SettingsBackupServer? = null
     @Volatile private var backupEndpoint: SettingsBackupEndpoint? = null
     /** The Settings category that opened the phone page, and the one to go back to. */
     private var backupOpenedFrom = SettingsCategory.ABOUT
     @Volatile private var backupSummary: String? = null
-    @Volatile private var updateGeneration = 0
-    @Volatile private var updateProgress: Int? = null
-    private var updateRelease: UpdateRelease? = null
-    private var updateFile: File? = null
-    // The route that answered the last check; downloads try it first.
-    private var updateRoute: String? = null
-    private var updateMessage: String? = null
-    // The notes of the installed build: hidden until asked for, then read once from its own release.
-    private var installedNotesShown = false
-    @Volatile private var installedNotesLoading = false
     private var carButtonCard: LinearLayout? = null
     private var hotspotStartupResult: CarHotspotTethering.Result? = null
     private var hotspotStartupPhase: CarHotspotSetup.Phase? = null
@@ -377,7 +292,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             openProjection(); finish(); return
         }
         scheduleBackgroundUpdateChecks()
-        availableUpdate = UpdateAvailability.available(this, buildNumber())
+        updates.availableUpdate = UpdateAvailability.available(this, buildNumber())
         enforceInterfaceSize()
         refreshAppearance()
         rememberLaunchAppearance()
@@ -550,7 +465,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // The background check runs two minutes after opening, usually while CarPlay is in front: what it
         // found shows when DiPlay comes back, not only after the activity is created again.
-        availableUpdate = UpdateAvailability.available(this, buildNumber())
+        updates.availableUpdate = UpdateAvailability.available(this, buildNumber())
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch &&
             (page == "home" || page == "settings" || page == "connection" || page == "setup")) render()
@@ -1056,7 +971,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (!compact) right.addView(label(getString(R.string.make_diplay_feel_right_for_your_car), 14, MUTED).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(24)) })
         else right.addView(space(12))
         right.addView(label(getString(R.string.home_public_preview, displayVersion()), 12, MUTED).apply { letterSpacing = .08f })
-        availableUpdate?.let { release ->
+        updates.availableUpdate?.let { release ->
             val message = getString(R.string.update_available_home)
             val tint = { alpha: Int -> (WARNING and 0x00FFFFFF) or (alpha shl 24) }
             val chip = GradientDrawable().apply {
@@ -2452,8 +2367,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
     }
 
-    private enum class UpdateStage { IDLE, CHECKING, AVAILABLE, DOWNLOADING, VERIFYING, READY, FAILED }
-
     private fun openBackup(from: SettingsCategory = SettingsCategory.ABOUT) {
         backupOpenedFrom = from
         page = "backup"
@@ -2620,27 +2533,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun updateRow(): View {
         val container = column().apply { setPadding(0, dp(12), 0, 0) }
-        updateMessage?.let { container.addView(label(it, 14, MUTED)) }
-        updateRelease?.takeIf { updateStage != UpdateStage.IDLE && updateStage != UpdateStage.CHECKING }?.let { release ->
+        updates.updateMessage?.let { container.addView(label(it, 14, MUTED)) }
+        updates.updateRelease?.takeIf { updates.updateStage != DiPlayUpdates.Stage.IDLE && updates.updateStage != DiPlayUpdates.Stage.CHECKING }?.let { release ->
             container.addView(label(getString(R.string.settings_update_notes_title, release.tagName), 16, TEXT, true))
             container.addView(label(release.notes.ifBlank { getString(R.string.settings_update_notes_empty) }, 14, MUTED)
                 .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
         }
-        when (updateStage) {
-            UpdateStage.IDLE, UpdateStage.FAILED ->
-                container.addView(button(getString(R.string.update_check), false) { checkForUpdates() },
-                    matchButton(if (updateMessage == null) 0 else 10, 60))
-            UpdateStage.CHECKING -> container.addView(label(getString(R.string.update_checking), 14, MUTED))
-            UpdateStage.AVAILABLE -> container.addView(
-                button(getString(R.string.update_download), true) { downloadUpdate() },
+        when (updates.updateStage) {
+            DiPlayUpdates.Stage.IDLE, DiPlayUpdates.Stage.FAILED ->
+                container.addView(button(getString(R.string.update_check), false) { updates.checkForUpdates() },
+                    matchButton(if (updates.updateMessage == null) 0 else 10, 60))
+            DiPlayUpdates.Stage.CHECKING -> container.addView(label(getString(R.string.update_checking), 14, MUTED))
+            DiPlayUpdates.Stage.AVAILABLE -> container.addView(
+                button(getString(R.string.update_download), true) { updates.downloadUpdate() },
                 matchButton(10, 60))
-            UpdateStage.DOWNLOADING -> container.addView(label(getString(R.string.update_downloading, updateProgress ?: 0), 14, MUTED))
-            UpdateStage.VERIFYING -> container.addView(label(getString(R.string.update_verifying), 14, MUTED))
-            UpdateStage.READY -> {
+            DiPlayUpdates.Stage.DOWNLOADING -> container.addView(label(getString(R.string.update_downloading, updates.updateProgress ?: 0), 14, MUTED))
+            DiPlayUpdates.Stage.VERIFYING -> container.addView(label(getString(R.string.update_verifying), 14, MUTED))
+            DiPlayUpdates.Stage.READY -> {
                 container.addView(
-                    button(getString(R.string.update_install, updateRelease?.tagName.orEmpty()), true) { installUpdate() },
+                    button(getString(R.string.update_install, updates.updateRelease?.tagName.orEmpty()), true) { updates.installUpdate() },
                     matchButton(10, 60))
-                updateSavedPath?.let { container.addView(label(getString(R.string.update_saved_to, it), 13, MUTED).apply { setPadding(0, dp(10), 0, 0) }) }
+                updates.updateSavedPath?.let { container.addView(label(getString(R.string.update_saved_to, it), 13, MUTED).apply { setPadding(0, dp(10), 0, 0) }) }
             }
         }
         return container
@@ -2649,12 +2562,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun installedNotesRow(card: LinearLayout) {
         val build = buildNumber()
         val notes = UpdateAvailability.installedNotes(this, build)
-        if (!installedNotesShown || (notes == null && !installedNotesLoading)) {
-            if (installedNotesShown) {
+        if (!updates.installedNotesShown || (notes == null && !updates.installedNotesLoading)) {
+            if (updates.installedNotesShown) {
                 card.addView(label(getString(R.string.settings_installed_notes_failed), 14, WARNING)
                     .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
             }
-            card.addView(button(getString(R.string.settings_installed_notes), false) { showInstalledNotes() },
+            card.addView(button(getString(R.string.settings_installed_notes), false) { updates.showInstalledNotes() },
                 matchButton(SETTINGS_BLOCK_GAP_DP, 60))
             return
         }
@@ -2664,72 +2577,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             ?: getString(R.string.settings_installed_notes_loading)
         card.addView(label(text, 14, MUTED).apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
     }
-
-    private fun showInstalledNotes() {
-        installedNotesShown = true
-        val build = buildNumber()
-        if (UpdateAvailability.installedNotes(this, build) != null || installedNotesLoading) return render()
-        installedNotesLoading = true
-        render()
-        Thread({
-            val outcome = runCatching { UpdateReleaseLookup.installed(build, userAgent(), UpdateAvailability.routes(this)) }
-            runOnUiThread {
-                installedNotesLoading = false
-                outcome.onSuccess { lookup ->
-                    UpdateAvailability.recordWorkingRoute(this, lookup.route)
-                    lookup.release?.let { UpdateAvailability.saveInstalledNotes(this, it) }
-                }.onFailure { Log.w("DiPlay-Update", "installed release notes failed", it) }
-                if (!isFinishing && !isDestroyed) render()
-            }
-        }, "diplay-installed-notes").start()
-    }
-
-    private fun checkForUpdates() {
-        updateStage = UpdateStage.CHECKING
-        updateMessage = null
-        val generation = ++updateGeneration
-        render()
-        Thread({
-            val outcome = runCatching { latestRelease() }
-            runOnUiThread {
-                if (generation != updateGeneration || isFinishing || isDestroyed) return@runOnUiThread
-                outcome.fold(
-                    { release ->
-                        UpdateAvailability.recordAttempt(this, System.currentTimeMillis())
-                        availableUpdate = release
-                        if (release == null) {
-                            UpdateAvailability.clear(this)
-                            updateMessage = getString(R.string.update_up_to_date)
-                            updateStage = UpdateStage.IDLE
-                        } else {
-                            UpdateAvailability.save(this, release)
-                            updateRelease = release
-                            updateStage = UpdateStage.AVAILABLE
-                        }
-                        render()
-                    },
-                    { failure ->
-                        Log.w("DiPlay-Update", "update check failed", failure)
-                        // The URLs and status codes stay in the log; the driver needs the next step.
-                        updateMessage = getString(R.string.settings_update_check_failed)
-                        updateStage = UpdateStage.FAILED
-                        render()
-                    },
-                )
-            }
-        }, "diplay-update-check").start()
-    }
-
-    private fun latestRelease(): UpdateRelease? {
-        val lookup = UpdateReleaseLookup.latest(buildNumber(), userAgent(), UpdateAvailability.routes(this))
-        updateRoute = lookup.route
-        UpdateAvailability.recordWorkingRoute(this, lookup.route)
-        return lookup.release
-    }
-
-    /** The answering route first, then the rest of the driver's choice. */
-    private fun downloadRoutes(): List<String> =
-        (listOfNotNull(updateRoute) + UpdateAvailability.routes(this)).distinct()
 
     private fun updateSourceChoice(card: LinearLayout) {
         val custom = UpdateAvailability.customMirror(this)
@@ -2742,7 +2589,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             val route = routes.getOrNull(index)
             if (route != null) {
                 UpdateAvailability.saveMirror(this, route)
-                updateRoute = null
+                updates.updateRoute = null
                 return@choice
             }
             textInput(getString(R.string.settings_update_source_custom), custom ?: "https://", secret = false) { value ->
@@ -2750,7 +2597,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 if (prefix == null) toast(getString(R.string.settings_update_source_invalid))
                 else {
                     UpdateAvailability.saveMirror(this, prefix)
-                    updateRoute = null
+                    updates.updateRoute = null
                 }
                 render()
             }
@@ -2760,9 +2607,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun openAvailableUpdate(release: UpdateRelease) {
-        updateRelease = release
-        updateMessage = null
-        updateStage = UpdateStage.AVAILABLE
+        updates.updateRelease = release
+        updates.updateMessage = null
+        updates.updateStage = DiPlayUpdates.Stage.AVAILABLE
         page = "settings"
         settingsCategory = SettingsCategory.ABOUT
         render()
@@ -2772,129 +2619,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         runCatching { BackgroundUpdateScheduler.schedule(applicationContext) }
             .onFailure { Log.i("DiPlay-Update", "background update scheduling unavailable", it) }
     }
-
-    private fun downloadUpdate() {
-        if (updateRelease == null) return
-        lateinit var release: UpdateRelease
-        updateStage = UpdateStage.DOWNLOADING
-        updateSavedPath = null
-        updateSavedUri = null
-        updateProgress = null
-        updateMessage = null
-        val generation = ++updateGeneration
-        render()
-        Thread({
-            // Each attempt owns its files, including across activity recreation.
-            val directory = File(cacheDir, "update/${java.util.UUID.randomUUID()}")
-            val outcome = runCatching {
-                // The cached release can be a day old. Download the newest one.
-                release = latestRelease() ?: throw IOException(getString(R.string.update_up_to_date))
-                val checksumsFile = File(directory, UpdateCatalog.CHECKSUMS_FILE)
-                val (_, route) = UpdateMirror.firstWorking(downloadRoutes()) { route ->
-                    UpdateClient.download(UpdateMirror.url(route, release.checksumsUrl), checksumsFile) { _, _ -> }
-                }
-                val apkFile = File(directory, release.apkName)
-                UpdateMirror.firstWorking(listOf(route) + downloadRoutes()) { apkRoute ->
-                    UpdateClient.download(UpdateMirror.url(apkRoute, release.apkUrl), apkFile) { written, total ->
-                        val percent = total?.takeIf { it > 0 }?.let { (written * 100 / it).toInt() } ?: return@download
-                        if (percent != updateProgress) {
-                            updateProgress = percent
-                            refreshUpdateUi(generation)
-                        }
-                    }
-                }
-                updateStage = UpdateStage.VERIFYING
-                refreshUpdateUi(generation)
-                val expected = UpdateChecksums.parse(checksumsFile.readText())
-                val actual = UpdateChecksums.sha256Hex(apkFile)
-                if (!UpdateChecksums.matches(expected, release.apkName, actual)) {
-                    throw IOException("Checksum mismatch for ${release.apkName}")
-                }
-                UpdateApkIdentity.verify(packageManager, apkFile, packageName, buildNumber())
-                apkFile
-            }.onFailure { directory.deleteRecursively() }
-            val saved = outcome.getOrNull()?.let { UpdateApkExport.copy(applicationContext, it) }
-            runOnUiThread {
-                if (generation != updateGeneration || isFinishing || isDestroyed) {
-                    directory.deleteRecursively()
-                    return@runOnUiThread
-                }
-                outcome.fold(
-                    { file ->
-                        updateRelease = release
-                        updateFile = file
-                        updateSavedPath = saved?.path
-                        updateSavedUri = saved?.uri
-                        updateStage = UpdateStage.READY
-                        render()
-                    },
-                    { failure ->
-                        Log.w("DiPlay-Update", "update download failed", failure)
-                        updateMessage = failure.message ?: getString(R.string.update_failed)
-                        updateStage = UpdateStage.FAILED
-                        render()
-                    },
-                )
-            }
-        }, "diplay-update-download").start()
-    }
-
-    private fun installUpdate() {
-        // No unknown-sources pre-check: some head units answer its settings page with "Not supported yet".
-        // The chosen installer asks for that permission itself.
-        installApk(updateFile ?: return)
-    }
-
-    private fun installApk(file: File) {
-        // The public copy lets file managers such as MT Manager open the APK. The private provider URI is the fallback,
-        // including when the driver deleted the public copy.
-        // The public copy is outside the app's control, so it must still match the verified file. Hashing two
-        // APKs takes seconds on a slow head unit, so it runs off the main thread.
-        val savedUri = updateSavedUri
-        val generation = updateGeneration
-        updateInstallWorker(Runnable {
-            val publicUri = savedUri?.takeIf { sameContent(it, file) }
-            runOnUiThread {
-                if (generation == updateGeneration && !isFinishing && !isDestroyed) startInstaller(file, publicUri)
-            }
-        })
-    }
-
-    private fun startInstaller(file: File, publicUri: Uri?) {
-        val uri = publicUri ?: FileProvider.getUriForFile(this, "$packageName.update-apks", file)
-        val view = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        // Ask only when several installers exist. A lone system installer opens directly, as before.
-        val installers = packageManager.queryIntentActivities(view, PackageManager.MATCH_DEFAULT_ONLY).size
-        val launch = if (installers > 1) Intent.createChooser(view, null) else view
-        val outcome = "${if (installers > 1) "chooser" else "direct"} uri=${if (publicUri != null) "public" else "provider"} installers=$installers"
-        try {
-            startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            Log.i("DiPlay-Update", "install started: $outcome")
-            UpdateAvailability.recordInstall(applicationContext, System.currentTimeMillis(), outcome)
-        } catch (failure: RuntimeException) {
-            Log.w("DiPlay-Update", "install failed to start: $outcome", failure)
-            UpdateAvailability.recordInstall(applicationContext, System.currentTimeMillis(), "$outcome failed=${failure.javaClass.simpleName}")
-            updateMessage = getString(R.string.update_failed)
-            render()
-        }
-    }
-
-    private fun sameContent(uri: Uri, verified: File): Boolean = runCatching {
-        val copy = contentResolver.openInputStream(uri)?.use { UpdateChecksums.sha256Hex(it) }
-        copy != null && copy == UpdateChecksums.sha256Hex(verified)
-    }.getOrDefault(false)
-
-    private fun refreshUpdateUi(generation: Int) {
-        runOnUiThread {
-            if (generation != updateGeneration || isFinishing || isDestroyed || !(page == "settings" && settingsCategory == SettingsCategory.ABOUT)) return@runOnUiThread
-            render()
-        }
-    }
-
-    private fun userAgent() = "DiPlay/${version()}"
 
     // An opted-in connection prepares the hotspot in the controller instead of stopping at this reminder.
     private fun carHotspotOff(): Boolean =
@@ -3281,7 +3005,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(SETTINGS_BLOCK_GAP_DP) })
     }
-
 
     private fun setupBadges(entry: SetupGuide.Entry): LinearLayout = row().apply {
         setPadding(0, dp(2), 0, dp(14))
@@ -5481,7 +5204,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         parent.addView(dependent)
     }
 
-
     private fun settingsDetails(parent: LinearLayout, title: Int, expanded: Boolean,
         saveExpanded: (Boolean) -> Unit, build: (LinearLayout) -> Unit) {
         val details = column().apply {
@@ -5595,71 +5317,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun card() = column().apply { background = rounded(SURFACE, BORDER); setPadding(dp(24), dp(24), dp(24), dp(24)) }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
     private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
-    private class SettingsSearchEditText(context: android.content.Context) : EditText(context) {
-        private val glyphBounds = android.graphics.Rect()
-        private var measuredHint: String? = null
-        private var measuredHintHeight = -1
-        private var measuredHintTextSize = -1f
-        private var measuredHintBaseline = 0
-
-        override fun onDraw(canvas: android.graphics.Canvas) {
-            val value: CharSequence = if (text.isNullOrEmpty()) hint ?: "" else text
-            val drawingBaseline = if (text.isNullOrEmpty() && value.isNotEmpty()) hintBaseline(value) else baseline
-            val offset = if (baseline >= 0) {
-                val contentCentre = paddingTop + (height - paddingTop - paddingBottom) / 2f
-                contentCentre - alignedTextCentreY(this, value, glyphBounds, drawingBaseline)
-            } else 0f
-            // Text, selection and cursor move together.
-            val checkpoint = canvas.save()
-            canvas.translate(0f, offset)
-            super.onDraw(canvas)
-            canvas.restoreToCount(checkpoint)
-        }
-
-        /**
-         * TextView.baseline describes the editable layout, even while it draws a hint, and a hint in
-         * a fallback font can sit differently. Measured once per hint, height and text size rather
-         * than on every frame of the blinking cursor.
-         */
-        private fun hintBaseline(value: CharSequence): Int {
-            if (value.toString() != measuredHint || height != measuredHintHeight || paint.textSize != measuredHintTextSize) {
-                // The editor scrolls horizontally rather than wrapping: lay the hint out on one line.
-                val hintWidth = maxOf(
-                    (width - compoundPaddingLeft - compoundPaddingRight).coerceAtLeast(1),
-                    kotlin.math.ceil(android.text.Layout.getDesiredWidth(value, paint).toDouble()).toInt(),
-                )
-                val hintLayout = android.text.StaticLayout.Builder.obtain(value, 0, value.length, paint, hintWidth)
-                    .setMaxLines(1).setIncludePad(includeFontPadding).apply {
-                        if (Build.VERSION.SDK_INT >= 28) setUseLineSpacingFromFallbacks(isFallbackLineSpacing)
-                    }.build()
-                measuredHintBaseline = extendedPaddingTop +
-                    ((height - extendedPaddingTop - extendedPaddingBottom - hintLayout.height).coerceAtLeast(0) / 2) +
-                    hintLayout.getLineBaseline(0)
-                measuredHint = value.toString()
-                measuredHintHeight = height
-                measuredHintTextSize = paint.textSize
-            }
-            return measuredHintBaseline
-        }
-    }
-
-    private class HeaderTitleView(context: android.content.Context) : TextView(context) {
-        private val glyphBounds = android.graphics.Rect()
-
-        override fun onDraw(canvas: android.graphics.Canvas) {
-            val value = text.toString()
-            paint.getTextBounds(value, 0, value.length, glyphBounds)
-            val checkpoint = canvas.save()
-            if (layout?.lineCount == 1 && !glyphBounds.isEmpty && baseline >= 0) {
-                val textCentre = alignedTextCentreY(this, value, glyphBounds)
-                val contentCentre = paddingTop + (height - paddingTop - paddingBottom) / 2f
-                canvas.translate(0f, contentCentre - textCentre)
-            }
-            super.onDraw(canvas)
-            canvas.restoreToCount(checkpoint)
-        }
-    }
-
     private fun label(value: String, size: Int, color: Int, bold: Boolean = false, centreGlyphs: Boolean = false) =
         (if (centreGlyphs) HeaderTitleView(this) else TextView(this)).apply {
         text = value; textSize = size.toFloat(); setTextColor(color); gravity = Gravity.CENTER_VERTICAL
@@ -5748,67 +5405,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun actionButton(title: String, primary: Boolean, click: () -> Unit) =
         button(title, primary, click).apply { action = true; text = title }
 
-    /**
-     * Text in the "Title · Value" form opens a choice, so it reads as a setting row:
-     * start-aligned, muted value, chevron. Any other text stays a centred action button.
-     * The plain text is unchanged, so callers and tests keep matching "Title · Value".
-     */
-    private class SettingButton(
-        context: android.content.Context,
-        private val muted: Int,
-        private val accent: Int,
-    ) : Button(context) {
-        var action = false
-        var contentOffsetY = 0f
-        var alignVisibleGlyphs = true
-        private val glyphBounds = android.graphics.Rect()
-
-        fun textAlignmentCentreY(): Float {
-            return alignedTextCentreY(this, text, glyphBounds)
-        }
-
-        override fun onDraw(canvas: android.graphics.Canvas) {
-            var offset = contentOffsetY
-            if (alignVisibleGlyphs) {
-                offset = 0f
-                // Wrapped labels keep Android's multiline layout. Measure single-line labels
-                // on every draw so changing a setting value also updates its visual centre.
-                if (layout?.lineCount == 1 && baseline >= 0) {
-                    val textCentre = textAlignmentCentreY()
-                    val contentCentre = paddingTop + (height - paddingTop - paddingBottom) / 2f
-                    offset = contentCentre - textCentre
-                }
-                // The chevron is already centred by TextView; compensate for the text shift.
-                compoundDrawablesRelative.filterNotNull().forEach { drawable ->
-                    val bounds = drawable.bounds
-                    val top = -offset.roundToInt()
-                    drawable.setBounds(bounds.left, top, bounds.right, top + bounds.height())
-                }
-            }
-            val checkpoint = canvas.save()
-            canvas.translate(0f, offset)
-            super.onDraw(canvas)
-            canvas.restoreToCount(checkpoint)
-        }
-
-        override fun setText(text: CharSequence?, type: BufferType?) {
-            val split = if (action) -1 else text?.indexOf(VALUE_SEPARATOR) ?: -1
-            if (text == null || split <= 0) {
-                super.setText(text, type)
-                gravity = Gravity.CENTER
-                setCompoundDrawablesRelative(null, null, null, null)
-                return
-            }
-            val styled = android.text.SpannableString(text).apply {
-                setSpan(android.text.style.ForegroundColorSpan(muted), split, text.length,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-            super.setText(styled, BufferType.SPANNABLE)
-            gravity = Gravity.CENTER_VERTICAL or Gravity.START
-            setCompoundDrawablesRelativeWithIntrinsicBounds(null, null,
-                context.getDrawable(R.drawable.ic_dp_chevron)?.mutate()?.apply { setTint(accent) }, null)
-        }
-    }
     // Remote and D-pad users need to see where they are; touch mode never shows it.
     private fun focusRing(radiusDp: Int = 20) = android.graphics.drawable.StateListDrawable().apply {
         addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply {
@@ -5992,27 +5588,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private val FOCUS_RING get() = palette.focusRing
 
     companion object {
-        private fun alignedTextCentreY(
-            view: TextView,
-            text: CharSequence,
-            bounds: android.graphics.Rect,
-            drawingBaseline: Int = view.baseline,
-        ): Float {
-            if (usesChineseGlyphAlignment(view.resources.configuration.locales[0].language, text)) {
-                val value = text.toString()
-                view.paint.getTextBounds(value, 0, value.length, bounds)
-                return drawingBaseline + (bounds.top + bounds.bottom) / 2f
-            }
-            // Keep the baseline stable when labels contain descenders or accents.
-            val metrics = view.paint.fontMetrics
-            return drawingBaseline + (metrics.ascent + metrics.descent) / 2f
-        }
-
-        private fun usesChineseGlyphAlignment(language: String, text: CharSequence): Boolean {
-            return language == "zh" && text.isNotBlank() &&
-                text.none { it in 'A'..'Z' || it in 'a'..'z' }
-        }
-
         // Any app can start this exported activity, so an intent may only open pages that do nothing on their own.
         // "backup" is absent: it starts a network server and only a driver tap may open it.
         private val INTENT_PAGES = setOf("home", "settings", "connection", "setup", "wireless-recovery")
@@ -6034,7 +5609,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         private const val SETTINGS_SEARCH_RESULTS_GAP_DP = 6
         private const val SETTINGS_SEARCH_RESULTS_SHORT_HEIGHT_DP = 200
         private const val SETTINGS_SEARCH_RESULTS_HEIGHT_DP = 380
-        private const val VALUE_SEPARATOR = " · "
         private const val SEARCH_HIGHLIGHT_MILLIS = 900L
         private const val SPACER = "spacer"
         private const val CONTROL_HEIGHT_DP = 60

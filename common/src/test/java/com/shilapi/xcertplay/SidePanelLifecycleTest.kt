@@ -66,10 +66,15 @@ class SidePanelLifecycleTest {
         assertFalse("A destroyed/stopped host must not keep refreshing its old views", handler.hasCallbacks(refresh))
     }
 
-    private fun get(name: String): Any? = activity.javaClass.getDeclaredField(name)
-        .apply { isAccessible = true }.get(activity)
+    private fun owner(name: String): Any = if (name.startsWith("sidePanel"))
+        activity.javaClass.getDeclaredField("sidePanelUi").apply { isAccessible = true }.get(activity) else activity
+
+    private fun get(name: String): Any? = owner(name).let { target ->
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target)
+    }
 
     private fun set(name: String, value: Any?) {
-        activity.javaClass.getDeclaredField(name).apply { isAccessible = true }.set(activity, value)
+        val target = owner(name)
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.set(target, value)
     }
 }

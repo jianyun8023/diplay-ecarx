@@ -34,23 +34,21 @@ class UpdateInstallCompatibilityTest {
 
     private fun install(publicUriReadable: Boolean, installers: Int, publicBytes: ByteArray = byteArrayOf(1)): Intent {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
-        activity.updateInstallWorker = { it.run() }
+        activity.updates.updateInstallWorker = { it.run() }
         val apk = File(activity.cacheDir, "update/test/DiPlay.apk").apply {
             parentFile!!.mkdirs()
             writeBytes(byteArrayOf(1))
         }
         if (publicUriReadable) shadowOf(activity.contentResolver).registerInputStream(publicCopy, ByteArrayInputStream(publicBytes))
-        val fields = mapOf("updateFile" to apk, "updateSavedUri" to publicCopy)
-        fields.forEach { (name, value) ->
-            DiPlayActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.set(activity, value)
-        }
+        activity.updates.updateFile = apk
+        activity.updates.updateSavedUri = publicCopy
         val query = Intent(Intent.ACTION_VIEW).setDataAndType(if (publicUriReadable) publicCopy else Uri.parse("content://x"), apkType)
         repeat(installers) {
             shadowOf(activity.packageManager).addResolveInfoForIntent(query, ResolveInfo().apply {
                 activityInfo = ActivityInfo().apply { packageName = "installer$it"; name = "Install" }
             })
         }
-        DiPlayActivity::class.java.getDeclaredMethod("installUpdate").apply { isAccessible = true }.invoke(activity)
+        activity.updates.installUpdate()
         return shadowOf(activity).nextStartedActivity
     }
 
