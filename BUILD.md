@@ -156,25 +156,25 @@ export ANDROID_KEYSTORE_PASSWORD=android
 export ANDROID_KEY_ALIAS=aosp-platform
 export ANDROID_KEY_PASSWORD=android
 ./gradlew :mobile:assembleRelease
-# → mobile/build/outputs/apk/release/mobile-release.apk
+# → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-release.apk
 
 # 普通源码 Debug
 ./gradlew :mobile:assembleDebug
-# → mobile/build/outputs/apk/debug/mobile-debug.apk
+# → mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk
 
 # 仅在本地独立车测时显式注入身份
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneDebug
-# → mobile/build/outputs/apk/debug/mobile-debug.apk
+# → mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk
 
 # 首装包：Release 包名 + 身份，之后由 GitHub 公开 Release 覆盖升级（签名变量同上）
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneRelease
-# → mobile/build/outputs/apk/release/mobile-release.apk（含身份，不要分享）
+# → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-release.apk（含身份，不要分享）
 ```
 
 ### 首装与升级
 
 1. 用 `assembleStandaloneRelease` 打首装包，覆盖安装到车机，**打开一次 DiPlay**，身份才写入 `no_backup/offline-mfi/`。
-2. 此后在「设置 › 关于」检查更新，或手动安装 GitHub Release 的 `DiPlay-release.apk`。公开包不含身份，沿用磁盘上的那份。
+2. 此后在「设置 › 关于」检查更新，或手动安装 GitHub Release 的 `DiPlay-v<versionCode>-release.apk`。公开包不含身份，沿用磁盘上的那份。
 3. 应用内更新只对 Release 包名 `com.shihab.diplay` 开启，读取 `jianyun8023/diplay-ecarx` 最新 Release 的 `update.json`（CI 生成，含 tag、APK 名与 Release 正文作为更新说明）。Release tag 必须是 `v<versionCode>`（CI 会校验），比安装的 versionCode 大才算新版本。发布后再改 Release 正文不会更新 `update.json`，需重新运行发布任务。国内网络可在「设置 › 关于 › 下载来源」选加速站或自动切换。
 4. 首装包的 versionCode 不能高于随后要装的公开 Release，否则 Android 拒绝降级。
 5. 不要卸载或清除数据；身份丢失时用设置里的导入功能恢复。
@@ -194,19 +194,19 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 BT="$ANDROID_HOME/build-tools/36.0.0"
 
 # ① 签名证书是不是那一把
-"$BT/apksigner.bat" verify --print-certs mobile/build/outputs/apk/release/mobile-release.apk \
+"$BT/apksigner.bat" verify --print-certs mobile/build/outputs/apk/release/DiPlay-v*-release.apk \
     | grep "SHA-256 digest"
 #   期望 c8a2e9bc…92ab8
 
 # ② 版本号 / 包名 / 权限声明
-"$BT/aapt2.exe" dump badging mobile/build/outputs/apk/release/mobile-release.apk \
+"$BT/aapt2.exe" dump badging mobile/build/outputs/apk/release/DiPlay-v*-release.apk \
     | grep -E "^package|uses-permission.*(BLUETOOTH|car\.|ecarx|cevt)"
 
 # ③ 公开源码构建应无身份文件；显式本地车测包才应包含所选两个文件
-unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep -i offline-mfi
+unzip -l mobile/build/outputs/apk/release/DiPlay-v*-release.apk | grep -i offline-mfi
 
 # ④ 确认产物里没有夹带私钥
-unzip -l mobile/build/outputs/apk/release/mobile-release.apk | grep -iE "\.jks|\.keystore|\.p12|\.pem"
+unzip -l mobile/build/outputs/apk/release/DiPlay-v*-release.apk | grep -iE "\.jks|\.keystore|\.p12|\.pem"
 #   期望：无输出
 ```
 
