@@ -1055,7 +1055,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         right.addView(homeButton(getString(R.string.settings), false) { page = "settings"; render() }, matchButton(height = if (compact) 54 else 68))
         if (!compact) right.addView(label(getString(R.string.make_diplay_feel_right_for_your_car), 14, MUTED).apply { gravity = Gravity.CENTER; setPadding(0, dp(10), 0, dp(24)) })
         else right.addView(space(12))
-        right.addView(label(getString(R.string.home_public_preview, version()), 12, MUTED).apply { letterSpacing = .08f })
+        right.addView(label(getString(R.string.home_public_preview, displayVersion()), 12, MUTED).apply { letterSpacing = .08f })
         availableUpdate?.let { release ->
             val message = getString(R.string.update_available_home)
             val tint = { alpha: Int -> (WARNING and 0x00FFFFFF) or (alpha shl 24) }
@@ -2405,7 +2405,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     private fun about(content: LinearLayout) {
         settingsPageTitle(content, getString(R.string.about_diplay), getString(R.string.carplay_at_home_in_your_car))
-        section(content, getString(R.string.about_ecarx_edition_version, version())) { card ->
+        section(content, getString(R.string.about_ecarx_edition_version, displayVersion())) { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
             if (UpdateAvailability.enabled(this)) {
                 card.addView(updateRow())
@@ -5410,6 +5410,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         return grid
     }
+    private fun displayVersion() = "${version()} (v${buildNumber()})"
     private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
     private fun buildNumber() = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
     private fun languageSettings(content: LinearLayout) {
