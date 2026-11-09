@@ -47,6 +47,8 @@ android {
         release {
             if (providers.gradleProperty("carTestLabel").isPresent) {
                 versionNameSuffix = "-car-test-${providers.gradleProperty("carTestLabel").get()}"
+                // Car-test packages read the hidden Ultra experiment files; public releases never do.
+                resValue("bool", "car_test_experiments", "true")
             }
             optimization {
                 enable = false

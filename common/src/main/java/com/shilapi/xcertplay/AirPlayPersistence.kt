@@ -938,15 +938,28 @@ object AirPlayPersistence {
             .apply()
     }
 
-    /** Hidden bench input, read only by debug builds at the next connection. */
+    /**
+     * A hidden experiment file, read only by debug builds and by car-test builds (`-PcarTestLabel`), never by a
+     * public release. Car-test builds are not debuggable, so the app's external files directory
+     * (`/sdcard/Android/data/<package>/files`) also counts: `adb push` reaches it without `run-as`.
+     */
+    private fun experimentFile(context: Context, name: String): File? {
+        val debuggable = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (!debuggable && !context.resources.getBoolean(com.shilapi.xcertplay.host.R.bool.car_test_experiments)) return null
+        return listOfNotNull(context.filesDir, runCatching { context.getExternalFilesDir(null) }.getOrNull())
+            .map { File(it, name) }.firstOrNull { it.isFile }
+    }
+
+    /** Hidden bench input, read at the next connection (see [experimentFile]). */
     fun loadUltraExperiment(context: Context): com.shilapi.xcertplay.airplay.CarPlayUltraExperiment? {
-        if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return null
-        val file = File(context.filesDir, "ultra-experiment.txt")
-        if (!file.isFile) return null
+        val file = experimentFile(context, "ultra-experiment.txt") ?: return null
         return com.shilapi.xcertplay.airplay.CarPlayUltraExperiment.parse(file.readText()).also {
             if (it == null) android.util.Log.w("DiPlay", "Ultra experiment: invalid configuration; disabled")
         }
     }
+
+    /** A marker file such as an Ultra A/B switch (see [experimentFile]). */
+    fun loadDebugFlag(context: Context, name: String): Boolean = experimentFile(context, name) != null
 
     private val benchVehicle by lazy { com.shilapi.xcertplay.airplay.SimulatedVehicle() }
 
@@ -958,7 +971,7 @@ object AirPlayPersistence {
     }
 
     fun loadSimulatedVehicle(context: Context): com.shilapi.xcertplay.airplay.SimulatedVehicle? =
-        if (loadUltraExperiment(context) != null && File(context.filesDir, "ultra-bench.enabled").isFile) benchVehicle else null
+        if (loadUltraExperiment(context) != null && loadDebugFlag(context, "ultra-bench.enabled")) benchVehicle else null
 
     fun loadClusterMapEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)

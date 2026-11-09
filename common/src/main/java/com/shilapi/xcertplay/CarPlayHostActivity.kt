@@ -503,6 +503,41 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (missing) mainHandler.postDelayed(this, NO_PICTURE_RECHECK_MILLIS)
         }
     }
+    // Debug only (files/frame-probe.enabled): where the iPhone draws on the main canvas, every 5 s.
+    private var frameProbeEnabled = false
+    private var frameProbeCount = 0
+    private val frameProbe = object : Runnable {
+        override fun run() {
+            if (isDestroyed || !frameProbeEnabled || SCREEN_TYPE_MAIN !in activeScreenStreamTypes) return
+            mainHandler.postDelayed(this, FRAME_PROBE_MILLIS)
+            val view = videoView ?: return
+            if (view.width <= 0 || view.height <= 0) return
+            val report = { picture: Bitmap ->
+                val pixels = IntArray(CarPlayFrameProbe.WIDTH * CarPlayFrameProbe.HEIGHT)
+                picture.getPixels(pixels, 0, CarPlayFrameProbe.WIDTH, 0, 0, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT)
+                val canvas = sessionDisplay?.let { "${it.width}x${it.height}" } ?: "unknown"
+                appendLog("Frame probe main ${CarPlayFrameProbe.WIDTH}x${CarPlayFrameProbe.HEIGHT} " +
+                    "view=${view.width}x${view.height} canvas=$canvas " +
+                    CarPlayFrameProbe.summary(pixels, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT))
+                if (frameProbeCount++ % FRAME_MAP_EVERY == 0) {
+                    appendLog("Frame map main ${CarPlayFrameProbe.WIDTH / 2}x${CarPlayFrameProbe.HEIGHT / 2}\n" +
+                        CarPlayFrameProbe.map(pixels, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT).joinToString("\n"))
+                }
+            }
+            val surface = fallbackVideoView
+            if (surface != null) {
+                if (!surface.holder.surface.isValid) return
+                val picture = Bitmap.createBitmap(CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT, Bitmap.Config.ARGB_8888)
+                runCatching {
+                    PixelCopy.request(surface, picture, { result ->
+                        if (result == PixelCopy.SUCCESS) report(picture) else appendLog("Frame probe main copy failed=$result")
+                    }, mainHandler)
+                }.onFailure { appendLog("Frame probe main copy failed=${it.javaClass.simpleName}") }
+            } else {
+                (view as? TextureView)?.getBitmap(CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT)?.let(report)
+            }
+        }
+    }
     private var activeDisplaySize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
     private var sessionDisplay: CarPlaySessionDisplay? = null
@@ -4850,6 +4885,13 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private fun createAirPlayConfig(size: DisplaySize): AirPlayConfig {
         val ultra = AirPlayPersistence.loadUltraExperiment(this)
+        frameProbeEnabled = AirPlayPersistence.loadDebugFlag(this, "frame-probe.enabled")
+        // Ultra A/B switches; change one per car run, or the result cannot be attributed.
+        val ultraNoCornerMasks = ultra != null && AirPlayPersistence.loadDebugFlag(this, "ultra-no-corner-masks.enabled")
+        val ultraMain8x3 = ultra != null && AirPlayPersistence.loadDebugFlag(this, "ultra-main-8x3.enabled")
+        if (frameProbeEnabled || ultraNoCornerMasks || ultraMain8x3) {
+            appendLog("Debug probes: frameProbe=$frameProbeEnabled ultraNoCornerMasks=$ultraNoCornerMasks ultraMain8x3=$ultraMain8x3")
+        }
         if (ultra != null) MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
         // The home settings page can change the name while this host stays alive.
         if (!menuOpen) oemLabel = AirPlayPersistence.loadOemLabel(this)
@@ -4923,7 +4965,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         appendLog("CarPlay size=${CarPlayUiScale.label(uiScalePercent)} canvas=${scaledDisplay.widthPixels}x${scaledDisplay.heightPixels}")
         val nativeMasks = blackCornerRadiusDp == CarPlayBlackCornerOverlay.IPHONE_MASK
         val disableSafeArea = mainDisplayDisableSafeArea || nativeMasks
-        val display = scaledDisplay.copy(
+        val fullDisplay = scaledDisplay.copy(
             safeArea = if (disableSafeArea) null else AirPlaySafeArea.toInsets(
                 mapping = AirPlayPersistence.loadSafeAreaRect(this, size.width, size.height),
                 activityWidthPixels = size.width,
@@ -4936,6 +4978,17 @@ open class CarPlayHostActivity : ComponentActivity() {
             mainDisplayDisableSafeArea = disableSafeArea,
             useIphoneCornerMask = nativeMasks,
         )
+        // Ultra A/B: declare an 8:3 main canvas to tell "the theme draws 8:3" from "the iPhone follows our
+        // declared size". The picture fits the window, so touches still follow it; no safe area applies.
+        val display = if (!ultraMain8x3) fullDisplay else {
+            val height = fullDisplay.widthPixels * 3 / 8 / 2 * 2
+            fullDisplay.copy(heightPixels = height,
+                heightPhysicalMm = fullDisplay.heightPhysicalMm?.let { maxOf(1, it * height / fullDisplay.heightPixels) },
+                safeArea = null, viewArea = null).also {
+                appendLog("Ultra A/B main canvas ${fullDisplay.widthPixels}x${fullDisplay.heightPixels} -> " +
+                    "${it.widthPixels}x${it.heightPixels} physical=${it.widthPhysicalMm}x${it.heightPhysicalMm}mm")
+            }
+        }
         // A fixed dock, split-screen support or a turning screen declares several areas the car switches
         // between live. A session that starts in split screen sizes its canvas to that window, so it keeps
         // the plain canvas and one area for it.
@@ -5020,7 +5073,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             sourceVersion = "950.7.1",
-            main = declared,
+            // Ultra A/B: without the key the theme's own corner radius applies; say false explicitly.
+            main = if (ultraNoCornerMasks && declared.mainDisplayCornerMasks == null) {
+                declared.copy(mainDisplayCornerMasks = false).also { appendLog("Ultra A/B main cornerMasks=false") }
+            } else declared,
             cluster = if (ultra == null) clusterDisplayConfig() else AirPlayDisplayConfig(
                 widthPixels = 1920, heightPixels = 720, widthPhysicalMm = 311, heightPhysicalMm = 116,
                 fps = 30, features = 0, primaryInputDevice = 0,
@@ -5028,7 +5084,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             ),
             ultraExperiment = ultra?.also {
                 appendLog("Ultra experiment: theme=${it.asset.assetId}:${it.asset.assetVersion}:${it.sdkVersion} " +
-                    "panels=${it.mainPanel},${it.clusterPanel}; display only, no vehicle telemetry")
+                    "panels=${it.mainPanel},${it.clusterPanel} layout=${it.layout?.id ?: "none"} " +
+                    "components=${it.layout?.activeComponents?.size ?: 0}")
             },
             vehicleStateSource = if (AirPlayPersistence.loadEcarxVehicleControls(this)) {
                 val app = applicationContext
@@ -6896,6 +6953,11 @@ open class CarPlayHostActivity : ComponentActivity() {
                 noPictureShown = false
                 mainHandler.removeCallbacks(noPictureCheck)
                 if (active) mainHandler.postDelayed(noPictureCheck, NO_PICTURE_MILLIS)
+                mainHandler.removeCallbacks(frameProbe)
+                if (active && frameProbeEnabled) {
+                    frameProbeCount = 0
+                    mainHandler.postDelayed(frameProbe, FRAME_PROBE_MILLIS)
+                }
             }
             if (type == SCREEN_TYPE_ALT) {
                 Log.i(TAG, "cluster stream active=$active")
@@ -7170,6 +7232,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         private const val CLUSTER_IDLE_RELEASE_MILLIS = 15_000L
         // The first frame normally comes within a second of the screen stream opening.
         private const val NO_PICTURE_MILLIS = 10_000L
+        private const val FRAME_PROBE_MILLIS = 5_000L
+        /** A brightness map with every sixth probe: every 30 s. */
+        private const val FRAME_MAP_EVERY = 6
         private const val NO_PICTURE_RECHECK_MILLIS = 250L
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L

@@ -25,6 +25,7 @@ class EcarxVehicleState private constructor(
     private val radio = EcarxRadioService(context, log)
     private var radioState: EcarxRadioService.State? = null
     private var nextMediaRead = 0L
+    private var lastAvailability: String? = null
     private val properties = EcarxVehicleSignalProbe(context, log) { id, raw ->
         synchronized(this) {
             if (!closed) {
@@ -277,6 +278,7 @@ class EcarxVehicleState private constructor(
         val nowPlaying = service(4353, 0x14000001, listOf(field(4354, 0x32000023, 10, radioState?.band),
             field(4355, 0x32000003, 10, radioState?.let { s -> s.frequency?.let { radioLabel(s.band, it) } }),
             field(4356, 0x32000004, 10, "原车收音机"), field(4359, 0x32000034, 1, radioState?.playing?.let { if (it) 1 else 0 }))) + ("controls" to controls)
+        logAvailability()
         return listOf(mapOf("iid" to 1280, "type" to 0x05000001, "version" to "1.0", "services" to information),
             mapOf("iid" to 512, "type" to 0x01000001, "version" to "1.0", "services" to climate),
             mapOf("iid" to 1024, "type" to 0x01500001, "version" to "1.0", "services" to seats),
@@ -286,6 +288,20 @@ class EcarxVehicleState private constructor(
                 listOf(field(2562, 0x30000024, 3).apply { put("units", 981) })))),
             mapOf("iid" to 4096, "type" to 0x03000001, "version" to "1.0", "services" to tuner),
             mapOf("iid" to 4352, "type" to 0x0f000001, "version" to "1.0", "services" to listOf(nowPlaying)))
+    }
+
+    // One line per change, so a report shows which signals this car really fills (or leaves empty).
+    private fun logAvailability() {
+        val keys = listOf("speed", "fuel", "odometer", "range", "rpm", "tires", "laneKeep", "laneChangeWarning")
+        val present = keys.filterIndexed { index, _ -> cache.containsKey(1284L + index * 8) }
+        val climate = BINDINGS.count { cache.containsKey(it.id.toLong()) }
+        val volumes = EcarxVehicleAudio.CHANNELS.count { cache.containsKey(it.id.toLong()) }
+        val tires = (0..3).count { cache.containsKey(2050L + it * 5) }
+        val summary = "connected=$ready present=$present missing=${keys - present.toSet()} tires=$tires/4 " +
+            "climate=$climate/${BINDINGS.size} volume=$volumes/${EcarxVehicleAudio.CHANNELS.size} radio=${radioState?.band ?: "none"}"
+        if (summary == lastAvailability) return
+        lastAvailability = summary
+        log("Vehicle state ECARX availability $summary")
     }
 
     private fun refreshMedia() {

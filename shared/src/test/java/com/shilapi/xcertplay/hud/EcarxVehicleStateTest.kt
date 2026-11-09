@@ -130,6 +130,20 @@ class EcarxVehicleStateTest {
         }
     }
 
+    @Test fun logsWhichSignalsTheCarFillsOnlyWhenThatChanges() {
+        Vehicle().also { Car.instance = it }
+        val logs = mutableListOf<String>()
+        requireNotNull(EcarxVehicleState.create(RuntimeEnvironment.getApplication()) { logs += it }).use { source ->
+            repeat(3) { source.values() }
+            val availability = logs.filter { it.startsWith("Vehicle state ECARX availability") }
+            assertEquals(1, availability.size)
+            // The fake car fills the AdaptAPI sensors but no car-service RPM or tire property.
+            assertTrue(availability.single(), availability.single().contains("present=[speed, fuel, odometer, range"))
+            assertTrue(availability.single(), availability.single().contains("rpm") &&
+                availability.single().contains("tires=0/4"))
+        }
+    }
+
     @Test fun waitsForTheSdkConnectionWithoutFillingInSimulatedValues() {
         val car = Vehicle().apply { ready = false; Car.instance = this }
         requireNotNull(EcarxVehicleState.create(RuntimeEnvironment.getApplication()) {}).use { source ->

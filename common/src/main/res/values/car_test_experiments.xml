@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- True only in car-test release builds (-PcarTestLabel); lets them read hidden experiment files. -->
+    <bool name="car_test_experiments">false</bool>
+</resources>

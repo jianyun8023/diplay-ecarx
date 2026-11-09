@@ -6,6 +6,7 @@ import android.content.ServiceConnection
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import java.lang.reflect.InvocationTargetException
 
 /**
@@ -51,15 +52,22 @@ class EcarxVehicleSignalProbe(
         var car: Any? = null
         var manager: Any? = null
         var stopped = false
+        // A sampled signal (RPM at 5 Hz) would flood the report; its changes are logged at most every 30 s.
+        val lastLogged = HashMap<Int, Long>()
         fun value(event: Any): Any? = if (event.javaClass.getMethod("getStatus").invoke(event) == 0)
             event.javaClass.getMethod("getValue").invoke(event) else null
         val listener = EcarxDimApi.proxy(listenerType, "EcarxVehicleSignalListener") { method, args ->
             when (method) {
                 "onChangeEvent" -> args?.firstOrNull()?.let { event ->
                     val id = runCatching { event.javaClass.getMethod("getPropertyId").invoke(event) as? Int }.getOrNull()
-                    if (!stopped && id != null && signals.any { it.id == id }) {
+                    val signal = signals.firstOrNull { it.id == id }
+                    if (!stopped && id != null && signal != null) {
                         val raw = runCatching { value(event) }.getOrNull()
-                        diagnostic("Vehicle signal ${nameOf(id)} changed raw=${render(raw)}")
+                        val now = SystemClock.elapsedRealtime()
+                        if (signal.rate <= 0f || now - (lastLogged[id] ?: Long.MIN_VALUE / 2) >= SAMPLED_LOG_MILLIS) {
+                            lastLogged[id] = now
+                            diagnostic("Vehicle signal ${signal.name} changed raw=${render(raw)}")
+                        }
                         onValue(id, raw)
                     }
                 }
@@ -126,6 +134,7 @@ class EcarxVehicleSignalProbe(
 
     companion object {
         private const val CAR_CLASS = "android.car.Car"
+        private const val SAMPLED_LOG_MILLIS = 30_000L
         private const val PROPERTY_LISTENER =
             "android.car.hardware.property.CarPropertyManager\$CarPropertyEventListener"
         private val INT = Int::class.javaObjectType
