@@ -927,4 +927,5 @@
     <string name="settings_update_source_custom">自定义加速站…</string>
     <string name="settings_update_source_invalid">请输入 https 加速站前缀，例如 https://mirror.example/</string>
     <string name="settings_update_source_description">自动：先试上次可用的来源，再试 GitHub 直连，最后依次试加速站。加速站只转发下载，签名与本应用不同的安装包不会被安装。</string>
+    <string name="settings_update_check_failed">无法连接 GitHub 或加速站。请稍后重试，或更换下载来源。</string>
 </resources>

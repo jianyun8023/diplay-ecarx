@@ -969,4 +969,5 @@
     <string name="settings_update_source_custom">Custom mirror…</string>
     <string name="settings_update_source_invalid">Enter an https mirror prefix, for example https://mirror.example/</string>
     <string name="settings_update_source_description">Automatic tries the last source that worked, then GitHub, then the mirrors. A mirror only relays the download: DiPlay installs nothing that is not signed like this app.</string>
+    <string name="settings_update_check_failed">Could not reach GitHub or the mirrors. Try again later or choose another download source.</string>
 </resources>

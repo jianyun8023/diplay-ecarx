@@ -2658,7 +2658,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     },
                     { failure ->
                         Log.w("DiPlay-Update", "update check failed", failure)
-                        updateMessage = failure.message ?: getString(R.string.update_failed)
+                        // The URLs and status codes stay in the log; the driver needs the next step.
+                        updateMessage = getString(R.string.settings_update_check_failed)
                         updateStage = UpdateStage.FAILED
                         render()
                     },
