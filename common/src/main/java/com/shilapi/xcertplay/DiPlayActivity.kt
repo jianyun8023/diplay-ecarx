@@ -92,7 +92,9 @@ import com.shilapi.xcertplay.update.UpdateApkExport
 import com.shilapi.xcertplay.update.UpdateAvailability
 import com.shilapi.xcertplay.update.UpdateCatalog
 import com.shilapi.xcertplay.update.UpdateChecksums
+import com.shilapi.xcertplay.update.UpdateApkIdentity
 import com.shilapi.xcertplay.update.UpdateClient
+import com.shilapi.xcertplay.update.UpdateMirror
 import com.shilapi.xcertplay.update.UpdateRelease
 import com.shilapi.xcertplay.update.UpdateReleaseLookup
 import java.io.File
@@ -257,6 +259,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     @Volatile private var updateProgress: Int? = null
     private var updateRelease: UpdateRelease? = null
     private var updateFile: File? = null
+    // The route that answered the last check; downloads try it first.
+    private var updateRoute: String? = null
     private var updateMessage: String? = null
     private var carButtonCard: LinearLayout? = null
     private var hotspotStartupResult: CarHotspotTethering.Result? = null
@@ -323,6 +327,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         refreshCarButton()
         carButtonSaved()
     }
+    private val mfiIdentityDocumentPicker =
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments(), ::importMfiIdentity)
+    private val mfiIdentityContentPicker =
+        registerForActivityResult(ActivityResultContracts.GetMultipleContents(), ::importMfiIdentity)
+    // Pickers that ignore multiple selection return one file; the next pick completes the pair.
+    private var pendingMfiIdentityFile: Uri? = null
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) exportDiagnostics(uri)
     }
@@ -364,7 +374,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             openProjection(); finish(); return
         }
         scheduleBackgroundUpdateChecks()
-        availableUpdate = UpdateAvailability.available(this, version())
+        availableUpdate = UpdateAvailability.available(this, buildNumber())
         enforceInterfaceSize()
         refreshAppearance()
         rememberLaunchAppearance()
@@ -377,10 +387,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
         }
         applyWindowAppearance()
-        setupError = runCatching { DiPlayBootstrap.ensure(this, AirPlayPersistence.loadMfiTarget(this)) }.exceptionOrNull()?.let {
-            android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
-            getString(R.string.setup_error_auth)
-        }
+        setupError = authenticationSetupError(AirPlayPersistence.loadMfiTarget(this))
         // A previous process may have died while the Bluetooth profiles were yielded. Recover on
         // every launch, not only after a boot or an authentication failure.
         CarBluetoothProfileGuard.recoverIfStale(this)
@@ -540,7 +547,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // The background check runs two minutes after opening, usually while CarPlay is in front: what it
         // found shows when DiPlay comes back, not only after the activity is created again.
-        availableUpdate = UpdateAvailability.available(this, version())
+        availableUpdate = UpdateAvailability.available(this, buildNumber())
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch &&
             (page == "home" || page == "settings" || page == "connection" || page == "setup")) render()
@@ -1899,12 +1906,22 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 ), mfiTargets.indexOf(storedMfiTarget)) { index ->
                     val target = mfiTargets[index]
                     AirPlayPersistence.saveMfiTarget(this, target)
-                    setupError = runCatching { DiPlayBootstrap.ensure(this, target) }.exceptionOrNull()?.let {
-                        android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
-                        getString(R.string.setup_error_auth)
-                    }
+                    setupError = authenticationSetupError(target)
+                    render()
                 }
                 card.addView(label(getString(R.string.settings_mfi_target_description), 14, MUTED))
+            }
+            if (storedMfiTarget == MfiTarget.LOCAL) {
+                val installed = MfiIdentityStore.installed(noBackupFilesDir)
+                card.addView(label(getString(if (installed) R.string.settings_mfi_identity_installed else R.string.settings_mfi_identity_missing),
+                    14, if (installed) MUTED else WARNING).apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
+                card.addView(button(getString(R.string.settings_mfi_identity_import), false) {
+                    pendingMfiIdentityFile = null
+                    chooseMfiIdentityFiles()
+                },
+                    matchButton(SETTINGS_BLOCK_GAP_DP, CONTROL_HEIGHT_DP))
+                card.addView(label(getString(R.string.settings_mfi_identity_import_description), 14, MUTED)
+                    .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
             }
         }
         filteredSection(content, SettingsSection.DIAGNOSTICS,
@@ -2387,8 +2404,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         settingsPageTitle(content, getString(R.string.about_diplay), getString(R.string.carplay_at_home_in_your_car))
         section(content, getString(R.string.about_ecarx_edition_version, version())) { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
-            if (UpdateAvailability.ENABLED) {
+            if (UpdateAvailability.enabled(this)) {
                 card.addView(updateRow())
+                updateSourceChoice(card)
                 toggle(card, getString(R.string.settings_background_update_checks),
                     getString(R.string.settings_background_update_checks_description),
                     UpdateAvailability.backgroundChecksEnabled(this)) { UpdateAvailability.saveBackgroundChecksEnabled(this, it) }
@@ -2521,6 +2539,62 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         })
     }
 
+    private fun authenticationSetupError(target: MfiTarget): String? =
+        runCatching { DiPlayBootstrap.ensure(this, target) }.exceptionOrNull()?.let {
+            android.util.Log.e("DiPlaySetup", "CarPlay authentication could not be loaded", it)
+            getString(if (it is MfiIdentityStore.Missing) R.string.setup_error_auth_missing else R.string.setup_error_auth)
+        }
+
+    private fun chooseMfiIdentityFiles() {
+        launchCarButtonImagePicker(
+            openDocument = { mfiIdentityDocumentPicker.launch(arrayOf("*/*")) },
+            getContent = { mfiIdentityContentPicker.launch("*/*") },
+            documentPickerIsSystem = documentPickerIsSystem(),
+        ).onFailure { toast(getString(R.string.settings_mfi_identity_no_picker)) }
+    }
+
+    private fun importMfiIdentity(picked: List<Uri>) {
+        val uris = (listOfNotNull(pendingMfiIdentityFile) + picked).distinct()
+        pendingMfiIdentityFile = null
+        when {
+            picked.isEmpty() -> return
+            uris.size == 1 -> {
+                pendingMfiIdentityFile = uris.single()
+                toast(getString(R.string.settings_mfi_identity_pick_other))
+                chooseMfiIdentityFiles()
+                return
+            }
+            uris.size != 2 -> {
+                toast(getString(R.string.settings_mfi_identity_pick_two))
+                return
+            }
+        }
+        Thread({
+            val outcome = runCatching {
+                val (first, second) = uris.map { uri ->
+                    MfiIdentityStore.readBounded(contentResolver.openInputStream(uri) ?: error("Could not open the identity file"))
+                }
+                MfiIdentityStore.import(noBackupFilesDir, first, second)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                outcome.fold(
+                    {
+                        DiPlayBootstrap.invalidate()
+                        setupError = authenticationSetupError(AirPlayPersistence.loadMfiTarget(this))
+                        toast(getString(R.string.settings_mfi_identity_imported))
+                        markReconnectNeeded()
+                        render()
+                    },
+                    { failure ->
+                        android.util.Log.w("DiPlaySetup", "CarPlay identity import failed", failure)
+                        toast(getString(R.string.settings_mfi_identity_import_failed))
+                    },
+                )
+            }
+        }, "diplay-mfi-import").start()
+    }
+
     private fun stopBackupServer() {
         backupServer?.stop()
         backupServer = null
@@ -2533,6 +2607,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun updateRow(): View {
         val container = column().apply { setPadding(0, dp(12), 0, 0) }
         updateMessage?.let { container.addView(label(it, 14, MUTED)) }
+        updateRelease?.takeIf { updateStage != UpdateStage.IDLE && updateStage != UpdateStage.CHECKING }?.let { release ->
+            container.addView(label(getString(R.string.settings_update_notes_title, release.tagName), 16, TEXT, true))
+            container.addView(label(release.notes.ifBlank { getString(R.string.settings_update_notes_empty) }, 14, MUTED)
+                .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
+        }
         when (updateStage) {
             UpdateStage.IDLE, UpdateStage.FAILED ->
                 container.addView(button(getString(R.string.update_check), false) { checkForUpdates() },
@@ -2589,7 +2668,42 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun latestRelease(): UpdateRelease? {
-        return UpdateReleaseLookup.latest(version(), userAgent())
+        val lookup = UpdateReleaseLookup.latest(buildNumber(), userAgent(), UpdateAvailability.routes(this))
+        updateRoute = lookup.route
+        UpdateAvailability.recordWorkingRoute(this, lookup.route)
+        return lookup.release
+    }
+
+    /** The answering route first, then the rest of the driver's choice. */
+    private fun downloadRoutes(): List<String> =
+        (listOfNotNull(updateRoute) + UpdateAvailability.routes(this)).distinct()
+
+    private fun updateSourceChoice(card: LinearLayout) {
+        val custom = UpdateAvailability.customMirror(this)
+        val routes = listOf(UpdateMirror.AUTO, UpdateMirror.DIRECT) + UpdateMirror.BUILT_IN + listOfNotNull(custom)
+        val labels = listOf(getString(R.string.settings_update_source_auto), getString(R.string.settings_update_source_direct)) +
+            UpdateMirror.BUILT_IN.map { java.net.URI(it).host } + listOfNotNull(custom?.let { java.net.URI(it).host }) +
+            getString(R.string.settings_update_source_custom)
+        val current = routes.indexOf(UpdateAvailability.mirror(this)).coerceAtLeast(0)
+        choice(card, getString(R.string.settings_update_source), labels, current, reconnects = false) { index ->
+            val route = routes.getOrNull(index)
+            if (route != null) {
+                UpdateAvailability.saveMirror(this, route)
+                updateRoute = null
+                return@choice
+            }
+            textInput(getString(R.string.settings_update_source_custom), custom ?: "https://", secret = false) { value ->
+                val prefix = UpdateMirror.normalize(value)
+                if (prefix == null) toast(getString(R.string.settings_update_source_invalid))
+                else {
+                    UpdateAvailability.saveMirror(this, prefix)
+                    updateRoute = null
+                }
+                render()
+            }
+        }
+        card.addView(label(getString(R.string.settings_update_source_description), 14, MUTED)
+            .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
     }
 
     private fun openAvailableUpdate(release: UpdateRelease) {
@@ -2623,13 +2737,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 // The cached release can be a day old. Download the newest one.
                 release = latestRelease() ?: throw IOException(getString(R.string.update_up_to_date))
                 val checksumsFile = File(directory, UpdateCatalog.CHECKSUMS_FILE)
-                UpdateClient.download(release.checksumsUrl, checksumsFile) { _, _ -> }
+                val (_, route) = UpdateMirror.firstWorking(downloadRoutes()) { route ->
+                    UpdateClient.download(UpdateMirror.url(route, release.checksumsUrl), checksumsFile) { _, _ -> }
+                }
                 val apkFile = File(directory, release.apkName)
-                UpdateClient.download(release.apkUrl, apkFile) { written, total ->
-                    val percent = total?.takeIf { it > 0 }?.let { (written * 100 / it).toInt() } ?: return@download
-                    if (percent != updateProgress) {
-                        updateProgress = percent
-                        refreshUpdateUi(generation)
+                UpdateMirror.firstWorking(listOf(route) + downloadRoutes()) { apkRoute ->
+                    UpdateClient.download(UpdateMirror.url(apkRoute, release.apkUrl), apkFile) { written, total ->
+                        val percent = total?.takeIf { it > 0 }?.let { (written * 100 / it).toInt() } ?: return@download
+                        if (percent != updateProgress) {
+                            updateProgress = percent
+                            refreshUpdateUi(generation)
+                        }
                     }
                 }
                 updateStage = UpdateStage.VERIFYING
@@ -2639,6 +2757,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 if (!UpdateChecksums.matches(expected, release.apkName, actual)) {
                     throw IOException("Checksum mismatch for ${release.apkName}")
                 }
+                UpdateApkIdentity.verify(packageManager, apkFile, packageName, buildNumber())
                 apkFile
             }.onFailure { directory.deleteRecursively() }
             val saved = outcome.getOrNull()?.let { UpdateApkExport.copy(applicationContext, it) }
@@ -5249,6 +5368,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         return grid
     }
     private fun version() = packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1.0-beta.1"
+    private fun buildNumber() = androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
     private fun languageSettings(content: LinearLayout) {
         filteredSection(content, SettingsSection.LANGUAGE,
             getString(R.string.language_section_title), R.drawable.ic_dp_language) { card ->

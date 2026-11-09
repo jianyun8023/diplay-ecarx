@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.update
 import android.content.Context
 import android.net.ConnectivityManager
 import android.util.Log
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -38,16 +39,16 @@ internal class BackgroundUpdateWorker(context: Context, parameters: WorkerParame
         val network = runCatching { InternetNetworkSelector.select(connectivity) }
             .onFailure { Log.i(TAG, "network lookup failed", it) }
             .getOrNull() ?: return retryOrGiveUp("no validated network")
-        val installedVersion = applicationContext.packageManager
-            .getPackageInfo(applicationContext.packageName, 0).versionName
-        // A dev build with no parsable version would otherwise show a permanent banner.
-        if (installedVersion == null || UpdateVersion.parse(installedVersion) == null) return Result.success()
+        val packageInfo = applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
         return try {
-            val release = UpdateReleaseLookup.latest(
-                installedVersion = installedVersion,
-                userAgent = "DiPlay/$installedVersion",
+            val lookup = UpdateReleaseLookup.latest(
+                installedBuild = PackageInfoCompat.getLongVersionCode(packageInfo),
+                userAgent = "DiPlay/${packageInfo.versionName}",
+                routes = UpdateAvailability.routes(applicationContext),
                 openConnection = network::openConnection,
             )
+            UpdateAvailability.recordWorkingRoute(applicationContext, lookup.route)
+            val release = lookup.release
             if (release == null) UpdateAvailability.clear(applicationContext)
             else UpdateAvailability.save(applicationContext, release)
             UpdateAvailability.recordAttempt(applicationContext, now)
@@ -76,7 +77,7 @@ internal object BackgroundUpdateScheduler {
 
     fun schedule(context: Context) {
         val manager = WorkManager.getInstance(context.applicationContext)
-        if (!UpdateAvailability.ENABLED) {
+        if (!UpdateAvailability.enabled(context)) {
             manager.cancelUniqueWork(PERIODIC_WORK)
             manager.cancelUniqueWork(OPEN_WORK)
             return

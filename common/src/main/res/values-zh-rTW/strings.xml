@@ -909,4 +909,22 @@
     <string name="settings_hy_siri_grant_failed">尚未取得系統日誌權限。背景識別 HY 按鍵需要車機簽章版本。</string>
     <string name="vpn_authorization_platform_missing">VPN 授權無法使用：車機尚未授予所需權限。請安裝車機簽章版本，返回 DiPlay 後重試。</string>
     <string name="settings_open_source_licenses">授權與原始碼</string>
+    <string name="setup_error_auth_missing">尚未安裝 CarPlay 認證身分。請在「設定 › 進階 › MFi 憑證與簽署目標」中匯入，或在本應用程式之上覆蓋安裝帶身分的本機建置。</string>
+    <string name="settings_mfi_identity_installed">本機身分已安裝，公開版更新會保留它。</string>
+    <string name="settings_mfi_identity_missing">尚未安裝本機身分。</string>
+    <string name="settings_mfi_identity_import">匯入身分檔案</string>
+    <string name="settings_mfi_identity_import_description">選擇 identity.pk8 和 certificate.p7b。DiPlay 會先確認兩者相符，再取代目前的身分。下次連線時生效。</string>
+    <string name="settings_mfi_identity_imported">身分已匯入</string>
+    <string name="settings_mfi_identity_import_failed">這兩個檔案不是相符的身分，目前的身分未變更。</string>
+    <string name="settings_mfi_identity_no_picker">此車機沒有檔案選擇器</string>
+    <string name="settings_mfi_identity_pick_other">請再選擇另一個身分檔案</string>
+    <string name="settings_mfi_identity_pick_two">請正好選擇兩個檔案：identity.pk8 和 certificate.p7b</string>
+    <string name="settings_update_notes_title">%1$s 更新說明</string>
+    <string name="settings_update_notes_empty">此版本沒有更新說明。</string>
+    <string name="settings_update_source">下載來源</string>
+    <string name="settings_update_source_auto">自動</string>
+    <string name="settings_update_source_direct">GitHub 直連</string>
+    <string name="settings_update_source_custom">自訂加速站…</string>
+    <string name="settings_update_source_invalid">請輸入 https 加速站前綴，例如 https://mirror.example/</string>
+    <string name="settings_update_source_description">自動：先試上次可用的來源，再試 GitHub 直連，最後依序試加速站。加速站只轉發下載，簽章與本應用程式不同的安裝檔不會被安裝。</string>
 </resources>

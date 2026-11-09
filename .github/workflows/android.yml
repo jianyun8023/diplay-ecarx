@@ -79,8 +79,17 @@ jobs:
           unset DIPLAY_AUTH_ASSETS_DIR
           ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --stacktrace
       - name: Verify APK and prepare licenses and source
+        env:
+          # Through env, not ${{ }} in the script: the body is free text.
+          RELEASE_NOTES: ${{ github.event.release.body }}
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --min-sdk-version 28 mobile/build/outputs/apk/release/mobile-release.apk
+          # The in-app updater reads the tag as the versionCode, so a release tag must be v<versionCode>.
+          version_code=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging mobile/build/outputs/apk/release/mobile-release.apk | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          if [ "${{ github.event_name }}" = release ] && [ "${{ github.event.release.tag_name }}" != "v$version_code" ]; then
+            echo "Release tag ${{ github.event.release.tag_name }} must be v$version_code" >&2
+            exit 1
+          fi
           mkdir -p release-apk
           python3 - <<'PY'
           from pathlib import Path
@@ -106,12 +115,19 @@ jobs:
                           licenses.writestr(name.removeprefix('assets/'), archive.read(name))
           PY
           cp mobile/build/outputs/apk/release/mobile-release.apk release-apk/DiPlay-release.apk
+          # The in-app updater reads this through releases/latest/download, which GitHub mirrors also serve.
+          UPDATE_TAG="v$version_code" python3 - <<'PY'
+          import json, os
+          manifest = {'tag': os.environ['UPDATE_TAG'], 'apk': 'DiPlay-release.apk', 'notes': os.environ.get('RELEASE_NOTES', '')}
+          with open('release-apk/update.json', 'w', encoding='utf-8') as output:
+              json.dump(manifest, output, ensure_ascii=False)
+          PY
           git archive --format=tar.gz --prefix=DiPlay-source/ --output=release-apk/DiPlay-source.tar.gz HEAD
           release_source_revision=$(git rev-parse HEAD)
           printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$release_source_revision" > release-apk/SOURCE-REVISION.txt
           cd release-apk
-          sha256sum DiPlay-release.apk DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt > SHA256SUMS.txt
+          sha256sum DiPlay-release.apk DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt update.json > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DiPlay-signed-release
@@ -122,7 +138,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" release-apk/*
+        run: gh release upload --clobber "$RELEASE_TAG" release-apk/*
       - name: Remove signing keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/android-release.p12"

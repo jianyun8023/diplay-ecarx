@@ -1,7 +1,9 @@
 package com.shilapi.xcertplay.update
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -10,108 +12,49 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class UpdateCatalogTest {
-    private val releaseJson = """
-        [
-          {
-            "tag_name": "v0.2.15",
-            "draft": true,
-            "assets": [
-              {"name": "DiPlay-0.2.15.apk", "browser_download_url": "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.15/DiPlay-0.2.15.apk"},
-              {"name": "SHA256SUMS.txt", "browser_download_url": "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.15/SHA256SUMS.txt"}
-            ]
-          },
-          {
-            "tag_name": "v0.2.14",
-            "draft": false,
-            "prerelease": true,
-            "assets": [
-              {"name": "DiPlay-0.2.14.apk", "browser_download_url": "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.14/DiPlay-0.2.14.apk"},
-              {"name": "SHA256SUMS.txt", "browser_download_url": "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.14/SHA256SUMS.txt"}
-            ]
-          }
-        ]
-    """.trimIndent()
+    private fun manifest(tag: String = "v137", apk: String = "DiPlay-release.apk", notes: String = "- Fix reconnect") =
+        JSONObject().put("tag", tag).put("apk", apk).put("notes", notes).toString()
 
     @Test
-    fun skipsDraftsAndReturnsTheFirstPublishedRelease() {
-        val release = UpdateCatalog.parse(releaseJson)
-        assertEquals("v0.2.14", release?.tagName)
-        assertEquals("DiPlay-0.2.14.apk", release?.apkName)
-        assertEquals(
-            "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.14/DiPlay-0.2.14.apk",
-            release?.apkUrl,
-        )
-        assertEquals(
-            "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.14/SHA256SUMS.txt",
-            release?.checksumsUrl,
-        )
+    fun buildsGithubUrlsFromTheTag() {
+        val release = UpdateCatalog.parse(manifest())!!
+        assertEquals("v137", release.tagName)
+        assertEquals("DiPlay-release.apk", release.apkName)
+        assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/DiPlay-release.apk", release.apkUrl)
+        assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/SHA256SUMS.txt", release.checksumsUrl)
+        assertEquals("- Fix reconnect", release.notes)
     }
 
     @Test
-    fun returnsNullWithoutAnApkAsset() {
-        val json = """
-            [
-              {"tag_name": "v0.2.14", "draft": false, "assets": [
-                {"name": "source.zip", "browser_download_url": "https://example.com/source.zip"}
-              ]}
-            ]
-        """.trimIndent()
-        assertNull(UpdateCatalog.parse(json))
+    fun manifestIsReadFromTheLatestReleaseOnGithub() {
+        assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/latest/download/update.json", UpdateCatalog.MANIFEST_URL)
     }
 
     @Test
-    fun returnsNullWithoutChecksums() {
-        val json = """
-            [
-              {"tag_name": "v0.2.14", "draft": false, "assets": [
-                {"name": "DiPlay-0.2.14.apk", "browser_download_url": "https://example.com/DiPlay-0.2.14.apk"}
-              ]}
-            ]
-        """.trimIndent()
-        assertNull(UpdateCatalog.parse(json))
+    fun missingNotesAreEmptyAndLongNotesAreCut() {
+        assertEquals("", UpdateCatalog.parse(JSONObject().put("tag", "v137").put("apk", "a.apk").toString())!!.notes)
+        val long = UpdateCatalog.parse(manifest(notes = "x".repeat(UpdateCatalog.MAXIMUM_NOTES_CHARS + 50)))!!.notes
+        assertEquals(UpdateCatalog.MAXIMUM_NOTES_CHARS + 1, long.length)
+        assertTrue(long.endsWith("…"))
     }
 
     @Test
-    fun returnsNullForAnEmptyReleaseList() {
-        assertNull(UpdateCatalog.parse("[]"))
-    }
-    private fun releaseWith(apkName: String = "DiPlay-0.2.22.apk", apkUrl: String, checksumsUrl: String = GITHUB + "SHA256SUMS.txt") = """
-        [{"tag_name": "v0.2.22", "draft": false, "assets": [
-          {"name": ${org.json.JSONObject.quote(apkName)}, "browser_download_url": ${org.json.JSONObject.quote(apkUrl)}},
-          {"name": "SHA256SUMS.txt", "browser_download_url": ${org.json.JSONObject.quote(checksumsUrl)}}
-        ]}]
-    """.trimIndent()
-
-    @Test
-    fun acceptsTheAssetsOfARealRelease() {
-        val release = UpdateCatalog.parse(releaseWith(apkUrl = GITHUB + "DiPlay-0.2.22.apk"))
-        assertEquals("DiPlay-0.2.22.apk", release?.apkName)
+    fun refusesTagsThatAreNotABuildNumber() {
+        for (tag in listOf("", "137", "v0.2.22", "v137/../../x", "v137?x", "latest")) {
+            assertNull(tag, UpdateCatalog.parse(manifest(tag = tag)))
+        }
     }
 
     @Test
     fun refusesAnApkNameThatLeavesTheDownloadFolder() {
-        for (name in listOf("../../evil.apk", "..\\evil.apk", "/data/evil.apk", "sub/evil.apk", ".apk", "evil.apk\u0000.txt.apk")) {
-            assertNull(name, UpdateCatalog.parse(releaseWith(apkName = name, apkUrl = GITHUB + "x.apk")))
+        for (name in listOf("", "../../evil.apk", "..\\evil.apk", "/data/evil.apk", "sub/evil.apk", ".apk", "evil.apk\u0000.txt.apk")) {
+            assertNull(name, UpdateCatalog.parse(manifest(apk = name)))
         }
     }
 
     @Test
-    fun refusesDownloadUrlsThatAreNotHttpsOnGithub() {
-        for (url in listOf(
-            "http://github.com/shihabal3amri/DiPlay/releases/download/v0.2.22/DiPlay-0.2.22.apk",
-            "https://evil.example/DiPlay-0.2.22.apk",
-            "https://github.com.evil.example/DiPlay-0.2.22.apk",
-            "https://github.com@evil.example/DiPlay-0.2.22.apk",
-            "https://evil.example/github.com/DiPlay-0.2.22.apk",
-            "file:///sdcard/DiPlay-0.2.22.apk",
-            "ftp://github.com/DiPlay-0.2.22.apk",
-        )) {
-            assertNull(url, UpdateCatalog.parse(releaseWith(apkUrl = url)))
-            assertNull(url, UpdateCatalog.parse(releaseWith(apkUrl = GITHUB + "x.apk", checksumsUrl = url)))
-        }
-    }
-
-    private companion object {
-        const val GITHUB = "https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.22/"
+    fun refusesSomethingThatIsNotAManifest() {
+        assertNull(UpdateCatalog.parse("[]"))
+        assertNull(UpdateCatalog.parse("<html>rate limited</html>"))
     }
 }
