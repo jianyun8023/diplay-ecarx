@@ -126,6 +126,9 @@ class AirPlaySession(
     // Only the controller's single touch thread calls sendTouch.
     private val touchSlots = AirPlayTouchSlots(AirPlayHid.TOUCH_CONTACTS)
     private val ntp = NtpClock()
+    // A repeated non-stream SETUP gets the ports already open rather than a second listener.
+    private var timingPort: Int? = null
+    private var timingPeerStarted = false
     private var keepAliveSocket: DatagramSocket? = null
     private var keepAliveThread: Thread? = null
     private val eventWriteLock = Any()
@@ -925,12 +928,16 @@ class AirPlaySession(
     }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = ntp.listen()
-        if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
+        val port = timingPort ?: ntp.listen().also { timingPort = it }
+        if (peerPort > 0 && !timingPeerStarted) peerAddress?.let {
+            ntp.start(it, peerPort)
+            timingPeerStarted = true
+        }
         return port
     }
 
     private fun openKeepAlive(): Int {
+        keepAliveSocket?.let { return it.localPort }
         val socket = DatagramSocket(null)
         socket.reuseAddress = true
         socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
@@ -954,6 +961,7 @@ class AirPlaySession(
     }
 
     private fun openEvent(): Int {
+        eventServer?.let { return it.localPort }
         val server = ServerSocket(0, 50, InetAddress.getByName("::"))
         eventServer = server
         spawnEvent("airplay-event-accept") { acceptEvent(server) }
@@ -964,6 +972,8 @@ class AirPlaySession(
         videoPlaybackAvailability.setEventReady(false)
         videoPlaybackAvailability.setFeatureEnabled(false)
         ntp.close()
+        timingPort = null
+        timingPeerStarted = false
         safeClose(keepAliveSocket)
         keepAliveSocket = null
         keepAliveThread?.interrupt()
