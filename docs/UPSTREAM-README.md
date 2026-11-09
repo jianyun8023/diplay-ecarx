@@ -114,4 +114,4 @@ providing important reference for the BAA authentication in this project.
 
 ## License
 
-Licensed under the [GNU General Public License v3.0](LICENSE).
+Licensed under the [GNU General Public License v3.0](../LICENSE).

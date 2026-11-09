@@ -95,4 +95,4 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 
 ## 许可证
 
-本项目采用 [GNU General Public License v3.0](LICENSE) 许可。
+本项目采用 [GNU General Public License v3.0](../LICENSE) 许可。
