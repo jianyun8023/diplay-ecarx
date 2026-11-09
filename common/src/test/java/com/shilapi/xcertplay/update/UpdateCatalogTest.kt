@@ -22,7 +22,7 @@ class UpdateCatalogTest {
         assertEquals("DiPlay-release.apk", release.apkName)
         assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/DiPlay-release.apk", release.apkUrl)
         assertEquals("https://github.com/jianyun8023/diplay-ecarx/releases/download/v137/SHA256SUMS.txt", release.checksumsUrl)
-        assertEquals("- Fix reconnect", release.notes)
+        assertEquals("• Fix reconnect", release.notes)
     }
 
     @Test

@@ -31,7 +31,7 @@ internal object UpdateCatalog {
         val tag = manifest.optString("tag")
         val apkName = manifest.optString("apk")
         if (!TAG.matches(tag) || !APK_NAME.matches(apkName)) return null
-        val notes = manifest.optString("notes").trim().let {
+        val notes = UpdateNotes.plain(manifest.optString("notes")).let {
             if (it.length > MAXIMUM_NOTES_CHARS) it.take(MAXIMUM_NOTES_CHARS).trimEnd() + "…" else it
         }
         val base = "$REPOSITORY/releases/download/$tag/"

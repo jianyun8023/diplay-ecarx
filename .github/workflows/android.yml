@@ -117,8 +117,11 @@ jobs:
           cp mobile/build/outputs/apk/release/mobile-release.apk release-apk/DiPlay-release.apk
           # The in-app updater reads this through releases/latest/download, which GitHub mirrors also serve.
           UPDATE_TAG="v$version_code" python3 - <<'PY'
-          import json, os
-          manifest = {'tag': os.environ['UPDATE_TAG'], 'apk': 'DiPlay-release.apk', 'notes': os.environ.get('RELEASE_NOTES', '')}
+          import json, os, sys
+          sys.path.insert(0, 'scripts')
+          from release_notes_plain import plain
+          # Installed apps show notes as text, and v143 shows them verbatim: no Markdown in the manifest.
+          manifest = {'tag': os.environ['UPDATE_TAG'], 'apk': 'DiPlay-release.apk', 'notes': plain(os.environ.get('RELEASE_NOTES', ''))}
           with open('release-apk/update.json', 'w', encoding='utf-8') as output:
               json.dump(manifest, output, ensure_ascii=False)
           PY
