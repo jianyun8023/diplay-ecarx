@@ -507,8 +507,14 @@ open class CarPlayHostActivity : ComponentActivity() {
                 val pixels = IntArray(CarPlayFrameProbe.WIDTH * CarPlayFrameProbe.HEIGHT)
                 picture.getPixels(pixels, 0, CarPlayFrameProbe.WIDTH, 0, 0, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT)
                 val canvas = sessionDisplay?.let { "${it.width}x${it.height}" } ?: "unknown"
+                // The copy is the decoded picture (box: where the iPhone draws on its canvas); shown is
+                // where that canvas sits in the window, in percent.
+                val shown = contentRect(view.width, view.height).let {
+                    "${(it.left * 100 / view.width).toInt()},${(it.top * 100 / view.height).toInt()}.." +
+                        "${((it.left + it.width) * 100 / view.width).toInt()},${((it.top + it.height) * 100 / view.height).toInt()}"
+                }
                 appendLog("Frame probe main ${CarPlayFrameProbe.WIDTH}x${CarPlayFrameProbe.HEIGHT} " +
-                    "view=${view.width}x${view.height} canvas=$canvas " +
+                    "view=${view.width}x${view.height} canvas=$canvas shown=$shown " +
                     CarPlayFrameProbe.summary(pixels, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT))
                 if (frameProbeCount++ % FRAME_MAP_EVERY == 0) {
                     appendLog("Frame map main ${CarPlayFrameProbe.WIDTH / 2}x${CarPlayFrameProbe.HEIGHT / 2}\n" +
@@ -4231,9 +4237,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         frameProbeEnabled = AirPlayPersistence.loadDebugFlag(this, "frame-probe.enabled")
         // Ultra A/B switches; change one per car run, or the result cannot be attributed.
         val ultraNoCornerMasks = ultra != null && AirPlayPersistence.loadDebugFlag(this, "ultra-no-corner-masks.enabled")
-        val ultraMain8x3 = ultra != null && AirPlayPersistence.loadDebugFlag(this, "ultra-main-8x3.enabled")
-        if (frameProbeEnabled || ultraNoCornerMasks || ultraMain8x3) {
-            appendLog("Debug probes: frameProbe=$frameProbeEnabled ultraNoCornerMasks=$ultraNoCornerMasks ultraMain8x3=$ultraMain8x3")
+        if (frameProbeEnabled || ultraNoCornerMasks) {
+            appendLog("Debug probes: frameProbe=$frameProbeEnabled ultraNoCornerMasks=$ultraNoCornerMasks")
         }
         if (ultra != null) MapMirrors.streamAspect = MapMirrors.PHYSICAL_STREAM_ASPECT
         // The home settings page can change the name while this host stays alive.
@@ -4321,14 +4326,16 @@ open class CarPlayHostActivity : ComponentActivity() {
             mainDisplayDisableSafeArea = disableSafeArea,
             useIphoneCornerMask = nativeMasks,
         )
-        // Ultra A/B: declare an 8:3 main canvas to tell "the theme draws 8:3" from "the iPhone follows our
-        // declared size". The picture fits the window, so touches still follow it; no safe area applies.
-        val display = if (!ultraMain8x3) fullDisplay else {
+        // An Ultra theme is designed for an 8:3 centre display (its package says 1920x720): on a taller
+        // canvas the iPhone draws only the top 8:3 and leaves the rest black (car run 2026-11-09, box
+        // 0,0..100,75). Declare 8:3 so it draws the whole canvas; the host shows it at the top of the
+        // window. Touches follow the picture; no safe area applies.
+        val display = if (ultra == null) fullDisplay else {
             val height = fullDisplay.widthPixels * 3 / 8 / 2 * 2
             fullDisplay.copy(heightPixels = height,
                 heightPhysicalMm = fullDisplay.heightPhysicalMm?.let { maxOf(1, it * height / fullDisplay.heightPixels) },
                 safeArea = null, viewArea = null).also {
-                appendLog("Ultra A/B main canvas ${fullDisplay.widthPixels}x${fullDisplay.heightPixels} -> " +
+                appendLog("Ultra main canvas ${fullDisplay.widthPixels}x${fullDisplay.heightPixels} -> " +
                     "${it.widthPixels}x${it.heightPixels} physical=${it.widthPhysicalMm}x${it.heightPhysicalMm}mm")
             }
         }
@@ -5196,6 +5203,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             displayRotation(), hideTopBar, hideBottomBar, effectiveSize.width, effectiveSize.height,
             viewAreas = pendingViewAreas,
             statusBarShown = statusBarShown(),
+            topAligned = airPlayConfig.ultraExperiment != null,
         )
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
@@ -5489,7 +5497,9 @@ open class CarPlayHostActivity : ComponentActivity() {
                     display.width * scaleX, display.height * scaleY)
             }
         }
-        return CarPlayVideoLayout.fit(display.width, display.height, viewWidth, viewHeight)
+        val fit = CarPlayVideoLayout.fit(display.width, display.height, viewWidth, viewHeight)
+        // An Ultra 8:3 picture sits at the top, so the unused height is one band above the car's bar.
+        return if (display.topAligned) fit.copy(top = 0f) else fit
     }
 
     private fun updateVideoLayout(viewWidth: Int, viewHeight: Int) {
@@ -6626,6 +6636,8 @@ internal data class CarPlaySessionDisplay(
     val viewAreas: CarPlayViewAreas? = null,
     /** Whether the status bar was on screen when the session started, or null when unknown. */
     val statusBarShown: Boolean? = null,
+    /** An Ultra 8:3 canvas: the picture is drawn at the top of the window, not centred. */
+    val topAligned: Boolean = false,
 )
 
 /**
