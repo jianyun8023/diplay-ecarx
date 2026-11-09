@@ -262,6 +262,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     // The route that answered the last check; downloads try it first.
     private var updateRoute: String? = null
     private var updateMessage: String? = null
+    // The notes of the installed build: hidden until asked for, then read once from its own release.
+    private var installedNotesShown = false
+    @Volatile private var installedNotesLoading = false
     private var carButtonCard: LinearLayout? = null
     private var hotspotStartupResult: CarHotspotTethering.Result? = null
     private var hotspotStartupPhase: CarHotspotSetup.Phase? = null
@@ -2406,6 +2409,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
             if (UpdateAvailability.enabled(this)) {
                 card.addView(updateRow())
+                installedNotesRow(card)
                 updateSourceChoice(card)
                 toggle(card, getString(R.string.settings_background_update_checks),
                     getString(R.string.settings_background_update_checks_description),
@@ -2630,6 +2634,44 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
         }
         return container
+    }
+
+    private fun installedNotesRow(card: LinearLayout) {
+        val build = buildNumber()
+        val notes = UpdateAvailability.installedNotes(this, build)
+        if (!installedNotesShown || (notes == null && !installedNotesLoading)) {
+            if (installedNotesShown) {
+                card.addView(label(getString(R.string.settings_installed_notes_failed), 14, WARNING)
+                    .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
+            }
+            card.addView(button(getString(R.string.settings_installed_notes), false) { showInstalledNotes() },
+                matchButton(SETTINGS_BLOCK_GAP_DP, 60))
+            return
+        }
+        card.addView(label(getString(R.string.settings_update_notes_title, "v$build"), 16, TEXT, true)
+            .apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
+        val text = notes?.ifBlank { getString(R.string.settings_update_notes_empty) }
+            ?: getString(R.string.settings_installed_notes_loading)
+        card.addView(label(text, 14, MUTED).apply { setPadding(0, dp(SETTINGS_BLOCK_GAP_DP), 0, 0) })
+    }
+
+    private fun showInstalledNotes() {
+        installedNotesShown = true
+        val build = buildNumber()
+        if (UpdateAvailability.installedNotes(this, build) != null || installedNotesLoading) return render()
+        installedNotesLoading = true
+        render()
+        Thread({
+            val outcome = runCatching { UpdateReleaseLookup.installed(build, userAgent(), UpdateAvailability.routes(this)) }
+            runOnUiThread {
+                installedNotesLoading = false
+                outcome.onSuccess { lookup ->
+                    UpdateAvailability.recordWorkingRoute(this, lookup.route)
+                    lookup.release?.let { UpdateAvailability.saveInstalledNotes(this, it) }
+                }.onFailure { Log.w("DiPlay-Update", "installed release notes failed", it) }
+                if (!isFinishing && !isDestroyed) render()
+            }
+        }, "diplay-installed-notes").start()
     }
 
     private fun checkForUpdates() {

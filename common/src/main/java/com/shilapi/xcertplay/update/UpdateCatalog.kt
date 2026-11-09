@@ -17,7 +17,8 @@ internal data class UpdateRelease(
  */
 internal object UpdateCatalog {
     internal const val REPOSITORY = "https://github.com/jianyun8023/diplay-ecarx"
-    internal const val MANIFEST_URL = "$REPOSITORY/releases/latest/download/update.json"
+    internal const val MANIFEST_FILE = "update.json"
+    internal const val MANIFEST_URL = "$REPOSITORY/releases/latest/download/$MANIFEST_FILE"
     internal const val CHECKSUMS_FILE = "SHA256SUMS.txt"
     // Long notes are cut so a careless release body cannot fill the About page.
     internal const val MAXIMUM_NOTES_CHARS = 4000
@@ -25,13 +26,16 @@ internal object UpdateCatalog {
     // The name becomes a file in the cache folder, so it can hold no path.
     private val APK_NAME = Regex("[A-Za-z0-9][A-Za-z0-9._-]*\\.apk")
 
+    /** The manifest attached to the release of [tag]; it carries that build's own notes. */
+    internal fun manifestUrl(tag: String) = "$REPOSITORY/releases/download/$tag/$MANIFEST_FILE"
+
     /** Returns the release that the manifest describes, or null when it is incomplete or unsafe. */
     internal fun parse(json: String): UpdateRelease? {
         val manifest = runCatching { JSONObject(json) }.getOrNull() ?: return null
         val tag = manifest.optString("tag")
         val apkName = manifest.optString("apk")
         if (!TAG.matches(tag) || !APK_NAME.matches(apkName)) return null
-        val notes = manifest.optString("notes").trim().let {
+        val notes = UpdateNotes.plain(manifest.optString("notes")).let {
             if (it.length > MAXIMUM_NOTES_CHARS) it.take(MAXIMUM_NOTES_CHARS).trimEnd() + "…" else it
         }
         val base = "$REPOSITORY/releases/download/$tag/"

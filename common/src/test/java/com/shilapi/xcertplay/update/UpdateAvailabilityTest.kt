@@ -88,6 +88,17 @@ class UpdateAvailabilityTest {
         assertTrue(UpdateAvailability.shouldCheck(context, now - 1))
     }
 
+    @Test fun installedNotesBelongToTheBuildThatReadThem() {
+        assertNull(UpdateAvailability.installedNotes(context, 143))
+        UpdateAvailability.saveInstalledNotes(context, release("v143").copy(notes = "• Fix reconnect"))
+        assertEquals("• Fix reconnect", UpdateAvailability.installedNotes(context, 143))
+        // After the upgrade they are the old build's notes, so they are read again.
+        assertNull(UpdateAvailability.installedNotes(context, 144))
+        // Clearing the offered update keeps them.
+        UpdateAvailability.clear(context)
+        assertEquals("• Fix reconnect", UpdateAvailability.installedNotes(context, 143))
+    }
+
     private fun release(tag: String) = UpdateRelease(
         tagName = tag,
         apkName = "DiPlay-$tag.apk",

@@ -12,6 +12,8 @@ internal object UpdateAvailability {
     private const val APK_URL = "apk_url"
     private const val CHECKSUMS_URL = "checksums_url"
     private const val NOTES = "notes"
+    private const val INSTALLED_TAG = "installed_tag"
+    private const val INSTALLED_NOTES = "installed_notes"
     private const val MIRROR = "mirror"
     private const val CUSTOM_MIRROR = "custom_mirror"
     private const val LAST_WORKING_ROUTE = "last_working_route"
@@ -73,6 +75,16 @@ internal object UpdateAvailability {
             .remove(CHECKSUMS_URL)
             .remove(NOTES)
             .apply()
+    }
+
+    /** The notes of the installed build, once read; null until then and again after an upgrade. */
+    fun installedNotes(context: Context, installedBuild: Long): String? {
+        val values = preferences(context)
+        return values.getString(INSTALLED_NOTES, null)?.takeIf { values.getString(INSTALLED_TAG, null) == "v$installedBuild" }
+    }
+
+    fun saveInstalledNotes(context: Context, release: UpdateRelease) {
+        preferences(context).edit().putString(INSTALLED_TAG, release.tagName).putString(INSTALLED_NOTES, release.notes).apply()
     }
 
     /** [UpdateMirror.AUTO], [UpdateMirror.DIRECT] or a mirror prefix. */
