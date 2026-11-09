@@ -393,6 +393,13 @@
     <string name="settings_advanced_media">Video and audio</string>
     <string name="settings_wheel_keys">Wheel keys</string>
     <string name="settings_experimental_display">Display (experimental)</string>
+    <string name="settings_ultra_theme">CarPlay Ultra theme (experimental)</string>
+    <string name="settings_ultra_theme_description">Paste a theme configuration. Changes apply when CarPlay reconnects.</string>
+    <string name="settings_ultra_native_canvas">Use the head unit window size</string>
+    <string name="settings_ultra_disable">Disable Ultra</string>
+    <string name="settings_ultra_invalid_config">Check the theme ID, version, and panel or layout lines.</string>
+    <string name="settings_cluster_calibration">Instrument cluster calibration grid (experimental)</string>
+    <string name="settings_cluster_calibration_description">While parked, show the instrument map to see the 1920 × 720 coordinate grid. Turn this off to restore the map.</string>
     <string name="settings_diagnostics_summary">Save a local report when troubleshooting a connection</string>
     <string name="settings_full_screen_description">Hide the status and navigation bars in DiPlay and CarPlay.</string>
     <string name="settings_vehicle_description">Vehicle and dashboard features vary by model and firmware. Review them in Advanced settings before enabling experimental controls.</string>

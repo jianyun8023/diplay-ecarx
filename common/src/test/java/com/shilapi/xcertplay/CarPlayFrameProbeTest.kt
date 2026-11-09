@@ -22,13 +22,13 @@ class CarPlayFrameProbeTest {
             CarPlayFrameProbe.summary(IntArray(width * height) { 0xff000000.toInt() }, width, height))
     }
 
-    @Test fun theMapShowsWhereTheBlackIsWithoutHexCharacters() {
-        val rows = CarPlayFrameProbe.map(topTwoThirds(), width, height)
+    @Test fun theMapKeepsAllRowsThroughReportScrubbing() {
+        val line = "20:42:20.000  " + CarPlayFrameProbe.mapLine(topTwoThirds(), width, height)
+        assertEquals(line, DiagnosticRedactor.redact(line))
+        val rows = line.substringAfter("Frame map main 32x18 ").split('/')
         assertEquals(height / 2, rows.size)
         assertEquals(width / 2 + 2, rows.first().length)
         assertEquals("|" + " ".repeat(width / 2) + "|", rows.last())
         assertFalse(rows.first().trim('|').isBlank())
-        // Report scrubbing removes runs of hex; the map must survive it.
-        assertFalse(rows.joinToString("").any { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' })
     }
 }

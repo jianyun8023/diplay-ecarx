@@ -24,6 +24,13 @@
     <string name="settings_advanced_media">影片與音訊</string>
     <string name="settings_wheel_keys">方向盤按鍵</string>
     <string name="settings_experimental_display">顯示（實驗性）</string>
+    <string name="settings_ultra_theme">CarPlay Ultra 主題（實驗性）</string>
+    <string name="settings_ultra_theme_description">貼上主題設定。重新連接 CarPlay 後生效。</string>
+    <string name="settings_ultra_native_canvas">使用車機視窗尺寸</string>
+    <string name="settings_ultra_disable">關閉 Ultra</string>
+    <string name="settings_ultra_invalid_config">請檢查主題 ID、版本、面板或版面行。</string>
+    <string name="settings_cluster_calibration">儀表座標校正圖（實驗性）</string>
+    <string name="settings_cluster_calibration_description">停車時開啟獨立儀表地圖，即可顯示 1920 × 720 座標圖。關閉後恢復地圖。</string>
     <string name="settings_diagnostics_summary">排除連線問題時儲存本機報告</string>
     <string name="settings_full_screen_description">在 DiPlay 與 CarPlay 中隱藏狀態列及導覽列。</string>
     <string name="settings_vehicle_description">車輛和儀表板功能因車型和韌體而異。啟用實驗性設定前，請先在進階設定中查看。</string>

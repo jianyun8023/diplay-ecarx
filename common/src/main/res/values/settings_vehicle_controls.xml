@@ -3,4 +3,6 @@
     <string name="settings_ecarx_vehicle_controls_enable">Enable</string>
     <string name="settings_ecarx_vehicle_controls">CarPlay vehicle and climate (experimental)</string>
     <string name="settings_ecarx_vehicle_controls_description">Send live vehicle data and factory climate controls to the iPhone. Vehicle apps require iPhone support. Applies at the next CarPlay connection.</string>
+    <string name="settings_themeless_vehicle_controls">Themeless vehicle apps (experimental)</string>
+    <string name="settings_themeless_vehicle_controls_description">Without a CarPlay Ultra theme, describe the head-unit screens as panels so the iPhone can offer vehicle and climate apps on the full screen. Needs vehicle and climate above. Applies at the next CarPlay connection.</string>
 </resources>

@@ -45,7 +45,12 @@ class EcarxVehicleSettingsTest {
             assertTrue(views(render()).none { it is Switch })
             shadowOf(activity.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xui.service" })
             val root = render()
-            val toggle = views(root).filterIsInstance<Switch>().single()
+            // The test app is debuggable, so the car-test themeless switch shows after the vehicle switch.
+            val (toggle, themeless) = views(root).filterIsInstance<Switch>().toList()
+            assertFalse(themeless.isChecked)
+            themeless.performClick()
+            assertTrue(AirPlayPersistence.loadThemelessVehicleControls(activity))
+            themeless.performClick()
             assertFalse(toggle.isChecked)
             assertTrue(toggle.isEnabled)
             toggle.performClick()

@@ -81,6 +81,9 @@ object AirPlayInfoPlist {
                 panel
             }
         }
+        if (config.ultraExperiment == null && config.themelessPanels) {
+            info["displayPanels"] = themelessPanels(displays, clusterUuid)
+        }
         info["hidDevices"] = listOf(
             AirPlayHid.touchHidDevice(config.main.widthPixels, config.main.heightPixels, mainUuid),
             AirPlayHid.knobHidDevice(mainUuid),
@@ -109,6 +112,26 @@ object AirPlayInfoPlist {
         }
         return info
     }
+
+    /**
+     * Theme-less panels shaped like the theme's: one panel per real display, named by its stream, no plug-in.
+     * LIVI's extra stream-less instrument panel left the centre stream black on iOS 27.3 (car run 2026-11-09,
+     * `drawn=0% box=none`), so the iPhone gets no panel it cannot show.
+     */
+    private fun themelessPanels(displays: List<Map<String, Any?>>, clusterUuid: String): List<Map<String, Any?>> =
+        displays.map { display ->
+            linkedMapOf(
+                "uid" to display["uuid"],
+                "widthPixels" to display["widthPixels"],
+                "heightPixels" to display["heightPixels"],
+                "widthPhysical" to display["widthPhysical"],
+                "heightPhysical" to display["heightPhysical"],
+                "properties" to if (display["uuid"] == clusterUuid) listOf("showsInstruments") else emptyList<String>(),
+                "initialVideoStreams" to listOf(mapOf(
+                    "uuid" to display["uuid"], "originXPixels" to 0, "originYPixels" to 0, "zIndex" to 0,
+                )),
+            )
+        }
 
     private fun resource(resourceId: Int): Map<String, Any?> = linkedMapOf(
         "resourceID" to resourceId,

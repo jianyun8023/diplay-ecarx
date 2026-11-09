@@ -4,8 +4,7 @@ import java.util.Locale
 
 /**
  * Debug evidence of where the iPhone really draws on the main canvas. Screen colour and bit rate do not
- * tell a black area from a still picture; the drawn box does. Lines use no hex digits or letters, so
- * report scrubbing never removes them.
+ * tell a black area from a still picture; the drawn box does.
  */
 internal object CarPlayFrameProbe {
     const val WIDTH = 64
@@ -39,10 +38,10 @@ internal object CarPlayFrameProbe {
             total / pixels.size)
     }
 
-    /** Brightness map at half the probe size, one row per line, darkest as a space between bars. */
-    fun map(pixels: IntArray, width: Int, height: Int): List<String> {
+    /** Keep the whole map on one log line so it passes the diagnostics filter. */
+    fun mapLine(pixels: IntArray, width: Int, height: Int): String {
         require(width > 1 && height > 1 && pixels.size == width * height)
-        return (0 until height / 2).map { row ->
+        return (0 until height / 2).joinToString("/", prefix = "Frame map main ${width / 2}x${height / 2} ") { row ->
             buildString {
                 append('|')
                 for (column in 0 until width / 2) {

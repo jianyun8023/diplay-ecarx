@@ -10,6 +10,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
+import com.shilapi.xcertplay.host.R
 
 /**
  * The instrument cluster as what it actually is on this head unit: a second Android display.
@@ -45,6 +47,16 @@ internal class EcarxClusterPresentation(
 
     private var texture: ClusterVideoTexture? = null
     private var videoSize = 1920 to 720
+    private var calibration: ImageView? = null
+    private var calibrationVisible = false
+
+    fun setCalibrationVisible(visible: Boolean) {
+        calibrationVisible = visible
+        calibration?.let { image ->
+            if (visible && image.drawable == null) image.setImageResource(R.drawable.cluster_calibration_grid)
+            image.visibility = if (visible) View.VISIBLE else View.GONE
+        }
+    }
 
     fun setVideoSize(width: Int, height: Int) {
         if (videoSize.first == width && videoSize.second == height) return
@@ -82,7 +94,12 @@ internal class EcarxClusterPresentation(
         view.setVideoSize(videoSize.first, videoSize.second)
         setContentView(FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
-            addView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            val matchParent = ViewGroup.LayoutParams.MATCH_PARENT
+            addView(view, FrameLayout.LayoutParams(matchParent, matchParent))
+            // Match the independent 8:3 texture's fit within the presentation window.
+            calibration = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                .also { addView(it, FrameLayout.LayoutParams(matchParent, matchParent)) }
+            setCalibrationVisible(calibrationVisible)
         })
     }
 
@@ -91,6 +108,7 @@ internal class EcarxClusterPresentation(
         // stops being pointed at a window that is about to disappear, rather than at a dead surface.
         texture?.close()
         texture = null
+        calibration = null
         super.onStop()
     }
 }

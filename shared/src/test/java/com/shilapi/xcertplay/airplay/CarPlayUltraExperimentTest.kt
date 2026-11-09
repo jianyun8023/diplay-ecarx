@@ -50,6 +50,25 @@ class CarPlayUltraExperimentTest {
         }
     }
 
+    @Test fun themelessPanelsDescribeOnlyTheRealDisplays() {
+        val config = AirPlayConfig("Test", "test", "02:00:00:00:00:02", "950.7.1",
+            AirPlayDisplayConfig(1920, 1080), AirPlayDisplayConfig(1920, 720), themelessPanels = true)
+        val panels = (AirPlayInfoPlist.build(config)["displayPanels"] as List<*>).map { it as Map<*, *> }
+        assertEquals(2, panels.size)
+        val (main, cluster) = panels
+        assertEquals(AirPlayInfoPlist.MAIN_UUID, main["uid"])
+        assertEquals(1080, main["heightPixels"])
+        assertEquals(emptyList<String>(), main["properties"])
+        assertEquals(AirPlayInfoPlist.MAIN_UUID, ((main["initialVideoStreams"] as List<*>).single() as Map<*, *>)["uuid"])
+        assertEquals(AirPlayInfoPlist.ALT_UUID, cluster["uid"])
+        assertEquals(listOf("showsInstruments"), cluster["properties"])
+        assertTrue(panels.none { it.containsKey("displayPlugins") })
+        assertEquals(1, (AirPlayInfoPlist.build(config.copy(cluster = null))["displayPanels"] as List<*>).size)
+        // A theme describes its own panels.
+        val themed = AirPlayInfoPlist.build(config.copy(ultraExperiment = ultra))["displayPanels"] as List<*>
+        assertEquals("Center_Display", (themed.first() as Map<*, *>)["uid"])
+    }
+
     @Test fun panelsPointAtExistingStreamsAndOnlyClusterComposesInstruments() {
         val config = AirPlayConfig("Test", "test", "02:00:00:00:00:02", "950.7.1",
             AirPlayDisplayConfig(1280, 720), AirPlayDisplayConfig(1920, 720))

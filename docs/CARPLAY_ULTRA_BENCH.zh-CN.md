@@ -40,16 +40,39 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 
 ## 开关与隔离
 
-- 只有 debuggable 构建和车测 release 包（`-PcarTestLabel=…`）读取 `ultra-experiment.txt`；公开 Release 不读，默认关闭，下次连接生效。文件可放在应用私有目录 `files/`，或 `adb push` 可写的 `/sdcard/Android/data/<包名>/files/`（车测包不可 debug，只能用后者）。
+- 在 debug 或车测 release 包（`-PcarTestLabel=…`）的 **设置 → 高级 → 显示（实验性） → CarPlay Ultra 主题（实验性）** 粘贴下方格式的配置，保存后重连。默认按 8:3 声明中控，勾选「使用车机窗口尺寸」可以对照测试较高的画布。「关闭 Ultra」保留上一次配置，下次重连时使用普通 CarPlay。
+- 实验包仍兼容应用 `files/` 或 `/sdcard/Android/data/<包名>/files/` 下的旧 `ultra-experiment.txt`。保存或关闭过主题设置后，以设置为准。公开 Release 不启用这两种配置入口。
 - 只有同时存在 `ultra-bench.enabled` 才声明模拟车辆能力；只有主题配置时只做显示层。
 - 原车风格仪表 `UltraBenchActivity` 只在 debug 源集。
 - 仓库不含任何车厂主题素材或主题 ID；主题由 iPhone 按 ID 从 Apple 公共资源目录下载。测试用主题 ID、设备与命令放在本地工作区，不进仓库。
 
 ## 中控与仪表画布（2026-11-09 实车结论）
 
-- 主题包把中控定义为 1920×720。声明 1920×944 时 iPhone 只画上部 8:3（`box=0,0..100,75`），声明 1920×720 时整块画满（`box=0,0..100,100`）。因此 Ultra 会话默认声明 8:3 中控画布，并贴顶显示；1920 宽下余下的 224 px 无法由主题填满，拉伸会变形、裁边会裁掉侧栏。
+- 已测主题把中控定义为 1920×720。声明 1920×944 时 iPhone 只画上部 8:3（`box=0,0..100,75`），声明 1920×720 时整块画满（`box=0,0..100,100`）。Ultra 默认声明 8:3 中控画布并贴顶显示。保留原车底栏时，车机窗口剩 224 px；隐藏底栏时，剩 360 px。
 - 原车仪表“小屏导航”只露出中间窗口（约 x 31–68 %、y 16–89 %），DigiRing 等表盘布局的地图区也只是中间 600×480。要铺满仪表，用 MapsMedia 布局（地图 1920×720）并在原车仪表菜单切到“全屏导航”；原车读数会叠加在地图上。
 - 仪表窗口中的第二张导航卡片来自 DiPlay 发给原车的 DIM 引导（`DIM guidance started …`），与主题自带卡片重叠。可在 设置 → 导航 关闭仪表导航引导对比；关闭也会停止 HUD 引导。
+- Ultra 仪表会声明手动保存的「仪表安全区」。重置后 Ultra 用整块画布；iPhone 地图卡片是否随安全区移动仍需实车验证。
+
+### 仪表坐标校准
+
+停车时在 **设置 → 高级 → 仪表显示 → 仪表坐标校准图（实验性）** 打开开关，然后开始支持仪表地图的导航并显示独立仪表地图。坐标图使用同一个仪表投屏窗口，开启和关闭无需重连。如果当前用整屏镜像，先切回独立仪表地图。
+
+以画布左上角为原点。十字中心是标注的 `x,y` 像素坐标，小格间隔 30 px。分别拍摄原车小屏导航和全屏导航，保留至少四个分散且不共线的十字用于照片透视校正，再描出可见边界。拍完关闭开关恢复地图。
+
+## 无主题车控（实验性，领克 05 未通过）
+
+普通 CarPlay 只上报车辆状态时，iPhone 不显示车辆、空调和广播 App（2026-11-09 实车）。LIVI 与 Gen5W Ultra-Lite 在无主题时仍发送 `displayPanels`，Tarmac 台架在无主题时也出现了这些 App。**设置 → 高级 → CarPlay 车辆与空调（实验性） → 无主题车控（实验性）** 在无 Ultra 主题时发送面板描述，只在 debug 和车测包可见，默认关闭，下次连接生效。配置了 Ultra 主题时以主题为准。
+
+当前发送的结构：只描述两块真实屏幕。中控面板与仪表面板的 `uid` 就是各自视频流的 UUID，尺寸与声明一致，都不带插件；仪表面板标 `showsInstruments`。日志：`Themeless vehicle controls: displayPanels without a theme vehicleData=…` 和 `airplay /info displayPanels=[…]`。
+
+2026-11-09 实车结果（iOS 27.3，无线，中控声明 1920×1080，仪表 1920×720 独立地图）：
+
+| 版本 | 面板 | 结果 |
+| --- | --- | --- |
+| r1，22:14 | LIVI 格式：`<UUID>-panel` 两块真实屏幕 + 一块无视频流、带空插件的虚拟仪表面板 | iPhone 订阅 68 个车辆字段，仪表出图；中控流全黑（`Frame probe … drawn=0% box=none`，持续 1.5 min） |
+| r2，22:20 | 上面的两块真实屏幕，无插件 | 中控仍无画面，车辆 App 未出现 |
+
+关闭本开关重连后恢复普通 CarPlay。结论：在这台车与 iOS 27.3 上，无主题 `displayPanels` 会让 iPhone 停止绘制中控，未能得到 Tarmac 记录的无主题车辆 App。r2 的诊断报告没有导出（无线 ADB 已断开），下一次实车先补报告，核对 `/info displayPanels` 与 `Frame probe`。开关保留用于复测，不建议默认打开。
 
 ## 实车测试：探针与 A/B 开关
 
@@ -60,15 +83,15 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 | `frame-probe.enabled` | 中控画面探针，不依赖 Ultra；每 5 s 记录绘制占比与范围，每 30 s 一张 32×18 亮度图 | `Frame probe main 64x36 view=… canvas=… shown=… drawn=…% box=x0,y0..x1,y1 mean=…`、`Frame map main 32x18` |
 | `ultra-no-corner-masks.enabled` | 主题会话中控显式声明 `cornerMasks=false`（原来不声明，iPhone 使用主题默认圆角） | `Ultra A/B main cornerMasks=false` |
 
-`box` 是 iPhone 在画布上实际绘制的范围（按解码画面计算），`shown` 是画布在窗口中显示的位置，均为百分比；静止画面码率很低不代表黑屏，以 `box` 为准。亮度图只用空格和 `.:-=+*#%@`，不会被报告脱敏规则当作十六进制删掉。开启后的连接会先记录 `Debug probes: frameProbe=… ultraNoCornerMasks=… ultraMain8x3=…`。
+`box` 是解码画布中高于亮度阈值的范围，`shown` 是画布在窗口中的显示位置，均为百分比。亮度图把 18 行用 `/` 分隔后写入一条诊断日志。开启后的连接会先记录 `Debug probes: frameProbe=… ultraNoCornerMasks=…`。
 
 车辆数据开关（设置 → 高级）会在可用性变化时记录一行：`Vehicle state ECARX availability connected=… present=[…] missing=[…] tires=n/4 climate=n/13 volume=n/4 radio=…`。转速等高频信号的原始值每 30 s 最多记一条（`Vehicle signal engineRpm changed raw=…`）。另一份领克 05 实车记录称 VHAL 的转速、胎压恒为空；这一行能直接确认本车是否同样如此。
 
 每轮只改一个变量，否则无法归因：
 
 1. 基线：Ultra 关闭，只放 `frame-probe.enabled`。预期 `box=0,0..100,100`。
-2. 主题：加 `ultra-experiment.txt`。记录 `box` 是否只到约 66%，目视四角是否圆角。
-3. 圆角：在第 2 轮基础上加 `ultra-no-corner-masks.enabled`。只看圆角是否消失，`box` 应与第 2 轮相同。
+2. 主题：在设置中启用主题，勾选「使用车机窗口尺寸」并重连。记录 `box`、`shown` 和四角。
+3. 圆角：保持主题和窗口尺寸一致，开启中控「直角铺满，不使用安全区域」并重连。核对 `/info` 的 `cornerMasks=true`，再对比圆角和底部空区。这一轮不要放 `ultra-no-corner-masks.enabled`：中控已声明 `cornerMasks=true` 时该开关不生效，日志记 `Ultra A/B ignored: main already declares cornerMasks=true`。
 4. 仪表组件：`ultra-experiment.txt` 不写 zone 行（`activeComponents` 为空），与只写地图 zone 的版本对比仪表上的组件。
 
 ```sh

@@ -704,7 +704,7 @@ class AirPlaySession(
                         "videoPlaybackAllowed=${if (config.videoInCar) VideoInCar.allowed else "not-offered"}",
                 )
                 debugLog("airplay /info displays=${info["displays"]}")
-                if (config.ultraExperiment != null) debugLog("airplay /info displayPanels=${info["displayPanels"]}")
+                if (info.containsKey("displayPanels")) debugLog("airplay /info displayPanels=${info["displayPanels"]}")
                 RtspMessage.Response(
                     headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
                     body = BplistCodec.encode(info),

@@ -6,6 +6,7 @@ import android.hardware.display.DisplayManager
 import android.view.Display
 import android.view.View
 import android.graphics.RectF
+import android.widget.ImageView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +19,23 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 class ClusterVideoTextureTest {
+    @Test fun calibrationUsesTheIndependentVideoAreaAndCanBeDismissed() {
+        val app = RuntimeEnvironment.getApplication()
+        val display = app.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
+        val panel = EcarxClusterPresentation(app, display, onSurface = {})
+        panel.show()
+        val image = ReflectionHelpers.getField<ImageView>(panel, "calibration")
+        assertEquals(View.GONE, image.visibility)
+        panel.setCalibrationVisible(true)
+        assertEquals(View.VISIBLE, image.visibility)
+        assertEquals(ImageView.ScaleType.FIT_CENTER, image.scaleType)
+        assertEquals(1920, image.drawable.intrinsicWidth)
+        assertEquals(720, image.drawable.intrinsicHeight)
+        panel.setCalibrationVisible(false)
+        assertEquals(View.GONE, image.visibility)
+        panel.dismiss()
+    }
+
     @Test fun firstTextureUpdateSeparatesDisplayLayoutAndExpectedSizesFromUnknownDecoderSize() {
         val app = RuntimeEnvironment.getApplication()
         val display = app.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)

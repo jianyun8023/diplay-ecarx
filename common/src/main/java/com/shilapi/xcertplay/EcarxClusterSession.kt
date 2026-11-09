@@ -91,7 +91,11 @@ internal class EcarxClusterSession(
                     if (mirrorMain) "cluster mirror surface ready" else "cluster first texture frame")
             }
         }
-        if (presentation != null) return
+        val calibrationVisible = wanted && !mirrorMain && AirPlayPersistence.loadClusterCalibration(app)
+        presentation?.let {
+            it.setCalibrationVisible(calibrationVisible)
+            return
+        }
         val display = displays?.getDisplay(DISPLAY_ID) ?: return
         lateinit var panel: EcarxClusterPresentation
         panel = EcarxClusterPresentation(app, display, onSurface = { next ->
@@ -108,6 +112,7 @@ internal class EcarxClusterSession(
         val video = CarPlayBackgroundSession.snapshot()
         if (mirrorMain && video != null) panel.setVideoSize(video.width, video.height)
         else panel.setVideoSize(WIDTH, HEIGHT)
+        panel.setCalibrationVisible(calibrationVisible)
         presentation = panel
         panel.setOnDismissListener {
             // An old Dialog's asynchronous dismiss must never clear its replacement.

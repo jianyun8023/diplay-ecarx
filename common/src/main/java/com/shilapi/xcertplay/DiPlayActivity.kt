@@ -2053,9 +2053,18 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(safeAreaButton, LinearLayout.LayoutParams(-1, -2).apply {
                 topMargin = dp(SETTINGS_BLOCK_GAP_DP)
             })
+            if (AirPlayPersistence.carPlayExperimentsAllowed(this)) {
+                toggle(card, getString(R.string.settings_cluster_calibration),
+                    getString(R.string.settings_cluster_calibration_description),
+                    AirPlayPersistence.loadClusterCalibration(this)) { enabled ->
+                    AirPlayPersistence.saveClusterCalibration(this, enabled)
+                    CarPlayBackgroundSession.refreshClusterOutput()
+                }
+            }
         }
         filteredSection(content, SettingsSection.EXPERIMENTAL_DISPLAY,
             getString(R.string.settings_experimental_display), R.drawable.ic_dp_display) { card ->
+            if (AirPlayPersistence.carPlayExperimentsAllowed(this)) ultraThemeControl(card)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 toggle(card, getString(R.string.launcher_map_sharing),
                     getString(R.string.launcher_map_sharing_description),
@@ -2280,6 +2289,14 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     AirPlayPersistence.loadEcarxVehicleControls(this)) {
                     AirPlayPersistence.saveEcarxVehicleControls(this, it)
                     markReconnectNeeded()
+                }
+                if (AirPlayPersistence.carPlayExperimentsAllowed(this)) {
+                    toggle(card, getString(R.string.settings_themeless_vehicle_controls),
+                        getString(R.string.settings_themeless_vehicle_controls_description),
+                        AirPlayPersistence.loadThemelessVehicleControls(this)) {
+                        AirPlayPersistence.saveThemelessVehicleControls(this, it)
+                        markReconnectNeeded()
+                    }
                 }
             }
         }
@@ -4270,6 +4287,62 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
         render()
         toast(getString(R.string.saved_for_your_next_connection))
+    }
+
+    private fun ultraThemeControl(card: LinearLayout) {
+        val title = getString(R.string.settings_ultra_theme)
+        fun summary(): String {
+            val asset = AirPlayPersistence.loadUltraExperiment(this)?.asset
+            val value = asset?.let { "${it.assetId} / ${it.assetVersion}" } ?: getString(R.string.navi_mode_off)
+            return title + VALUE_SEPARATOR + value
+        }
+        val control = button(summary(), false) {}
+        control.tag = R.string.settings_ultra_theme
+        control.setOnClickListener {
+            val savedText = AirPlayPersistence.loadUltraExperimentText(this)
+            val fields = column().apply {
+                setPadding(dp(SETTINGS_BLOCK_GAP_DP), 0, dp(SETTINGS_BLOCK_GAP_DP), 0)
+            }
+            val input = EditText(appDialogContext()).apply {
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                minLines = 4
+                maxLines = 7
+                setText(savedText)
+            }
+            val nativeCanvas = android.widget.CheckBox(appDialogContext()).apply {
+                text = getString(R.string.settings_ultra_native_canvas)
+                isChecked = AirPlayPersistence.loadUltraNativeCanvas(this@DiPlayActivity)
+            }
+            fields.addView(input, LinearLayout.LayoutParams(-1, -2))
+            fields.addView(nativeCanvas, LinearLayout.LayoutParams(-1, -2))
+            val dialog = appDialogBuilder().setTitle(title)
+                .setMessage(R.string.settings_ultra_theme_description).setView(fields)
+                .setNegativeButton(R.string.cancel, null)
+                .setNeutralButton(R.string.settings_ultra_disable) { _, _ ->
+                    AirPlayPersistence.saveUltraExperiment(this, savedText, false,
+                        AirPlayPersistence.loadUltraNativeCanvas(this))
+                    control.text = summary()
+                    markReconnectNeeded()
+                }
+                .setPositiveButton(R.string.save, null).create()
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                    val text = input.text.toString().trim()
+                    if (com.shilapi.xcertplay.airplay.CarPlayUltraExperiment.parse(text) == null) {
+                        input.error = getString(R.string.settings_ultra_invalid_config)
+                    } else {
+                        AirPlayPersistence.saveUltraExperiment(this, text, true, nativeCanvas.isChecked)
+                        control.text = summary()
+                        dialog.dismiss()
+                        markReconnectNeeded()
+                    }
+                }
+            }
+            dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+            dialog.show()
+        }
+        card.addView(control, matchButton(SETTINGS_BLOCK_GAP_DP, CONTROL_HEIGHT_DP))
     }
 
     private fun textInput(title: String, current: String, secret: Boolean, save: (String) -> Unit) {

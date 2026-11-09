@@ -3,4 +3,6 @@
     <string name="settings_ecarx_vehicle_controls_enable">启用</string>
     <string name="settings_ecarx_vehicle_controls">CarPlay 车辆与空调（实验性）</string>
     <string name="settings_ecarx_vehicle_controls_description">向 iPhone 提供真实车辆数据和原车空调控制。车辆 App 是否显示取决于 iPhone 支持情况，下次连接 CarPlay 生效。</string>
+    <string name="settings_themeless_vehicle_controls">无主题车控（实验性）</string>
+    <string name="settings_themeless_vehicle_controls_description">不使用 CarPlay Ultra 主题，按车机窗口尺寸向 iPhone 描述屏幕面板，以便在全屏 CarPlay 中提供车辆和空调 App。需同时启用上方车辆与空调。下次连接 CarPlay 生效。</string>
 </resources>

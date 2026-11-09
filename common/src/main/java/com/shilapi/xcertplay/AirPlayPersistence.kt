@@ -943,17 +943,45 @@ object AirPlayPersistence {
      * public release. Car-test builds are not debuggable, so the app's external files directory
      * (`/sdcard/Android/data/<package>/files`) also counts: `adb push` reaches it without `run-as`.
      */
+    fun carPlayExperimentsAllowed(context: Context): Boolean =
+        context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 ||
+            context.resources.getBoolean(com.shilapi.xcertplay.host.R.bool.car_test_experiments)
+
     private fun experimentFile(context: Context, name: String): File? {
-        val debuggable = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
-        if (!debuggable && !context.resources.getBoolean(com.shilapi.xcertplay.host.R.bool.car_test_experiments)) return null
+        if (!carPlayExperimentsAllowed(context)) return null
         return listOfNotNull(context.filesDir, runCatching { context.getExternalFilesDir(null) }.getOrNull())
             .map { File(it, name) }.firstOrNull { it.isFile }
     }
 
-    /** Hidden bench input, read at the next connection (see [experimentFile]). */
+    fun loadUltraExperimentText(context: Context): String =
+        preferences(context).getString("ultra_experiment_config", null)
+            ?: experimentFile(context, "ultra-experiment.txt")?.readText().orEmpty()
+
+    fun loadUltraNativeCanvas(context: Context): Boolean =
+        preferences(context).getBoolean("ultra_native_canvas", false)
+
+    fun loadClusterCalibration(context: Context): Boolean =
+        carPlayExperimentsAllowed(context) && preferences(context).getBoolean("cluster_calibration", false)
+
+    fun saveClusterCalibration(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean("cluster_calibration", enabled).apply()
+    }
+
+    fun saveUltraExperiment(context: Context, configuration: String, enabled: Boolean, nativeCanvas: Boolean) {
+        preferences(context).edit()
+            .putString("ultra_experiment_config", configuration)
+            .putBoolean("ultra_experiment_disabled", !enabled)
+            .putBoolean("ultra_native_canvas", nativeCanvas)
+            .apply()
+    }
+
+    /** Settings take precedence over the legacy bench input. Read on connection. */
     fun loadUltraExperiment(context: Context): com.shilapi.xcertplay.airplay.CarPlayUltraExperiment? {
-        val file = experimentFile(context, "ultra-experiment.txt") ?: return null
-        return com.shilapi.xcertplay.airplay.CarPlayUltraExperiment.parse(file.readText()).also {
+        if (!carPlayExperimentsAllowed(context) ||
+            preferences(context).getBoolean("ultra_experiment_disabled", false)) return null
+        val text = loadUltraExperimentText(context)
+        if (text.isBlank()) return null
+        return com.shilapi.xcertplay.airplay.CarPlayUltraExperiment.parse(text).also {
             if (it == null) android.util.Log.w("DiPlay", "Ultra experiment: invalid configuration; disabled")
         }
     }
@@ -965,6 +993,14 @@ object AirPlayPersistence {
 
     fun loadEcarxVehicleControls(context: Context): Boolean =
         preferences(context).getBoolean("ecarx_vehicle_controls", false)
+
+    /** Theme-less panels for the vehicle apps; car-test and debug builds only, read at the next connection. */
+    fun loadThemelessVehicleControls(context: Context): Boolean =
+        carPlayExperimentsAllowed(context) && preferences(context).getBoolean("themeless_vehicle_controls", false)
+
+    fun saveThemelessVehicleControls(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean("themeless_vehicle_controls", enabled).apply()
+    }
 
     fun saveEcarxVehicleControls(context: Context, enabled: Boolean) {
         preferences(context).edit().putBoolean("ecarx_vehicle_controls", enabled).apply()

@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay
 
 import android.app.Dialog
+import android.app.AlertDialog
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.os.Looper
 import android.graphics.Bitmap
@@ -9,6 +11,8 @@ import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
@@ -21,6 +25,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.util.ReflectionHelpers
 
 /** Production settings and editor on the current 1920×1080 head unit. */
@@ -28,6 +33,73 @@ import org.robolectric.util.ReflectionHelpers
 @Config(sdk = [29])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EcarxSettingsScreenshotsTest {
+    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
+    fun ultraSettingsSaveDisableAndReopenTheTheme() {
+        val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
+        activity.setTheme(android.R.style.Theme_Material_NoActionBar)
+        val info = activity.applicationInfo
+        info.flags = info.flags or ApplicationInfo.FLAG_DEBUGGABLE
+        shadowOf(activity.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xui.service" })
+        val output = File("build/reports/ecarx-settings-ui").apply { mkdirs() }
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(DiPlayPalette.DARK.surface)
+        }
+        ReflectionHelpers.setField(activity, "page", "settings")
+        ReflectionHelpers.setField(activity, "settingsSectionFilter",
+            setOf(SettingsSection.ECARX_CLUSTER_DISPLAY, SettingsSection.EXPERIMENTAL_DISPLAY))
+        activity.javaClass.getDeclaredMethod("allSettingsSections", LinearLayout::class.java)
+            .apply { isAccessible = true }.invoke(activity, root)
+        val control = views(root).filterIsInstance<Button>().single { it.tag == R.string.settings_ultra_theme }
+        val calibration = views(root).filterIsInstance<TextView>().first {
+            it.text == activity.getString(R.string.settings_cluster_calibration)
+        }
+        root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        root.layout(0, 0, 1920, root.measuredHeight)
+        for (added in listOf(control, calibration)) {
+            val bounds = Rect(0, 0, added.width, added.height)
+            root.offsetDescendantRectToMyCoords(added, bounds)
+            assertTrue(Rect(0, 0, 1920, 1080).contains(bounds))
+        }
+        val frame = Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
+        root.draw(Canvas(frame))
+        File(output, "ultra-controls-current-head-unit.png").outputStream().use {
+            assertTrue(frame.compress(Bitmap.CompressFormat.PNG, 100, it))
+        }
+        frame.recycle()
+
+        control.performClick()
+        var dialog = ShadowAlertDialog.getLatestAlertDialog()
+        shadowOf(Looper.getMainLooper()).idle()
+        val input = views(dialog.window!!.decorView).filterIsInstance<EditText>().single()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertNotNull(input.error)
+        val config = "TEST_THEME:985:19.0\nCenter_Display\nCluster_Display"
+        input.setText(config)
+        views(dialog.window!!.decorView).filterIsInstance<CheckBox>().single().isChecked = true
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertEquals("TEST_THEME", AirPlayPersistence.loadUltraExperiment(activity)?.asset?.assetId)
+        assertTrue(AirPlayPersistence.loadUltraNativeCanvas(activity))
+
+        control.performClick()
+        dialog = ShadowAlertDialog.getLatestAlertDialog()
+        shadowOf(Looper.getMainLooper()).idle()
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(AirPlayPersistence.loadUltraExperiment(activity))
+        control.performClick()
+        dialog = ShadowAlertDialog.getLatestAlertDialog()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(config, views(dialog.window!!.decorView).filterIsInstance<EditText>().single().text.toString())
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertNotNull(AirPlayPersistence.loadUltraExperiment(activity))
+
+        info.flags = info.flags and ApplicationInfo.FLAG_DEBUGGABLE.inv()
+        assertNull(AirPlayPersistence.loadUltraExperiment(activity))
+        activity.finish()
+    }
+
     @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
     fun settingsAndEditorFitTheCurrentHeadUnit() {
         val name = "current-head-unit"

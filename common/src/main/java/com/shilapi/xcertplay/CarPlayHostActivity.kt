@@ -517,8 +517,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     "view=${view.width}x${view.height} canvas=$canvas shown=$shown " +
                     CarPlayFrameProbe.summary(pixels, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT))
                 if (frameProbeCount++ % FRAME_MAP_EVERY == 0) {
-                    appendLog("Frame map main ${CarPlayFrameProbe.WIDTH / 2}x${CarPlayFrameProbe.HEIGHT / 2}\n" +
-                        CarPlayFrameProbe.map(pixels, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT).joinToString("\n"))
+                    appendLog(CarPlayFrameProbe.mapLine(pixels, CarPlayFrameProbe.WIDTH, CarPlayFrameProbe.HEIGHT))
                 }
             }
             val surface = fallbackVideoView
@@ -4330,7 +4329,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         // canvas the iPhone draws only the top 8:3 and leaves the rest black (car run 2026-11-09, box
         // 0,0..100,75). Declare 8:3 so it draws the whole canvas; the host shows it at the top of the
         // window. Touches follow the picture; no safe area applies.
-        val display = if (ultra == null) fullDisplay else {
+        val display = if (ultra == null || AirPlayPersistence.loadUltraNativeCanvas(this)) fullDisplay else {
             val height = fullDisplay.widthPixels * 3 / 8 / 2 * 2
             fullDisplay.copy(heightPixels = height,
                 heightPhysicalMm = fullDisplay.heightPhysicalMm?.let { maxOf(1, it * height / fullDisplay.heightPixels) },
@@ -4426,16 +4425,25 @@ open class CarPlayHostActivity : ComponentActivity() {
             // Ultra A/B: without the key the theme's own corner radius applies; say false explicitly.
             main = if (ultraNoCornerMasks && declared.mainDisplayCornerMasks == null) {
                 declared.copy(mainDisplayCornerMasks = false).also { appendLog("Ultra A/B main cornerMasks=false") }
-            } else declared,
+            } else declared.also {
+                if (ultraNoCornerMasks) appendLog("Ultra A/B ignored: main already declares cornerMasks=${it.mainDisplayCornerMasks}")
+            },
             cluster = if (ultra == null) clusterDisplayConfig() else AirPlayDisplayConfig(
                 widthPixels = 1920, heightPixels = 720, widthPhysicalMm = 311, heightPhysicalMm = 116,
                 fps = 30, features = 0, primaryInputDevice = 0,
                 initialUrl = CarPlayClusterDisplay.Content.INSTRUMENTS.url,
+                safeArea = AirPlayPersistence.loadClusterSafeAreaRect(this)?.let {
+                    AirPlaySafeArea.toInsets(it, 1920, 720, 1920, 720)
+                },
             ),
             ultraExperiment = ultra?.also {
                 appendLog("Ultra experiment: theme=${it.asset.assetId}:${it.asset.assetVersion}:${it.sdkVersion} " +
                     "panels=${it.mainPanel},${it.clusterPanel} layout=${it.layout?.id ?: "none"} " +
                     "components=${it.layout?.activeComponents?.size ?: 0}")
+            },
+            themelessPanels = (ultra == null && AirPlayPersistence.loadThemelessVehicleControls(this)).also {
+                if (it) appendLog("Themeless vehicle controls: displayPanels without a theme " +
+                    "vehicleData=${AirPlayPersistence.loadEcarxVehicleControls(this)}")
             },
             vehicleStateSource = if (AirPlayPersistence.loadEcarxVehicleControls(this)) {
                 val app = applicationContext
@@ -5203,7 +5211,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             displayRotation(), hideTopBar, hideBottomBar, effectiveSize.width, effectiveSize.height,
             viewAreas = pendingViewAreas,
             statusBarShown = statusBarShown(),
-            topAligned = airPlayConfig.ultraExperiment != null,
+            // Follow the canvas this session declared, not the setting, which may change before reconnecting.
+            topAligned = airPlayConfig.ultraExperiment != null &&
+                airPlayConfig.main.heightPixels == airPlayConfig.main.widthPixels * 3 / 8 / 2 * 2,
         )
         sessionDisplay = display
         videoView?.let { updateVideoLayout(it.width, it.height) }
@@ -6738,6 +6748,11 @@ internal object CarPlayBackgroundSession {
     @Synchronized
     fun clusterDiagnostics(expected: CarPlayController?): String =
         if (controller === expected) clusterOutput?.diagnostics() ?: "clusterOwner=false" else "clusterOwner=another-session"
+
+    @Synchronized
+    fun refreshClusterOutput() {
+        clusterOutput?.onSessionChanged()
+    }
 
     @Synchronized
     fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {

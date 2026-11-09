@@ -106,6 +106,11 @@ data class AirPlayConfig(
      */
     val callAtCallRate: Boolean = false,
     val ultraExperiment: CarPlayUltraExperiment? = null,
+    /**
+     * Without a theme, still describe display panels in /info, as LIVI and Gen5W Ultra-Lite do, so the iPhone
+     * can offer its vehicle and climate apps on the plain canvas. Ignored when [ultraExperiment] is set.
+     */
+    val themelessPanels: Boolean = false,
     val vehicleStateSource: (((String) -> Unit) -> CarPlayVehicleSource?)? = null,
 )
 
