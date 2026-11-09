@@ -951,4 +951,23 @@
     <string name="settings_hy_siri_grant_failed">System log access is unavailable. Background HY key detection requires the vehicle-signed build.</string>
     <string name="vpn_authorization_platform_missing">VPN authorization is unavailable. The vehicle has not granted the required permission. Install the vehicle-signed build, then return to DiPlay and retry.</string>
     <string name="settings_open_source_licenses">Licenses and source</string>
+    <string name="setup_error_auth_missing">No CarPlay authentication identity is installed. Import one in Settings › Advanced › MFI certificate &amp; signing target, or install a local build that carries one over this app.</string>
+    <string name="settings_mfi_identity_installed">Local identity installed. Public updates keep it.</string>
+    <string name="settings_mfi_identity_missing">No local identity installed.</string>
+    <string name="settings_mfi_identity_import">Import identity files</string>
+    <string name="settings_mfi_identity_import_description">Choose identity.pk8 and certificate.p7b. DiPlay checks that they match before it replaces the current identity. Applies at the next connection.</string>
+    <string name="settings_mfi_identity_imported">Identity imported</string>
+    <string name="settings_mfi_identity_import_failed">These files are not a matching identity. The current identity is unchanged.</string>
+    <string name="settings_mfi_identity_no_picker">This head unit has no file picker</string>
+    <string name="settings_mfi_identity_pick_other">Now choose the other identity file</string>
+    <string name="settings_mfi_identity_pick_two">Choose exactly two files: identity.pk8 and certificate.p7b</string>
+    <string name="settings_update_notes_title">What is new in %1$s</string>
+    <string name="settings_update_notes_empty">This release has no notes.</string>
+    <string name="settings_update_source">Download source</string>
+    <string name="settings_update_source_auto">Automatic</string>
+    <string name="settings_update_source_direct">GitHub direct</string>
+    <string name="settings_update_source_custom">Custom mirror…</string>
+    <string name="settings_update_source_invalid">Enter an https mirror prefix, for example https://mirror.example/</string>
+    <string name="settings_update_source_description">Automatic tries the last source that worked, then GitHub, then the mirrors. A mirror only relays the download: DiPlay installs nothing that is not signed like this app.</string>
+    <string name="settings_update_check_failed">Could not reach GitHub or the mirrors. Try again later or choose another download source.</string>
 </resources>

@@ -1,4 +1,12 @@
-# 未发布 — 2026-11-08
+# v143 — 2026-11-09
+
+## 公开 Release 可应用内更新；MFi 身份留在磁盘，可在设置中导入
+
+- 应用内更新改读本仓库 `jianyun8023/diplay-ecarx` 的 Release，只对 Release 包名 `com.shihab.diplay` 开启（`.hudtest` 调试包是另一个应用，不提示）。Release tag 按 `v<versionCode>` 解释，比已安装的 versionCode 大才提示；CI 发布时校验 tag 与 APK 的 versionCode 一致。
+- 检查更新显示更新说明：CI 发布时把 Release 正文写进附件 `update.json`，应用从 `releases/latest/download/update.json` 读取（不再调用 `api.github.com`）。v134 及更早的 Release 没有这个文件，从下一个 Release 起生效。
+- 「设置 › 关于 › 下载来源」：自动（默认，先试上次可用的来源，再试 GitHub 直连，再依次试 ghfast.top、gh-proxy.com 与自定义加速站）、GitHub 直连、指定加速站，或自定义 https 前缀。下载完成后先核对 SHA-256，再确认安装包与本应用包名相同、签名相同且版本更新，不符则不交给安装器。
+- 新增 `:mobile:assembleStandaloneRelease`：本地用 Release 包名打带身份的首装包。首次打开后身份写入 `no_backup/offline-mfi/`，之后的公开包（不含身份）覆盖升级继续使用它。
+- 「设置 › 高级 › MFi 证书与签名目标」选「本地离线」时显示身份状态，并可导入 `identity.pk8` 与 `certificate.p7b`：先校验私钥与证书匹配，再原子替换；不匹配时保留原身份。没有身份时首页提示去导入，不再只说重装。
 
 ## 熄火下车后点亮屏幕自动重连：补上热点与重建（小米 8 台架已验证）
 

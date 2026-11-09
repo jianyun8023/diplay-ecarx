@@ -107,7 +107,7 @@ SHA256: C8:A2:E9:BC:CF:59:7C:2F:B6:DC:66:BE:E2:93:FC:13:F2:FC:47:EC:77:BC:6B:2B:
 
 CarPlay 需要可用的认证后端。下面是可选的离线身份输入：只有显式设置 `DIPLAY_AUTH_ASSETS_DIR` 时，构建才把它加入 APK 的 `assets/offline-mfi/`。**普通源码构建及当前公开 Actions Release 均不注入这些文件。**
 
-全新安装或清除应用数据后，需要另行配置认证；同包名、同签名覆盖升级可继续使用私有目录里原有的有效身份。身份和签名密钥应位于仓库外，并由提供者核对其使用、再分发权限。
+身份只在首次启动时从 APK 复制到应用私有目录 `no_backup/offline-mfi/`，之后一律从磁盘读取。所以同包名、同签名的公开 Release 覆盖升级会保留它，见下文「首装与升级」。全新安装或清除应用数据后，需要重新首装带身份的本地包，或在「设置 › 高级 › MFi 证书与签名目标」中导入 `identity.pk8` 与 `certificate.p7b`（应用会先校验私钥与证书匹配，再原子替换）。身份和签名密钥应位于仓库外，并由提供者核对其使用、再分发权限。
 
 ### 目录结构
 
@@ -135,7 +135,7 @@ runtime-assets/
 
 当前 `mobile/build.gradle.kts` 的行为是：
 
-1. `:mobile:assembleStandaloneDebug` 要求显式设置 `DIPLAY_AUTH_ASSETS_DIR`，并检查两个身份文件存在且非空。
+1. `:mobile:assembleStandaloneDebug` 与 `:mobile:assembleStandaloneRelease` 要求显式设置 `DIPLAY_AUTH_ASSETS_DIR`，并检查两个身份文件存在且非空。
    `:mobile:assembleDebug` 和 `:mobile:assembleRelease` 不要求身份输入；Release 仍需要 Android 签名配置。
 2. `rejectBundledCredentials` 白名单：APK 打包时会拒绝白名单之外的一切凭据容器
    （`*.pk8` / `*.p7b` / `*.key` / …），防止凭据被误塞进仓库或产物。
@@ -165,7 +165,19 @@ export ANDROID_KEY_PASSWORD=android
 # 仅在本地独立车测时显式注入身份
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneDebug
 # → mobile/build/outputs/apk/debug/mobile-debug.apk
+
+# 首装包：Release 包名 + 身份，之后由 GitHub 公开 Release 覆盖升级（签名变量同上）
+DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneRelease
+# → mobile/build/outputs/apk/release/mobile-release.apk（含身份，不要分享）
 ```
+
+### 首装与升级
+
+1. 用 `assembleStandaloneRelease` 打首装包，覆盖安装到车机，**打开一次 DiPlay**，身份才写入 `no_backup/offline-mfi/`。
+2. 此后在「设置 › 关于」检查更新，或手动安装 GitHub Release 的 `DiPlay-release.apk`。公开包不含身份，沿用磁盘上的那份。
+3. 应用内更新只对 Release 包名 `com.shihab.diplay` 开启，读取 `jianyun8023/diplay-ecarx` 最新 Release 的 `update.json`（CI 生成，含 tag、APK 名与 Release 正文作为更新说明）。Release tag 必须是 `v<versionCode>`（CI 会校验），比安装的 versionCode 大才算新版本。发布后再改 Release 正文不会更新 `update.json`，需重新运行发布任务。国内网络可在「设置 › 关于 › 下载来源」选加速站或自动切换。
+4. 首装包的 versionCode 不能高于随后要装的公开 Release，否则 Android 拒绝降级。
+5. 不要卸载或清除数据；身份丢失时用设置里的导入功能恢复。
 
 - 应用包名：release = `com.shihab.diplay`；debug = `com.shihab.diplay.hudtest`（**两个是不同应用，可共存**）。
 - 首次构建约 1.5–2.5 分钟（有缓存后更快）。
