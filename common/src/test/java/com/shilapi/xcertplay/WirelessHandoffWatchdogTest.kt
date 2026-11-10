@@ -60,12 +60,12 @@ class WirelessHandoffWatchdogTest {
         phase.set(controller, phase.type.enumConstants.first { it.toString() == "WIRELESS" })
         flag("wirelessHandoffRequested").set(true)
         ReflectionHelpers.setField(controller, "activeSession", session)
-        proof = ReflectionHelpers.getField(controller, "wirelessConnectionProof")
+        proof = ReflectionHelpers.getField(controller.wirelessRunForTest(), "wirelessConnectionProof")
         proofCall("begin", 0, { confirmations++ })
         proofCall("activate", 0, session)
         bootstrap = mock(BluetoothSocket::class.java)
-        ReflectionHelpers.setField(controller, "bluetoothSocket", bootstrap)
-        ReflectionHelpers.setField(controller, "hotspot", object : WirelessHotspotManager {
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothSocket", bootstrap)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "hotspot", object : WirelessHotspotManager {
             override fun start(timeoutMillis: Long): WirelessHotspotInfo = error("Not started")
             override fun close() { hotspotCloses++ }
         })
@@ -104,8 +104,8 @@ class WirelessHandoffWatchdogTest {
         val closed = CountDownLatch(1)
         val release = CountDownLatch(1)
         doAnswer { closed.countDown(); assertTrue(release.await(2, TimeUnit.SECONDS)); null }.`when`(bootstrap).close()
-        controller.javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, 0)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), 0)
         assertTrue(closed.await(2, TimeUnit.SECONDS))
         val handoff = Thread.getAllStackTraces().keys.single { it.name == "xcertplay-wireless-handoff" }
         release.countDown()
@@ -139,8 +139,8 @@ class WirelessHandoffWatchdogTest {
         synchronized(lock) {
             tunnelReady(0)
             // Force replacement to win before the queued completion can claim its resources.
-            ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
-            ReflectionHelpers.setField(controller, "bluetoothSocket", replacement)
+            controller.replaceWirelessRunForTest(1)
+            ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothSocket", replacement)
             flag("wirelessActiveReported").set(false)
             flag("wirelessTunnelReady").set(false)
         }
@@ -213,18 +213,18 @@ class WirelessHandoffWatchdogTest {
     }
 
     private fun timeout() {
-        controller.javaClass.getDeclaredMethod("handleWirelessHandoffTimeout", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, 0)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("handleWirelessHandoffTimeout", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), 0)
         shadowOf(Looper.getMainLooper()).idle()
     }
-    private fun flag(name: String): AtomicBoolean = ReflectionHelpers.getField(controller, name)
+    private fun flag(name: String): AtomicBoolean = ReflectionHelpers.getField(controller.wirelessRunForTest(), name)
     private fun tunnelReady(generation: Int) {
-        controller.javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, generation)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation)
     }
     private fun keepControlAlive(generation: Int): Boolean =
-        controller.javaClass.getDeclaredMethod("keepBluetoothControlAlive", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, generation) as Boolean
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("keepBluetoothControlAlive", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation) as Boolean
     private fun awaitHandoff() {
         for (thread in Thread.getAllStackTraces().keys.filter { it.name == "xcertplay-wireless-handoff" }) {
             thread.join(2_000)

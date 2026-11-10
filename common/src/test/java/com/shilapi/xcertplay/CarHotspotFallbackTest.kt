@@ -100,9 +100,9 @@ class CarHotspotFallbackTest {
     }
 
     private fun start(controller: CarPlayController, generation: Int = 0): WirelessHotspotInfo {
-        val method = controller.javaClass.getDeclaredMethod("startWirelessHotspot", Int::class.javaPrimitiveType)
+        val method = controller.wirelessRunForTest().javaClass.getDeclaredMethod("startWirelessHotspot", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }
-        return try { method.invoke(controller, generation) as WirelessHotspotInfo }
+        return try { method.invoke(controller.wirelessRunForTest(), generation) as WirelessHotspotInfo }
         catch (error: InvocationTargetException) { throw error.targetException }
     }
 
