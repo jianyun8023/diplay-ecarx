@@ -21,7 +21,7 @@ internal object MicrophoneOpusEncoders {
     fun create(
         bitrate: Int,
         platform: (Int) -> MicrophoneOpusEncoder = { OpusEncoder(it) },
-        software: (Int) -> MicrophoneOpusEncoder = { SoftwareOpusEncoder(it) },
+        software: (Int) -> MicrophoneOpusEncoder = { createSoftware(it) },
     ): MicrophoneOpusEncoder? {
         val platformEncoder = platform(bitrate)
         if (platformEncoder.available) return platformEncoder
@@ -30,5 +30,16 @@ internal object MicrophoneOpusEncoders {
         if (softwareEncoder.available) return softwareEncoder
         softwareEncoder.close()
         return null
+    }
+
+    fun createSoftware(
+        bitrate: Int,
+        native: (Int) -> MicrophoneOpusEncoder = { NativeOpusEncoder(it) },
+        concentus: (Int) -> MicrophoneOpusEncoder = { SoftwareOpusEncoder(it) },
+    ): MicrophoneOpusEncoder {
+        val encoder = native(bitrate)
+        if (encoder.available) return encoder
+        encoder.close()
+        return concentus(bitrate)
     }
 }

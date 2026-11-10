@@ -13,7 +13,7 @@ import android.media.MediaFormat
 object OpusEncoderSupport {
     fun isAvailable(): Boolean = isAvailable(
         platformAvailable = ::platformAvailable,
-        software = { SoftwareOpusEncoder(bitrate = 48_000) },
+        software = { MicrophoneOpusEncoders.createSoftware(bitrate = 48_000) },
     )
 
     internal fun isAvailable(

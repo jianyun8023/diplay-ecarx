@@ -61,7 +61,13 @@ SpeexDSP uses a BSD-style three-clause license. The full copyright notices, redi
 
 ## Software Opus microphone encoder
 
-DiPlay vendors [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors. It encodes the CarPlay microphone on head units whose Android has no MediaCodec Opus encoder.
+On head units without a MediaCodec Opus encoder, DiPlay prefers prebuilt [libopus 1.5.2](https://opus-codec.org/)
+from the `io.voxkit:kopus-android:1.0.1` AAR, with a small app-owned JNI bridge. ARM64 and ARMv7 binaries
+are checked in and used directly by APK builds; no Opus compilation or additional runtime download is required.
+The full Opus license is retained in [COPYING](../shared/src/main/jni/opus/COPYING), and
+[native provenance](../shared/src/main/jniLibs/NOTICE.md) records the artifact URL, hashes and bridge rebuild command.
+
+DiPlay also vendors [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors. It remains the fallback when the native encoder cannot load or initialize.
 
 Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/main/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/main/java/org/concentus/README.md) identify the source commit.
 
@@ -92,7 +98,7 @@ this file, `NOTICE.md`, and the component license files linked above. Keep those
 copyright notices with redistributions.
 
 The shared library's asset task copies the GPL/AGPL texts, these notices, `NOTICE.md`, native
-provenance, Apache/Bouncy Castle/SLF4J/KISS FFT licenses, SpeexDSP COPYING, Concentus LICENSE and
+provenance, Apache/Bouncy Castle/SLF4J/KISS FFT licenses, SpeexDSP/Opus COPYING, Concentus LICENSE and
 source availability information into every consuming APK's `assets/licenses/`. The main app's
 **About → Licenses and source** entry reads these files offline, including selectable text and
 clickable source URLs. It does not replace the component-specific license terms.

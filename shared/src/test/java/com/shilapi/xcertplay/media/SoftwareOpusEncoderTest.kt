@@ -93,6 +93,29 @@ class SoftwareOpusEncoderTest {
         assertTrue(brokenSoftware.closed)
     }
 
+    @Test
+    fun nativeSoftwareIsPreferredAndConcentusRemainsTheFallback() {
+        val native = FakeEncoder(available = true)
+        assertSame(native, MicrophoneOpusEncoders.createSoftware(48_000,
+            native = { native }, concentus = { error("unused") }))
+
+        val missing = FakeEncoder(available = false)
+        val fallback = FakeEncoder(available = true)
+        assertSame(fallback, MicrophoneOpusEncoders.createSoftware(48_000,
+            native = { missing }, concentus = { fallback }))
+        assertTrue(missing.closed)
+    }
+
+    @Test
+    fun missingNativeLibraryStillProducesDecodablePacketsOnTheJvm() {
+        MicrophoneOpusEncoders.createSoftware(48_000).use { encoder ->
+            assertEquals("software", encoder.implementation)
+            val packet = encoder.encode(toneFrame(0)).single()
+            val pcm = ShortArray(960)
+            assertEquals(960, OpusDecoder(48_000, 1).decode(packet, 0, packet.size, pcm, 0, 960, false))
+        }
+    }
+
     private fun toneFrame(index: Int): ByteArray {
         val bytes = ByteArray(SoftwareOpusEncoder.FRAME_BYTES)
         for (i in 0 until SoftwareOpusEncoder.FRAME_SAMPLES) {

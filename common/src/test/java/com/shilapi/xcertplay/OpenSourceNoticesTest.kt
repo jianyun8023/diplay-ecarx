@@ -40,7 +40,7 @@ class OpenSourceNoticesTest {
         assertTrue("Packaged license files: $files", files.containsAll(setOf(
             "GPL-3.0.txt", "AGPL-3.0.txt", "NOTICE.md", "THIRD_PARTY_NOTICES.md", "SOURCE.txt",
             "Apache-2.0.txt", "Bouncy-Castle-LICENSE.txt", "SLF4J-LICENSE.txt",
-            "SpeexDSP-COPYING.txt", "KISS-FFT-LICENSE.txt", "Concentus-LICENSE.txt", "NATIVE-NOTICE.md",
+            "SpeexDSP-COPYING.txt", "KISS-FFT-LICENSE.txt", "Concentus-LICENSE.txt", "Opus-COPYING.txt", "NATIVE-NOTICE.md",
         )))
         val documents = mapOf(
             "GPL-3.0.txt" to File("../LICENSE"),

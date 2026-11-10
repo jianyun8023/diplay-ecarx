@@ -1,7 +1,7 @@
 # Prebuilt native libraries — provenance
 
-These `.so` files are **not** built here. They are extracted verbatim from the published
-`DiPlay-0.2.15.apk`.
+APK builds consume these `.so` files without compiling native code. The original three
+libraries below come from `DiPlay-0.2.15.apk`; the Opus libraries have separate provenance below.
 
 ## Why
 
@@ -38,17 +38,41 @@ Compare against the source APK (must match exactly):
 
 ## Source and distribution boundary
 
-The table covers all nine checked-in native binaries. Their bytes and hash prefixes match the
+The table covers the nine original native binaries. Their bytes and hash prefixes match the
 repository's current files. This integrity check does not establish that a rebuild of the retained
 sources corresponds to the extracted binaries; the exact upstream source revision and necessary build
 scripts still need verification before relying on them as corresponding source. GPL compliance does not
 require byte-for-byte reproducible builds; the unresolved point here is source correspondence.
 
-`Android.mk` currently declares only `xcertplay_i2c`, `local_hotspot_radio` and `speex_echo`.
-There is no checked-in `libopus_encoder.so` or `jni/opus/` source tree. The software Opus encoder is
-the Java Concentus code under `shared/src/main/java/org/concentus/`; its license and provenance are
-listed in [the third-party notices](../../../../docs/THIRD_PARTY_NOTICES.md).
+`Android.mk` still declares only `xcertplay_i2c`, `local_hotspot_radio` and `speex_echo`.
 
 SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source headers.
 The production APK ABI filters select ARM64 and ARMv7; x86_64 files remain in the source tree.
 Keep the applicable licenses and corresponding source when redistributing native binaries.
+
+## Opus microphone encoder
+
+`libopus.so` is copied **byte for byte**, without rebuilding Opus, from the `jni/<abi>/` entries in
+[`io.voxkit:kopus-android:1.0.1`](https://repo.maven.apache.org/maven2/io/voxkit/kopus-android/1.0.1/kopus-android-1.0.1.aar).
+The AAR SHA-256 is `3ba435a7219d2c030590b91bfc5c8e525a1d367dbdca7059f7729727faf75c1c`,
+verified against its Maven Central `.aar.sha256`. Its exported version is `libopus 1.5.2` and its
+ELF Android note targets API 24 / NDK r28c. It needs only Android's libc, libm and libdl.
+The Kotlin wrapper and `libkopus.so` are not included: that wrapper does not expose the bitrate,
+complexity and signal controls required by the microphone uplink.
+
+`libopus_encoder.so` is our small JNI bridge, built once from `../jni/opus_encoder_jni.c` using
+NDK `28.2.13676358`, API 24 and `-O2`. It links to the prebuilt `libopus.so`; no Opus source is compiled.
+To regenerate just this bridge, run `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 bash scripts/build_opus_bridge.sh`
+from the repository root. This script is not part of Gradle or CI builds.
+
+| ABI | Library | SHA-256 |
+|---|---|---|
+| arm64-v8a | libopus.so | `7a35e438c5e906f64f721d3f4c4c60d61a404a8b351ab6712520a6026a4f50b5` |
+| armeabi-v7a | libopus.so | `debd799348d257081ac20493e2d61d4f3b3907faf6b76e3610059a86bfccdeb8` |
+| arm64-v8a | libopus_encoder.so | `a9e5559dba940e9b4b2688fce59118b9b3f8f5a3c4fb116d50fb5a817f49741c` |
+| armeabi-v7a | libopus_encoder.so | `6aa6745ffb695bf4b28ee9c5006ddebabe775fcddcbcd3024f7db07fff5ebe62` |
+
+The matching public C headers and BSD-style license are retained under `../jni/opus/`, taken from
+the [official Opus 1.5.2 source archive](https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz).
+The JNI bridge is covered by this repository's GPL license. The original Java Concentus encoder
+remains available when native loading or initialization fails. See the [third-party notices](../../../../docs/THIRD_PARTY_NOTICES.md).
