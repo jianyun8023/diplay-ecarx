@@ -11,6 +11,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.util.ReflectionHelpers
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
@@ -235,8 +236,8 @@ class WheelKeyServiceReportTest {
     @Test fun theDiagnosticReportCarriesTheWheelKeyLines() {
         assertFalse(press(KeyEvent.KEYCODE_F7))
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
-        val text = activity.javaClass.getDeclaredMethod("diagnosticReportText", Context::class.java)
-            .apply { isAccessible = true }.invoke(activity, service.applicationContext) as String
+        val setupReady = ReflectionHelpers.getField<Any?>(activity, "setupError") == null
+        val text = diagnosticReportText(service.applicationContext, setupReady)
         val lines = text.lines()
         val serviceLine = lines.indexOfFirst { it.startsWith("Wheel key service: ") }
         assertTrue(text, serviceLine >= 0)

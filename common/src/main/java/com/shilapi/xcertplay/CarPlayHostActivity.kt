@@ -448,11 +448,15 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var manualHotspotErrorView: TextView? = null
     private var iconPreviewView: ImageView? = null
     private var iconStatusView: TextView? = null
-    private var safeAreaSummaryView: TextView? = null
-    private var safeAreaEditor: View? = null
-    private var safeAreaEditorView: SafeAreaEditorView? = null
-    private var safeAreaEditSize: DisplaySize? = null
-    private var safeAreaEditorActive = false
+    private val safeArea = CarPlaySafeAreaEditor(
+        context = this,
+        overlayPalette = { overlayPalette },
+        currentActivitySize = { currentActivitySize() },
+        rememberBeforeEdit = { rememberSafeAreaBeforeEdit(it) },
+        setSettingsMenuVisible = { settingsMenu?.visibility = if (it) View.VISIBLE else View.GONE },
+        onSafeAreaChanged = { updateResolutionMenu() },
+        appendLog = { appendLog(it) },
+    )
     private var externalActivityInProgress = false
     private var sink: AndroidMediaSink? = null
     private var controller: CarPlayController? = null
@@ -538,8 +542,6 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
     private var harmanFullscreenEnabled = false
     private var harmanFullscreenApplied = false
-    private var safeAreaDrawOutside = true
-    private var mainDisplayDisableSafeArea = false
     private var blackCornerRadiusDp = 0
     private var locationReportingEnabled = false
     private var locationPermissionAvailable = false
@@ -945,7 +947,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     if (picturePanel != null) {
                         closePicturePanel()
                     } else if (menuOpen) {
-                        if (safeAreaEditorActive) closeSafeAreaEditor() else leaveSettingsMenu()
+                        if (safeArea.editorActive) safeArea.close() else leaveSettingsMenu()
                     } else {
                         showDiPlayHome()
                     }
@@ -1049,8 +1051,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         hideBottomBar = AirPlayPersistence.loadHideBottomBar(this)
         temporarySystemBarsEnabled = AirPlayPersistence.loadTemporarySystemBars(this)
         harmanFullscreenEnabled = AirPlayPersistence.loadHarmanFullscreen(this)
-        safeAreaDrawOutside = AirPlayPersistence.loadSafeAreaDrawOutside(this)
-        mainDisplayDisableSafeArea = AirPlayPersistence.loadMainDisplayDisableSafeArea(this)
+        safeArea.drawOutside = AirPlayPersistence.loadSafeAreaDrawOutside(this)
+        safeArea.mainDisplayDisableSafeArea = AirPlayPersistence.loadMainDisplayDisableSafeArea(this)
         blackCornerRadiusDp = AirPlayPersistence.loadBlackCornerRadiusDp(this)
         blackCornerOverlay?.radiusDp = localCornerRadius()
         if (blackCornerRadiusDp != CarPlayBlackCornerOverlay.IPHONE_MASK) clearIphoneCornerMask()
@@ -2056,8 +2058,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         settingsMenu = buildSettingsMenu().apply { visibility = View.GONE }
         root.addView(settingsMenu, FrameLayout.LayoutParams(-1, -1))
-        safeAreaEditor = buildSafeAreaEditor().apply { visibility = View.GONE }
-        root.addView(safeAreaEditor, FrameLayout.LayoutParams(-1, -1))
+        root.addView(safeArea.buildEditor().apply { visibility = View.GONE }, FrameLayout.LayoutParams(-1, -1))
         videoView = video
         smoothVideo = AirPlayPersistence.loadSmoothVideo(this)
         directVideoOutput = AirPlayPersistence.loadDirectVideoOutput(this)
@@ -2118,13 +2119,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             }
         }
 
-        safeAreaEditor?.let { overlay ->
-            overlay.setBackgroundColor(MENU_BACKGROUND)
-            safeAreaEditorView?.applyPalette(overlayPalette)
-            (overlay as? ViewGroup)?.let { group ->
-                (group.getChildAt(1) as? TextView)?.setTextColor(MENU_PRIMARY)
-            }
-        }
+        safeArea.applyPalette()
         sidePanelUi.applyPalette()
         (picturePanel as? CarPlayPicturePanel)?.applyPalette(overlayPalette)
     }
@@ -2484,7 +2479,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
 
         content.addView(
-            buildSafeAreaSection(),
+            safeArea.buildSection { buildBlackCornerSliderSection() },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -2818,8 +2813,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveHideTopBar(this, hideTopBar)
         AirPlayPersistence.saveHideBottomBar(this, hideBottomBar)
         AirPlayPersistence.saveTemporarySystemBars(this, temporarySystemBarsEnabled)
-        AirPlayPersistence.saveSafeAreaDrawOutside(this, safeAreaDrawOutside)
-        AirPlayPersistence.saveMainDisplayDisableSafeArea(this, mainDisplayDisableSafeArea)
+        AirPlayPersistence.saveSafeAreaDrawOutside(this, safeArea.drawOutside)
+        AirPlayPersistence.saveMainDisplayDisableSafeArea(this, safeArea.mainDisplayDisableSafeArea)
         AirPlayPersistence.saveBlackCornerRadiusDp(this, blackCornerRadiusDp)
     }
 
@@ -2860,7 +2855,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         displayScalePercent, fps, widthPhysicalMm, physicalSizeBasis, hevcEnabled,
         hevcSoftwareDecoderEnabled, manufacturer, model, oemLabel, debugLogsEnabled, rightHandDrive,
         carPlayDock, hideTopBar, hideBottomBar, temporarySystemBarsEnabled,
-        safeAreaDrawOutside, mainDisplayDisableSafeArea, blackCornerRadiusDp,
+        safeArea.drawOutside, safeArea.mainDisplayDisableSafeArea, blackCornerRadiusDp,
     ).joinToString("|").hashCode()
 
     private fun captureSettingsBaseline(): SettingsBaseline {
@@ -2914,7 +2909,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         syncMfiSettingsControls()
         updateManualHotspotFields()
         updateAirPlayIconPreview()
-        updateSafeAreaSummary()
+        safeArea.updateSummary()
         blackCornerOverlay?.radiusDp = localCornerRadius()
         if (blackCornerRadiusDp != CarPlayBlackCornerOverlay.IPHONE_MASK) clearIphoneCornerMask()
         updateHotspotStatusBlock()
@@ -3497,167 +3492,20 @@ open class CarPlayHostActivity : ComponentActivity() {
         return section
     }
 
-    private fun buildSafeAreaSection(): View {
-        val section = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        section.addView(
-            menuText(getString(R.string.safe_area), 20f, MENU_SECONDARY),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        val summary = menuText("", 15f, MENU_ACCENT)
-        section.addView(
-            summary,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(6) },
-        )
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        buttons.addView(
-            DiPlayButton(this).apply {
-                text = getString(R.string.set)
-                style(DiPlayButtonKind.PRIMARY, overlayPalette, overlay = true)
-                setOnClickListener { openSafeAreaEditor() }
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        buttons.addView(
-            DiPlayButton(this).apply {
-                text = getString(R.string.reset)
-                style(DiPlayButtonKind.SECONDARY, overlayPalette, overlay = true)
-                setOnClickListener { resetSafeAreaForCurrentSize() }
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12)
-            },
-        )
-        section.addView(
-            buttons,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(10) },
-        )
-        section.addView(
-            settingsSwitchRow(
-                label = getString(R.string.draw_outside_safe_area),
-                checked = safeAreaDrawOutside,
-                description = getString(R.string.allow_carplay_ui_outside_the_safe_area),
-            ) { checked ->
-                safeAreaDrawOutside = checked
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
-        section.addView(
-            settingsSwitchRow(
-                label = getString(R.string.rect_fill_disable_safe_area),
-                checked = mainDisplayDisableSafeArea,
-                description = getString(R.string.rect_fill_disable_safe_area_description),
-            ) { checked ->
-                mainDisplayDisableSafeArea = checked
-                updateSafeAreaSummary()
-                updateResolutionMenu()
-            },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { topMargin = dp(12) },
-        )
-        section.addView(
-            menuText(getString(R.string.black_corner_overlay_description), 15f, MENU_SECONDARY),
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = dp(12) },
-        )
-        section.addView(
-            buildStepSliderSection(
-                getString(R.string.black_corner_overlay),
-                CarPlayBlackCornerOverlay.RADII_DP,
-                blackCornerRadiusDp,
-                { value ->
-                    if (value == CarPlayBlackCornerOverlay.IPHONE_MASK) getString(R.string.iphone_corner_mask_mode)
-                    else if (value == 0) getString(R.string.black_corner_overlay_off)
-                    else getString(R.string.black_corner_overlay_value, value)
-                },
-            ) { value ->
-                blackCornerRadiusDp = value
-                blackCornerOverlay?.radiusDp = localCornerRadius()
-                clearIphoneCornerMask()
-                appendLog("Local black corner radius preview=$value dp")
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = dp(8) },
-        )
-        safeAreaSummaryView = summary
-        updateSafeAreaSummary()
-        return section
-    }
-
-    private fun buildSafeAreaEditor(): View {
-        val overlay = FrameLayout(this).apply {
-            setBackgroundColor(MENU_BACKGROUND)
-            isClickable = true
-        }
-        val editor = SafeAreaEditorView(this, overlayPalette)
-        overlay.addView(
-            editor,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ),
-        )
-        overlay.addView(
-            menuText(getString(R.string.safe_area), 24f, MENU_PRIMARY, bold = true).apply {
-                setPadding(dp(16), dp(12), dp(16), dp(8))
-            },
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.START,
-            ),
-        )
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(16), dp(10), dp(16), dp(16))
-        }
-        controls.addView(
-            DiPlayButton(this).apply {
-                text = getString(R.string.cancel)
-                style(DiPlayButtonKind.SECONDARY, overlayPalette, overlay = true)
-                setOnClickListener { closeSafeAreaEditor() }
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        controls.addView(
-            DiPlayButton(this).apply {
-                text = getString(R.string.save)
-                style(DiPlayButtonKind.PRIMARY, overlayPalette, overlay = true)
-                setOnClickListener { saveSafeAreaEditor() }
-            },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12)
-            },
-        )
-        overlay.addView(
-            controls,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM,
-            ),
-        )
-        safeAreaEditorView = editor
-        return overlay
+    private fun buildBlackCornerSliderSection(): View = buildStepSliderSection(
+        getString(R.string.black_corner_overlay),
+        CarPlayBlackCornerOverlay.RADII_DP,
+        blackCornerRadiusDp,
+        { value ->
+            if (value == CarPlayBlackCornerOverlay.IPHONE_MASK) getString(R.string.iphone_corner_mask_mode)
+            else if (value == 0) getString(R.string.black_corner_overlay_off)
+            else getString(R.string.black_corner_overlay_value, value)
+        },
+    ) { value ->
+        blackCornerRadiusDp = value
+        blackCornerOverlay?.radiusDp = localCornerRadius()
+        clearIphoneCornerMask()
+        appendLog("Local black corner radius preview=$value dp")
     }
 
     private fun settingsInputRow(
@@ -4010,13 +3858,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         sizeSp: Float,
         color: Int,
         bold: Boolean = false,
-    ): TextView = TextView(this).apply {
-        this.text = text
-        textSize = sizeSp
-        setTextColor(color)
-        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        includeFontPadding = false
-    }
+    ): TextView = overlayMenuText(this, text, sizeSp, color, bold)
 
     private fun updateHotspotStatus(status: CarPlayStatus) {
         if (!useWirelessTransport) return
@@ -4145,7 +3987,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     .append(if (advancedAudioChannelMapping) getString(R.string.mapping_aaos_buses) else getString(R.string.mapping_mobile_compatible))
                     .append('\n')
             }
-            append(safeAreaSummary())
+            append(safeArea.summary())
         }
     }
 
@@ -4264,7 +4106,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
         appendLog("CarPlay size=${CarPlayUiScale.label(uiScalePercent)} canvas=${scaledDisplay.widthPixels}x${scaledDisplay.heightPixels}")
         val nativeMasks = blackCornerRadiusDp == CarPlayBlackCornerOverlay.IPHONE_MASK
-        val disableSafeArea = mainDisplayDisableSafeArea || nativeMasks
+        val disableSafeArea = safeArea.mainDisplayDisableSafeArea || nativeMasks
         val display = scaledDisplay.copy(
             safeArea = if (disableSafeArea) null else AirPlaySafeArea.toInsets(
                 mapping = AirPlayPersistence.loadSafeAreaRect(this, size.width, size.height),
@@ -4273,7 +4115,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 displayWidthPixels = scaledDisplay.widthPixels,
                 displayHeightPixels = scaledDisplay.heightPixels,
             ),
-            safeAreaDrawOutside = if (nativeMasks) false else safeAreaDrawOutside,
+            safeAreaDrawOutside = if (nativeMasks) false else safeArea.drawOutside,
             mainDisplayCornerMasks = if (disableSafeArea) true else null,
             mainDisplayDisableSafeArea = disableSafeArea,
             useIphoneCornerMask = nativeMasks,
@@ -4462,83 +4304,6 @@ open class CarPlayHostActivity : ComponentActivity() {
             referenceMillimeters = widthPhysicalMm,
             basis = physicalSizeBasis,
         )
-
-    private fun safeAreaSummary(): String {
-        if (mainDisplayDisableSafeArea) {
-            return getString(R.string.safe_area_disabled_rect_fill_summary)
-        }
-        val size = currentActivitySize() ?: return getString(R.string.safe_area_waiting_for_activity_size)
-        val mapping = AirPlayPersistence.loadSafeAreaRect(this, size.width, size.height)
-        return if (mapping == null) {
-            "${getString(R.string.safe_area_full_screen_at)}${size.width} x ${size.height}"
-        } else {
-            getString(
-                R.string.safe_area_mapping_summary,
-                mapping.width, mapping.height, mapping.left, mapping.top, size.width, size.height,
-            )
-        }
-    }
-
-    private fun updateSafeAreaSummary() {
-        safeAreaSummaryView?.text = safeAreaSummary()
-    }
-
-    private fun openSafeAreaEditor() {
-        val size = currentActivitySize()
-        if (size == null) {
-            appendLog("Safe area editor is unavailable before display layout")
-            return
-        }
-        val editorView = safeAreaEditorView ?: return
-        val initial = AirPlayPersistence.loadSafeAreaRect(this, size.width, size.height)
-            ?: AirPlaySafeArea.default(size.width, size.height)
-        safeAreaEditSize = size
-        safeAreaEditorActive = true
-        // Keep the current activity size; changing system bars here would remap the safe area.
-        settingsMenu?.visibility = View.GONE
-        safeAreaEditor?.visibility = View.VISIBLE
-        editorView.setRect(initial, size.width, size.height)
-        appendLog(
-            "Safe area editor opened for ${size.width}x${size.height}; " +
-                "drag the four boundaries",
-        )
-    }
-
-    private fun closeSafeAreaEditor() {
-        if (!safeAreaEditorActive) return
-        safeAreaEditorActive = false
-        safeAreaEditSize = null
-        safeAreaEditor?.visibility = View.GONE
-        settingsMenu?.visibility = View.VISIBLE
-        updateSafeAreaSummary()
-        updateResolutionMenu()
-        appendLog("Safe area editor closed")
-    }
-
-    private fun saveSafeAreaEditor() {
-        val size = safeAreaEditSize ?: currentActivitySize() ?: return
-        val rect = safeAreaEditorView?.currentRectForSource() ?: return
-        rememberSafeAreaBeforeEdit(size)
-        AirPlayPersistence.saveSafeAreaRect(this, size.width, size.height, rect)
-        appendLog(
-            "Safe area saved for ${size.width}x${size.height}: " +
-                "${rect.width}x${rect.height} at (${rect.left}, ${rect.top})",
-        )
-        closeSafeAreaEditor()
-    }
-
-    private fun resetSafeAreaForCurrentSize() {
-        val size = currentActivitySize()
-        if (size == null) {
-            appendLog("Safe area reset is unavailable before display layout")
-            return
-        }
-        rememberSafeAreaBeforeEdit(size)
-        AirPlayPersistence.clearSafeAreaRect(this, size.width, size.height)
-        updateSafeAreaSummary()
-        updateResolutionMenu()
-        appendLog("Safe area reset to full screen for ${size.width}x${size.height}")
-    }
 
     private fun rememberSafeAreaBeforeEdit(size: DisplaySize) {
         val baseline = settingsBaseline ?: return
@@ -5726,8 +5491,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             appendLog("Settings menu draw size=${menu.width}x${menu.height} " +
                 "panel=${panel.left},${panel.top},${panel.width}x${panel.height}")
         }
-        safeAreaEditor?.visibility = View.GONE
-        updateSafeAreaSummary()
+        safeArea.hide()
+        safeArea.updateSummary()
         updateResolutionMenu()
         updateDebugOverlays()
         menuOpenedAt = SystemClock.uptimeMillis()
@@ -6517,7 +6282,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val NO_VIDEO_BACKGROUND = Color.rgb(0x16, 0x16, 0x18)
     }
 
-    private data class DisplaySize(val width: Int, val height: Int)
+    internal data class DisplaySize(val width: Int, val height: Int)
 
     /** Video decoders need even dimensions; an odd window side gives up its last pixel. */
     private fun evenDisplaySize(size: DisplaySize) =
@@ -6532,147 +6297,3 @@ open class CarPlayHostActivity : ComponentActivity() {
     )
 }
 
-internal data class CarPlaySessionDisplay(
-    val width: Int,
-    val height: Int,
-    val rotation: Int,
-    val hideTopBar: Boolean,
-    val hideBottomBar: Boolean,
-    // Compare unscaled startup window dimensions, not the scaled video canvas.
-    val windowWidth: Int,
-    val windowHeight: Int,
-    /** The view areas this session declared, or null for the whole screen as one area. */
-    val viewAreas: CarPlayViewAreas? = null,
-    /** Whether the status bar was on screen when the session started, or null when unknown. */
-    val statusBarShown: Boolean? = null,
-)
-
-/**
- * The driver keeps the status bar, and another window (the head unit's reversing camera) hid it: the window
- * grew by the bar only for a while. A new session at that size stayed scaled down below the returning bar (#643).
- */
-internal fun statusBarHiddenByAnotherWindow(display: CarPlaySessionDisplay, width: Int, height: Int,
-    statusBarShown: Boolean?): Boolean =
-    !display.hideTopBar && display.statusBarShown == true && statusBarShown == false &&
-        width == display.windowWidth && height > display.windowHeight
-
-/** Process-local hand-off for keeping the CarPlay session alive while no Activity is visible. */
-internal object CarPlayBackgroundSession {
-    /** USB temporarily takes over; the saved wireless preference belongs to the driver. */
-    @Volatile var usbTakeover = false
-    @Volatile var active = false
-    @Volatile var callPopupReady = false
-    /** The running session's hotspot: a host that adopts the session never saw its HotspotReady. */
-    @Volatile var hotspotReady: CarPlayStatus.HotspotReady? = null
-    private var stopAction: (((() -> Unit)) -> Unit)? = null
-    private var stopping = false
-    private var owner: Any? = null
-    @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
-    @Synchronized fun hasSession(): Boolean = stopAction != null || stopping
-    private val stopWaiters = mutableListOf<() -> Unit>()
-
-    fun stop(completion: () -> Unit = {}) {
-        // A stop is the driver ending CarPlay (the host's own rebuild does not come here): a later
-        // connect with Bluetooth off must say so instead of waiting for the car's radios.
-        com.shilapi.xcertplay.network.CarRadioOutage.clear()
-        val action: (((() -> Unit)) -> Unit)?
-        synchronized(this) {
-            if (stopping) { stopWaiters.add(completion); return }
-            action = stopAction
-            if (action != null) { stopping = true; stopWaiters.add(completion) }
-        }
-        if (action == null) { completion(); return }
-        action.invoke {
-            val callbacks = synchronized(this) {
-                stopping = false
-                stopWaiters.toList().also { stopWaiters.clear() }
-            }
-            callbacks.forEach { it() }
-        }
-    }
-
-    data class Snapshot(
-        val controller: CarPlayController,
-        val sink: AndroidMediaSink,
-        val width: Int,
-        val height: Int,
-        val display: CarPlaySessionDisplay,
-    )
-
-    private var controller: CarPlayController? = null
-    private var sink: AndroidMediaSink? = null
-    private var clusterOutput: EcarxClusterSession? = null
-    private var width = 0
-    private var height = 0
-    private var display: CarPlaySessionDisplay? = null
-
-    @Synchronized
-    fun snapshot(): Snapshot? {
-        val currentController = controller ?: return null
-        val currentSink = sink ?: return null
-        val currentDisplay = display ?: return null
-        return Snapshot(currentController, currentSink, width, height, currentDisplay)
-    }
-
-    @Synchronized
-    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int,
-        owner: Any, display: CarPlaySessionDisplay, stop: (() -> Unit) -> Unit) {
-        if (this.controller !== controller || this.sink !== sink) {
-            clusterOutput?.close()
-            clusterOutput = null
-        }
-        if (this.controller !== controller) {
-            callPopupReady = false
-            hotspotReady = null
-        }
-        this.stopAction = stop
-        this.owner = owner
-        this.controller = controller
-        this.sink = sink
-        this.width = width
-        this.height = height
-        this.display = display
-    }
-
-    @Synchronized
-    fun bindClusterOutput(context: Context, expected: CarPlayController) {
-        if (controller !== expected) return
-        if (clusterOutput != null) return
-        if (!com.shilapi.xcertplay.hud.EcarxCapabilities.detect(context).identified) return
-        clusterOutput = EcarxClusterSession(context.applicationContext, expected, sink ?: return)
-    }
-
-    @Synchronized
-    fun clusterDiagnostics(expected: CarPlayController?): String =
-        if (controller === expected) clusterOutput?.diagnostics() ?: "clusterOwner=false" else "clusterOwner=another-session"
-
-    @Synchronized
-    fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {
-        if (expected != null && controller !== expected) return
-        clusterOutput?.close()
-        clusterOutput = null
-        controller = null
-        sink = null
-        if (!keepOwner) { stopAction = null; owner = null; usbTakeover = false }
-        active = false
-        callPopupReady = false
-        hotspotReady = null
-        width = 0
-        height = 0
-        display = null
-    }
-}
-/**
- * Appends one line to the session report, for producers that are not the media sink — currently the
- * instrument-cluster bridge, which otherwise exists only in logcat.
- *
- * A named class rather than a lambda on purpose. Kotlin numbers `CarPlayHostActivity`'s lambda
- * classes by their position in the file, so one more lambda in there renames an unrelated one and
- * the class-set regression check lights up; named classes sit outside that numbering. It also gets
- * the bounded, serialised writer in [AsyncDiagnosticLog], which the bridge's own ticker thread needs.
- */
-private class HudReportSink(private val target: SessionLogFile?) : (String) -> Unit {
-    override fun invoke(message: String) {
-        AsyncDiagnosticLog.append(target, message)
-    }
-}
