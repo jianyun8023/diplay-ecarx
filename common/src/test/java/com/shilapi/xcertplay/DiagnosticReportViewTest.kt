@@ -45,6 +45,7 @@ class DiagnosticReportViewTest {
         val started = System.nanoTime()
         DiPlayActivity::class.java.getDeclaredMethod("showDiagnosticReport", String::class.java)
             .apply { isAccessible = true }.invoke(screen, report)
+        awaitSettingsWork { ShadowAlertDialog.getLatestAlertDialog()?.isShowing == true }
         val millis = (System.nanoTime() - started) / 1_000_000
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         val views = generateSequence(listOf(dialog.window!!.decorView)) { level ->

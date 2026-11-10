@@ -12,6 +12,8 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.hud.EcarxHicarControl
 import java.io.File
@@ -60,6 +62,9 @@ class FactoryHicarSettingsTest {
         orientation = LinearLayout.VERTICAL
         activity.javaClass.getDeclaredMethod("allSettingsSections", LinearLayout::class.java)
             .apply { isAccessible = true }.invoke(activity, this)
+        awaitSettingsWork {
+            activity.lifecycleScope.coroutineContext[Job]!!.children.none { it.isActive }
+        }
     }
 
     private fun control(root: View): Switch = views(root).filterIsInstance<Switch>().single {
@@ -73,11 +78,13 @@ class FactoryHicarSettingsTest {
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         (initial.parent as View).performClick()
+        awaitSettingsWork { activity.lifecycleScope.coroutineContext[Job]!!.children.none { it.isActive } }
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         val disabled = control(settings())
         assertTrue(disabled.isChecked)
         (disabled.parent as View).performClick()
+        awaitSettingsWork { activity.lifecycleScope.coroutineContext[Job]!!.children.none { it.isActive } }
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         assertFalse(control(settings()).isChecked)

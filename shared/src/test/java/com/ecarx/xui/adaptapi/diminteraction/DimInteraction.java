@@ -5,7 +5,7 @@ import android.content.Context;
 public final class DimInteraction {
     private static final DimInteraction INSTANCE = new DimInteraction();
     public static boolean nullCreate, nullMedia, nullNavi, nullPhone;
-    public static boolean requireMainLooper;
+    public static boolean requireLooper;
     public static boolean failPresentation;
     public static final MediaFixture media = new MediaFixture();
     public static final NaviFixture navi = new NaviFixture();
@@ -17,16 +17,16 @@ public final class DimInteraction {
 
     public static DimInteraction instance() { return INSTANCE; }
     public static DimInteraction create(Context context) {
-        if (requireMainLooper && (android.os.Looper.myLooper() != android.os.Looper.getMainLooper())) {
-            throw new IllegalStateException("DIM requires the main Looper");
+        if (requireLooper && android.os.Looper.myLooper() == null) {
+            throw new IllegalStateException("DIM requires a Looper");
         }
-        FixtureLog.capture("create");
+        FixtureLog.capture("create", "looper", android.os.Looper.myLooper());
         return nullCreate ? null : INSTANCE;
     }
     public static void reset() {
         android.cevt.dimsupportservice.DimSupportManager.reset();
         nullCreate = nullMedia = nullNavi = nullPhone = false;
-        requireMainLooper = false;
+        requireLooper = false;
         failPresentation = false;
         presentationOption = -1;
         INSTANCE.callback = null;

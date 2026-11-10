@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.os.Build
+import android.os.Looper
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
 import com.shilapi.xcertplay.hud.EcarxHicarControl
 import com.shilapi.xcertplay.hud.NavigationOutputs
@@ -19,6 +20,7 @@ import java.io.File
  * found its CarPlay authentication, the one piece of Activity state the report mentions.
  */
 internal fun diagnosticReportText(appContext: Context, setupReady: Boolean): String = buildString {
+    check(Looper.myLooper() != Looper.getMainLooper()) { "Build diagnostic reports off the main thread" }
     appendLine("DiPlay ${appContext.appVersionName()} · private beta diagnostic report")
     appendLine(LastConnectionProblem.report(appContext))
     appendLine("Report createdAtEpochMs=${System.currentTimeMillis()}")

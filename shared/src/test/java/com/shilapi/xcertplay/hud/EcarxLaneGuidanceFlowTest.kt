@@ -517,19 +517,20 @@ class EcarxLaneGuidanceFlowTest {
         }
     }
 
-    @Test fun dimCreationFromWorkerAndTickerRunsOnMainLooper() {
-        DimInteraction.requireMainLooper = true
+    @Test fun dimCreationFromWorkerAndTickerUsesABackgroundLooper() {
+        DimInteraction.requireLooper = true
         val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
         try {
             worker.submit { initialize() }.get(3, TimeUnit.SECONDS)
-            shadowOf(Looper.getMainLooper()).idle()
+            awaitDimWorker()
             assertNotNull(field("dim").get(EcarxHudBridge))
             set("dim", null)
             set("navi", null)
             worker.submit { tick() }.get(3, TimeUnit.SECONDS)
-            shadowOf(Looper.getMainLooper()).idle()
+            awaitDimWorker()
             assertNotNull(field("navi").get(EcarxHudBridge))
             assertEquals(2, calls("create").size)
+            calls("create").forEach { assertNotEquals(Looper.getMainLooper(), it.payload["looper"]) }
         } finally {
             worker.shutdownNow()
         }
@@ -1484,6 +1485,13 @@ class EcarxLaneGuidanceFlowTest {
         val worker = NavigationOutputs.javaClass.getDeclaredField("ecarx").apply { isAccessible = true }.get(NavigationOutputs)
         val executor = worker.javaClass.getDeclaredField("executor").apply { isAccessible = true }.get(worker) as ThreadPoolExecutor
         executor.submit {}.get(3, TimeUnit.SECONDS)
+        awaitDimWorker()
         shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun awaitDimWorker() {
+        val handler = EcarxHudBridge.javaClass.getDeclaredMethod("getDimHandler")
+            .apply { isAccessible = true }.invoke(EcarxHudBridge) as android.os.Handler
+        shadowOf(handler.looper).idle()
     }
 }

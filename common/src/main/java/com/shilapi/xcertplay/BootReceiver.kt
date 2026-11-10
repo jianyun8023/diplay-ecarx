@@ -85,7 +85,7 @@ class BootReceiver : BroadcastReceiver() {
     private fun onBootCompleted(context: Context) {
         // Unlock may already have started guidance; recover only while both navigation outputs are idle.
         // The restore enables the package at once but starts and confirms the service over the next
-        // ~7 s on the main looper. With auto-start off nothing else keeps this process alive, so hold
+        // ~7 s on a worker looper. With auto-start off nothing else keeps this process alive, so hold
         // the broadcast until that chain settles; the cap stays inside the receiver budget.
         val pendingResult = goAsync()
         val hold = BroadcastHold(RESTORE_HOLD_MILLIS) { pendingResult?.finish() }

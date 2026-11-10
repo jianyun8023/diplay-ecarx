@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.hardware.display.DisplayManager
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
@@ -45,6 +46,9 @@ import java.util.concurrent.TimeUnit
  * guarded dispatch keep missing vendor classes from breaking non-ECARX head units.
  */
 internal object EcarxHudBridge {
+    private val dimHandler by lazy {
+        Handler(HandlerThread("diplay-ecarx-dim").apply { start() }.looper)
+    }
     private const val TAG = "DiPlay-ECARX-HUD"
 
     /** Recovery must run even when ordinary distance/ETA updates keep arriving. */
@@ -350,9 +354,9 @@ internal object EcarxHudBridge {
     private fun reclaimLocked(): Boolean {
         val app = context ?: return false
         val hadNavi = navi != null
-        if (dim == null && Looper.myLooper() != Looper.getMainLooper()) {
-            // DIM constructs a Handler; never wait for the main thread while holding the HUD lock.
-            Handler(Looper.getMainLooper()).post { synchronized(lock) { reclaimLocked() } }
+        if (dim == null && Looper.myLooper() == null) {
+            // DIM constructs a Handler; give it a worker Looper without blocking the UI.
+            dimHandler.post { synchronized(lock) { reclaimLocked() } }
             return false
         }
         if (dim == null) dim = EcarxDimApi.createDimInteraction(app)

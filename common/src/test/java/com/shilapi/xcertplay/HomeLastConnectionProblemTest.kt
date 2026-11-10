@@ -70,7 +70,9 @@ class HomeLastConnectionProblemTest {
     private fun reportLines(): List<String> {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         val setupReady = ReflectionHelpers.getField<Any?>(activity, "setupError") == null
-        return diagnosticReportText(context, setupReady).lines()
+        return java.util.concurrent.CompletableFuture.supplyAsync {
+            diagnosticReportText(context, setupReady)
+        }.get().lines()
     }
 
     private val time = "[^()（）]*\\d{1,2}:\\d{2}[^()（）]*"
