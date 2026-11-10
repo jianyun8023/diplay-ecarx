@@ -105,6 +105,30 @@ class ScreenStreamPeerTest {
     }
 
     @Test
+    fun reusedWireBuffersKeepFramesAndConfigsIndependentAcrossChangingSizes() {
+        val stream = ScreenStream(key, InetAddress.getLoopbackAddress())
+        try {
+            val port = stream.listen(listener)
+            val avcc = byteArrayOf(1, 0x64, 0, 0x1f, 0xff.toByte(), 0xe1.toByte(), 0, 4, 0x67, 0x64, 0, 0x1f)
+            val nals = listOf(ByteArray(80) { 0x65 }, byteArrayOf(0x41, 0x11), ByteArray(120) { 0x41 })
+            val wire = header(1, avcc.size) + avcc + sealedFrame(0, nals[0]) +
+                header(0, 8) + ByteArray(8) + sealedFrame(1, nals[1]) +
+                header(1, avcc.size) + avcc + sealedFrame(2, nals[2])
+            Socket(InetAddress.getLoopbackAddress(), port).use { socket ->
+                val output = socket.getOutputStream()
+                for (offset in wire.indices step 17) output.write(wire, offset, minOf(17, wire.size - offset))
+                output.flush()
+                val delivered = nals.map { frames.poll(3, TimeUnit.SECONDS) }
+                nals.zip(delivered).forEach { (nal, frame) ->
+                    assertArrayEquals(byteArrayOf(0, 0, 0, 1) + nal, frame)
+                }
+                assertArrayEquals(avcc, configs.poll(3, TimeUnit.SECONDS))
+                assertArrayEquals(avcc, configs.poll(3, TimeUnit.SECONDS))
+            }
+        } finally { stream.close() }
+    }
+
+    @Test
     fun aStrangerHoldingAnOpenConnectionDoesNotBlockTheControlPeer() {
         val ipv6Peer = InetAddress.getByName("::1")
         val stream = ScreenStream(key, ipv6Peer)

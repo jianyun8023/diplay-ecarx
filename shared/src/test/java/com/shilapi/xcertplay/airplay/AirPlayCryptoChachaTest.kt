@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -65,6 +66,44 @@ class AirPlayCryptoChachaTest {
         // A failed tag must not leave the per-thread cipher unusable.
         assertArrayEquals(AirPlayCrypto.chachaOpenBouncyCastle(key, nonce, sealed, aad),
             AirPlayCrypto.chachaOpen(key, nonce, sealed, aad))
+    }
+
+    @Test fun selectedCiphertextAndAadRangesOpenOnEveryBackend() {
+        val key = bytes(32)
+        val nonce = AirPlayCrypto.nonce64(4)
+        val aad = bytes(12)
+        val paddedAad = bytes(3) + aad + bytes(5)
+        for (size in listOf(0, 1, 65, 500_000, 17)) {
+            val plain = bytes(size)
+            val sealed = AirPlayCrypto.chachaSealBouncyCastle(key, nonce, plain, aad)
+            val padded = bytes(7) + sealed + bytes(11)
+            for (direct in listOf(false, true)) {
+                assertArrayEquals(plain, AirPlayCrypto.platformChacha(
+                    Cipher.DECRYPT_MODE, key, nonce, padded, paddedAad, direct,
+                    inputOffset = 7, inputLength = sealed.size, aadOffset = 3, aadLength = aad.size,
+                ))
+            }
+            assertArrayEquals(plain, AirPlayCrypto.chachaOpenBouncyCastle(
+                key, nonce, padded, paddedAad, 7, sealed.size, 3, aad.size,
+            ))
+            assertArrayEquals(plain, AirPlayCrypto.chachaOpen(
+                key, nonce, padded, paddedAad, 7, sealed.size, 3, aad.size,
+            ))
+        }
+    }
+
+    @Test fun invalidRangesAreRejectedBeforeDecrypting() {
+        val key = bytes(32)
+        val nonce = AirPlayCrypto.nonce64(5)
+        val sealed = AirPlayCrypto.chachaSeal(key, nonce, bytes(1))
+        for ((offset, length) in listOf(-1 to 1, 0 to -1, 1 to sealed.size, Int.MAX_VALUE to 1, 1 to Int.MAX_VALUE)) {
+            assertThrows(IllegalArgumentException::class.java) {
+                AirPlayCrypto.chachaOpen(key, nonce, sealed, offset = offset, length = length)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                AirPlayCrypto.chachaOpen(key, nonce, sealed, sealed, aadOffset = offset, aadLength = length)
+            }
+        }
     }
 
     @Test fun sealingTheSameKeyAndNonceTwiceStillWorks() {

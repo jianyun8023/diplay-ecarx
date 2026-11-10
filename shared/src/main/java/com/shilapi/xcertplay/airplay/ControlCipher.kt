@@ -20,13 +20,18 @@ class ControlCipher(private val readKey: ByteArray, private val writeKey: ByteAr
             val length = readU16Le(buffer, offset)
             val frameEnd = offset + HEADER_SIZE + length + TAG_SIZE
             if (buffer.size < frameEnd) break
-            val aad = buffer.copyOfRange(offset, offset + HEADER_SIZE)
-            val ciphertextAndTag = buffer.copyOfRange(offset + HEADER_SIZE, frameEnd)
-            output.add(AirPlayCrypto.chachaOpen(readKey, AirPlayCrypto.nonce64(readCounter), ciphertextAndTag, aad))
+            output.add(AirPlayCrypto.chachaOpen(
+                readKey, AirPlayCrypto.nonce64(readCounter), buffer, buffer,
+                offset = offset + HEADER_SIZE, length = length + TAG_SIZE,
+                aadOffset = offset, aadLength = HEADER_SIZE,
+            ))
             readCounter++
             offset = frameEnd
         }
-        return Decrypted(concatBytes(*output.toTypedArray()), buffer.copyOfRange(offset, buffer.size))
+        return Decrypted(
+            if (output.size == 1) output[0] else concatBytes(*output.toTypedArray()),
+            if (offset == 0) buffer else buffer.copyOfRange(offset, buffer.size),
+        )
     }
 
     fun encrypt(plaintext: ByteArray): ByteArray {

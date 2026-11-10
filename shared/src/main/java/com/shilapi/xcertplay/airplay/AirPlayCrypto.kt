@@ -122,10 +122,20 @@ object AirPlayCrypto {
         nonce: ByteArray,
         ciphertextAndTag: ByteArray,
         aad: ByteArray = ByteArray(0),
-    ): ByteArray = platformChacha(Cipher.DECRYPT_MODE, key, nonce, ciphertextAndTag, aad)
-        ?: chachaOpenBouncyCastle(key, nonce, ciphertextAndTag, aad).also {
+        offset: Int = 0,
+        length: Int = ciphertextAndTag.size - offset,
+        aadOffset: Int = 0,
+        aadLength: Int = aad.size - aadOffset,
+    ): ByteArray {
+        require(offset >= 0 && length >= 0 && offset <= ciphertextAndTag.size - length)
+        require(aadOffset >= 0 && aadLength >= 0 && aadOffset <= aad.size - aadLength)
+        return platformChacha(
+            Cipher.DECRYPT_MODE, key, nonce, ciphertextAndTag, aad,
+            inputOffset = offset, inputLength = length, aadOffset = aadOffset, aadLength = aadLength,
+        ) ?: chachaOpenBouncyCastle(key, nonce, ciphertextAndTag, aad, offset, length, aadOffset, aadLength).also {
             platformState.get()?.implementation = "BouncyCastle"
         }
+    }
 
     /**
      * Null when the platform has no ChaCha20-Poly1305 or refuses this use of it (a desktop JDK rejects
@@ -138,18 +148,24 @@ object AirPlayCrypto {
         input: ByteArray,
         aad: ByteArray,
         useDirectBuffers: Boolean = Build.VERSION.SDK_INT >= 31,
+        inputOffset: Int = 0,
+        inputLength: Int = input.size - inputOffset,
+        aadOffset: Int = 0,
+        aadLength: Int = aad.size - aadOffset,
     ): ByteArray? {
         val state = platformState.get() ?: return null
         return try {
             val cipher = state.cipher
             cipher.init(mode, SecretKeySpec(key, "ChaCha20"), IvParameterSpec(nonce))
-            if (aad.isNotEmpty()) cipher.updateAAD(aad)
-            if (!useDirectBuffers) return cipher.doFinal(input).also { state.implementation = cipher.provider.name }
-            val source = sized(state.input, input.size).also {
+            if (aadLength > 0) cipher.updateAAD(aad, aadOffset, aadLength)
+            if (!useDirectBuffers) return cipher.doFinal(input, inputOffset, inputLength).also {
+                state.implementation = cipher.provider.name
+            }
+            val source = sized(state.input, inputLength).also {
                 if (it.capacity() <= MAX_RETAINED_BUFFER) state.input = it
             }
-            source.put(input).flip()
-            val target = sized(state.output, cipher.getOutputSize(input.size).coerceAtLeast(0)).also {
+            source.put(input, inputOffset, inputLength).flip()
+            val target = sized(state.output, cipher.getOutputSize(inputLength).coerceAtLeast(0)).also {
                 if (it.capacity() <= MAX_RETAINED_BUFFER) state.output = it
             }
             val written = cipher.doFinal(source, target)
@@ -188,11 +204,16 @@ object AirPlayCrypto {
         nonce: ByteArray,
         ciphertextAndTag: ByteArray,
         aad: ByteArray = ByteArray(0),
+        offset: Int = 0,
+        length: Int = ciphertextAndTag.size - offset,
+        aadOffset: Int = 0,
+        aadLength: Int = aad.size - aadOffset,
     ): ByteArray {
         val cipher = ChaCha20Poly1305()
-        cipher.init(false, AEADParameters(KeyParameter(key), MAC_BITS, nonce, aad))
-        val output = ByteArray(cipher.getOutputSize(ciphertextAndTag.size))
-        val processed = cipher.processBytes(ciphertextAndTag, 0, ciphertextAndTag.size, output, 0)
+        cipher.init(false, AEADParameters(KeyParameter(key), MAC_BITS, nonce))
+        cipher.processAADBytes(aad, aadOffset, aadLength)
+        val output = ByteArray(cipher.getOutputSize(length))
+        val processed = cipher.processBytes(ciphertextAndTag, offset, length, output, 0)
         val finalized = cipher.doFinal(output, processed)
         val outputLength = processed + finalized
         return if (outputLength == output.size) output else output.copyOf(outputLength)
