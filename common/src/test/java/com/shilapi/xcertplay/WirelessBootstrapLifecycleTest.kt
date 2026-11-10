@@ -24,7 +24,6 @@ import java.util.concurrent.CancellationException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
 import org.junit.Assert.*
@@ -155,8 +154,8 @@ class WirelessBootstrapLifecycleTest {
         val attempt = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
         bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, attempt)
-        ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
-        // Keep the token itself valid: the whole-run generation check must independently reject it.
+        controller.replaceWirelessRunForTest(1)
+        // The attempt token stays valid; retiring its run must still reject queued progress.
         assertTrue(attemptIsCurrent(attempt))
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("An old generation's queued bootstrap status reached the UI", statuses.isEmpty())
@@ -387,7 +386,7 @@ class WirelessBootstrapLifecycleTest {
         controller.wirelessStateCallForTest("requestHandoff")
         expireAttempt(attempt)
         controller.resetWirelessStateForTest()
-        ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
+        controller.wirelessStateCallForTest("retire")
         expireAttempt(attempt)
         assertSame(attempt, ReflectionHelpers.getField(controller.wirelessRunForTest(), "bootstrapAttempt"))
         assertTrue(attemptIsCurrent(attempt))

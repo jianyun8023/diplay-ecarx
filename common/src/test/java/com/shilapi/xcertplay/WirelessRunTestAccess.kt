@@ -9,6 +9,9 @@ internal fun CarPlayController.wirelessRunForTest(): Any =
     ReflectionHelpers.getField<Any?>(this, "wirelessRun") ?: replaceWirelessRunForTest(0)
 
 internal fun CarPlayController.replaceWirelessRunForTest(generation: Int): Any {
+    ReflectionHelpers.getField<Any?>(this, "wirelessRun")?.let {
+        it.javaClass.getDeclaredMethod("retire").apply { isAccessible = true }.invoke(it)
+    }
     val type = javaClass.declaredClasses.single { it.simpleName == "WirelessRun" }
     val run = type.getDeclaredConstructor(CarPlayController::class.java, Int::class.javaPrimitiveType)
         .apply { isAccessible = true }.newInstance(this, generation)

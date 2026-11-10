@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.orchestration
 
 /** State of one run. Resource operations remain ordered by the controller's owner lock. */
 internal class WirelessRunState {
-    enum class Lifecycle { RUNNING, FAILED, RETIRED, CLOSING, CLOSED }
+    enum class Lifecycle { RUNNING, RETIRED, CLOSING, CLOSED }
     enum class Handoff { BOOTSTRAP, PENDING, BLUETOOTH_FALLBACK, TUNNEL_ACTIVE }
 
     @Volatile var lifecycle = Lifecycle.RUNNING
@@ -10,6 +10,9 @@ internal class WirelessRunState {
     @Volatile var handoff = Handoff.BOOTSTRAP
         private set
     @Volatile var tunnelReady = false
+        private set
+    // Retirement during restart must not consume the first shared-service failure.
+    @Volatile var failedOnce = false
         private set
 
     val running: Boolean get() = lifecycle == Lifecycle.RUNNING
@@ -35,20 +38,21 @@ internal class WirelessRunState {
         return true
     }
 
-    @Synchronized fun keepBluetoothFallback(renderedFrame: Boolean): Boolean {
-        if (!running || handoff != Handoff.PENDING || tunnelReady || !renderedFrame) return false
+    @Synchronized fun keepBluetoothFallback(): Boolean {
+        if (!running || handoff != Handoff.PENDING || tunnelReady) return false
         handoff = Handoff.BLUETOOTH_FALLBACK
         return true
     }
 
     @Synchronized fun fail(): Boolean {
-        if (!running) return false
-        lifecycle = Lifecycle.FAILED
+        if (failedOnce) return false
+        failedOnce = true
+        retire()
         return true
     }
 
     @Synchronized fun retire() {
-        if (lifecycle == Lifecycle.RUNNING || lifecycle == Lifecycle.FAILED) lifecycle = Lifecycle.RETIRED
+        if (running) lifecycle = Lifecycle.RETIRED
     }
 
     @Synchronized fun beginClose(): Boolean {

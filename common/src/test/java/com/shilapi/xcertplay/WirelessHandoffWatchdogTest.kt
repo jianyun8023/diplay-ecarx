@@ -14,7 +14,6 @@ import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -206,7 +205,7 @@ class WirelessHandoffWatchdogTest {
 
     @Test fun oldGenerationCannotCloseReplacementResources() {
         proofCall("rendered", 0, session)
-        ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
+        controller.wirelessStateCallForTest("retire")
         timeout()
         assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
@@ -227,7 +226,7 @@ class WirelessHandoffWatchdogTest {
         proofCall("rendered", 0, session)
         controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
             .apply { isAccessible = true }.invoke(controller, java.io.IOException("AirPlay service disconnected"), 0)
-        assertTrue(controller.wirelessStateCallForTest("getLifecycle").toString() == "FAILED")
+        assertTrue(controller.wirelessStateCallForTest("getFailedOnce") as Boolean)
         timeout()
         assertTrue(statuses.single() is CarPlayStatus.Failed)
         assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
