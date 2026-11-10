@@ -142,7 +142,7 @@ class HotspotProbeControlsTest {
         canvas.drawColor(DiPlayPalette.DARK.surface)
         canvas.translate(((1920 - width) / 2).toFloat(), ((1080 - height) / 2).toFloat())
         decor.draw(canvas)
-        val file = File("build/reports/hotspot-probe-ui/current-head-unit.png").apply { parentFile.mkdirs() }
+        val file = File("build/reports/hotspot-probe-ui/current-head-unit.png").apply { parentFile!!.mkdirs() }
         file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         bitmap.recycle()
         assertTrue(views(decor).filterIsInstance<Button>().any { it.text == activity.getString(R.string.close) && it.height > 0 })

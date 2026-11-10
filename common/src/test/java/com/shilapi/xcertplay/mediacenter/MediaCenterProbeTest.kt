@@ -34,6 +34,7 @@ class MediaCenterProbeTest {
             `when`(pm.getPackageInfo("actual.diplay", PackageManager.GET_PERMISSIONS)).thenReturn(PackageInfo().apply {
                 requestedPermissions = arrayOf(MediaCenterProbe.PERMISSION)
             })
+            @Suppress("DEPRECATION") // Match the permission definition read on the API 28 head unit.
             `when`(pm.getPermissionInfo(MediaCenterProbe.PERMISSION, 0)).thenReturn(PermissionInfo().apply { protectionLevel = 18 })
             `when`(pm.checkPermission(MediaCenterProbe.PERMISSION, "actual.diplay")).thenReturn(PackageManager.PERMISSION_GRANTED)
             `when`(pm.checkSignatures("actual.diplay", "android")).thenReturn(PackageManager.SIGNATURE_MATCH)

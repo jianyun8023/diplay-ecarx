@@ -395,7 +395,7 @@ class WirelessBootstrapLifecycleTest {
 
     private fun setWirelessPhase() {
         val phase = ReflectionHelpers.getField<Any>(controller, "phase")
-        ReflectionHelpers.setField(controller, "phase", phase.javaClass.enumConstants.single {
+        ReflectionHelpers.setField(controller, "phase", phase.javaClass.enumConstants!!.single {
             (it as Enum<*>).name == "WIRELESS"
         })
     }
@@ -467,8 +467,8 @@ class WirelessBootstrapLifecycleTest {
             .apply { isAccessible = true }.invoke(controller.wirelessRunForTest())
     }
 
-    private val bluetooth: Any get() = controller.wirelessRunForTest().javaClass.getDeclaredField("wirelessBluetooth")
-        .apply { isAccessible = true }.get(controller.wirelessRunForTest())
+    private val bluetooth: Any get() = checkNotNull(controller.wirelessRunForTest().javaClass.getDeclaredField("wirelessBluetooth")
+        .apply { isAccessible = true }.get(controller.wirelessRunForTest()))
 
     private fun connect(socket: BluetoothSocket, isCurrent: () -> Boolean) {
         bluetooth.javaClass.getDeclaredMethod("connectBluetoothSocket", BluetoothSocket::class.java,

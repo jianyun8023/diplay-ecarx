@@ -102,7 +102,7 @@ class BluetoothMediaYieldSettingsTest {
         val bitmap = Bitmap.createBitmap(width, root.height, Bitmap.Config.ARGB_8888)
         try {
             root.draw(Canvas(bitmap))
-            val file = File("build/reports/bluetooth-media-yield-ui/$name.png").apply { parentFile.mkdirs() }
+            val file = File("build/reports/bluetooth-media-yield-ui/$name.png").apply { parentFile!!.mkdirs() }
             file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         } finally { bitmap.recycle() }
         for (text in views(root).filterIsInstance<TextView>()) {

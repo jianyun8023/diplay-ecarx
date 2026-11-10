@@ -26,7 +26,7 @@ class SessionLogFileLatencyTest {
 
     /** Holds the file lock, which stalls the writer thread without a test hook in production code. */
     private fun stallWriter(log: SessionLogFile, holdMillis: Long): Thread {
-        val lock = SessionLogFile::class.java.getDeclaredField("lock").apply { isAccessible = true }.get(log)
+        val lock = checkNotNull(SessionLogFile::class.java.getDeclaredField("lock").apply { isAccessible = true }.get(log))
         val held = CountDownLatch(1)
         val holder = Thread {
             synchronized(lock) { held.countDown(); Thread.sleep(holdMillis) }

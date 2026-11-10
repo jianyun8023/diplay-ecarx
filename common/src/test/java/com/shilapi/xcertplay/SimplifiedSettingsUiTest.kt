@@ -273,7 +273,7 @@ class SimplifiedSettingsUiTest {
         screen.layout(0, 0, 1920, 1080)
         val bitmap = Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
         screen.draw(Canvas(bitmap))
-        val file = File("build/reports/simplified-settings-ui/$name.png").apply { parentFile.mkdirs() }
+        val file = File("build/reports/simplified-settings-ui/$name.png").apply { parentFile!!.mkdirs() }
         file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         bitmap.recycle()
     }

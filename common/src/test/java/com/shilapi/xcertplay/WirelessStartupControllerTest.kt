@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.ContextWrapper
@@ -300,7 +301,7 @@ class WirelessStartupControllerTest {
     }
 
     @Test fun aForgottenChoiceFallsBackToTheOnlyPairedIphone() {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
+        val adapter = RuntimeEnvironment.getApplication().getSystemService(BluetoothManager::class.java).adapter
         shadowOf(adapter).setProfileProxy(BluetoothProfile.HEADSET, null)
         val phone = adapter.getRemoteDevice("00:11:22:33:44:01")
         shadowOf(phone).setName("iPhone")
@@ -313,8 +314,8 @@ class WirelessStartupControllerTest {
         } finally { controller.close(); controller.awaitClosed(2_000) }
     }
 
-    private fun bluetooth(controller: CarPlayController): Any = controller.wirelessRunForTest().javaClass.getDeclaredField("wirelessBluetooth")
-        .apply { isAccessible = true }.get(controller.wirelessRunForTest())
+    private fun bluetooth(controller: CarPlayController): Any = checkNotNull(controller.wirelessRunForTest().javaClass.getDeclaredField("wirelessBluetooth")
+        .apply { isAccessible = true }.get(controller.wirelessRunForTest()))
 
     private fun assertCause(cause: ConnectionFailureCause, message: String, failure: Throwable) {
         assertEquals(message, failure.message)
@@ -322,7 +323,7 @@ class WirelessStartupControllerTest {
     }
 
     private fun selectionFailure(chosenIphone: String?, vararg bonded: Pair<String, String>): Throwable {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
+        val adapter = RuntimeEnvironment.getApplication().getSystemService(BluetoothManager::class.java).adapter
         // No profile service answers in a test, so each profile query would wait out its timeout.
         // Setting any proxy, even null, makes Robolectric's getProfileProxy return false for every profile left unset.
         shadowOf(adapter).setProfileProxy(BluetoothProfile.HEADSET, null)

@@ -43,7 +43,7 @@ class UpstreamSettingsScreenshotsTest {
             try {
                 root.draw(Canvas(bitmap))
                 val file = File("build/reports/upstream-settings-ui/current-head-unit.png")
-                file.parentFile.mkdirs()
+                file.parentFile!!.mkdirs()
                 file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
             } finally { bitmap.recycle() }
         } finally { activity.finish() }

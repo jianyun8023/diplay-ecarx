@@ -25,6 +25,7 @@ class PermissionDiagnosticSnapshotTest {
     private val denied = "test.permission.DENIED"
     private val unsupported = "test.permission.NEW_ANDROID"
 
+    @Suppress("DEPRECATION") // API 28 package-signature and permission fixtures.
     @Before fun setup() {
         val packages = shadowOf(app.packageManager)
         val signature = Signature("1234")
@@ -68,6 +69,7 @@ class PermissionDiagnosticSnapshotTest {
         assertEquals("other.app/.Service", Settings.Secure.getString(app.contentResolver, key))
     }
 
+    @Suppress("DEPRECATION") // Robolectric's signature check uses PackageInfo.signatures on API 28.
     @Test fun platformSignatureIsCheckedRatherThanInferredFromPermissionGrants() {
         val packages = shadowOf(app.packageManager)
         packages.installPackage(PackageInfo().apply { packageName = "android"; signatures = arrayOf(Signature("5678")) })

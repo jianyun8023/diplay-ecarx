@@ -93,6 +93,7 @@ class CarPlayBonjourDualStackTest {
         }
     }
 
+    @Suppress("DEPRECATION") // Verify that registry selection never reads the old interface API.
     @Test fun registryAddressControlsFamilyEvenWhenDeprecatedInterfaceReturnsTheOtherFamily() {
         setup()
         val dns = mock(JmDNS::class.java)

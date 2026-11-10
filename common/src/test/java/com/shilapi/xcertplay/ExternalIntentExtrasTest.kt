@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay
 
-import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.ContextWrapper
@@ -124,7 +124,7 @@ class ExternalIntentExtrasTest {
         val context = object : ContextWrapper(app) {
             override fun startActivity(intent: Intent) { launches += intent }
         }
-        val device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(phone)
+        val device = app.getSystemService(BluetoothManager::class.java).adapter.getRemoteDevice(phone)
         PhoneBluetoothReceiver().onReceive(context,
             Intent(BluetoothDevice.ACTION_ACL_CONNECTED).putExtra(BluetoothDevice.EXTRA_DEVICE, device))
         val launch = launches.single()
@@ -138,7 +138,7 @@ class ExternalIntentExtrasTest {
         val context = object : ContextWrapper(app) {
             override fun startActivity(intent: Intent) { launches += intent }
         }
-        val device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(phone)
+        val device = app.getSystemService(BluetoothManager::class.java).adapter.getRemoteDevice(phone)
         PhoneBluetoothReceiver().onReceive(context,
             Intent(BluetoothDevice.ACTION_ACL_CONNECTED).putExtra(BluetoothDevice.EXTRA_DEVICE, device))
         return launches.single()

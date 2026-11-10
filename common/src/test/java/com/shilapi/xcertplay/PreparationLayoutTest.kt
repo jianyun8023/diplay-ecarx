@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.view.View
+import android.util.TypedValue
 import android.widget.LinearLayout
 import android.widget.FrameLayout
 import android.widget.TextView
@@ -48,6 +49,7 @@ class PreparationLayoutTest {
             assertTrue("top=$top height=$heightDp", top >= -1f)
             assertTrue("bottom height=$heightDp", top + panel.height * panel.scaleY <= viewport.height + 1f)
         }
-        assertEquals(34f, (panel.getChildAt(1) as TextView).textSize / activity.resources.displayMetrics.scaledDensity, 0.01f)
+        assertEquals(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 34f, activity.resources.displayMetrics),
+            (panel.getChildAt(1) as TextView).textSize, 0.01f)
     }
 }

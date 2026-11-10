@@ -50,7 +50,7 @@ class ManualHotspotScreenshotsTest {
             root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY))
             root.layout(0, 0, width, root.measuredHeight)
-            val file = File("build/reports/manual-hotspot-ui/$name.png").apply { parentFile.mkdirs() }
+            val file = File("build/reports/manual-hotspot-ui/$name.png").apply { parentFile!!.mkdirs() }
             val bitmap = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
             try {
                 root.draw(Canvas(bitmap))

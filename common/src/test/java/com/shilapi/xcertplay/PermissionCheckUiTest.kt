@@ -36,6 +36,7 @@ class PermissionCheckUiTest {
             "android.permission.MANAGE_USB", "android.permission.CONTROL_VPN", "android.permission.CONNECTIVITY_INTERNAL")
         val info = activity.packageManager.getPackageInfo(activity.packageName, PackageManager.GET_PERMISSIONS)
         assertTrue(info.requestedPermissions.orEmpty().toList().containsAll(required))
+        @Suppress("DEPRECATION") // PermissionInfo fixtures need the constructor available on API 28.
         for (name in required) packages.addPermissionInfo(PermissionInfo().apply { this.name = name; packageName = "android" })
         shadowOf(activity.application).denyPermissions(Manifest.permission.WRITE_SECURE_SETTINGS)
         try {

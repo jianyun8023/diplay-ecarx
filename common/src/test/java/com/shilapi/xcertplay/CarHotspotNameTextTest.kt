@@ -30,6 +30,7 @@ class CarHotspotNameTextTest {
     @Before fun setUp() {
         clearSettings()
         // The car hotspot is off, as on a head unit that has just been switched on.
+        @Suppress("DEPRECATION") // The head unit exposes hotspot state through this sticky broadcast.
         context.sendStickyBroadcast(Intent("android.net.wifi.WIFI_AP_STATE_CHANGED")
             .putExtra("wifi_state", 11).putExtra("wifi_ap_mode", 1))
     }

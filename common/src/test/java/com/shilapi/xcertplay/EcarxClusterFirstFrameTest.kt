@@ -52,6 +52,7 @@ class EcarxClusterFirstFrameTest {
             assertSame("The window must not retain an Activity context", app, context.arguments()[0])
             @Suppress("UNCHECKED_CAST")
             surfaceCallbacks += context.arguments()[2] as (Surface?) -> Unit
+            @Suppress("UNCHECKED_CAST")
             frameCallbacks += context.arguments()[3] as (Surface) -> Unit
             `when`(panel.isShowing).thenReturn(true)
         }

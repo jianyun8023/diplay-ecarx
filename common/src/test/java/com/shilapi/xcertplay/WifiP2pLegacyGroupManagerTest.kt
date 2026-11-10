@@ -24,6 +24,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowWifiP2pManager
+import org.robolectric.shadows.WifiP2pGroupBuilder
 import org.robolectric.util.ReflectionHelpers
 import java.net.InetAddress
 import java.util.concurrent.ExecutionException
@@ -35,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE,
     shadows = [WifiP2pLegacyGroupManagerTest.P2pRadio::class, WifiP2pLegacyGroupManagerTest.P2pChannel::class])
+@Suppress("DEPRECATION") // Configure the Wi-Fi APIs used on the API 28 head unit.
 class WifiP2pLegacyGroupManagerTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val radio get() = shadowOf(context.getSystemService(WifiP2pManager::class.java)) as P2pRadio
@@ -324,11 +326,10 @@ class WifiP2pLegacyGroupManagerTest {
             listener.onSuccess()
         }
 
-        fun makeGroup(name: String = "DIRECT-legacy-test") = WifiP2pGroup().apply {
-            shadowOf(this).setIsGroupOwner(true)
-            shadowOf(this).setNetworkName(name)
-            shadowOf(this).setPassphrase("legacy-passphrase")
-            shadowOf(this).setInterface(if (missingInterface) "" else "p2p0")
-        }
+        fun makeGroup(name: String = "DIRECT-legacy-test") = WifiP2pGroupBuilder.newBuilder()
+            .setNetworkName(name)
+            .setPassphrase("legacy-passphrase")
+            .setInterface(if (missingInterface) "" else "p2p0")
+            .build().apply { ReflectionHelpers.setField(this, "mIsGroupOwner", true) }
     }
 }

@@ -172,7 +172,7 @@ class FactoryHicarSettingsTest {
         val bitmap = Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
         try {
             root.draw(Canvas(bitmap))
-            val file = File("build/reports/factory-hicar-ui/current-head-unit.png").apply { parentFile.mkdirs() }
+            val file = File("build/reports/factory-hicar-ui/current-head-unit.png").apply { parentFile!!.mkdirs() }
             file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         } finally { bitmap.recycle() }
     }

@@ -1,7 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.app.AlertDialog
-import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.Looper
 import android.view.View
@@ -69,7 +69,7 @@ class ChooseIphoneBluetoothDialogTest {
     }
 
     @Test fun bluetoothThatIsOffIsAskedForAsBefore() {
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(context.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
         val screen = open()
         val dialog = choosePhone(screen)
         val shown = texts(dialog)
@@ -80,7 +80,7 @@ class ChooseIphoneBluetoothDialogTest {
 
     // Issue 581's head unit: the switch in Android's settings turns itself off again.
     @Test fun bluetoothStillOffAfterAVisitToItsSettingsGetsTheHint() {
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(context.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
         val screen = open()
         val hint = screen.getString(R.string.bluetooth_will_not_stay_on_hint)
         val first = choosePhone(screen)
@@ -96,7 +96,7 @@ class ChooseIphoneBluetoothDialogTest {
 
     // Declining the dialog is not a visit to the settings: nothing suggests the switch failed.
     @Test fun choosingLaterDoesNotBringTheHint() {
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(context.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
         val screen = open()
         choosePhone(screen).getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
         shadowOf(Looper.getMainLooper()).idle()
@@ -105,7 +105,7 @@ class ChooseIphoneBluetoothDialogTest {
     }
 
     @Test fun bluetoothThatIsOnGoesOnToPairing() {
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(true)
+        shadowOf(context.getSystemService(BluetoothManager::class.java).adapter).setEnabled(true)
         val screen = open()
         val shown = texts(choosePhone(screen))
         assertTrue(shown.toString(), screen.getString(R.string.pair_your_iphone) in shown)
