@@ -5,7 +5,7 @@
 
 ## 导出与采样
 
-- 车机：DiPlay → 设置 → 诊断 → 保存诊断报告，查看 `Wireless startup timeline`，保留最近 80 个阶段事件。时间线还写入 `DiPlay-Startup` logcat 标签；不保存 SSID、设备地址、密码、MFi 内容或异常消息。
+- 车机：DiPlay → 设置 → 诊断 → 保存诊断报告，查看 `Wireless startup timeline` 和紧随其后的 `Wireless startup metrics`，保留最近 80 个阶段事件并从中计算各代次指标。每轮结束立即导出，避免后续重连挤掉本轮证据。时间线还写入 `DiPlay-Startup` logcat 标签；不保存 SSID、设备地址、密码、MFi 内容或异常消息。
 - 开发台架可执行 `adb logcat -v threadtime -s DiPlay-Startup:I`，但量产运行**不依赖 ADB**。
 - 分别测试整车冷启动、ACC 唤醒、应用冷启动。关闭/开启热点自启动、已有热点、已有同 LAN 为不同实验条件；固定设备、iOS、频段和版本，交错至少 10 轮，所有超时/失败均保留。
 - `BOOT_BROADCAST` 仅表示 `BOOT_COMPLETED` 已被应用收到，**不等于 ACC 上电时刻**；ACC 真实起点需外部摄像/车辆信号。设备若只休眠唤醒，可能根本没有此广播。
@@ -20,7 +20,31 @@
 5. `AIRPLAY_TCP_ACCEPTED`、`AIRPLAY_SESSION_ACTIVE`、`VIDEO_FIRST_FRAME`、`UI_FIRST_FRAME_CALLBACK`：Wi-Fi 建链、会话、视频。
 6. `WIRELESS_FAILED` 为失败检查点；结合现有失败类型日志分析，不将恢复超时预算作为正常连接耗时。
 
-`owner` 为进程内控制器标识，`generation` 为同一控制器的重试代次，`attempt` 为蓝牙 bootstrap 尝试序号。一次失败/回退可能产生多个代次。时间线为有限环形记录，不是独立的系统开机监控服务，也不自动计算连接成功率。
+`bootCount` 为系统开机计数，`process` 为进程 PID，`owner` 为进程内控制器标识，`generation` 为同一控制器的重试代次，`attempt` 为蓝牙 bootstrap 尝试序号。指标按 `(bootCount, process, mode, owner, generation)` 分组，避免跨开机、进程重启、控制器或代次拼接。一代内取第一次对应检查点；局部 bootstrap 重试的等待包含在该代耗时内，整栈重启产生另一行。旧版本事件或读不到开机计数的事件只保留原始记录，不生成推测指标。
+
+`outcome` 是所保留记录的观测结果，不是控制器状态：`FAILED` 表示存在失败检查点，`STABLE_FRAME` 表示已记录稳定帧，`FIRST_FRAME` 表示仅有首帧，`INCOMPLETE` 表示两者均未记录。截断、取消或未完成的样本都可能为 `INCOMPLETE`，不能一律算失败；蓝牙 fallback 的首帧也不能冒充隧道稳定帧。缺少起点、终点或时序不合法时耗时为 `unknown`，不记作 0。缺少本代起点时，连 `firstFrameSinceBootMs` 也不计算，防止把截断后残留的重复帧当作最初首帧。
+
+时间线为有限环形记录，不是独立的系统开机监控服务，不自动识别冷启动轮次或计算成功率、p50/p95。
+
+## 冷启动验收与每包记录
+
+三条指标固定如下；单位均为毫秒，不能混用首帧与稳定帧，也不能把连接代次耗时称为整车冷启动耗时。
+
+| 指标 | 报告字段与口径 | 用途 |
+| --- | --- | --- |
+| 系统启动至首帧 | `firstFrameSinceBootMs`：`VIDEO_FIRST_FRAME.elapsedSinceBootMs`；冷启动轮次取第一次成功连接的首帧 | 衡量系统、桌面、应用、网络和连接总路径；不是点火至实际屏幕显示 |
+| 本代连接至首帧 | `runToFirstFrameMs`：本代首次 `VIDEO_FIRST_FRAME - WIRELESS_RUN_START` | 定位连接阶段耗时；不包含先前失败代次 |
+| 本代连接至稳定帧 | `runToStableFrameMs`：本代首次 `STABLE_VIDEO_FRAME - WIRELESS_RUN_START` | 观察隧道升级后的稳定画面回调；fallback 无此事件时保留 `unknown` |
+
+每个车测包按固定条件至少做 10 轮，冷启动、ACC 唤醒和应用重启分开统计。每轮保留所有代次及失败原因，不能只留下最终成功的一代。耗时对有对应终点的样本分别排序，使用 nearest-rank：p50/p95 分别取第 `ceil(0.50*N)` / `ceil(0.95*N)` 个值，并标明各指标有效 N；10 轮的 p95 等于最大值，不能据此声称尾延迟已经稳定。
+
+每包车测记录必须填写下表，未车测填“未测”，不能用单测或台架数据替代：
+
+| 版本/提交、测试日期、车辆/iOS、热点条件 | 冷启动总轮数 / 首帧成功 / 稳定帧成功 / 失败 / 证据缺失 | 系统启动至首帧 N、p50/p95 | 本代至首帧 N、p50/p95 | 本代至稳定帧 N、p50/p95 | 失败原因、原始报告与录像 |
+| --- | --- | --- | --- | --- | --- |
+| 待车测填写 | 未测 | 未测 | 未测 | 未测 | 未测 |
+
+验收先要求证据完整：同条件对照上一车测包，记录上述三项分位数和成功率；出现新失败、成功率下降或耗时回退要逐轮解释并复测。尚无足够冷启动基线，暂不承诺固定秒数或虚设耗时门槛。外部录像另记点火至可见/可操作时刻；自动指标仅用于分段定位。原厂导航还需覆盖“DiPlay 暂停导航后重启且关闭自启”和“解锁已开始 CarPlay 导航，随后收到 BOOT_COMPLETED”两条路径。
 
 ## 基线
 

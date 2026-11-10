@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.UserManager
 import android.util.Log
 import com.shilapi.xcertplay.bluetooth.CarBluetoothProfileGuard
+import com.shilapi.xcertplay.hud.NavigationOutputs
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import com.shilapi.xcertplay.orchestration.CarPlayStartupTimeline
 
@@ -82,6 +83,8 @@ class BootReceiver : BroadcastReceiver() {
     }.getOrDefault(false)
 
     private fun onBootCompleted(context: Context) {
+        // Unlock may already have started guidance; recover only while both navigation outputs are idle.
+        NavigationOutputs.recoverFactoryNavigationIfIdle(context)
         val mode = AirPlayPersistence.loadWirelessHotspotMode(context)
         CarPlayStartupTimeline.record(context, CarPlayStartupTimeline.Stage.BOOT_BROADCAST, mode)
         // Starts the watcher for other apps' calls when that setting is on, even without opening DiPlay.
