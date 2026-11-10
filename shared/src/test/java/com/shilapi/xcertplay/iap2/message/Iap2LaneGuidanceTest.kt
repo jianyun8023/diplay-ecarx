@@ -60,6 +60,23 @@ class Iap2LaneGuidanceTest {
         ).encode()))
     }
 
+    @Test fun unknownAnglesAndHighlightsDoNotHideValidDirectionsOrInventArrows() {
+        for (unknown in listOf(1000, -1000)) {
+            val frame = Iap2Messages.buildRaw(0x5204) {
+                u16(0, 42); u16(1, 21)
+                group(2) { u16(0, 0); u8(1, 2); i16(2, unknown); i16(3, unknown) }
+                group(2) { u16(0, 1); u8(1, 2); i16(2, unknown); i16(2, -90); i16(3, unknown) }
+                group(2) { u16(0, 2); u8(1, 2); i16(2, -180); i16(2, unknown); i16(2, 0); i16(3, -180) }
+                group(2) { u16(0, 3); u8(1, 2); i16(2, unknown); i16(3, 90) }
+            }
+            val update = requireNotNull(Iap2LaneGuidance.parseUpdate(frame.payload))
+            assertEquals(21, update.index)
+            assertEquals(listOf(emptyList<Int>(), listOf(-90), listOf(-180, 0), emptyList<Int>()),
+                update.lanes.map { it.angles })
+            assertEquals(listOf(null, null, -180, 90), update.lanes.map { it.highlightAngle })
+        }
+    }
+
     private fun hex(value: String): ByteArray =
         value.trim().split(Regex("\\s+")).map { it.toInt(16).toByte() }.toByteArray()
 }

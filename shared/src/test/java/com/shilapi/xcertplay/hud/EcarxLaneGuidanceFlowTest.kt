@@ -493,12 +493,118 @@ class EcarxLaneGuidanceFlowTest {
         send(0x5201) { u16(0x10, 2) }
         assertNull(calls("updateLaneInfo").last().payload["lanes"])
         send(0x5201) { u16(0x10, 0) }
+        assertNull(calls("updateLaneInfo").last().payload["lanes"])
+        // A cursor rollback must wait for fresh data after the old event was retired.
+        send(0x5204) {
+            u16(0, 42); u16(1, 0); group(2) { u16(0, 0); u8(1, 2); i16(2, -90) }
+        }
         assertNotNull(calls("updateLaneInfo").last().payload["lanes"])
         send(0x5201) { u8(1, 2) }
         assertNull(calls("updateLaneInfo").last().payload["lanes"])
         val afterEnd = calls("updateLaneInfo").size
         maneuver(); guidance()
         assertEquals(afterEnd, calls("updateLaneInfo").size)
+    }
+
+    @Test fun unknownLaneAnglesReachDimOnlyWhenAValidDirectionRemains() {
+        initialize(); maneuver(); guidance()
+        send(0x5201) { u16(0x10, 0) }
+        for (unknown in listOf(1000, -1000)) {
+            send(0x5204) {
+                u16(0, 42); u16(1, 0)
+                group(2) { u16(0, 0); u8(1, 2); i16(2, unknown); i16(2, -90); i16(3, unknown) }
+            }
+            assertEquals(listOf(mapOf("number" to 1, "iconId" to 16, "bitmap" to null)),
+                calls("updateLaneInfo").last().payload["lanes"])
+            send(0x5204) {
+                u16(0, 42); u16(1, 0)
+                group(2) { u16(0, 0); u8(1, 2); i16(2, unknown); i16(3, unknown) }
+            }
+            assertNull(calls("updateLaneInfo").last().payload["lanes"])
+        }
+    }
+
+    @Test fun lanePrefetchIsBoundedBeforeGuidanceWithoutAssumingIndexOrder() {
+        initialize()
+        val cache = field("lanesByIndex").get(EcarxHudBridge) as Map<*, *>
+        for (index in listOf(100) + (0..31)) {
+            send(0x5204) {
+                u16(0, 42); u16(1, index); group(2) { u16(0, 0); u8(1, 2); i16(2, 90) }
+            }
+            assertTrue(cache.size <= 32)
+        }
+        assertEquals((0..31).toSet(), cache.keys)
+        assertTrue(calls("updateLaneInfo").isEmpty())
+        maneuver(); guidance()
+        send(0x5201) { u16(0x10, 0) }
+        assertNotNull(calls("updateLaneInfo").last().payload["lanes"])
+    }
+
+    @Test fun cachePressureKeepsTheCurrentLaneEvenWhenHiddenAndCountsUnmappableEvents() {
+        initialize(); maneuver(); guidance()
+        send(0x5201) { u16(0x10, 0) }
+        send(0x5204) {
+            u16(0, 42); u16(1, 0); group(2) { u16(0, 0); u8(1, 2); i16(2, -90) }
+        }
+        val current = calls("updateLaneInfo").last().payload["lanes"]
+        send(0x5201) { u8(0x12, 0) }
+        val cache = field("lanesByIndex").get(EcarxHudBridge) as Map<*, *>
+        for (index in 1..64) {
+            send(0x5204) {
+                u16(0, 42); u16(1, index); group(2) { u16(0, 0); u8(1, 2); i16(2, 12) }
+            }
+            assertTrue(cache.size <= 32)
+            assertTrue(cache.containsKey(0))
+        }
+        assertEquals(setOf(0) + (34..64), cache.keys)
+        send(0x5201) { u8(0x12, 1) }
+        assertEquals(current, calls("updateLaneInfo").last().payload["lanes"])
+        // Replacing an existing event must not evict another slot.
+        send(0x5204) {
+            u16(0, 42); u16(1, 64); group(2) { u16(0, 0); u8(1, 2); i16(2, 90) }
+        }
+        assertEquals(setOf(0) + (34..64), cache.keys)
+    }
+
+    @Test fun onlyLaneCursorChangesRetireOldEventsAndReplanningCanPrefetchLowerIndices() {
+        initialize(); maneuver(); guidance()
+        val cache = field("lanesByIndex").get(EcarxHudBridge) as Map<*, *>
+        for (index in 0..3) {
+            send(0x5204) {
+                u16(0, 42); u16(1, index); group(2) { u16(0, 0); u8(1, 2); i16(2, -90) }
+            }
+        }
+        send(0x5201) { u16(0x10, 0) }
+        maneuver(index = 8)
+        send(0x5201) { u16List(0x0d, listOf(8)); u32(0x0a, 100) }
+        assertEquals((0..3).toSet(), cache.keys)
+        for (cursor in 1..3) {
+            send(0x5201) { u16(0x10, cursor) }
+            assertEquals((cursor..3).toSet(), cache.keys)
+            assertNotNull(calls("updateLaneInfo").last().payload["lanes"])
+        }
+        // New-route prefetch may arrive while the old cursor is still selected.
+        send(0x5204) {
+            u16(0, 42); u16(1, 0); group(2) { u16(0, 0); u8(1, 2); i16(2, 90) }
+        }
+        send(0x5201) { u32(0x0a, 50) }
+        send(0x5201) { u16(0x10, 3) }
+        assertEquals(setOf(0, 3), cache.keys)
+        send(0x5201) { u16(0x10, 0) }
+        assertEquals(listOf(mapOf("number" to 1, "iconId" to 18, "bitmap" to null)),
+            calls("updateLaneInfo").last().payload["lanes"])
+        send(0x5201) { u8(1, 2) }
+        assertTrue(cache.isEmpty())
+        maneuver(); guidance()
+        send(0x5201) { u16(0x10, 0) }
+        assertNull(calls("updateLaneInfo").last().payload["lanes"])
+        send(0x5204) {
+            u16(0, 42); u16(1, 0); group(2) { u16(0, 0); u8(1, 2); i16(2, 0) }
+        }
+        assertEquals(listOf(mapOf("number" to 1, "iconId" to 15, "bitmap" to null)),
+            calls("updateLaneInfo").last().payload["lanes"])
+        EcarxHudBridge.clear()
+        assertTrue(cache.isEmpty())
     }
 
     @Test fun pendingLanesAreWithdrawnOnDisconnectAndExplicitClear() {

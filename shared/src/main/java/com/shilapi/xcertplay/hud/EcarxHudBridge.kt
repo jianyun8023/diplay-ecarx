@@ -52,6 +52,7 @@ internal object EcarxHudBridge {
 
     /** How many lines are held for a report that has not attached yet; see [report]. */
     private const val REPORT_BACKLOG = 24
+    private const val MAX_CACHED_LANE_EVENTS = 32
 
     /**
      * `getNavigationStatus()` while guidance is live. The toolkit copies its own value through
@@ -189,7 +190,7 @@ internal object EcarxHudBridge {
 
     private var lastPushed: EcarxDimApi.Guidance? = null
     private var lanes: List<EcarxDimApi.Lane>? = null
-    private val lanesByIndex = mutableMapOf<Int, List<EcarxDimApi.Lane>?>()
+    private val lanesByIndex = linkedMapOf<Int, List<EcarxDimApi.Lane>?>()
     private var lastLanePushed: List<EcarxDimApi.Lane>? = null
     private var fallbackLaneTurn: Int? = null
     private var lastDestination: String? = ""
@@ -464,6 +465,10 @@ internal object EcarxHudBridge {
                     fallbackLaneTurn = route.activeIndex.takeIf { it >= 0 }
                 }
                 lanesByIndex[index] = group
+                if (lanesByIndex.size > MAX_CACHED_LANE_EVENTS) {
+                    // Bound prefetch without evicting the event still selected by the phone.
+                    lanesByIndex.remove(lanesByIndex.keys.first { it != route.laneGuidanceIndex })
+                }
                 if (NavigationOutputs.debugLogsEnabled()) report("DIM lane cached index=${update.index} count=${update.lanes.size} " +
                     "current=${route.laneGuidanceIndex ?: "none"} guidance=${route.currentForDim() != null}")
             }
@@ -471,7 +476,13 @@ internal object EcarxHudBridge {
             return@synchronized
         }
         val hadAnnouncement = route.announced
+        val previousLaneIndex = route.laneGuidanceIndex
         val change = route.accept(frame.messageId, frame.payload)
+        val laneIndex = route.laneGuidanceIndex
+        if (frame.messageId == 0x5201 && laneIndex != null && laneIndex != previousLaneIndex) {
+            // Prefetch can precede a cursor rollback, so retire old events only when it changes.
+            lanesByIndex.keys.removeAll { it < laneIndex }
+        }
         if (NavigationOutputs.debugLogsEnabled()) report("DIM input source=$source id=0x${frame.messageId.toString(16)} ${route.diagnosticInput} " +
             "change=$change currentNext=${route.currentForDim()?.distanceMeters ?: "none"} " +
             "elapsedMs=${SystemClock.elapsedRealtime()} ${route.diagnosticState()}")
