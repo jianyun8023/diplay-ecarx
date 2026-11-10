@@ -1,9 +1,23 @@
 package com.shilapi.xcertplay.media
 
-/** The uplink owns this encoder; close may also run after its worker's bounded join times out. */
-internal class NativeOpusEncoder(bitrate: Int) : MicrophoneOpusEncoder {
-    private var handle = if (libraryAvailable) nativeCreate(bitrate) else 0L
+/**
+ * The uplink owns this encoder; close may also run after its worker's bounded join times out.
+ * [onError] receives why the native encoder is unavailable, so a head unit that falls back to the
+ * Java encoder leaves the reason in its logs.
+ */
+internal class NativeOpusEncoder(
+    bitrate: Int,
+    private val onError: (String, Throwable) -> Unit = { _, _ -> },
+) : MicrophoneOpusEncoder {
+    private var handle = if (libraryLoad.isSuccess) nativeCreate(bitrate) else 0L
     private val output = ByteArray(1_275)
+
+    init {
+        if (handle == 0L) {
+            onError("native Opus encoder unavailable",
+                libraryLoad.exceptionOrNull() ?: IllegalStateException("opus_encoder_create failed bitrate=$bitrate"))
+        }
+    }
 
     override val implementation = "libopus"
     override val available: Boolean
@@ -24,9 +38,7 @@ internal class NativeOpusEncoder(bitrate: Int) : MicrophoneOpusEncoder {
     }
 
     private companion object {
-        val libraryAvailable: Boolean by lazy {
-            runCatching { System.loadLibrary("opus_encoder"); true }.getOrDefault(false)
-        }
+        val libraryLoad: Result<Unit> by lazy { runCatching { System.loadLibrary("opus_encoder") } }
 
         @JvmStatic external fun nativeCreate(bitrate: Int): Long
         @JvmStatic external fun nativeEncode(handle: Long, pcm: ByteArray, output: ByteArray): Int

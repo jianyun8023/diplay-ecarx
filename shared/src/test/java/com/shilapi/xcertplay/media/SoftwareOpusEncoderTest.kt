@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.media
 import org.concentus.OpusApplication
 import org.concentus.OpusDecoder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -114,6 +115,18 @@ class SoftwareOpusEncoderTest {
             val pcm = ShortArray(960)
             assertEquals(960, OpusDecoder(48_000, 1).decode(packet, 0, packet.size, pcm, 0, 960, false))
         }
+    }
+
+    @Test
+    fun unavailableNativeEncoderReportsWhyBeforeTheFallbackIsChosen() {
+        val reports = mutableListOf<Pair<String, Throwable>>()
+        NativeOpusEncoder(48_000, onError = { message, error -> reports += message to error }).use { encoder ->
+            assertFalse(encoder.available)
+            assertTrue(encoder.encode(toneFrame(0)).isEmpty())
+        }
+        val (message, error) = reports.single()
+        assertEquals("native Opus encoder unavailable", message)
+        assertTrue(error.toString(), error is UnsatisfiedLinkError)
     }
 
     private fun toneFrame(index: Int): ByteArray {

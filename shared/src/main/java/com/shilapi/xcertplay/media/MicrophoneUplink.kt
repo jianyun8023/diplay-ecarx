@@ -39,9 +39,11 @@ internal class MicrophoneUplink(
         MicrophoneOpusEncoders.create(
             bitrate = bitrate,
             software = { value ->
-                MicrophoneOpusEncoders.createSoftware(value, concentus = {
-                    SoftwareOpusEncoder(it, onError = { message, error -> Log.w(TAG, message, error) })
-                })
+                MicrophoneOpusEncoders.createSoftware(
+                    value,
+                    native = { NativeOpusEncoder(it, onError = { message, error -> Log.w(TAG, message, error) }) },
+                    concentus = { SoftwareOpusEncoder(it, onError = { message, error -> Log.w(TAG, message, error) }) },
+                )
             },
         )
     },
