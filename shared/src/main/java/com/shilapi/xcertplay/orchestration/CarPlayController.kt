@@ -3371,14 +3371,6 @@ class CarPlayController(
         return if (scanned.isEmpty() && fallbackToSnapshot) info.hostAddresses else scanned
     }
 
-    private fun hostAddressText(address: InetAddress): String {
-        val text = address.hostAddress?.substringBefore('%')
-        if (text.isNullOrBlank()) {
-            throw IOException("LocalOnlyHotspot host address is unavailable")
-        }
-        return text
-    }
-
     private fun closeBestEffort(name: String, close: () -> Unit) {
         val started = System.nanoTime()
         var completed = false
@@ -3443,9 +3435,6 @@ class CarPlayController(
             }
         }
     }
-
-    private fun ByteArray.macString(): String =
-        joinToString(":") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun awaitVpnService(): CarPlayVpnService? {
         vpnService?.let { return it }
@@ -3589,9 +3578,6 @@ class CarPlayController(
         }
     }
 
-    private fun elapsedMillis(startedNanos: Long): Long =
-        ((System.nanoTime() - startedNanos) / 1_000_000L).coerceAtLeast(0)
-
     private fun debugLog(message: String, error: Throwable) {
         Log.w(IphoneCarPlayConfiguration.TAG, message, error)
         try {
@@ -3606,25 +3592,6 @@ class CarPlayController(
      * are wrapped (e.g. "USBMUX read failed" hiding the real cause) are diagnosable from the session
      * log alone, without logcat. Bounded in depth; the redactor still runs on the result.
      */
-    private fun describeThrowable(error: Throwable): String {
-        val builder = StringBuilder()
-        var current: Throwable? = error
-        var depth = 0
-        while (current != null && depth < 5) {
-            if (depth > 0) builder.append(" <- ")
-            builder.append(current.javaClass.simpleName)
-            current.message?.let { builder.append(": ").append(it) }
-            current.stackTrace.firstOrNull()?.let { frame ->
-                builder.append(" @ ").append(frame.className.substringAfterLast('.'))
-                    .append('.').append(frame.methodName)
-                    .append('(').append(frame.fileName).append(':').append(frame.lineNumber).append(')')
-            }
-            current = current.cause
-            depth++
-        }
-        return builder.toString()
-    }
-
     private fun onStatus(status: CarPlayStatus, generation: Int? = null) =
         postStatus(status, generation) { true }
 
@@ -3644,61 +3611,6 @@ class CarPlayController(
                 uiStatusReporter?.invoke(status)
             }
         }
-    }
-
-    private fun CarPlayStatus.debugLogMessage(): String = when (this) {
-        CarPlayStatus.DiscoveringMfi ->
-            "STEP mfi/start: preparing the configured MFi authentication provider"
-        CarPlayStatus.WaitingForMfi ->
-            "STEP mfi/wait: MFi coprocessor not present; polling"
-        CarPlayStatus.RequestingMfiPermission ->
-            "STEP mfi/permission: requesting CH341 USB access"
-        CarPlayStatus.MfiReady ->
-            "STEP mfi/ready: MFi authentication provider is ready"
-        CarPlayStatus.StartingHotspot ->
-            "STEP wifi/ap: starting the wireless CarPlay access point"
-        is CarPlayStatus.HotspotReady ->
-            "STEP wifi/ap-ready: backend=$backend ssid=$ssid band=$band " +
-                "channel=$channel bssid=$bssid address=$address"
-        CarPlayStatus.WaitingForPairedIphone ->
-            "STEP bt/select: waiting for a paired or connected iPhone"
-        CarPlayStatus.ConnectingBluetooth ->
-            "STEP bt/rfcomm: connecting to the iPhone iAP2 RFCOMM service"
-        CarPlayStatus.RunningWireless ->
-            "STEP iap2/wireless: Bluetooth control loop running"
-        CarPlayStatus.WirelessActive ->
-            "STEP handoff/complete: tunnel iAP2 ready; Bluetooth bootstrap released"
-        CarPlayStatus.WirelessActiveFallback ->
-            "STEP handoff/fallback: rendered video preserved; tunnel iAP2 unavailable; Bluetooth bootstrap preserved"
-        CarPlayStatus.DiscoveringIphone ->
-            "STEP usb/discover: searching for an iPhone USB device"
-        CarPlayStatus.WaitingForIphone ->
-            "STEP usb/wait: iPhone USB device not present; polling"
-        is CarPlayStatus.IphoneNotListed ->
-            "STEP usb/wait: wired iPhone not listed after ${IPHONE_NOT_LISTED_AFTER_MILLIS / 1_000} s; " +
-                "other USB devices=$nonHubDeviceListed"
-        CarPlayStatus.RequestingIphonePermission ->
-            "STEP usb/permission: requesting USB access to the iPhone"
-        CarPlayStatus.WaitingForReenumeration ->
-            "STEP usb/reenum: waiting for the CarPlay USB configuration"
-        CarPlayStatus.SelectingConfiguration ->
-            "STEP usb/config: selecting the iPhone CarPlay configuration"
-        CarPlayStatus.OpeningDataPaths ->
-            "STEP usb/data: opening iAP2 and NCM USB data paths"
-        CarPlayStatus.Pairing ->
-            "STEP lockdown/pair: loading or creating the pairing record"
-        CarPlayStatus.WaitingForIphoneTrust ->
-            "STEP lockdown/trust: waiting for the iPhone trust response"
-        CarPlayStatus.ConnectingControl ->
-            "STEP lockdown/carkit: opening com.apple.carkit.service"
-        CarPlayStatus.AttachingNetwork ->
-            "STEP network/attach: attaching the AirPlay network transport"
-        CarPlayStatus.RunningControl ->
-            "STEP iap2/wired: wired iAP2 control loop running"
-        CarPlayStatus.ControlEnded ->
-            "STEP control/end: the control window ended"
-        is CarPlayStatus.Failed ->
-            "ERROR $message"
     }
 
     companion object {
@@ -3740,7 +3652,7 @@ class CarPlayController(
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         /** An iPhone answers the mode request within about a second; one took six (#335). */
         const val REENUMERATION_WAIT_MILLIS = 10_000L
-        private const val IPHONE_NOT_LISTED_AFTER_MILLIS = 20_000L
+        internal const val IPHONE_NOT_LISTED_AFTER_MILLIS = 20_000L
         private const val START_SESSION_PROGRESS = "iap2 tx=0x4301"
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"

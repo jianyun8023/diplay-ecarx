@@ -270,7 +270,7 @@ class EcarxClusterSafeAreaFlowTest {
         ReflectionHelpers.setField(host, "airPlayIdentity", AirPlayIdentity.generate())
         ReflectionHelpers.setField(host, "hevcEnabled", false)
         ReflectionHelpers.setField(host, "blackCornerRadiusDp", 0)
-        ReflectionHelpers.setField(host, "mainDisplayDisableSafeArea", false)
+        ReflectionHelpers.setField(ReflectionHelpers.getField<Any>(host, "safeArea"), "mainDisplayDisableSafeArea", false)
         val sizeClass = Class.forName("com.shilapi.xcertplay.CarPlayHostActivity\$DisplaySize")
         val size = sizeClass.getDeclaredConstructor(Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.newInstance(width, height)

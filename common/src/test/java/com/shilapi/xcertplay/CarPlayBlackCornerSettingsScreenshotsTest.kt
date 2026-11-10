@@ -13,6 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.util.ReflectionHelpers
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -25,8 +26,10 @@ class CarPlayBlackCornerSettingsScreenshotsTest {
     @Test fun controlsFitTheCurrentHeadUnit() {
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         try {
-            val section = CarPlayHostActivity::class.java.getDeclaredMethod("buildSafeAreaSection")
-                .apply { isAccessible = true }.invoke(activity) as ViewGroup
+            val safeArea = ReflectionHelpers.getField<CarPlaySafeAreaEditor>(activity, "safeArea")
+            val slider = CarPlayHostActivity::class.java.getDeclaredMethod("buildBlackCornerSliderSection")
+                .apply { isAccessible = true }
+            val section = safeArea.buildSection { slider.invoke(activity) as View } as ViewGroup
             val labels = descendants(section).filterIsInstance<TextView>().map { it.text.toString() }.toList()
             assertTrue(labels.any { it == activity.getString(R.string.black_corner_overlay) })
             assertTrue(labels.any { it == activity.getString(R.string.black_corner_overlay_description) })
