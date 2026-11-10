@@ -40,10 +40,10 @@ object Iap2LaneGuidance {
             for (field in fields.all(2)) {
                 val bytes = field.payload
                 val angle = Iap2WireCodec.readI16(bytes)
-                if (angle != 1000) angles += angle
+                if (angle != 1000 && angle != -1000) angles += angle
             }
             val highlight = fields.first(3)?.payload?.let {
-                Iap2WireCodec.readI16(it).takeUnless { angle -> angle == 1000 }
+                Iap2WireCodec.readI16(it).takeUnless { angle -> angle == 1000 || angle == -1000 }
             }
             lanes += LaneGuidanceLane(Iap2WireCodec.readU16(index), Iap2WireCodec.readU8(status), angles, highlight)
         }
