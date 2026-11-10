@@ -883,7 +883,8 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        com.shilapi.xcertplay.hud.NavigationOutputs.onAppOpened(applicationContext)
+        val app = applicationContext
+        Thread({ com.shilapi.xcertplay.hud.NavigationOutputs.onAppOpened(app) }, "diplay-ecarx-startup").start()
         if (CarPlayScreen.forwarded(this)) {
             forwarded = true
             return

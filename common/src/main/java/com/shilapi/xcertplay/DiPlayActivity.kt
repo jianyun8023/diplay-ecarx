@@ -49,6 +49,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.lifecycleScope
 import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.CarPlayClusterDisplay
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
@@ -91,6 +92,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
@@ -167,7 +174,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var settingsSearchIndex: List<SettingsSearchResult>? = null
     private var settingsSearchQuery = ""
     private var settingsSearchExpanded = false
-    private var settingsSearchIndexing = false
+    private var settingsSearchJob: Job? = null
+    private var searchIndexJobs: MutableList<Job>? = null
+    private val settingsQueryJobs = mutableListOf<Job>()
     private var settingsSearchRestoreFocus = false
     private var renderedReadiness: SettingsReadiness? = null
     private var renderedPage: String? = null
@@ -309,7 +318,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // A previous process may have died while the Bluetooth profiles were yielded. Recover on
         // every launch, not only after a boot or an authentication failure.
         CarBluetoothProfileGuard.recoverIfStale(this)
-        NavigationOutputs.onAppOpened(applicationContext)
+        val app = applicationContext
+        Thread({ NavigationOutputs.onAppOpened(app) }, "diplay-ecarx-startup").start()
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
         settingsCategory = savedInstanceState?.getString("settings_category")
             ?.let { runCatching { SettingsCategory.valueOf(it) }.getOrNull() }
@@ -601,6 +611,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun render() = render(appearanceOnly = false)
 
     private fun render(appearanceOnly: Boolean, preferredFocusTag: Any? = null) {
+        settingsQueryJobs.forEach { it.cancel() }
+        settingsQueryJobs.clear()
         if (page != "connection" && page != "setup") hotspotEntryChecked = false
         enforceInterfaceSize()
         refreshAppearance()
@@ -849,12 +861,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
         } else {
             val openSearch = {
-                // Indexing rebuilds the settings widgets. Do it before focusing an editor,
-                // so the first keystroke never replaces the IME's input connection.
-                settingsSearchIndex = buildSettingsSearchIndex()
                 settingsSearchExpanded = true
                 settingsSearchRestoreFocus = true
                 render()
+                startSettingsSearchIndex()
             }
             val searchButton = if (iconOnlySearch) {
                 iconButton(R.drawable.ic_dp_search, getString(R.string.settings_search), openSearch).apply {
@@ -1495,27 +1505,67 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     internal data class SettingsSearchResult(val title: String, val category: SettingsCategory)
 
-    // Renders every category into a detached view and records what the builders label.
-    // render() afterwards replaces every widget reference those detached builds assigned.
-    // Dependent controls are indexed only when their enabling setting is on.
-    private fun buildSettingsSearchIndex(): List<SettingsSearchResult> {
-        val selected = settingsCategory
+    // Views stay on main; yield between categories and await their background capability queries.
+    internal suspend fun buildSettingsSearchIndex(): List<SettingsSearchResult> {
         // Category names first, so a card that only links to a category cannot claim its name.
         val index = SettingsCategory.entries.associateByTo(linkedMapOf(), ::settingsCategoryTitle)
-        try {
-            for (category in SettingsCategory.entries.filter { it != SettingsCategory.OVERVIEW } + SettingsCategory.OVERVIEW) {
+        for (category in SettingsCategory.entries.filter { it != SettingsCategory.OVERVIEW } + SettingsCategory.OVERVIEW) {
+            val selected = settingsCategory
+            val liveReadiness = readinessCard
+            val liveRenderedReadiness = renderedReadiness
+            val liveExport = exportButton
+            val liveCarButton = carButtonCard
+            val titles = mutableListOf(settingsCategoryTitle(category))
+            val jobs = mutableListOf<Job>()
+            try {
                 settingsCategory = category
-                val titles = mutableListOf(settingsCategoryTitle(category))
                 searchIndexSink = titles
+                searchIndexJobs = jobs
                 settingsCategoryContent(column())
-                titles.forEach { index.putIfAbsent(it, category) }
+            } finally {
+                searchIndexSink = null
+                searchIndexJobs = null
+                settingsCategory = selected
+                readinessCard = liveReadiness
+                renderedReadiness = liveRenderedReadiness
+                exportButton = liveExport
+                carButtonCard = liveCarButton
             }
-        } finally {
-            searchIndexSink = null
-            settingsCategory = selected
+            jobs.joinAll()
+            titles.forEach { index.putIfAbsent(it, category) }
+            delay(16)
         }
-        render()
         return index.map { SettingsSearchResult(it.key, it.value) }
+    }
+
+    private fun startSettingsSearchIndex() {
+        if (settingsSearchIndex != null || settingsSearchJob?.isActive == true) return
+        settingsSearchJob = lifecycleScope.launch {
+            settingsSearchIndex = buildSettingsSearchIndex()
+            showSettingsSearchResults()
+        }
+    }
+
+    private fun <T> settingsQuery(parent: LinearLayout, read: () -> T, build: (LinearLayout, T) -> Unit) {
+        val target = column()
+        parent.addView(target)
+        val titles = searchIndexSink
+        val job = lifecycleScope.launch {
+            val value = withContext(Dispatchers.IO) { runCatching(read) }.getOrElse {
+                Log.w("DiPlay", "Settings query failed", it)
+                return@launch
+            }
+            val previous = searchIndexSink
+            try {
+                searchIndexSink = titles
+                build(target, value)
+                // The card was normalized before this group existed; give its rows the same gaps.
+                normalizeSpacing(target, isCard = false)
+            } finally {
+                searchIndexSink = previous
+            }
+        }
+        (searchIndexJobs ?: settingsQueryJobs).add(job)
     }
 
     private fun searchSettings(index: List<SettingsSearchResult>, query: String): List<SettingsSearchResult> {
@@ -1533,18 +1583,22 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (result.category == SettingsCategory.AUDIO) audioTuningExpanded = true
         openSettingsCategory(result.category)
         val scroll = rootScroll ?: return
-        val match = descendants(scroll).filterIsInstance<TextView>().firstOrNull {
-            it.text.toString() == result.title || it.text.startsWith(result.title + VALUE_SEPARATOR)
-        } ?: return
-        val target = generateSequence<View>(match) { it.parent as? View }.firstOrNull { it.isClickable } ?: match
-        scroll.doOnLayout {
-            var top = 0
-            var view: View? = target
-            while (view != null && view !== scroll) { top += view.top; view = view.parent as? View }
-            scroll.smoothScrollTo(0, (top - dp(24)).coerceAtLeast(0))
-            target.requestFocus()
-            target.isPressed = true
-            handler.postDelayed({ target.isPressed = false }, SEARCH_HIGHLIGHT_MILLIS)
+        lifecycleScope.launch {
+            settingsQueryJobs.toList().joinAll()
+            if (rootScroll !== scroll) return@launch
+            val match = descendants(scroll).filterIsInstance<TextView>().firstOrNull {
+                it.text.toString() == result.title || it.text.startsWith(result.title + VALUE_SEPARATOR)
+            } ?: return@launch
+            val target = generateSequence<View>(match) { it.parent as? View }.firstOrNull { it.isClickable } ?: match
+            scroll.doOnLayout {
+                var top = 0
+                var view: View? = target
+                while (view != null && view !== scroll) { top += view.top; view = view.parent as? View }
+                scroll.smoothScrollTo(0, (top - dp(24)).coerceAtLeast(0))
+                target.requestFocus()
+                target.isPressed = true
+                handler.postDelayed({ target.isPressed = false }, SEARCH_HIGHLIGHT_MILLIS)
+            }
         }
     }
 
@@ -1555,8 +1609,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     /**
      * The settings header search box; matches drop down under it as the driver types.
-     * The index is built before expanding the field, so typing keeps the same editor
-     * and keyboard input connection.
+     * Indexing leaves this editor and its keyboard input connection in place.
      */
     private fun settingsSearchField(compact: Boolean): EditText = SettingsSearchEditText(this).apply {
         settingsSearchBox = this
@@ -1643,15 +1696,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             showSettingsSearchResults()
             return
         }
-        if (settingsSearchIndexing) return
-        settingsSearchIndexing = true
-        // Not from inside the text watcher: indexing replaces this box.
-        handler.post {
-            settingsSearchIndexing = false
-            if (page != "settings" || settingsSearchQuery.isEmpty() || settingsSearchIndex != null) return@post
-            settingsSearchRestoreFocus = true
-            settingsSearchIndex = buildSettingsSearchIndex()
-        }
+        startSettingsSearchIndex()
     }
 
     private fun settingsSearchResults(): List<SettingsSearchResult> =
@@ -1752,6 +1797,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun clearSettingsSearchState() {
+        settingsSearchJob?.cancel()
+        settingsSearchJob = null
         settingsSearchQuery = ""
         settingsSearchExpanded = false
         settingsSearchIndex = null
@@ -2034,7 +2081,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 render()
             }
         }
-        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) filteredSection(content,
+        if (settingsSectionFilter?.contains(SettingsSection.ECARX_CLUSTER_DISPLAY) != false &&
+            com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) filteredSection(content,
             SettingsSection.ECARX_CLUSTER_DISPLAY, getString(R.string.settings_ecarx_cluster_display),
             R.drawable.ic_dp_display) { card ->
             toggle(card, getString(R.string.settings_ecarx_cluster_mirror_main),
@@ -2145,10 +2193,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }
             val hevc = AirPlayPersistence.loadHevcEnabled(this)
             val selectedMime = if (hevc) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
-            val mtkDecoder = if (hevc && AirPlayPersistence.loadHevcSoftwareDecoderEnabled(this)) null
-                else selectedMtkDecoderName(selectedMime)
-            if (mtkDecoder != null) {
-                toggle(card, getString(R.string.settings_mtk_decoder_tuning),
+            val software = hevc && AirPlayPersistence.loadHevcSoftwareDecoderEnabled(this)
+            settingsQuery(card, { if (software) null else selectedMtkDecoderName(selectedMime) }) { target, mtkDecoder ->
+                if (mtkDecoder != null) toggle(target, getString(R.string.settings_mtk_decoder_tuning),
                     getString(R.string.settings_mtk_decoder_tuning_description, mtkDecoder),
                     AirPlayPersistence.loadMtkDecoderTuning(this)) {
                     AirPlayPersistence.saveMtkDecoderTuning(this, it)
@@ -2299,7 +2346,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // The ECARX (亿咖通) instrument-cluster output. It serves the turn-by-turn guidance goal, so it
         // shares the Navigation category with the location card.
-        if (com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) filteredSection(content, SettingsSection.LOCATION,
+        if (settingsSectionFilter?.contains(SettingsSection.LOCATION) != false &&
+            com.shilapi.xcertplay.hud.EcarxCapabilities.detect(this).identified) filteredSection(content, SettingsSection.LOCATION,
             getString(R.string.ecarx_navigation), R.drawable.ic_dp_navigation) { card ->
             ecarxNavigationOutputs(card)
         }
@@ -3686,26 +3734,35 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun wheelKeysSettings(card: LinearLayout) {
-        EcarxHicarControl.state(this)?.let { hicar ->
-            toggle(card, getString(R.string.settings_disable_factory_hicar),
+        val app = applicationContext
+        settingsQuery(card, { EcarxHicarControl.state(app) }) { target, hicar ->
+            if (hicar == null) return@settingsQuery
+            lateinit var control: Switch
+            control = toggle(target, getString(R.string.settings_disable_factory_hicar),
                 getString(if (hicar.canChange) R.string.settings_disable_factory_hicar_description
                     else R.string.settings_factory_hicar_permission_required),
                 hicar.disabled, enabled = hicar.canChange) { disabled ->
                 SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.FACTORY_HICAR,
                     "phase=begin targetDisabled=$disabled before=${hicar.disabled} canChange=${hicar.canChange}")
-                val applied = EcarxHicarControl.setDisabled(this, disabled) { failure ->
-                    SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.FACTORY_HICAR,
-                        "phase=failure targetDisabled=$disabled error=$failure")
+                control.isEnabled = false
+                lifecycleScope.launch {
+                    val applied = withContext(Dispatchers.IO) {
+                        val applied = EcarxHicarControl.setDisabled(app, disabled) { failure ->
+                            SettingsActionDiagnostics.record(app, SettingsActionDiagnostics.Action.FACTORY_HICAR,
+                                "phase=failure targetDisabled=$disabled error=$failure")
+                        }
+                        SettingsActionDiagnostics.record(app, SettingsActionDiagnostics.Action.FACTORY_HICAR,
+                            "phase=finished targetDisabled=$disabled applied=$applied " +
+                                "after=${runCatching { EcarxHicarControl.state(app)?.disabled }.getOrNull()}")
+                        applied
+                    }
+                    toast(getString(when {
+                        !applied -> R.string.settings_factory_hicar_failed
+                        disabled -> R.string.settings_factory_hicar_disabled
+                        else -> R.string.settings_factory_hicar_restored
+                    }))
+                    render()
                 }
-                SettingsActionDiagnostics.record(applicationContext, SettingsActionDiagnostics.Action.FACTORY_HICAR,
-                    "phase=finished targetDisabled=$disabled applied=$applied " +
-                        "after=${runCatching { EcarxHicarControl.state(this)?.disabled }.getOrNull()}")
-                toast(getString(when {
-                    !applied -> R.string.settings_factory_hicar_failed
-                    disabled -> R.string.settings_factory_hicar_disabled
-                    else -> R.string.settings_factory_hicar_restored
-                }))
-                render()
             }
         }
         toggle(card, getString(R.string.wheel_siri_key), getString(R.string.wheel_siri_key_description),
@@ -4913,7 +4970,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }, "diplay-export").start()
     }
 
-    /** The text of a diagnostic report. It reads the session logs, so call it off the main thread. */
     /**
      * A selectable TextView cannot lay out a multi-megabyte report; the saved file keeps the full text.
      * The view keeps the head (everything above the first log section: version, head unit, settings, snapshots)
@@ -4949,15 +5005,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     }
 
     private fun showDiagnosticReport(report: String) {
-        val body = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
-        body.addView(label(getString(R.string.diagnostic_report_copy_hint), 14, MUTED))
-        body.addView(label(reportTail(report), 13, TEXT).apply {
-            typeface = Typeface.MONOSPACE
-            setTextIsSelectable(true)
-        })
-        appDialogBuilder().setTitle(getString(R.string.view_diagnostic_report))
-            .setView(ScrollView(appDialogContext()).apply { addView(body) })
-            .setPositiveButton(getString(R.string.close), null).show()
+        lifecycleScope.launch {
+            val visibleReport = withContext(Dispatchers.Default) { reportTail(report) }
+            if (isFinishing || isDestroyed) return@launch
+            val body = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
+            body.addView(label(getString(R.string.diagnostic_report_copy_hint), 14, MUTED))
+            body.addView(label(visibleReport, 13, TEXT).apply {
+                typeface = Typeface.MONOSPACE
+                setTextIsSelectable(true)
+            })
+            appDialogBuilder().setTitle(getString(R.string.view_diagnostic_report))
+                .setView(ScrollView(appDialogContext()).apply { addView(body) })
+                .setPositiveButton(getString(R.string.close), null).show()
+        }
     }
     private fun permissionHelp(title: String, body: String) {
         appDialogBuilder().setTitle(title).setMessage(body).setPositiveButton(getString(R.string.app_settings)) { _, _ ->

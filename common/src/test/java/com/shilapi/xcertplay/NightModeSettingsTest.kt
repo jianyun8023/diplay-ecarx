@@ -194,8 +194,7 @@ class NightModeSettingsTest {
         AirPlayPersistence.saveCarPlayNightMode(activity, CarPlayNightMode.SCHEDULE)
         renderOverview()
 
-        val index = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-            activity, "buildSettingsSearchIndex")
+        val index = activity.settingsIndexForTest()
 
         assertTrue(index.any {
             it.title == activity.getString(R.string.carplay_night_mode) && it.category == SettingsCategory.DISPLAY

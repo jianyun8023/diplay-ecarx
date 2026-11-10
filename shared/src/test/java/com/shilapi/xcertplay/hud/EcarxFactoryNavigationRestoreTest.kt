@@ -9,7 +9,6 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
-import android.os.Looper
 import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -86,15 +85,15 @@ class EcarxFactoryNavigationRestoreTest {
         assertTrue(result, result.contains("serviceStart=delayed"))
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, app.packageManager.getApplicationEnabledSetting(packageName))
         assertTrue(store.getBoolean("owned", false))
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_999))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofMillis(1_999))
         assertNull(shadowOf(app).nextStartedService)
         // Duplicate cleanup does not postpone restart.
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofMillis(1))
         assertEquals(ComponentName(packageName, "ecarx.naviservice.service.NaviService"), shadowOf(app).nextStartedService.component)
         assertTrue(store.getBoolean("owned", false))
         processManager.setProcesses(listOf(ActivityManager.RunningAppProcessInfo(packageName, 42, arrayOf(packageName))))
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(1))
         assertFalse(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("restore=running"))
         assertEquals("factoryNavigation restore=not-owned", EcarxFactoryNavigationRestore.restoreIfPausedByUs(app))
@@ -104,13 +103,13 @@ class EcarxFactoryNavigationRestoreTest {
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         var settled = 0
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(2))
         assertEquals(0, settled)
         processManager.setProcesses(listOf(ActivityManager.RunningAppProcessInfo(packageName, 42, arrayOf(packageName))))
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(1))
         assertEquals(1, settled)
         assertFalse(store.getBoolean("owned", false))
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(8))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(8))
         assertEquals(1, settled)
     }
 
@@ -124,7 +123,7 @@ class EcarxFactoryNavigationRestoreTest {
         // New guidance cancels the delayed start; the waiting caller must not hang on it.
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         assertEquals(2, settled)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(8))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(8))
         assertEquals(2, settled)
     }
 
@@ -132,9 +131,9 @@ class EcarxFactoryNavigationRestoreTest {
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         var settled = 0
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(6))
         assertEquals(0, settled)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(1))
         assertEquals(1, settled)
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("process-unconfirmed"))
@@ -152,13 +151,13 @@ class EcarxFactoryNavigationRestoreTest {
     @Test fun newGuidanceCancelsDelayedServiceRestart() {
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(1))
         val oldStart = EcarxFactoryNavigationRestore::class.java.getDeclaredField("pending").apply { isAccessible = true }
             .get(EcarxFactoryNavigationRestore) as Runnable
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         // Simulate a callback already dequeued and waiting for the controller lock.
         oldStart.run()
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(8))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(8))
         assertNull(shadowOf(app).nextStartedService)
         assertTrue(store.getBoolean("owned", false))
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER, app.packageManager.getApplicationEnabledSetting(packageName))
@@ -167,14 +166,14 @@ class EcarxFactoryNavigationRestoreTest {
     @Test fun newGuidanceAlsoCancelsPendingProcessConfirmation() {
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(2))
         assertTrue(shadowOf(app).nextStartedService != null)
         val oldVerify = EcarxFactoryNavigationRestore::class.java.getDeclaredField("pending").apply { isAccessible = true }
             .get(EcarxFactoryNavigationRestore) as Runnable
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         processManager.setProcesses(listOf(ActivityManager.RunningAppProcessInfo(packageName, 42, arrayOf(packageName))))
         oldVerify.run()
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(8))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(8))
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).startsWith("factoryNavigation pause=disabled"))
     }
@@ -196,7 +195,7 @@ class EcarxFactoryNavigationRestoreTest {
             override fun startForegroundService(service: Intent): ComponentName? = throw IllegalStateException("fixture-start-failed")
         }
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(failing)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(2))
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("fixture-start-failed"))
         assertTrue(EcarxFactoryNavigationRestore.restoreIfPausedByUs(app).contains("serviceStart=delayed"))
@@ -209,7 +208,7 @@ class EcarxFactoryNavigationRestoreTest {
             override fun startForegroundService(service: Intent): ComponentName? = null
         }
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(missingService)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(2))
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("service-not-found"))
     }
@@ -217,12 +216,12 @@ class EcarxFactoryNavigationRestoreTest {
     @Test fun unconfirmedOrInvisibleProcessKeepsMarker() {
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(7))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(7))
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("process-unconfirmed"))
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)
         shadowOf(app).denyPermissions("android.permission.REAL_GET_TASKS")
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(3))
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("process-permission-required"))
     }

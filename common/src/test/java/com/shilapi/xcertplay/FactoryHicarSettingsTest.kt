@@ -12,6 +12,8 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.hud.EcarxHicarControl
 import java.io.File
@@ -60,6 +62,9 @@ class FactoryHicarSettingsTest {
         orientation = LinearLayout.VERTICAL
         activity.javaClass.getDeclaredMethod("allSettingsSections", LinearLayout::class.java)
             .apply { isAccessible = true }.invoke(activity, this)
+        awaitSettingsWork {
+            activity.lifecycleScope.coroutineContext[Job]!!.children.none { it.isActive }
+        }
     }
 
     private fun control(root: View): Switch = views(root).filterIsInstance<Switch>().single {
@@ -73,11 +78,13 @@ class FactoryHicarSettingsTest {
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         (initial.parent as View).performClick()
+        awaitSettingsWork { activity.lifecycleScope.coroutineContext[Job]!!.children.none { it.isActive } }
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         val disabled = control(settings())
         assertTrue(disabled.isChecked)
         (disabled.parent as View).performClick()
+        awaitSettingsWork { activity.lifecycleScope.coroutineContext[Job]!!.children.none { it.isActive } }
         assertEquals(PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
             activity.packageManager.getApplicationEnabledSetting(packageName))
         assertFalse(control(settings()).isChecked)
@@ -138,6 +145,18 @@ class FactoryHicarSettingsTest {
             .setApplicationEnabledSetting(packageName, PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER, 0)
         assertFalse(EcarxHicarControl.setDisabled(context, true))
         assertFalse(EcarxHicarControl.state(context)!!.disabled)
+    }
+
+    @Test fun backgroundBuiltHicarRowKeepsTheCardSpacing() {
+        val root = settings()
+        val hicar = control(root).parent as View
+        val siri = views(root).filterIsInstance<Switch>().single {
+            it.contentDescription == activity.getString(R.string.wheel_siri_key)
+        }.parent as View
+        assertEquals(0, hicar.paddingTop)
+        assertEquals(0, hicar.paddingBottom)
+        assertEquals((siri.layoutParams as LinearLayout.LayoutParams).bottomMargin,
+            (hicar.layoutParams as LinearLayout.LayoutParams).bottomMargin)
     }
 
     @Test fun currentHeadUnitScreenFitsHicarControl() {

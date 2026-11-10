@@ -237,7 +237,9 @@ class WheelKeyServiceReportTest {
         assertFalse(press(KeyEvent.KEYCODE_F7))
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         val setupReady = ReflectionHelpers.getField<Any?>(activity, "setupError") == null
-        val text = diagnosticReportText(service.applicationContext, setupReady)
+        val text = java.util.concurrent.CompletableFuture.supplyAsync {
+            diagnosticReportText(service.applicationContext, setupReady)
+        }.get()
         val lines = text.lines()
         val serviceLine = lines.indexOfFirst { it.startsWith("Wheel key service: ") }
         assertTrue(text, serviceLine >= 0)

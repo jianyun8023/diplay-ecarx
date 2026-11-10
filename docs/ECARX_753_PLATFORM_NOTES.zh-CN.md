@@ -112,7 +112,7 @@ stateDiagram-v2
     StableFrame --> [*]
 ```
 
-- `BootRecovery` 在自启开关判断之前检查原厂导航恢复；复用 `EcarxHudBridge.recoverFactoryNavigationIfIdle()`，仅恢复本应用暂停的包，且不覆盖解锁直达路径已经开始的导航或 HUD 输出。未解锁的预热路径不访问这份凭据保护存储。恢复链的服务拉起与进程确认在主线程延后约 7 s；自启关闭时广播返回后进程没有其他组件，因此 `BOOT_COMPLETED` 用 `goAsync()` 持有广播直到恢复链结束，上限 9 s（`BroadcastHold`），避免进程被回收后服务未启动、owned 标记残留。
+- `BootRecovery` 在自启开关判断之前检查原厂导航恢复；复用 `EcarxHudBridge.recoverFactoryNavigationIfIdle()`，仅恢复本应用暂停的包，且不覆盖解锁直达路径已经开始的导航或 HUD 输出。未解锁的预热路径不访问这份凭据保护存储。恢复链的服务拉起与进程确认在专用后台 Looper 延后约 7 s；自启关闭时广播返回后进程没有其他组件，因此 `BOOT_COMPLETED` 用 `goAsync()` 持有广播直到恢复链结束，上限 9 s（`BroadcastHold`），避免进程被回收后服务未启动、owned 标记残留。
 - `Connecting` 内热点准备和蓝牙就绪可并行，热点保护仍由 `CarWifiClientGuard` 负责；蓝牙 OFF 的 8 s 等待、局部重试及所有失败预算不变。上层不复制这些内部状态。
 - 首帧可来自蓝牙 fallback；稳定帧为隧道 StartSession 后的视频回调。两个检查点可能来自同一次回调，代码也可能先记录稳定帧，图中的先后关系不作为回调顺序约束；没有稳定帧不直接判为连接失败。
 - 迟到的 `BOOT_COMPLETED` 仍执行恢复检查，但已有宿主会去重；它不是解锁直达路径的计时起点。ACC 唤醒不等同于整机重启。
@@ -148,6 +148,13 @@ stateDiagram-v2
 - iPhone 侧本车记录若首次由 USB 建立，iOS 把车当有线设备：握手第 6 步回 `0x4E0D WirelessCarPlayUpdate available=false`，不再发 `0x4E0E`/`0x4300`，不入热点。只能在 iPhone 删除本车重新配对并先走无线。蓝牙 RFCOMM、iAP2 identification、MFi（0xAA02/03/05）、Wi-Fi 配置下发（0x5702→0x5703）此时都正常。
 - RFCOMM connect 实测 147–1714 ms；CSM 就绪长尾 34.6 s；bt/select 到 connect 串行空等约 235 ms（v124 会话 C）。
 - 有线 USBMUX 每秒约 14 次读请求，旧实现每次新建 `UsbRequest` 导致一小时约 10 万行日志（10-31 实车）。
+
+**主线程掉帧（Kotlin 层）**
+
+- `logs/cap-v104-20261031-session1/full.log:4939` 的 `Start proc 7470:com.shihab.diplay` 确认 PID 7470 是 DiPlay。主线程 PID/TID 均为 7470；18:33:11.220 掉 59 帧，18:33:17.388 掉 32 帧。多个 checkpoint 中相同时间戳的日志是同一事件，不能算作独立复现。现有 logcat 没有采样调用栈，不能据此把掉帧唯一归因到某个函数。
+- 设置搜索按分类分批构建，保留主线程上的 View 与输入连接；HiCar 状态、包启停及解码器查询使用后台线程。报告生成拒绝主线程调用，预览裁剪在后台完成，导出文件仍保留全文。
+- Activity 启动时的导航恢复和 DIM 初始化移至后台。固件 `ServiceConnector` 使用默认 `new Handler()`，要求当前线程有 Looper，并未限定为主 Looper；DIM 补建句柄使用专用后台 Looper。原厂导航延时拉起和进程确认也使用后台 Looper，保留 owned 标记、2 s 延时、确认重试和广播保活。
+- 单测只能验证线程路径与已有行为；[1920×1080 设置截图](screenshots/settings-hicar-background.png)检查异步查询后的控件位置。消除 59 帧停顿仍需用新 APK 在 753 / 820A 实车采集帧时间及调用栈确认。
 
 ## 5. 权限与签名
 

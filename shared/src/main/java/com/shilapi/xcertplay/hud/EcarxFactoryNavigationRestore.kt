@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.util.Log
 
 /** Owns only the factory navigation package paused by DiPlay; widget bindings are not restored. */
@@ -19,7 +19,9 @@ object EcarxFactoryNavigationRestore {
     private const val PERMISSION = "android.permission.CHANGE_COMPONENT_ENABLED_STATE"
     private const val PROCESS_PERMISSION = "android.permission.REAL_GET_TASKS"
     private const val TAG = "DiPlay-ECARX"
-    private val handler by lazy { Handler(Looper.getMainLooper()) }
+    internal val handler by lazy {
+        Handler(HandlerThread("diplay-factory-navigation").apply { start() }.looper)
+    }
     private var pending: Runnable? = null
     /** Fires once when the chain behind [pending] ends, is superseded, or never started. */
     private var onSettled: (() -> Unit)? = null
@@ -57,7 +59,7 @@ object EcarxFactoryNavigationRestore {
      * Call only without active guidance; repeated calls keep the original two-second deadline.
      *
      * Enabling the package is synchronous. Starting and confirming the service takes up to about
-     * seven more seconds on the main looper, so a caller whose process may not live that long (a
+     * seven more seconds on a worker looper, so a caller whose process may not live that long (a
      * boot broadcast with nothing else running) passes [onSettled] and keeps itself alive until it
      * fires. It fires exactly once: at once when nothing asynchronous was started, otherwise when
      * the chain ends with a result or is cancelled by new guidance.

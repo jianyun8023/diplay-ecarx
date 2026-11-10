@@ -62,8 +62,7 @@ class InterfaceSizeActivityTest {
             assertEquals(1, texts(activity.findViewById(android.R.id.content)).count {
                 it.text.startsWith(activity.getString(R.string.settings_interface_size) + " · ")
             })
-            val index = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-                activity, "buildSettingsSearchIndex")
+            val index = activity.settingsIndexForTest()
             assertTrue(index.any {
                 it.title == activity.getString(R.string.settings_interface_size) &&
                     it.category == SettingsCategory.DISPLAY
