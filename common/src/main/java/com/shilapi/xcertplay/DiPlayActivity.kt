@@ -1559,6 +1559,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             try {
                 searchIndexSink = titles
                 build(target, value)
+                // The card was normalized before this group existed; give its rows the same gaps.
+                normalizeSpacing(target, isCard = false)
             } finally {
                 searchIndexSink = previous
             }

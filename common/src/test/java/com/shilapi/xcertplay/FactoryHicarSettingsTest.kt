@@ -147,6 +147,18 @@ class FactoryHicarSettingsTest {
         assertFalse(EcarxHicarControl.state(context)!!.disabled)
     }
 
+    @Test fun backgroundBuiltHicarRowKeepsTheCardSpacing() {
+        val root = settings()
+        val hicar = control(root).parent as View
+        val siri = views(root).filterIsInstance<Switch>().single {
+            it.contentDescription == activity.getString(R.string.wheel_siri_key)
+        }.parent as View
+        assertEquals(0, hicar.paddingTop)
+        assertEquals(0, hicar.paddingBottom)
+        assertEquals((siri.layoutParams as LinearLayout.LayoutParams).bottomMargin,
+            (hicar.layoutParams as LinearLayout.LayoutParams).bottomMargin)
+    }
+
     @Test fun currentHeadUnitScreenFitsHicarControl() {
         val root = settings().apply { setBackgroundColor(DiPlayPalette.DARK.surface) }
         root.measure(View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
