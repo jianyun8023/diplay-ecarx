@@ -7,6 +7,11 @@ subprojects {
     plugins.withId("com.android.application") {
         extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
             defaultConfig.ndk.abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+            buildTypes.named("release") {
+                optimization {
+                    enable = true
+                }
+            }
         }
     }
 }

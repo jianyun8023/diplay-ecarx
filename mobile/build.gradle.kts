@@ -17,7 +17,7 @@ android {
         minSdk = 24
         targetSdk = 37
         // ECARX release sequence; upstream baseline is v0.2.22.
-        versionCode = 145
+        versionCode = 146
         versionName = "0.2"
         testInstrumentationRunner = "com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation"
 
@@ -47,9 +47,6 @@ android {
         release {
             if (providers.gradleProperty("carTestLabel").isPresent) {
                 versionNameSuffix = "-car-test-${providers.gradleProperty("carTestLabel").get()}"
-            }
-            optimization {
-                enable = false
             }
             signingConfig = signingConfigs.getByName("release")
         }
