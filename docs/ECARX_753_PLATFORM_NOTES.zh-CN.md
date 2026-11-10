@@ -69,6 +69,7 @@
 | 原厂导航停包 | `PackageManager.setApplicationEnabledSetting("ecarx.naviservice", DISABLED_USER)`；恢复后 2 s `startForegroundService(ecarx.naviservice.service.NaviService)` | 系统 API，需 `CHANGE_COMPONENT_ENABLED_STATE` | `EcarxFactoryNavigationRestore` | 台架重放、DCYTools 1.13 反编译 |
 | 原厂 HiCar 关闭 | 同上接口作用于 `com.ecarx.hmi` | 系统 API | `EcarxHicarControl` | 实车 |
 | 桌面启动批次 | 桌面首次 resume 后发 `com.ecarx.intent.action.EAS_LAUNCH_BAT_0ST`，之后批次陆续启动（含 `ecarx.xsf.inputservice`） | 接收广播后再打开 CarPlay | `EcarxLauncherStartup` | 实车 2026-11-06 / 11-07 |
+| 启动采样开机标识 | `Settings.Global.BOOT_COUNT`（只读）+ 进程 PID + controller owner + generation | 区分跨开机、进程重启及连接代次；读不到开机标识时仅保留原始事件 | `CarPlayStartupTimeline` | Robolectric；待实车 |
 | 音量 | `dumpsys car_service`：组 0 媒体、组 1 导航，每级 150 mB，-4800（0 级）到 +1050（39 级） | 读 `Settings.Global` | `CarNavigationVolume` | 实车 2026-11-07 |
 
 ## 4. 固件与第三方行为（已确认的坑）
@@ -82,11 +83,46 @@
 - 开机 90 s 内蓝牙可能为 `STATE_OFF`，只观察不 `enable()`，最多等 8 s。
 - 熄火开门后车机关热点和蓝牙；点亮屏幕后依次恢复蓝牙、热点。重连要等两者都回来（小米 8 台架复现，v143 实现）。
 
+**启动状态与责任边界**
+
+下图描述当前调度的状态与事件，不新增统一调度器。开机入口负责是否拉起宿主；进入连接后，`WirelessRun` 持有一代无线资源与 handoff 状态。`CarPlayStartupTimeline` 只记录证据、输出指标，不驱动连接或重试。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Warmed: LOCKED_BOOT_COMPLETED
+    Warmed --> WaitingUnlock: 开机自启开启
+    Warmed --> Disabled: 开机自启关闭
+    WaitingUnlock --> WaitingLauncher: 已解锁 / USER_UNLOCKED，ECARX
+    WaitingUnlock --> LaunchDecision: 已解锁，非 ECARX
+    WaitingLauncher --> LaunchDecision: 桌面首批广播 / 5 s 到期
+    [*] --> BootRecovery: BOOT_COMPLETED
+    BootRecovery --> Disabled: 开机自启关闭
+    BootRecovery --> LaunchDecision: 开机自启开启
+    LaunchDecision --> ExistingHost: 宿主已打开
+    LaunchDecision --> Home: 缺少配置或权限 / 拉起失败
+    LaunchDecision --> Connecting: 已配置无线直达宿主
+    Home --> Connecting: 配置就绪并发起连接
+    Connecting --> FirstFrame: VIDEO_FIRST_FRAME
+    Connecting --> Failed: WIRELESS_FAILED
+    FirstFrame --> StableFrame: STABLE_VIDEO_FRAME
+    FirstFrame --> Failed: 连接随后失败
+    Failed --> Connecting: 现有恢复策略创建新代次
+    Disabled --> [*]
+    ExistingHost --> [*]
+    StableFrame --> [*]
+```
+
+- `BootRecovery` 在自启开关判断之前检查原厂导航恢复；复用 `EcarxHudBridge.recoverFactoryNavigationIfIdle()`，仅恢复本应用暂停的包，且不覆盖解锁直达路径已经开始的导航或 HUD 输出。未解锁的预热路径不访问这份凭据保护存储。恢复链的服务拉起与进程确认在主线程延后约 7 s；自启关闭时广播返回后进程没有其他组件，因此 `BOOT_COMPLETED` 用 `goAsync()` 持有广播直到恢复链结束，上限 9 s（`BroadcastHold`），避免进程被回收后服务未启动、owned 标记残留。
+- `Connecting` 内热点准备和蓝牙就绪可并行，热点保护仍由 `CarWifiClientGuard` 负责；蓝牙 OFF 的 8 s 等待、局部重试及所有失败预算不变。上层不复制这些内部状态。
+- 首帧可来自蓝牙 fallback；稳定帧为隧道 StartSession 后的视频回调。两个检查点可能来自同一次回调，代码也可能先记录稳定帧，图中的先后关系不作为回调顺序约束；没有稳定帧不直接判为连接失败。
+- 迟到的 `BOOT_COMPLETED` 仍执行恢复检查，但已有宿主会去重；它不是解锁直达路径的计时起点。ACC 唤醒不等同于整机重启。
+- 每个车测包按[启动采样验收表](CARPLAY_STARTUP_SAMPLING.zh-CN.md#冷启动验收与每包记录)记录三条指标、成功/失败轮数和人工可见画面证据。
+
 **导航与仪表**
 
 - 原厂导航插件通过共享 MQTT 主题向仪表写错误的 1 m 距离（启用期 24 次调用 3 次 1 m；75 s 台架 90 次 11 次），与 CarPlay 数据冲突。采用停包方案，MQTT 纠偏弃用。
 - 停包会删掉原厂桌面（launcher3 v999）导航卡片绑定，恢复后要手工重加；HY 同样回不来。
-- 停包状态落盘后整机重启：开机广播拉起进程但不恢复原厂包，开机后 7.9–28.5 s 原厂包仍停用；手动打开 DiPlay 后 31.8 s 恢复（v109 模拟器）。
+- 停包状态落盘后整机重启：v109 模拟器中开机广播拉起进程但未恢复原厂包，开机后 7.9–28.5 s 仍停用，手动打开 DiPlay 后 31.8 s 才恢复。现已在 `BOOT_COMPLETED` 接入空闲恢复检查，覆盖自启关闭和解锁后已导航的情形；单测通过，待实车验证，桌面卡片绑定仍不能自动恢复。
 - 仪表 `stopUI`/`showUI` 作用于副屏 `ALT_UUID`，不拆视频流；`presentationOption` 只在内存，重启后曾自动重开。
 - 手机侧结束路线：`0x5203 StopRouteGuidanceUpdates` 只是停元数据订阅，不是结束导航；没找到可验证的 iPhone 结束路线命令，`onDoInteractionAction(2)` 只能记 `unsupported` 并提示用户。
 - 三家地图差异（台架 2026-11-01）：苹果 0.5–0.7 Hz 预取 5–8 个路口车道；高德约 1.9 Hz 但 `0x5204` 车道为 0 条（车道画进 `CPManeuver.contentImage`）；百度约 1.7 Hz 单路口。三家距离都非单调。
@@ -156,6 +192,8 @@
 | 高通低延迟解码 | 待验 | 默认关闭 | `effectiveness=unverified` |
 | 保留系统栏时的前台布局 | 待验 | | Robolectric 截图，非车机 |
 | 公开 Release 应用内更新 | 实车 | v143→v144 2026-11-09 | |
+| 开机 `BOOT_COMPLETED` 恢复 DiPlay 暂停的原厂导航 | 模拟器 | PR #70 2026-11-10，Android 9 模拟器 | 覆盖自启关闭、解锁后已导航两条路径；广播 `goAsync` 持有仅有单测；实车待验；桌面卡片绑定不恢复 |
+| 启动指标（开机 / 进程 / 代次分组，首帧与稳定帧） | 台架 | PR #70 2026-11-10，小米 8 + 模拟器 | 开机计数与 PID 落盘为真实数据，首帧检查点为注入数据；实车冷启动 p50/p95 未采 |
 
 ## 8. 证据索引（本地工作区 `lyno-carplay/`，不随仓库分发）
 

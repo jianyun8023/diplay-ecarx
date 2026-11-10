@@ -58,6 +58,7 @@ class WirelessBootstrapLifecycleTest {
                 serialNumber = "test", firmwareVersion = "1", hardwareVersion = "1", carPlayUsbInterfaceNumber = 3)),
             airPlayConfig, identity, PairingStore(), object : AirPlaySessionListener {},
             object : AirPlayMediaHandler {}, statuses::add)
+        controller.wirelessRunForTest()
     }
 
     @After fun tearDown() {
@@ -85,17 +86,17 @@ class WirelessBootstrapLifecycleTest {
         val link = linkType.getDeclaredConstructor(Int::class.javaPrimitiveType, BluetoothDevice::class.java,
             BluetoothRfcommDuplexStream::class.java, Long::class.javaPrimitiveType, attempt.javaClass)
             .apply { isAccessible = true }.newInstance(0, mock(BluetoothDevice::class.java), stream, 0L, attempt)
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", attempt)
-        ReflectionHelpers.setField(controller, "instantBluetoothLink", link)
-        ReflectionHelpers.setField(controller, "csm", csm)
-        ReflectionHelpers.setField(controller, "bluetoothStream", stream)
-        ReflectionHelpers.setField(controller, "bluetoothSocket", socket)
-        ReflectionHelpers.setField(controller, "hotspot", hotspot)
-        ReflectionHelpers.setField(controller, "bonjour", bonjour)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "instantBluetoothLink", link)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "csm", csm)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothStream", stream)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothSocket", socket)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "hotspot", hotspot)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bonjour", bonjour)
         ReflectionHelpers.setField(controller, "vpnService", service)
         doAnswer {
             assertFalse("Attempt must be invalidated before resource cleanup", attemptIsCurrent(attempt))
-            assertNull(ReflectionHelpers.getField<Any?>(controller, "bootstrapAttempt"))
+            assertNull(ReflectionHelpers.getField<Any?>(controller.wirelessRunForTest(), "bootstrapAttempt"))
             if (throwOnClose) throw IOException("CSM close failed")
             null
         }.`when`(csm).close()
@@ -107,15 +108,15 @@ class WirelessBootstrapLifecycleTest {
 
         assertFalse(attemptIsCurrent(attempt))
         for (name in listOf("bootstrapAttempt", "instantBluetoothLink", "csm", "bluetoothStream", "bluetoothSocket")) {
-            assertNull("$name was retained", ReflectionHelpers.getField<Any?>(controller, name))
+            assertNull("$name was retained", ReflectionHelpers.getField<Any?>(controller.wirelessRunForTest(), name))
         }
         val order = inOrder(csm, stream, socket)
         order.verify(csm).close()
         order.verify(stream).close()
         order.verify(socket).close()
         verifyNoMoreInteractions(csm, stream, socket)
-        assertSame(hotspot, ReflectionHelpers.getField(controller, "hotspot"))
-        assertSame(bonjour, ReflectionHelpers.getField(controller, "bonjour"))
+        assertSame(hotspot, ReflectionHelpers.getField(controller.wirelessRunForTest(), "hotspot"))
+        assertSame(bonjour, ReflectionHelpers.getField(controller.wirelessRunForTest(), "bonjour"))
         assertSame(service, ReflectionHelpers.getField(controller, "vpnService"))
         verifyNoInteractions(hotspot, bonjour, service)
         shadowOf(Looper.getMainLooper()).idle()
@@ -124,13 +125,13 @@ class WirelessBootstrapLifecycleTest {
 
     @Test fun queuedOldBootstrapStatusCannotEscapeAnInvalidatedAttempt() {
         val oldAttempt = newAttempt()
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", oldAttempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", oldAttempt)
         bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, oldAttempt)
         assertTrue("Bootstrap status must be queued until the main looper runs", statuses.isEmpty())
 
         oldAttempt.javaClass.getDeclaredMethod("invalidate").apply { isAccessible = true }.invoke(oldAttempt)
         val replacement = newAttempt()
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", replacement)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", replacement)
         assertFalse(attemptIsCurrent(oldAttempt))
         assertTrue(attemptIsCurrent(replacement))
         shadowOf(Looper.getMainLooper()).idle()
@@ -143,7 +144,7 @@ class WirelessBootstrapLifecycleTest {
 
     @Test fun queuedCurrentBootstrapStatusIsDeliveredOnTheMainLooper() {
         val attempt = newAttempt()
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", attempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
         bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, attempt)
         assertTrue(statuses.isEmpty())
         shadowOf(Looper.getMainLooper()).idle()
@@ -152,7 +153,7 @@ class WirelessBootstrapLifecycleTest {
 
     @Test fun queuedBootstrapStatusCannotEscapeAnOldWirelessGeneration() {
         val attempt = newAttempt()
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", attempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
         bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, attempt)
         ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
         // Keep the token itself valid: the whole-run generation check must independently reject it.
@@ -207,7 +208,7 @@ class WirelessBootstrapLifecycleTest {
             // A stale successful return must close again instead of resurrecting the socket.
             verify(socket, times(2)).close()
             assertFalse(returnedSuccessfully.get())
-            assertNull(ReflectionHelpers.getField<Any?>(controller, "bluetoothSocket"))
+            assertNull(ReflectionHelpers.getField<Any?>(controller.wirelessRunForTest(), "bluetoothSocket"))
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue(statuses.isEmpty())
         } finally {
@@ -304,15 +305,15 @@ class WirelessBootstrapLifecycleTest {
         val hotspot = mock(WirelessHotspotManager::class.java)
         val bonjour = mock(CarPlayBonjour::class.java)
         val service = mock(CarPlayVpnService::class.java)
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", attempt)
-        ReflectionHelpers.setField(controller, "csm", channel)
-        ReflectionHelpers.setField(controller, "bluetoothStream", stream)
-        ReflectionHelpers.setField(controller, "hotspot", hotspot)
-        ReflectionHelpers.setField(controller, "bonjour", bonjour)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "csm", channel)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothStream", stream)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "hotspot", hotspot)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bonjour", bonjour)
         ReflectionHelpers.setField(controller, "vpnService", service)
         expireAttempt(attempt)
         assertFalse(attemptIsCurrent(attempt))
-        assertNull(ReflectionHelpers.getField<Any?>(controller, "bootstrapAttempt"))
+        assertNull(ReflectionHelpers.getField<Any?>(controller.wirelessRunForTest(), "bootstrapAttempt"))
         verify(channel).close()
         verify(stream).close()
         verifyNoInteractions(hotspot, bonjour, service)
@@ -331,10 +332,10 @@ class WirelessBootstrapLifecycleTest {
         val old = newAttempt()
         val replacement = newAttempt()
         val channel = mock(Iap2Session::class.java)
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", replacement)
-        ReflectionHelpers.setField(controller, "csm", channel)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", replacement)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "csm", channel)
         expireAttempt(old)
-        assertSame(replacement, ReflectionHelpers.getField(controller, "bootstrapAttempt"))
+        assertSame(replacement, ReflectionHelpers.getField(controller.wirelessRunForTest(), "bootstrapAttempt"))
         assertTrue(attemptIsCurrent(replacement))
         verifyNoInteractions(channel)
     }
@@ -344,19 +345,19 @@ class WirelessBootstrapLifecycleTest {
         val attempt = newAttempt()
         val stream = mock(BluetoothRfcommDuplexStream::class.java)
         val dispatched = AtomicBoolean(false)
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", attempt)
-        ReflectionHelpers.setField(controller, "bluetoothStream", stream)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothStream", stream)
 
         // This hook runs before 0x4301 is written; onStartSessionSent has not run yet.
-        controller.javaClass.getDeclaredMethod("beginStartSessionDispatch",
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
             Int::class.javaPrimitiveType, attempt.javaClass, AtomicBoolean::class.java,
             Function0::class.java).apply { isAccessible = true }
-            .invoke(controller, 0, attempt, dispatched, { Unit })
+            .invoke(controller.wirelessRunForTest(), 0, attempt, dispatched, { Unit })
         assertTrue(dispatched.get())
         assertTrue(attemptIsCurrent(attempt))
 
         expireAttempt(attempt, dispatched = dispatched)
-        assertSame(attempt, ReflectionHelpers.getField(controller, "bootstrapAttempt"))
+        assertSame(attempt, ReflectionHelpers.getField(controller.wirelessRunForTest(), "bootstrapAttempt"))
         assertTrue(attemptIsCurrent(attempt))
         verifyNoInteractions(stream)
     }
@@ -364,13 +365,13 @@ class WirelessBootstrapLifecycleTest {
     @Test fun staleAttemptCannotBeginStartSessionDispatch() {
         setWirelessPhase()
         val old = newAttempt()
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", newAttempt())
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", newAttempt())
         val dispatched = AtomicBoolean(false)
         val error = assertThrows(InvocationTargetException::class.java) {
-            controller.javaClass.getDeclaredMethod("beginStartSessionDispatch",
+            controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
                 Int::class.javaPrimitiveType, old.javaClass, AtomicBoolean::class.java,
                 Function0::class.java).apply { isAccessible = true }
-                .invoke(controller, 0, old, dispatched, { Unit })
+                .invoke(controller.wirelessRunForTest(), 0, old, dispatched, { Unit })
         }
         assertTrue(error.cause is CancellationException)
         assertFalse(dispatched.get())
@@ -380,15 +381,15 @@ class WirelessBootstrapLifecycleTest {
         setWirelessPhase()
         val attempt = newAttempt()
         val channel = mock(Iap2Session::class.java)
-        ReflectionHelpers.setField(controller, "bootstrapAttempt", attempt)
-        ReflectionHelpers.setField(controller, "csm", channel)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "csm", channel)
         expireAttempt(attempt, sent = true)
-        ReflectionHelpers.getField<AtomicBoolean>(controller, "wirelessHandoffRequested").set(true)
+        controller.wirelessStateCallForTest("requestHandoff")
         expireAttempt(attempt)
-        ReflectionHelpers.getField<AtomicBoolean>(controller, "wirelessHandoffRequested").set(false)
+        controller.resetWirelessStateForTest()
         ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
         expireAttempt(attempt)
-        assertSame(attempt, ReflectionHelpers.getField(controller, "bootstrapAttempt"))
+        assertSame(attempt, ReflectionHelpers.getField(controller.wirelessRunForTest(), "bootstrapAttempt"))
         assertTrue(attemptIsCurrent(attempt))
         verifyNoInteractions(channel)
     }
@@ -407,9 +408,9 @@ class WirelessBootstrapLifecycleTest {
         val stall = stallType.getDeclaredConstructor(phaseType, phaseType, Long::class.javaPrimitiveType)
             .newInstance(com.shilapi.xcertplay.transport.Iap2BootstrapPhase.MFi_AUTHENTICATED,
                 com.shilapi.xcertplay.transport.Iap2BootstrapPhase.WIRELESS_CARPLAY_AVAILABLE, 65_000L)
-        controller.javaClass.getDeclaredMethod("expireBootstrapAttempt", Int::class.javaPrimitiveType,
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("expireBootstrapAttempt", Int::class.javaPrimitiveType,
             attempt.javaClass, stallType, AtomicBoolean::class.java).apply { isAccessible = true }
-            .invoke(controller, 0, attempt, stall, dispatched)
+            .invoke(controller.wirelessRunForTest(), 0, attempt, stall, dispatched)
     }
 
     private fun reportedFailure(error: Throwable): CarPlayStatus.Failed {
@@ -463,12 +464,12 @@ class WirelessBootstrapLifecycleTest {
     }
 
     private fun closeBootstrap() {
-        controller.javaClass.getDeclaredMethod("closeBluetoothBootstrapTransport")
-            .apply { isAccessible = true }.invoke(controller)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("closeBluetoothBootstrapTransport")
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest())
     }
 
-    private val bluetooth: Any get() = controller.javaClass.getDeclaredField("wirelessBluetooth")
-        .apply { isAccessible = true }.get(controller)
+    private val bluetooth: Any get() = controller.wirelessRunForTest().javaClass.getDeclaredField("wirelessBluetooth")
+        .apply { isAccessible = true }.get(controller.wirelessRunForTest())
 
     private fun connect(socket: BluetoothSocket, isCurrent: () -> Boolean) {
         bluetooth.javaClass.getDeclaredMethod("connectBluetoothSocket", BluetoothSocket::class.java,

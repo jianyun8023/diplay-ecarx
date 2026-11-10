@@ -549,6 +549,7 @@ v134 的独立仪表地图窗口不再获取焦点，避免其在 CarPlay 后出
 | `iap2 no wireless transport after 60000ms` / `wireless CarPlay never started` | 60 秒等待窗口到点，界面已给出明确失败原因 |
 | `bootstrap phase=` / `bootstrap stall` | 握手到达和缺失的阶段；与超时提示一起区分蓝牙链路、认证或手机未响应 |
 | `Wireless startup timeline` / `LAUNCHER_FIRST_BATCH` | 开机、热点、握手、首帧及稳定帧的开机后时间点；`LAUNCHER_FIRST_BATCH_MISSED` 表示未等到桌面首批服务广播 |
+| `Wireless startup metrics` | 按开机、进程、控制器和连接代次汇总首帧与稳定帧耗时；缺少证据显示 `unknown`，口径见[启动采样](CARPLAY_STARTUP_SAMPLING.zh-CN.md) |
 | `Car Wi-Fi client:` / `softApClients=` | 车机 Wi-Fi 保存状态、热点保护开关和热点客户端数；结合握手日志判断手机是否接入，`unknown`／`unavailable` 不等于零客户端 |
 | `navigationFollowsIphone=` / `Audio: navigation route=` | 导航是否跟随手机，以及 `car`／`music` 实际通道，结合手机地图的压低／共存模式判断 |
 

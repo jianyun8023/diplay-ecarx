@@ -84,12 +84,19 @@ object NavigationOutputs {
     }
 
     /**
+     * Boot recovery must not initialize the cluster display or interrupt active guidance.
+     * [onSettled] fires once when no asynchronous restore work remains.
+     */
+    fun recoverFactoryNavigationIfIdle(context: Context, onSettled: (() -> Unit)? = null) =
+        EcarxHudBridge.recoverFactoryNavigationIfIdle(context.applicationContext, onSettled)
+
+    /**
      * Initialize the bridge before a phone connects. It clears an old projection request rather
      * than restoring the platform mirror before the host has a CarPlay window (fix37).
      */
     fun onAppOpened(context: Context) {
         val app = context.applicationContext
-        EcarxHudBridge.recoverFactoryNavigationIfIdle(app)
+        recoverFactoryNavigationIfIdle(app)
         if (!EcarxCapabilities.detect(app).identified) return
         EcarxHudBridge.initialize(app)
     }
@@ -100,7 +107,7 @@ object NavigationOutputs {
         if (useEcarx) {
             ecarx.start(clear = scopedClear()) {
                 mqtt.start()
-                EcarxHudBridge.recoverFactoryNavigationIfIdle(app)
+                recoverFactoryNavigationIfIdle(app)
                 EcarxHudBridge.initialize(app)
                 EcarxHudBridge.setCurrentSession(currentSession)
             }

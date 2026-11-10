@@ -14,7 +14,6 @@ import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.*
@@ -52,20 +51,22 @@ class WirelessHandoffWatchdogTest {
             override fun getApplicationContext(): Context = this
             override fun bindService(service: Intent, conn: ServiceConnection, flags: Int): Boolean = false
         }, CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL, transport = CarPlayTransport.WIRELESS,
+            // A measured hotspot mode, so failure checkpoints reach the startup timeline.
+            wirelessHotspotMode = WirelessHotspotMode.MANUAL, manualHotspotSsid = "test", manualHotspotPassphrase = "password1",
             identification = Iap2IdentificationConfig(name = "test", modelIdentifier = "test", manufacturer = "test",
                 serialNumber = "test", firmwareVersion = "1", hardwareVersion = "1", carPlayUsbInterfaceNumber = 3)),
             config, identity, PairingStore(), listener, object : AirPlayMediaHandler {}, statuses::add)
         session = AirPlaySession(Socket(), config, identity, PairingStore(), null, listener, object : AirPlayMediaHandler {})
         val phase = controller.javaClass.getDeclaredField("phase").apply { isAccessible = true }
         phase.set(controller, phase.type.enumConstants.first { it.toString() == "WIRELESS" })
-        flag("wirelessHandoffRequested").set(true)
+        controller.wirelessStateCallForTest("requestHandoff")
         ReflectionHelpers.setField(controller, "activeSession", session)
-        proof = ReflectionHelpers.getField(controller, "wirelessConnectionProof")
+        proof = ReflectionHelpers.getField(controller.wirelessRunForTest(), "wirelessConnectionProof")
         proofCall("begin", 0, { confirmations++ })
         proofCall("activate", 0, session)
         bootstrap = mock(BluetoothSocket::class.java)
-        ReflectionHelpers.setField(controller, "bluetoothSocket", bootstrap)
-        ReflectionHelpers.setField(controller, "hotspot", object : WirelessHotspotManager {
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothSocket", bootstrap)
+        ReflectionHelpers.setField(controller.wirelessRunForTest(), "hotspot", object : WirelessHotspotManager {
             override fun start(timeoutMillis: Long): WirelessHotspotInfo = error("Not started")
             override fun close() { hotspotCloses++ }
         })
@@ -79,18 +80,42 @@ class WirelessHandoffWatchdogTest {
 
     @Test fun establishedSessionWithoutVideoStillFailsAndCleansUp() {
         timeout()
-        assertFalse(flag("wirelessActiveReported").get())
+        assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(1, hotspotCloses)
         assertTrue(statuses.single() is CarPlayStatus.Failed)
         verify(bootstrap).close()
         assertEquals(0, confirmations)
+        // The handoff timeout fails the run outside runWireless; the metrics still see a failure.
+        val events = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("diplay_wireless_startup_timeline", Context.MODE_PRIVATE).getString("events", "").orEmpty()
+        assertTrue(events, events.contains("stage=WIRELESS_FAILED mode=MANUAL generation=0"))
+        assertEquals(1, events.lineSequence().count { it.contains("stage=WIRELESS_FAILED") })
+    }
+
+    @Test fun tunnelControlFailureWhileTheSessionRendersIsShownWithoutEndingTheRun() {
+        val run = controller.wirelessRunForTest()
+        val onStatus = run.javaClass.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        onStatus.invoke(run, CarPlayStatus.Failed("Wireless iAP2 tunnel closed"), 0)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(statuses.single() is CarPlayStatus.Failed)
+        // The AirPlay session is still alive: its end and transport callbacks must keep arriving.
+        assertTrue(controller.wirelessStateCallForTest("getRunning") as Boolean)
+        assertEquals(0, hotspotCloses)
+        verify(bootstrap, never()).close()
+        // Without a live session the same status is terminal for the run.
+        ReflectionHelpers.setField(controller, "activeSession", null)
+        onStatus.invoke(run, CarPlayStatus.Failed("Wireless iAP2 tunnel closed after the session ended"), 0)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(controller.wirelessStateCallForTest("getRunning") as Boolean)
+        assertEquals(2, statuses.size)
     }
 
     @Test fun renderedVideoWithoutTunnelPreservesBootstrapAndReportsFallbackOnce() {
         proofCall("rendered", 0, session)
         timeout()
         timeout()
-        assertTrue(flag("wirelessActiveReported").get())
+        assertTrue(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
         assertSame(session, ReflectionHelpers.getField(controller, "activeSession"))
         assertEquals(listOf(CarPlayStatus.WirelessActiveFallback), statuses)
@@ -104,8 +129,8 @@ class WirelessHandoffWatchdogTest {
         val closed = CountDownLatch(1)
         val release = CountDownLatch(1)
         doAnswer { closed.countDown(); assertTrue(release.await(2, TimeUnit.SECONDS)); null }.`when`(bootstrap).close()
-        controller.javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, 0)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), 0)
         assertTrue(closed.await(2, TimeUnit.SECONDS))
         val handoff = Thread.getAllStackTraces().keys.single { it.name == "xcertplay-wireless-handoff" }
         release.countDown()
@@ -129,7 +154,7 @@ class WirelessHandoffWatchdogTest {
         awaitHandoff()
         assertEquals(listOf(CarPlayStatus.WirelessActiveFallback, CarPlayStatus.WirelessActive), statuses)
         verify(bootstrap, times(1)).close()
-        assertFalse(flag("wirelessHandoffFellBack").get())
+        assertFalse(controller.wirelessStateCallForTest("getHandoff").toString() == "BLUETOOTH_FALLBACK")
         assertEquals(0, hotspotCloses)
     }
 
@@ -139,10 +164,8 @@ class WirelessHandoffWatchdogTest {
         synchronized(lock) {
             tunnelReady(0)
             // Force replacement to win before the queued completion can claim its resources.
-            ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
-            ReflectionHelpers.setField(controller, "bluetoothSocket", replacement)
-            flag("wirelessActiveReported").set(false)
-            flag("wirelessTunnelReady").set(false)
+            controller.replaceWirelessRunForTest(1)
+            ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothSocket", replacement)
         }
         awaitHandoff()
         verify(bootstrap, never()).close()
@@ -151,12 +174,12 @@ class WirelessHandoffWatchdogTest {
     }
 
     @Test fun tunnelReadinessWithoutAHandoffRequestDoesNotReleaseBluetooth() {
-        flag("wirelessHandoffRequested").set(false)
+        controller.resetWirelessStateForTest()
         tunnelReady(0)
         awaitHandoff()
         verify(bootstrap, never()).close()
         assertTrue(statuses.isEmpty())
-        assertTrue(flag("wirelessTunnelReady").get())
+        assertTrue(controller.wirelessStateCallForTest("getTunnelReady") as Boolean)
     }
 
     @Test fun onlyTheCurrentRenderedSessionMayKeepTheBluetoothControlLoopAlive() {
@@ -168,7 +191,7 @@ class WirelessHandoffWatchdogTest {
         assertFalse(keepControlAlive(0))
         proofCall("activate", 0, session)
         proofCall("rendered", 0, session)
-        flag("wirelessFailureReported").set(true)
+        controller.wirelessStateCallForTest("fail")
         assertFalse(keepControlAlive(0))
     }
 
@@ -185,15 +208,15 @@ class WirelessHandoffWatchdogTest {
         proofCall("rendered", 0, session)
         ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
         timeout()
-        assertFalse(flag("wirelessActiveReported").get())
+        assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
         assertTrue(statuses.isEmpty())
         verify(bootstrap, never()).close()
     }
 
-    @Test fun withdrawnHandoffRequestLeavesSessionAndBootstrapUntouched() {
+    @Test fun missingHandoffRequestLeavesSessionAndBootstrapUntouched() {
         proofCall("rendered", 0, session)
-        flag("wirelessHandoffRequested").set(false)
+        controller.resetWirelessStateForTest()
         timeout()
         assertEquals(0, hotspotCloses)
         assertTrue(statuses.isEmpty())
@@ -204,27 +227,26 @@ class WirelessHandoffWatchdogTest {
         proofCall("rendered", 0, session)
         controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
             .apply { isAccessible = true }.invoke(controller, java.io.IOException("AirPlay service disconnected"), 0)
-        assertTrue(flag("wirelessFailureReported").get())
+        assertTrue(controller.wirelessStateCallForTest("getLifecycle").toString() == "FAILED")
         timeout()
         assertTrue(statuses.single() is CarPlayStatus.Failed)
-        assertFalse(flag("wirelessActiveReported").get())
+        assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
         verify(bootstrap, never()).close()
     }
 
     private fun timeout() {
-        controller.javaClass.getDeclaredMethod("handleWirelessHandoffTimeout", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, 0)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("handleWirelessHandoffTimeout", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), 0)
         shadowOf(Looper.getMainLooper()).idle()
     }
-    private fun flag(name: String): AtomicBoolean = ReflectionHelpers.getField(controller, name)
     private fun tunnelReady(generation: Int) {
-        controller.javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, generation)
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation)
     }
     private fun keepControlAlive(generation: Int): Boolean =
-        controller.javaClass.getDeclaredMethod("keepBluetoothControlAlive", Int::class.javaPrimitiveType)
-            .apply { isAccessible = true }.invoke(controller, generation) as Boolean
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("keepBluetoothControlAlive", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation) as Boolean
     private fun awaitHandoff() {
         for (thread in Thread.getAllStackTraces().keys.filter { it.name == "xcertplay-wireless-handoff" }) {
             thread.join(2_000)

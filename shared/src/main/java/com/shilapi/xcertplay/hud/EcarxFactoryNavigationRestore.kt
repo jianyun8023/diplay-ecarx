@@ -21,6 +21,8 @@ object EcarxFactoryNavigationRestore {
     private const val TAG = "DiPlay-ECARX"
     private val handler by lazy { Handler(Looper.getMainLooper()) }
     private var pending: Runnable? = null
+    /** Fires once when the chain behind [pending] ends, is superseded, or never started. */
+    private var onSettled: (() -> Unit)? = null
     private var generation = 0L
     private var lastResult = "factoryNavigation idle"
     private var lastAsyncResult = "not-attempted"
@@ -30,6 +32,7 @@ object EcarxFactoryNavigationRestore {
         generation++
         pending?.let { handler.removeCallbacks(it) }
         pending = null
+        settle()
         return runCatching {
             val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val manager = context.packageManager
@@ -50,12 +53,27 @@ object EcarxFactoryNavigationRestore {
         }.getOrElse { record("factoryNavigation pause=failed error=${it.message}", true) }
     }
 
-    /** Call only without active guidance; repeated calls keep the original two-second deadline. */
+    /**
+     * Call only without active guidance; repeated calls keep the original two-second deadline.
+     *
+     * Enabling the package is synchronous. Starting and confirming the service takes up to about
+     * seven more seconds on the main looper, so a caller whose process may not live that long (a
+     * boot broadcast with nothing else running) passes [onSettled] and keeps itself alive until it
+     * fires. It fires exactly once: at once when nothing asynchronous was started, otherwise when
+     * the chain ends with a result or is cancelled by new guidance.
+     */
     @Synchronized
-    fun restoreIfPausedByUs(context: Context): String {
+    fun restoreIfPausedByUs(context: Context, onSettled: (() -> Unit)? = null): String {
         val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!store.getBoolean(KEY_OWNED, false)) return record("factoryNavigation restore=not-owned")
-        if (pending != null) return lastResult
+        if (!store.getBoolean(KEY_OWNED, false)) {
+            onSettled?.invoke()
+            return record("factoryNavigation restore=not-owned")
+        }
+        if (pending != null) {
+            // Another caller's chain is already running; it does not hold this caller's process.
+            onSettled?.invoke()
+            return lastResult
+        }
         return runCatching {
             check(context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED) { "permission-required owned=true" }
             val manager = context.packageManager
@@ -67,9 +85,14 @@ object EcarxFactoryNavigationRestore {
             check(after == original) { "unconfirmed owned=true setting=$after" }
             val app = context.applicationContext
             val token = ++generation
+            settle()
+            this.onSettled = onSettled
             pending = Runnable { startRestoredService(app, token) }.also { handler.postDelayed(it, 2_000L) }
             record("factoryNavigation restore=enabled before=$before setting=$after serviceStart=delayed owned=true")
-        }.getOrElse { record("factoryNavigation restore=failed error=${it.message}", true) }
+        }.getOrElse {
+            onSettled?.invoke()
+            record("factoryNavigation restore=failed error=${it.message}", true)
+        }
     }
 
     @Synchronized
@@ -91,7 +114,10 @@ object EcarxFactoryNavigationRestore {
             check(component != null) { "service-not-found" }
             lastAsyncResult = record("factoryNavigation restore=enabled serviceStart=requested owned=true")
             pending = Runnable { verifyRestart(context, token, 5) }.also { handler.postDelayed(it, 1_000L) }
-        }.onFailure { lastAsyncResult = record("factoryNavigation restore=failed owned=true error=${it.message}", true) }
+        }.onFailure {
+            lastAsyncResult = record("factoryNavigation restore=failed owned=true error=${it.message}", true)
+            settle()
+        }
     }
 
     @Synchronized
@@ -113,6 +139,14 @@ object EcarxFactoryNavigationRestore {
             check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_OWNED).remove(KEY_ORIGINAL).commit()) { "marker-clear-failed" }
             lastAsyncResult = record("factoryNavigation restore=running serviceStart=confirmed owned=false")
         }.onFailure { lastAsyncResult = record("factoryNavigation restore=failed owned=true error=${it.message}", true) }
+        if (pending == null) settle()
+    }
+
+    /** Hands the settled signal to the waiting caller once; later calls are no-ops. */
+    private fun settle() {
+        val callback = onSettled ?: return
+        onSettled = null
+        runCatching(callback).onFailure { Log.w(TAG, "factoryNavigation settle callback failed", it) }
     }
 
     private fun record(message: String, failed: Boolean = false): String {

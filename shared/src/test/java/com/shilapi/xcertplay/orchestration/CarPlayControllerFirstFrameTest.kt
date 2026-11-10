@@ -39,8 +39,12 @@ class CarPlayControllerFirstFrameTest {
                     set(controller, type.enumConstants.single { (it as Enum<*>).name == "WIRELESS" })
                 }
                 val watchdog = FirstTcpWatchdog(AirPlayListenerIdentity(0), { _, _ -> {} }, {})
-                controller.javaClass.getDeclaredMethod("wirelessSessionListener", Int::class.javaPrimitiveType, FirstTcpWatchdog::class.java)
-                    .apply { isAccessible = true }.invoke(controller, 0, watchdog) as AirPlaySessionListener
+                val runType = controller.javaClass.declaredClasses.single { it.simpleName == "WirelessRun" }
+                val run = runType.getDeclaredConstructor(CarPlayController::class.java, Int::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.newInstance(controller, 0)
+                controller.javaClass.getDeclaredField("wirelessRun").apply { isAccessible = true }.set(controller, run)
+                runType.getDeclaredMethod("wirelessSessionListener", Int::class.javaPrimitiveType, FirstTcpWatchdog::class.java)
+                    .apply { isAccessible = true }.invoke(run, 0, watchdog) as AirPlaySessionListener
             } else controller.javaClass.getDeclaredField("sessionListener")
                 .apply { isAccessible = true }.get(controller) as AirPlaySessionListener
             try {

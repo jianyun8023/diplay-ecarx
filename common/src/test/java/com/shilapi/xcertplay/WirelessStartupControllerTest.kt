@@ -53,7 +53,9 @@ class WirelessStartupControllerTest {
             manualHotspotSsid = "Car", manualHotspotPassphrase = "12345678"),
         AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480)),
         AirPlayIdentity(ByteArray(32), ByteArray(32), "test"), PairingStore(),
-        object : AirPlaySessionListener {}, object : AirPlayMediaHandler {}, statuses::add)
+        object : AirPlaySessionListener {}, object : AirPlayMediaHandler {}, statuses::add).also {
+            if (transport == CarPlayTransport.WIRELESS) it.wirelessRunForTest()
+        }
 
     private fun fail(controller: CarPlayController, generation: Int, error: Throwable) {
         controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
@@ -122,14 +124,15 @@ class WirelessStartupControllerTest {
         }
         try {
             fail(controller, 0, WirelessStartupException(WirelessStartupFailure.FIRST_TCP_TIMEOUT, "timeout"))
-            ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
-            ReflectionHelpers.setField(controller, "hotspot", hotspot)
-            controller.javaClass.getDeclaredMethod("closeWirelessStack", CarPlayVpnService::class.java, Int::class.javaObjectType)
-                .apply { isAccessible = true }.invoke(controller, null, 0)
+            val old = controller.wirelessRunForTest()
+            controller.replaceWirelessRunForTest(1)
+            ReflectionHelpers.setField(controller.wirelessRunForTest(), "hotspot", hotspot)
+            old.javaClass.getDeclaredMethod("closeWirelessStack", CarPlayVpnService::class.java, Int::class.javaObjectType)
+                .apply { isAccessible = true }.invoke(old, null, 0)
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue(statuses.isEmpty())
             assertEquals(0, closed)
-            assertSame(hotspot, ReflectionHelpers.getField(controller, "hotspot"))
+            assertSame(hotspot, ReflectionHelpers.getField(controller.wirelessRunForTest(), "hotspot"))
             fail(controller, 0, IOException("late old failure"))
             shadowOf(Looper.getMainLooper()).idle()
             assertTrue(statuses.isEmpty())
@@ -147,12 +150,12 @@ class WirelessStartupControllerTest {
             null
         }.`when`(oldBonjour).close()
         try {
-            ReflectionHelpers.setField(controller, "bonjour", oldBonjour)
+            ReflectionHelpers.setField(controller.wirelessRunForTest(), "bonjour", oldBonjour)
             val closeReturned = CountDownLatch(1)
             Thread({
-                controller.javaClass.getDeclaredMethod(
+                controller.wirelessRunForTest().javaClass.getDeclaredMethod(
                     "closeWirelessStack", CarPlayVpnService::class.java, Int::class.javaObjectType,
-                ).apply { isAccessible = true }.invoke(controller, null, 0)
+                ).apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), null, 0)
                 closeReturned.countDown()
             }, "close-wireless-stack-test").apply { isDaemon = true; start() }
             assertTrue("the Bonjour close should have started", closing.await(2, TimeUnit.SECONDS))
@@ -161,14 +164,15 @@ class WirelessStartupControllerTest {
                 closeReturned.await(1, TimeUnit.SECONDS),
             )
             // The controller drops the stale instance synchronously, before a new session can adopt one.
-            assertNull(ReflectionHelpers.getField<Any?>(controller, "bonjour"))
+            assertNull(ReflectionHelpers.getField<Any?>(controller.wirelessRunForTest(), "bonjour"))
+            controller.replaceWirelessRunForTest(1)
             val newBonjour = mock(CarPlayBonjour::class.java)
-            ReflectionHelpers.setField(controller, "bonjour", newBonjour)
+            ReflectionHelpers.setField(controller.wirelessRunForTest(), "bonjour", newBonjour)
             release.countDown()
             Thread.sleep(100)
             verify(oldBonjour).close()
             verifyNoInteractions(newBonjour)
-            assertSame(newBonjour, ReflectionHelpers.getField<Any?>(controller, "bonjour"))
+            assertSame(newBonjour, ReflectionHelpers.getField<Any?>(controller.wirelessRunForTest(), "bonjour"))
         } finally {
             release.countDown()
             controller.close()
@@ -207,8 +211,8 @@ class WirelessStartupControllerTest {
         val controller = controller(mode = WirelessHotspotMode.MANUAL)
         try {
             return assertThrows(InvocationTargetException::class.java) {
-                controller.javaClass.getDeclaredMethod("startWirelessHotspot", Int::class.javaPrimitiveType)
-                    .apply { isAccessible = true }.invoke(controller, 0)
+                controller.wirelessRunForTest().javaClass.getDeclaredMethod("startWirelessHotspot", Int::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), 0)
             }.cause as WirelessStartupException
         } finally { controller.close(); controller.awaitClosed(2_000) }
     }
@@ -275,8 +279,8 @@ class WirelessStartupControllerTest {
         } finally { controller.close(); controller.awaitClosed(2_000) }
     }
 
-    private fun bluetooth(controller: CarPlayController): Any = controller.javaClass.getDeclaredField("wirelessBluetooth")
-        .apply { isAccessible = true }.get(controller)
+    private fun bluetooth(controller: CarPlayController): Any = controller.wirelessRunForTest().javaClass.getDeclaredField("wirelessBluetooth")
+        .apply { isAccessible = true }.get(controller.wirelessRunForTest())
 
     private fun assertCause(cause: ConnectionFailureCause, message: String, failure: Throwable) {
         assertEquals(message, failure.message)
