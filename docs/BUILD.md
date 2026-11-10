@@ -163,6 +163,11 @@ Run the release checks and build:
 ```
 
 The output is `mobile/build/outputs/apk/release/DiPlay-v<versionCode>-release.apk`.
+Release builds enable R8 code and resource optimization. The main app disables name obfuscation and
+retains `SourceFile`/`LineNumberTable` metadata because its diagnostics identify app frames by package
+and report exception class names. Inlining, class merging and line-number remapping still require the
+matching `mobile/build/outputs/mapping/release/mapping.txt` for accurate retracing; save it with each APK.
+For example, run `retrace DiPlay-v146-mapping.txt crash.txt` with the SDK command-line tools.
 The APK excludes the Android signing key.
 An in-place update can reuse valid MFi files already installed in the app's private directory.
 A fresh install or cleared app data needs separately provisioned authentication or a supported hardware authenticator.
@@ -173,13 +178,15 @@ That opt-in embeds the runtime identity in the APK, where recipients can extract
 
 The Android checks workflow runs tests, lint and source-only Debug builds on `dev`/`main` pushes and pull requests.
 Publishing a GitHub Release also runs those checks, then signs the main Release APK and attaches
-`DiPlay-v<versionCode>-release.apk` and `SHA256SUMS.txt` to that Release. A manually dispatched run builds the selected ref
+`DiPlay-v<versionCode>-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt` to that Release.
+The mapping is included in the checksums and retained as a Release asset beyond the Actions artifact retention period.
+A manually dispatched run builds the selected ref
 and uploads the same files as the `DiPlay-signed-release` Actions artifact without publishing a Release.
 
 The released tag must include the updated `.github/workflows/android.yml`.
 Creating a release branch, pushing a tag alone, or saving an unpublished draft does not publish an APK.
 Increment `mobile`'s `versionCode` before each new version; the workflow uses the checked-out source value.
-Version 136 supersedes the existing v135 vehicle package.
+Version 146 supersedes the existing v145 vehicle package.
 
 Configure these repository Actions secrets:
 
