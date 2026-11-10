@@ -136,8 +136,9 @@ internal fun nextLowLatencyDecoder(requested: String?, used: DecoderAttempt?): S
 /**
  * Qualcomm's decoder parameter for output in decoding order. Without it my Tang's decoders released a frame
  * only once one or two later frames had been queued. Decoding order is the display order only for a stream
- * without reordered (B) frames; the iPhone's CarPlay H.264 had none. It is set only for the main screen's H.264
- * with smooth video, and only on a decoder that lists the parameter.
+ * without reordered (B) frames. The iPhone's CarPlay H.264 had none, and its HEVC declares
+ * sps_max_num_reorder_pics=0 (Mi 8 bench, 2026-11-10, main and second stream). It is set only for the main
+ * screen with smooth video, and only on a decoder that lists the parameter.
  */
 internal const val PICTURE_ORDER_PARAMETER = "vendor.qti-ext-dec-picture-order.enable"
 
@@ -163,7 +164,7 @@ internal class VideoDecoder(
      */
     dedicatedOutputThread: Boolean = false,
     /**
-     * The main screen with smooth video: for H.264, try a low-latency decoder first ([lowLatencyDecoderName]) and
+     * The main screen with smooth video (H.264 and HEVC): try a low-latency decoder first ([lowLatencyDecoderName]) and
      * ask decoders that list it for [PICTURE_ORDER_PARAMETER], so each frame leaves the decoder as soon as it can.
      */
     private val framesAtOnce: Boolean = false,
@@ -455,12 +456,11 @@ internal class VideoDecoder(
             )
         }
         val requestedRate = operatingRate
-        val atOnce = framesAtOnce && codec == VideoCodec.H264
         val requestedMtkCodec2 = if (mtkDecoderTuningEnabled && !lowLatencyDecoderRefused) {
             MtkDecoderTuning.codec2LowLatencyDecoderName(mime)
         } else null
         val requestedLowLatency = requestedMtkCodec2
-            ?: if (atOnce && !lowLatencyDecoderRefused) findLowLatencyDecoder(mime) else null
+            ?: if (framesAtOnce && !lowLatencyDecoderRefused) findLowLatencyDecoder(mime) else null
         val requestedMtkMode = if (mtkDecoderTuningEnabled &&
             MtkDecoderTuning.legacyAcodecDecoderName(mime) != null) maximumMtkMode else MtkDecoderMode.NONE
         var configured: ConfiguredVideoDecoder? = null
@@ -471,7 +471,7 @@ internal class VideoDecoder(
             requestedLowLatency,
             requestedMtkMode,
         )) {
-            configured = tryConfigure(mime, csd, surface, attempt, atOnce)
+            configured = tryConfigure(mime, csd, surface, attempt, framesAtOnce)
             if (configured != null) { used = attempt; break }
         }
         if (configured == null) {
@@ -506,7 +506,7 @@ internal class VideoDecoder(
                 " qtiLowLatencySubmitted=$configuredVendorLowLatency" +
                 " qtiLowLatencyFallback=$vendorLowLatencyRefused effectiveness=unverified"
             val output = if (outputThread != null) " outputThread=true" else ""
-            val atOnceReport = if (atOnce) " lowLatency=$startedLowLatency pictureOrder=$startedPictureOrder" else ""
+            val atOnceReport = if (framesAtOnce) " lowLatency=$startedLowLatency pictureOrder=$startedPictureOrder" else ""
             val mtk = when {
                 configuredMtkCodec2LowLatency -> " mtkTuning=codec2-low-latency"
                 MtkDecoderTuning.isDecoderName(configured.codecName) ->
@@ -576,7 +576,7 @@ internal class VideoDecoder(
         csd: List<ByteArray>,
         surface: Surface,
         attempt: DecoderAttempt,
-        /** Ask for [PICTURE_ORDER_PARAMETER] when the decoder lists it ([framesAtOnce], H.264). */
+        /** Ask for [PICTURE_ORDER_PARAMETER] when the decoder lists it ([framesAtOnce]). */
         atOnce: Boolean = false,
     ): ConfiguredVideoDecoder? {
         var candidate: MediaCodec? = null
