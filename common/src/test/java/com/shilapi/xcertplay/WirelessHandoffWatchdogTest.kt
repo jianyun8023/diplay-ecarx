@@ -14,7 +14,6 @@ import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.*
@@ -58,7 +57,7 @@ class WirelessHandoffWatchdogTest {
         session = AirPlaySession(Socket(), config, identity, PairingStore(), null, listener, object : AirPlayMediaHandler {})
         val phase = controller.javaClass.getDeclaredField("phase").apply { isAccessible = true }
         phase.set(controller, phase.type.enumConstants.first { it.toString() == "WIRELESS" })
-        flag("wirelessHandoffRequested").set(true)
+        controller.wirelessStateCallForTest("requestHandoff")
         ReflectionHelpers.setField(controller, "activeSession", session)
         proof = ReflectionHelpers.getField(controller.wirelessRunForTest(), "wirelessConnectionProof")
         proofCall("begin", 0, { confirmations++ })
@@ -79,7 +78,7 @@ class WirelessHandoffWatchdogTest {
 
     @Test fun establishedSessionWithoutVideoStillFailsAndCleansUp() {
         timeout()
-        assertFalse(flag("wirelessActiveReported").get())
+        assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(1, hotspotCloses)
         assertTrue(statuses.single() is CarPlayStatus.Failed)
         verify(bootstrap).close()
@@ -90,7 +89,7 @@ class WirelessHandoffWatchdogTest {
         proofCall("rendered", 0, session)
         timeout()
         timeout()
-        assertTrue(flag("wirelessActiveReported").get())
+        assertTrue(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
         assertSame(session, ReflectionHelpers.getField(controller, "activeSession"))
         assertEquals(listOf(CarPlayStatus.WirelessActiveFallback), statuses)
@@ -129,7 +128,7 @@ class WirelessHandoffWatchdogTest {
         awaitHandoff()
         assertEquals(listOf(CarPlayStatus.WirelessActiveFallback, CarPlayStatus.WirelessActive), statuses)
         verify(bootstrap, times(1)).close()
-        assertFalse(flag("wirelessHandoffFellBack").get())
+        assertFalse(controller.wirelessStateCallForTest("getHandoff").toString() == "BLUETOOTH_FALLBACK")
         assertEquals(0, hotspotCloses)
     }
 
@@ -141,8 +140,6 @@ class WirelessHandoffWatchdogTest {
             // Force replacement to win before the queued completion can claim its resources.
             controller.replaceWirelessRunForTest(1)
             ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothSocket", replacement)
-            flag("wirelessActiveReported").set(false)
-            flag("wirelessTunnelReady").set(false)
         }
         awaitHandoff()
         verify(bootstrap, never()).close()
@@ -151,12 +148,12 @@ class WirelessHandoffWatchdogTest {
     }
 
     @Test fun tunnelReadinessWithoutAHandoffRequestDoesNotReleaseBluetooth() {
-        flag("wirelessHandoffRequested").set(false)
+        controller.resetWirelessStateForTest()
         tunnelReady(0)
         awaitHandoff()
         verify(bootstrap, never()).close()
         assertTrue(statuses.isEmpty())
-        assertTrue(flag("wirelessTunnelReady").get())
+        assertTrue(controller.wirelessStateCallForTest("getTunnelReady") as Boolean)
     }
 
     @Test fun onlyTheCurrentRenderedSessionMayKeepTheBluetoothControlLoopAlive() {
@@ -168,7 +165,7 @@ class WirelessHandoffWatchdogTest {
         assertFalse(keepControlAlive(0))
         proofCall("activate", 0, session)
         proofCall("rendered", 0, session)
-        flag("wirelessFailureReported").set(true)
+        controller.wirelessStateCallForTest("fail")
         assertFalse(keepControlAlive(0))
     }
 
@@ -185,15 +182,15 @@ class WirelessHandoffWatchdogTest {
         proofCall("rendered", 0, session)
         ReflectionHelpers.getField<AtomicInteger>(controller, "wirelessGeneration").set(1)
         timeout()
-        assertFalse(flag("wirelessActiveReported").get())
+        assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
         assertTrue(statuses.isEmpty())
         verify(bootstrap, never()).close()
     }
 
-    @Test fun withdrawnHandoffRequestLeavesSessionAndBootstrapUntouched() {
+    @Test fun missingHandoffRequestLeavesSessionAndBootstrapUntouched() {
         proofCall("rendered", 0, session)
-        flag("wirelessHandoffRequested").set(false)
+        controller.resetWirelessStateForTest()
         timeout()
         assertEquals(0, hotspotCloses)
         assertTrue(statuses.isEmpty())
@@ -204,10 +201,10 @@ class WirelessHandoffWatchdogTest {
         proofCall("rendered", 0, session)
         controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
             .apply { isAccessible = true }.invoke(controller, java.io.IOException("AirPlay service disconnected"), 0)
-        assertTrue(flag("wirelessFailureReported").get())
+        assertTrue(controller.wirelessStateCallForTest("getLifecycle").toString() == "FAILED")
         timeout()
         assertTrue(statuses.single() is CarPlayStatus.Failed)
-        assertFalse(flag("wirelessActiveReported").get())
+        assertFalse(controller.wirelessStateCallForTest("getActiveReported") as Boolean)
         assertEquals(0, hotspotCloses)
         verify(bootstrap, never()).close()
     }
@@ -217,7 +214,6 @@ class WirelessHandoffWatchdogTest {
             .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), 0)
         shadowOf(Looper.getMainLooper()).idle()
     }
-    private fun flag(name: String): AtomicBoolean = ReflectionHelpers.getField(controller.wirelessRunForTest(), name)
     private fun tunnelReady(generation: Int) {
         controller.wirelessRunForTest().javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation)

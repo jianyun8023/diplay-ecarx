@@ -18,3 +18,13 @@ internal fun CarPlayController.replaceWirelessRunForTest(generation: Int): Any {
     phase.set(this, requireNotNull(phase.type.enumConstants).single { (it as Enum<*>).name == "WIRELESS" })
     return run
 }
+
+internal fun CarPlayController.wirelessStateCallForTest(method: String): Any? {
+    val state = ReflectionHelpers.getField<Any>(wirelessRunForTest(), "state")
+    return state.javaClass.getDeclaredMethod(method).invoke(state)
+}
+
+internal fun CarPlayController.resetWirelessStateForTest() {
+    val state = ReflectionHelpers.getField<Any>(wirelessRunForTest(), "state")
+    ReflectionHelpers.setField(wirelessRunForTest(), "state", state.javaClass.getDeclaredConstructor().newInstance())
+}

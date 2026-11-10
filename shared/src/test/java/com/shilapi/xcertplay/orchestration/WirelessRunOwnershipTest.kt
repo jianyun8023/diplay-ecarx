@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.LooperMode
 import org.robolectric.annotation.Config
 
 import org.robolectric.Shadows.shadowOf
@@ -21,6 +22,7 @@ import android.os.Looper
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
+@LooperMode(LooperMode.Mode.PAUSED)
 
 class WirelessRunOwnershipTest {
     private var handlerClears = 0
@@ -87,6 +89,43 @@ class WirelessRunOwnershipTest {
         }
         assertEquals(false, runType.getDeclaredMethod("startWirelessTunnelControl", BlockingDuplexByteStream::class.java)
             .apply { isAccessible = true }.invoke(old, stream))
+    }
+
+    @Test fun failureDropsQueuedProgressAndPreventsLateTunnelReadinessInTheSameGeneration() {
+        val run = run(1)
+        runType.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(run, CarPlayStatus.ConnectingBluetooth, 1)
+        controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
+            .apply { isAccessible = true }.invoke(controller, java.io.IOException("radio lost"), 1)
+        runType.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(run, 1)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, statuses.size)
+        assertTrue(statuses.single() is CarPlayStatus.Failed)
+        assertFalse((field(run, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
+        assertEquals(WirelessRunState.Lifecycle.FAILED, (field(run, "state") as WirelessRunState).lifecycle)
+    }
+
+    @Test fun closedRunCannotPublishProgressOrReactivateItsTunnel() {
+        val run = run(1)
+        closeRun(run)
+        runType.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(run, CarPlayStatus.RunningWireless, 1)
+        runType.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(run, 1)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(statuses.isEmpty())
+        assertFalse((field(run, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
+        assertEquals(WirelessRunState.Lifecycle.CLOSED, (field(run, "state") as WirelessRunState).lifecycle)
+    }
+
+    @Test fun prerequisiteFailuresBeforeTheFirstRunStillReportOnlyOnce() {
+        val fail = controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
+            .apply { isAccessible = true }
+        fail.invoke(controller, java.io.IOException("MFi unavailable"), 0)
+        fail.invoke(controller, java.io.IOException("late cleanup failure"), 0)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("MFi unavailable", (statuses.single() as CarPlayStatus.Failed).message)
     }
 
     private fun run(generation: Int): Any {
