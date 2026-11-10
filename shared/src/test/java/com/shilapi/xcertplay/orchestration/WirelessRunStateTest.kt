@@ -19,19 +19,18 @@ class WirelessRunStateTest {
             assertTrue(state.promoteTunnel())
             assertFalse(state.promoteTunnel())
             assertFalse(state.requestHandoff())
-            assertFalse(state.keepBluetoothFallback(renderedFrame = true))
+            assertFalse(state.keepBluetoothFallback())
             assertEquals(WirelessRunState.Handoff.TUNNEL_ACTIVE, state.handoff)
         }
     }
 
-    @Test fun fallbackNeedsRenderedVideoAndCanLaterPromoteToTunnel() {
+    @Test fun fallbackRequiresPendingHandoffAndCanLaterPromoteToTunnel() {
         val state = WirelessRunState()
-        assertFalse(state.keepBluetoothFallback(renderedFrame = true))
+        assertFalse(state.keepBluetoothFallback())
         state.requestHandoff()
-        assertFalse(state.keepBluetoothFallback(renderedFrame = false))
         assertFalse(state.activeReported)
-        assertTrue(state.keepBluetoothFallback(renderedFrame = true))
-        assertFalse(state.keepBluetoothFallback(renderedFrame = true))
+        assertTrue(state.keepBluetoothFallback())
+        assertFalse(state.keepBluetoothFallback())
         assertTrue(state.activeReported)
         assertEquals(WirelessRunState.Handoff.BLUETOOTH_FALLBACK, state.handoff)
         state.markTunnelReady()
@@ -45,11 +44,10 @@ class WirelessRunStateTest {
             state.requestHandoff()
             end(state)
             assertFalse(state.running)
-            assertFalse(state.fail())
             assertFalse(state.requestHandoff())
             assertFalse(state.markTunnelReady())
             assertFalse(state.promoteTunnel())
-            assertFalse(state.keepBluetoothFallback(renderedFrame = true))
+            assertFalse(state.keepBluetoothFallback())
             if (state.lifecycle != WirelessRunState.Lifecycle.CLOSING) assertTrue(state.beginClose())
             assertFalse(state.beginClose())
             state.finishClose()
@@ -57,5 +55,34 @@ class WirelessRunStateTest {
             assertEquals(WirelessRunState.Lifecycle.CLOSED, state.lifecycle)
             assertFalse(state.beginClose())
         }
+    }
+
+    @Test fun firstFailureIsRecordedEvenAfterRetirementOrCloseWithoutRevivingTheRun() {
+        for (lifecycle in WirelessRunState.Lifecycle.entries) {
+            val state = WirelessRunState()
+            if (lifecycle == WirelessRunState.Lifecycle.RETIRED) state.retire()
+            if (lifecycle == WirelessRunState.Lifecycle.CLOSING || lifecycle == WirelessRunState.Lifecycle.CLOSED) {
+                state.beginClose()
+            }
+            if (lifecycle == WirelessRunState.Lifecycle.CLOSED) state.finishClose()
+            assertFalse(state.failedOnce)
+            assertTrue(state.fail())
+            assertTrue(state.failedOnce)
+            assertFalse(state.running)
+            assertEquals(if (lifecycle == WirelessRunState.Lifecycle.RUNNING)
+                WirelessRunState.Lifecycle.RETIRED else lifecycle, state.lifecycle)
+            assertFalse(state.fail())
+        }
+    }
+
+    @Test fun failureRemainsRecordedThroughRetirementAndClose() {
+        val state = WirelessRunState()
+        assertTrue(state.fail())
+        state.retire()
+        state.beginClose()
+        state.finishClose()
+        assertTrue(state.failedOnce)
+        assertFalse(state.fail())
+        assertEquals(WirelessRunState.Lifecycle.CLOSED, state.lifecycle)
     }
 }

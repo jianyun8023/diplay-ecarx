@@ -115,6 +115,40 @@ class WirelessStartupControllerTest {
         } finally { controller.close(); controller.awaitClosed(2_000) }
     }
 
+    @Test fun explicitReconnectClosesFailedRunBeforeWaitingForItsWorker() {
+        val controller = controller()
+        val old = controller.wirelessRunForTest()
+        val socketClosed = CountDownLatch(1)
+        val workerReleased = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val socket = mock(android.bluetooth.BluetoothSocket::class.java)
+        doAnswer { socketClosed.countDown(); null }.`when`(socket).close()
+        ReflectionHelpers.setField(old, "bluetoothSocket", socket)
+        val executor = ReflectionHelpers.getField<java.util.concurrent.ExecutorService>(controller, "executor")
+        // Model the old control loop waiting for its socket to close.
+        executor.execute { socketClosed.await(5, TimeUnit.SECONDS) }
+        // Hold the next bring-up before it can open real radios.
+        executor.execute {
+            workerReleased.countDown()
+            release.await(5, TimeUnit.SECONDS)
+        }
+        ReflectionHelpers.setField(controller, "mfiSession", MfiSession(
+            mock(com.shilapi.xcertplay.mfi.MfiAuthenticator::class.java), null))
+        try {
+            fail(controller, 0, IOException("CarPlay VPN service disconnected"))
+            controller.reconnectIphone()
+            assertTrue("Reconnect queued socket cleanup behind the blocked worker", socketClosed.await(2, TimeUnit.SECONDS))
+            assertTrue("Closing the old socket did not release the worker", workerReleased.await(2, TimeUnit.SECONDS))
+            assertNotSame(old, controller.wirelessRunForTest())
+            assertTrue(controller.wirelessStateCallForTest("getRunning") as Boolean)
+        } finally {
+            controller.close()
+            socketClosed.countDown()
+            release.countDown()
+            assertTrue(controller.awaitClosed(2_000))
+        }
+    }
+
     @Test fun queuedOldFailureAndOldCleanupDoNotAffectNewGeneration() {
         val controller = controller()
         var closed = 0

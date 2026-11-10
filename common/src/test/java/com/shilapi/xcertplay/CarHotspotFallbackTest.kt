@@ -79,7 +79,12 @@ class CarHotspotFallbackTest {
     }
 
     @Test fun cancelledStartupDoesNotFallBackEvenWhenApStateIsUnreadable() {
-        assertStartupFailure("Hotspot startup was cancelled", generation = 1)
+        controller().use { controller ->
+            controller.wirelessStateCallForTest("retire")
+            val error = assertThrows(IOException::class.java) { start(controller) }
+            assertTrue(error.message, error.message!!.startsWith("Hotspot startup was cancelled"))
+            assertEquals(0, ManualAttachment.starts)
+        }
     }
 
     @Test fun existingWifiBypassesHotspotControlEvenWithAutoStartupSavedAndApOff() {
@@ -91,18 +96,18 @@ class CarHotspotFallbackTest {
         assertEquals(0, ManualAttachment.starts)
     }
 
-    private fun assertStartupFailure(message: String, generation: Int = 0) {
+    private fun assertStartupFailure(message: String) {
         controller().use { controller ->
-            val error = assertThrows(IOException::class.java) { start(controller, generation) }
+            val error = assertThrows(IOException::class.java) { start(controller) }
             assertTrue(error.message, error.message!!.startsWith(message))
             assertEquals(0, ManualAttachment.starts)
         }
     }
 
-    private fun start(controller: CarPlayController, generation: Int = 0): WirelessHotspotInfo {
+    private fun start(controller: CarPlayController): WirelessHotspotInfo {
         val method = controller.wirelessRunForTest().javaClass.getDeclaredMethod("startWirelessHotspot", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }
-        return try { method.invoke(controller.wirelessRunForTest(), generation) as WirelessHotspotInfo }
+        return try { method.invoke(controller.wirelessRunForTest(), 0) as WirelessHotspotInfo }
         catch (error: InvocationTargetException) { throw error.targetException }
     }
 

@@ -27,6 +27,7 @@ import android.os.Looper
 class WirelessRunOwnershipTest {
     private var handlerClears = 0
     private val statuses = mutableListOf<CarPlayStatus>()
+    private val listenerEvents = mutableListOf<String>()
     private val controller = CarPlayController(
         RuntimeEnvironment.getApplication(),
         CarPlayRuntimeConfig(
@@ -35,7 +36,10 @@ class WirelessRunOwnershipTest {
                 serialNumber = "test", firmwareVersion = "1", hardwareVersion = "1", carPlayUsbInterfaceNumber = 3),
         ),
         AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480)),
-        AirPlayIdentity.generate(), PairingStore(), object : AirPlaySessionListener {},
+        AirPlayIdentity.generate(), PairingStore(), object : AirPlaySessionListener {
+            override val debugLogsEnabled = true
+            override fun onDebugLog(message: String) { listenerEvents += message }
+        },
         object : AirPlayMediaHandler {
             override fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {
                 if (handler == null) handlerClears++
@@ -91,6 +95,38 @@ class WirelessRunOwnershipTest {
             .apply { isAccessible = true }.invoke(old, stream))
     }
 
+    @Test fun retiredListenerDropsCallbacksAndCannotReactivateAnOldSession() {
+        val old = run(1)
+        val watchdog = FirstTcpWatchdog(AirPlayListenerIdentity(1), { _, _ -> {} }, {})
+        val listener = runType.getDeclaredMethod("wirelessSessionListener",
+            Int::class.javaPrimitiveType, FirstTcpWatchdog::class.java)
+            .apply { isAccessible = true }.invoke(old, 1, watchdog) as AirPlaySessionListener
+        assertTrue(listener.wantsTrace)
+        assertTrue(listener.debugLogsEnabled)
+        run(2)
+        listenerEvents.clear()
+        val session = AirPlaySession(java.net.Socket(),
+            AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480)),
+            AirPlayIdentity.generate(), PairingStore(), null,
+            object : AirPlaySessionListener {}, object : AirPlayMediaHandler {})
+        try {
+            listener.onSessionConnecting(session)
+            listener.onSessionActive(session)
+            listener.onCommand(session, "disableBluetooth", emptyMap())
+            listener.onVideoFrameRendered(session)
+            listener.onCornerMask(session, byteArrayOf(1), 1)
+            listener.onTransportError("old transport closed")
+            listener.onDebugLog("old debug log")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertNull(controller.activeAirPlaySession())
+            assertNull(controller.activeIphoneCornerMask())
+            assertTrue(statuses.isEmpty())
+            assertTrue(listenerEvents.isEmpty())
+            assertFalse(listener.wantsTrace)
+            assertFalse(listener.debugLogsEnabled)
+        } finally { session.close() }
+    }
+
     @Test fun failureDropsQueuedProgressAndPreventsLateTunnelReadinessInTheSameGeneration() {
         val run = run(1)
         runType.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
@@ -103,7 +139,7 @@ class WirelessRunOwnershipTest {
         assertEquals(1, statuses.size)
         assertTrue(statuses.single() is CarPlayStatus.Failed)
         assertFalse((field(run, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
-        assertEquals(WirelessRunState.Lifecycle.FAILED, (field(run, "state") as WirelessRunState).lifecycle)
+        assertEquals(WirelessRunState.Lifecycle.RETIRED, (field(run, "state") as WirelessRunState).lifecycle)
     }
 
     @Test fun closedRunCannotPublishProgressOrReactivateItsTunnel() {
@@ -128,7 +164,63 @@ class WirelessRunOwnershipTest {
         assertEquals("MFi unavailable", (statuses.single() as CarPlayStatus.Failed).message)
     }
 
+    @Test fun vpnDisconnectAfterRetirementStopsTheQueuedRestart() = assertVpnDisconnectDuringRestart("retired")
+    @Test fun vpnDisconnectDuringCloseStopsTheQueuedRestart() = assertVpnDisconnectDuringRestart("closing")
+    @Test fun vpnDisconnectAfterCloseStopsTheQueuedRestart() = assertVpnDisconnectDuringRestart("closed")
+
+    private fun assertVpnDisconnectDuringRestart(lifecycle: String) {
+        val connection = field(controller, "serviceConnection") as android.content.ServiceConnection
+        val old = run(1)
+        val state = field(old, "state") as WirelessRunState
+        runType.getDeclaredMethod("retire").apply { isAccessible = true }.invoke(old)
+        val restartGeneration = (field(controller, "wirelessGeneration") as AtomicInteger).incrementAndGet()
+        if (lifecycle != "retired") state.beginClose()
+        if (lifecycle == "closed") state.finishClose()
+
+        connection.onServiceDisconnected(android.content.ComponentName("test", "VPN"))
+        connection.onServiceDisconnected(android.content.ComponentName("test", "VPN"))
+        controller.javaClass.getDeclaredMethod("startWireless", Int::class.javaObjectType)
+            .apply { isAccessible = true }.invoke(controller, restartGeneration)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertSame("A controller failure must stop the queued restart", old, field(controller, "wirelessRun"))
+        assertEquals("CarPlay VPN service disconnected", (statuses.single() as CarPlayStatus.Failed).message)
+    }
+
+    @Test fun vpnDisconnectAfterAnAlreadyReportedFailureDoesNotReportAgain() {
+        val run = run(1)
+        controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
+            .apply { isAccessible = true }.invoke(controller, java.io.IOException("radio lost"), 1)
+        closeRun(run)
+        (field(controller, "serviceConnection") as android.content.ServiceConnection)
+            .onServiceDisconnected(android.content.ComponentName("test", "VPN"))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("radio lost", (statuses.single() as CarPlayStatus.Failed).message)
+    }
+
+    @Test fun reconnectMfiRetiresTheLiveWirelessRunBeforeDiscoveryCompletes() {
+        val executor = field(controller, "executor") as java.util.concurrent.ExecutorService
+        val release = java.util.concurrent.CountDownLatch(1)
+        // Hold the single worker: retirement must not depend on MFi discovery succeeding or failing.
+        executor.execute { release.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val old = run(1)
+        val state = field(old, "state") as WirelessRunState
+        try {
+            controller.reconnectMfi()
+            assertEquals(WirelessRunState.Lifecycle.RETIRED, state.lifecycle)
+            assertFalse(state.failedOnce)
+            runType.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(old, CarPlayStatus.WirelessActive, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(statuses.none { it is CarPlayStatus.WirelessActive })
+            assertTrue(statuses.any { it is CarPlayStatus.DiscoveringMfi })
+        } finally { release.countDown() }
+    }
+
     private fun run(generation: Int): Any {
+        field(controller, "wirelessRun")?.let {
+            runType.getDeclaredMethod("retire").apply { isAccessible = true }.invoke(it)
+        }
         val run = runType.getDeclaredConstructor(CarPlayController::class.java, Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.newInstance(controller, generation)
         field(controller, "wirelessRun", run)
