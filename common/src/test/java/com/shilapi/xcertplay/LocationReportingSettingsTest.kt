@@ -68,6 +68,7 @@ class LocationReportingSettingsTest {
             request.requestedPermissions)
 
         shadowOf(context).grantPermissions(Manifest.permission.ACCESS_COARSE_LOCATION)
+        @Suppress("DEPRECATION") // Deliver the permission callback used by the activity.
         activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
             intArrayOf(PackageManager.PERMISSION_DENIED, PackageManager.PERMISSION_GRANTED))
         assertFalse(locationSwitch().isChecked)
@@ -80,6 +81,7 @@ class LocationReportingSettingsTest {
         val request = shadowOf(activity).lastRequestedPermission
 
         shadowOf(context).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        @Suppress("DEPRECATION") // Deliver the permission callback used by the activity.
         activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
             intArrayOf(PackageManager.PERMISSION_GRANTED, PackageManager.PERMISSION_GRANTED))
 

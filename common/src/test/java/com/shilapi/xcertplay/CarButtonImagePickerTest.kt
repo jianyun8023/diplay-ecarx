@@ -2,12 +2,12 @@ package com.shilapi.xcertplay
 
 import android.content.ActivityNotFoundException
 import android.app.AlertDialog
+import android.content.ComponentName
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Resources
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
-import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -151,21 +151,25 @@ class CarButtonImagePickerTest {
     @Test fun onlyNonSystemDocumentHandlersCountAsNoSystemPicker() {
         val context = RuntimeEnvironment.getApplication()
         assertTrue(context.documentPickerIsSystem())
-        val intent = ActivityResultContracts.OpenDocument().createIntent(context, arrayOf("image/*"))
-        shadowOf(context.packageManager).addResolveInfoForIntent(intent, handler("app.interceptor", 0))
+        installDocumentHandler("app.interceptor", 0)
         assertFalse(context.documentPickerIsSystem())
-        shadowOf(context.packageManager).addResolveInfoForIntent(
-            intent, handler("com.android.documentsui", ApplicationInfo.FLAG_SYSTEM))
+        installDocumentHandler("com.android.documentsui", ApplicationInfo.FLAG_SYSTEM)
         assertTrue(context.documentPickerIsSystem())
     }
 
-    private fun handler(packageName: String, flags: Int) = ResolveInfo().apply {
-        activityInfo = ActivityInfo().apply {
+    private fun installDocumentHandler(packageName: String, flags: Int) {
+        val packages = shadowOf(RuntimeEnvironment.getApplication().packageManager)
+        val activity = ActivityInfo().apply {
             this.packageName = packageName
             name = "$packageName.Picker"
             applicationInfo = ApplicationInfo().apply { this.packageName = packageName; this.flags = flags }
         }
-        match = IntentFilter.MATCH_CATEGORY_TYPE
+        packages.addOrUpdateActivity(activity)
+        packages.addIntentFilterForActivity(ComponentName(packageName, activity.name), IntentFilter(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_DEFAULT)
+            addCategory(Intent.CATEGORY_OPENABLE)
+            addDataType("image/*")
+        })
     }
 
     @Test fun homeAndCarPlaySettingsUseTheSamePackagedDefaultIcon() {

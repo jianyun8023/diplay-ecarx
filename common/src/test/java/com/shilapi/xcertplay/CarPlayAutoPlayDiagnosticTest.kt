@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay
 
-import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.airplay.AirPlaySession
@@ -41,7 +41,7 @@ class CarPlayAutoPlayDiagnosticTest {
         ReflectionHelpers.setField(host, "activeAirPlaySession", mock(AirPlaySession::class.java))
         host.javaClass.getDeclaredMethod("initializeSessionLog").apply { isAccessible = true }.invoke(host)
         CarBluetoothProfileGuard.saveAdapterEnabled(host, true)
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(host.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
     }
 
     @After fun cleanup() {
@@ -84,11 +84,11 @@ class CarPlayAutoPlayDiagnosticTest {
     }
 
     @Test fun waitsForBluetoothOffAndDoesNotKeepSendingAfterSuccess() {
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(true)
+        shadowOf(host.getSystemService(BluetoothManager::class.java).adapter).setEnabled(true)
         schedule()
         loop.idleFor(3, TimeUnit.SECONDS)
         verify(controller, never()).sendMediaButton(anyInt())
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(host.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
         loop.idleFor(20, TimeUnit.SECONDS)
         verify(controller).sendMediaButton(CarPlayMediaButton.PLAY)
     }
@@ -125,7 +125,7 @@ class CarPlayAutoPlayDiagnosticTest {
     }
 
     @Test fun exhaustedBluetoothWaitDoesNotRearmButNewSessionGetsFreshChecks() {
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(true)
+        shadowOf(host.getSystemService(BluetoothManager::class.java).adapter).setEnabled(true)
         schedule()
         loop.idleFor(20, TimeUnit.SECONDS)
         schedule()
@@ -134,7 +134,7 @@ class CarPlayAutoPlayDiagnosticTest {
         ReflectionHelpers.setField(host, "activeAirPlaySession", mock(AirPlaySession::class.java))
         schedule()
         loop.idleFor(3, TimeUnit.SECONDS)
-        shadowOf(BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(host.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
         loop.idleFor(2, TimeUnit.SECONDS)
         verify(controller).sendMediaButton(CarPlayMediaButton.PLAY)
     }

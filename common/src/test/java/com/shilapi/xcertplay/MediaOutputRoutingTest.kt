@@ -1078,7 +1078,7 @@ class MediaOutputRoutingTest {
     }
     private fun tickEngine() { (engine as com.shilapi.xcertplay.mediacenter.MediaCenterSessionEngine).tick() }
     private fun song(title: String, artwork: Int? = null) = CarPlayNowPlaying(title = title, artworkTransferId = artwork, durationMillis = 90_000, playing = true)
-    private fun singleton(name: String): Any = Class.forName(name).getField("INSTANCE").get(null)
+    private fun singleton(name: String): Any = checkNotNull(Class.forName(name).getField("INSTANCE").get(null))
     private fun field(target: Any, name: String) = target.javaClass.getDeclaredField(name).apply { isAccessible = true }
 
     private inner class Transport : MediaCenterTransport {

@@ -21,6 +21,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowWifiP2pManager
+import org.robolectric.shadows.WifiP2pGroupBuilder
 import org.robolectric.util.ReflectionHelpers
 import java.net.InetAddress
 import java.util.concurrent.ExecutionException
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [32], manifest = Config.NONE,
     shadows = [WifiP2pGroupManagerTest.P2pRadio::class, WifiP2pGroupManagerTest.P2pChannel::class])
+@Suppress("DEPRECATION") // Configure the Wi-Fi state read by the manager's legacy compatibility path.
 class WifiP2pGroupManagerTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val radio get() = shadowOf(context.getSystemService(WifiP2pManager::class.java)) as P2pRadio
@@ -341,7 +343,7 @@ class WifiP2pGroupManagerTest {
     private fun retainOwnGroup() {
         val name = "DIRECT-dp000000000000-Ab12"
         context.getSharedPreferences("carplay_wifi_p2p", Context.MODE_PRIVATE).edit().putString("owned_ssid", name).commit()
-        radio.group = radio.makeGroup(null).also { shadowOf(it).setNetworkName(name) }
+        radio.group = radio.makeGroup(null).also { ReflectionHelpers.setField(it, "mNetworkName", name) }
     }
 
     @Test fun closeLeavesAnotherAppsReplacementGroupRunning() {
@@ -496,12 +498,13 @@ class WifiP2pGroupManagerTest {
             listener.onSuccess()
         }
 
-        fun makeGroup(config: WifiP2pConfig?) = WifiP2pGroup().apply {
-            shadowOf(this).setIsGroupOwner(true)
-            shadowOf(this).setNetworkName(config?.networkName ?: "DIRECT-system-test")
-            shadowOf(this).setPassphrase(if (missingCredentials) null else config?.passphrase ?: "test-generated-key")
-            shadowOf(this).setInterface("p2p-test-missing")
-            ReflectionHelpers.setField(this, "mFrequency", reportedFrequency ?: config?.groupOwnerBand ?: 2437)
-        }
+        fun makeGroup(config: WifiP2pConfig?) = WifiP2pGroupBuilder.newBuilder()
+            .setNetworkName(config?.networkName ?: "DIRECT-system-test")
+            .setPassphrase(if (missingCredentials) null else config?.passphrase ?: "test-generated-key")
+            .setInterface("p2p-test-missing")
+            .build().apply {
+                ReflectionHelpers.setField(this, "mIsGroupOwner", true)
+                ReflectionHelpers.setField(this, "mFrequency", reportedFrequency ?: config?.groupOwnerBand ?: 2437)
+            }
     }
 }

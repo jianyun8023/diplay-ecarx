@@ -57,7 +57,7 @@ class WirelessHandoffWatchdogTest {
             config, identity, PairingStore(), listener, object : AirPlayMediaHandler {}, statuses::add)
         session = AirPlaySession(Socket(), config, identity, PairingStore(), null, listener, object : AirPlayMediaHandler {})
         val phase = controller.javaClass.getDeclaredField("phase").apply { isAccessible = true }
-        phase.set(controller, phase.type.enumConstants.first { it.toString() == "WIRELESS" })
+        phase.set(controller, phase.type.enumConstants!!.first { it.toString() == "WIRELESS" })
         controller.wirelessStateCallForTest("requestHandoff")
         ReflectionHelpers.setField(controller, "activeSession", session)
         proof = ReflectionHelpers.getField(controller.wirelessRunForTest(), "wirelessConnectionProof")

@@ -124,7 +124,7 @@ class CarPlayControllerUsbServiceTest {
         val controller = controller(context, CarPlayTransport.WIRED, MfiTarget.LOCAL, logs)
         // Local MFi needs the private identity of a real build, so the attempt starts at the iPhone step.
         ReflectionHelpers.setField(controller, "phase",
-            Class.forName("com.shilapi.xcertplay.orchestration.CarPlayController\$Phase").enumConstants
+            Class.forName("com.shilapi.xcertplay.orchestration.CarPlayController\$Phase").enumConstants!!
                 .single { (it as Enum<*>).name == "IPHONE" })
         ReflectionHelpers.callInstanceMethod<Unit>(controller, "checkIphoneAvailability")
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
@@ -242,7 +242,7 @@ class CarPlayControllerUsbServiceTest {
     private fun waitingForReenumeration(context: Context, logs: MutableList<String>): CarPlayController {
         val controller = controller(context, CarPlayTransport.WIRED, MfiTarget.LOCAL, logs)
         ReflectionHelpers.setField(controller, "phase",
-            Class.forName("com.shilapi.xcertplay.orchestration.CarPlayController\$Phase").enumConstants
+            Class.forName("com.shilapi.xcertplay.orchestration.CarPlayController\$Phase").enumConstants!!
                 .single { (it as Enum<*>).name == "REENUMERATION" })
         ReflectionHelpers.setField(controller, "reenumerationAttempts", 1)
         return controller

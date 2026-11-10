@@ -51,7 +51,7 @@ class NavigationContentSettingsTest {
         assertEquals(standard.height, oem.height)
         assertTrue(oem.bottom <= 1080)
         val file = File("build/reports/navigation-content-ui/sound-test-1920x1080.png")
-        file.parentFile.mkdirs()
+        file.parentFile!!.mkdirs()
         val bitmap = Bitmap.createBitmap(1920, 1080, Bitmap.Config.ARGB_8888)
         content.draw(Canvas(bitmap))
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }

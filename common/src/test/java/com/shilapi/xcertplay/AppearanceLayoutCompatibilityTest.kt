@@ -40,6 +40,7 @@ class AppearanceLayoutCompatibilityTest {
                 assertTrue(SettingsLayoutPreferences.isActive(activity))
                 assertFalse(AirPlayPersistence.loadHideTopBar(activity))
                 assertFalse(AirPlayPersistence.loadHideBottomBar(activity))
+                @Suppress("DEPRECATION") // Verify the system-bar flags used before API 30.
                 if (Build.VERSION.SDK_INT < 30) {
                     val hidden = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     assertEquals(0, activity.window.decorView.systemUiVisibility and hidden)

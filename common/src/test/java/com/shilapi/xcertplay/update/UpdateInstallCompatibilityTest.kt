@@ -1,10 +1,11 @@
 package com.shilapi.xcertplay.update
 
+import android.content.ComponentName
 import android.content.Intent
-import android.content.pm.ActivityInfo
-import android.content.pm.ResolveInfo
+import android.content.IntentFilter
 import android.net.Uri
 import androidx.core.content.FileProvider
+import androidx.core.content.IntentCompat
 import com.shilapi.xcertplay.DiPlayActivity
 import com.shilapi.xcertplay.FileProviderPathTestShadow
 import java.io.ByteArrayInputStream
@@ -42,10 +43,14 @@ class UpdateInstallCompatibilityTest {
         if (publicUriReadable) shadowOf(activity.contentResolver).registerInputStream(publicCopy, ByteArrayInputStream(publicBytes))
         activity.updates.updateFile = apk
         activity.updates.updateSavedUri = publicCopy
-        val query = Intent(Intent.ACTION_VIEW).setDataAndType(if (publicUriReadable) publicCopy else Uri.parse("content://x"), apkType)
+        val packages = shadowOf(activity.packageManager)
         repeat(installers) {
-            shadowOf(activity.packageManager).addResolveInfoForIntent(query, ResolveInfo().apply {
-                activityInfo = ActivityInfo().apply { packageName = "installer$it"; name = "Install" }
+            val component = ComponentName("installer$it", "Install")
+            packages.addActivityIfNotPresent(component)
+            packages.addIntentFilterForActivity(component, IntentFilter(Intent.ACTION_VIEW).apply {
+                addCategory(Intent.CATEGORY_DEFAULT)
+                addDataScheme("content")
+                addDataType(apkType)
             })
         }
         activity.updates.installUpdate()
@@ -55,7 +60,7 @@ class UpdateInstallCompatibilityTest {
     @Test fun severalInstallersAskTheDriver() {
         val started = install(publicUriReadable = true, installers = 2)
         assertEquals(Intent.ACTION_CHOOSER, started.action)
-        val view = started.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!
+        val view = IntentCompat.getParcelableExtra(started, Intent.EXTRA_INTENT, Intent::class.java)!!
         assertEquals(publicCopy, view.data)
         assertEquals(apkType, view.type)
     }

@@ -152,6 +152,7 @@ class CarPlayHostInsetsTest {
         assertEquals(Insets.of(0, 64, 0, 136), carPlayHostContentInsets(native(0, 0), false, false))
     }
 
+    @Suppress("DEPRECATION") // API 28 implements fullscreen through these legacy flags.
     @Test fun stableLayoutFlagsDoNotHideBarsTheDriverKeeps() {
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         val apply = CarPlayHostActivity::class.java.getDeclaredMethod("applyFullscreenMode")
@@ -169,6 +170,7 @@ class CarPlayHostInsetsTest {
     }
 
     @Test fun cutoutAndKeyboardUseMaxInsetsRatherThanDoubleSubtractingBars() {
+        @Suppress("DEPRECATION") // This is the DisplayCutout constructor available on API 28.
         val source = insets(cutout = DisplayCutout(Rect(20, 80, 0, 0), emptyList()), imeBottom = 400)
         assertEquals(Insets.of(20, 80, 0, 400), carPlayHostContentInsets(source, false, false))
     }

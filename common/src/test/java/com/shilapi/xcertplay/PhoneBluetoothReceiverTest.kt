@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay
 
-import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.ContextWrapper
@@ -35,7 +35,7 @@ class PhoneBluetoothReceiverTest {
     @After fun cleanup() { CarPlayBackgroundSession.clear() }
 
     private fun event(address: String): Intent {
-        val device = BluetoothAdapter.getDefaultAdapter().getRemoteDevice(address)
+        val device = app.getSystemService(BluetoothManager::class.java).adapter.getRemoteDevice(address)
         return Intent(BluetoothDevice.ACTION_ACL_CONNECTED)
             .putExtra(BluetoothDevice.EXTRA_DEVICE, device)
     }

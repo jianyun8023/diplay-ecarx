@@ -31,6 +31,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
+@Suppress("DEPRECATION") // Exercise the legacy Wi-Fi APIs used by the head unit and its fallback path.
 class ExistingWifiManagerTest {
     private val context = mock(Context::class.java)
     private val connectivity = mock(ConnectivityManager::class.java)

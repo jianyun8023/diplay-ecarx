@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.bluetooth.BluetoothManager
 import android.graphics.SurfaceTexture
 import android.media.MediaCrypto
 import android.media.MediaFormat
@@ -88,7 +89,7 @@ class SmoothVideoHostLifecycleTest {
     }
 
     @Test fun wirelessReconnectDoesNotEnableUserDisabledBluetooth() {
-        val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+        val adapter = activity.getSystemService(BluetoothManager::class.java).adapter
         shadowOf(adapter).setEnabled(false)
         shadowOf(adapter).setState(android.bluetooth.BluetoothAdapter.STATE_OFF)
         activity.getSharedPreferences("diplay_bt_profile_guard", android.content.Context.MODE_PRIVATE)
@@ -148,7 +149,7 @@ class SmoothVideoHostLifecycleTest {
     }
 
     @Test fun aBackgroundSessionWhosePacingMatchesTheViewIsAdopted() {
-        shadowOf(android.bluetooth.BluetoothAdapter.getDefaultAdapter()).setEnabled(false)
+        shadowOf(activity.getSystemService(BluetoothManager::class.java).adapter).setEnabled(false)
         for (smooth in listOf(true, false)) {
             CarPlayBackgroundSession.clear()
             setField("controller", null)

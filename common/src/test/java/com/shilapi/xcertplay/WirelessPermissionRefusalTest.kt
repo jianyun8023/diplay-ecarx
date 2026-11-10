@@ -66,6 +66,7 @@ class WirelessPermissionRefusalTest {
         val asked = request.requestedPermissions.toList()
         assertTrue(asked.toString(), asked.any { it in wireless })
         shadowOf(context).grantPermissions(*granted.toTypedArray())
+        @Suppress("DEPRECATION") // Deliver the permission callback used by the activity.
         activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
             IntArray(asked.size) { if (asked[it] in granted) PackageManager.PERMISSION_GRANTED else PackageManager.PERMISSION_DENIED })
         shadowOf(Looper.getMainLooper()).idle()

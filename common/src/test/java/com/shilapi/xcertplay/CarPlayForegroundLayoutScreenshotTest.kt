@@ -52,6 +52,7 @@ class CarPlayForegroundLayoutScreenshotTest {
         fun capture(visible: Boolean): Bitmap {
             val status = Insets.of(0, 64, 0, 0)
             val navigation = Insets.of(0, 0, 0, 136)
+            @Suppress("DEPRECATION") // On API 29, setInsetsIgnoringVisibility cannot seed stable bar insets.
             val insets = WindowInsetsCompat.Builder()
                 .setStableInsets(Insets.max(status, navigation))
                 .setSystemWindowInsets(if (visible) Insets.max(status, navigation) else Insets.NONE)
