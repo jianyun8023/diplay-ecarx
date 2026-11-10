@@ -171,6 +171,10 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 # → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-release.apk（含身份，不要分享）
 ```
 
+Release 默认开启 R8 代码与资源优化，主应用保留名称和源码调试信息供诊断使用。
+构建后保存对应的 `mobile/build/outputs/mapping/release/mapping.txt`；内联、类合并后的堆栈仍需它还原。
+GitHub Release 附带 `DiPlay-v<versionCode>-mapping.txt`，并将它纳入 `SHA256SUMS.txt`，详见 [构建说明](docs/BUILD.md#build-a-release-apk)。
+
 ### 首装与升级
 
 1. 用 `assembleStandaloneRelease` 打首装包，覆盖安装到车机，**打开一次 DiPlay**，身份才写入 `no_backup/offline-mfi/`。

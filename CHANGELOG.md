@@ -1,3 +1,10 @@
+# v146 — 2026-11-10
+
+## Release 开启 R8，保留可读诊断
+
+- Release 构建启用代码优化、无用代码和资源裁剪；保留类名、方法名及源码调试信息，让崩溃记录和媒体错误摘要继续识别 DiPlay 调用位置。
+- 保留 JNI 异常构造器和本地 MFi 诊断入口。CI 检查四个应用的 R8 构建；每版 `DiPlay-v<versionCode>-mapping.txt` 随 GitHub Release 发布并纳入 SHA256SUMS，供内联、类合并和行号重映射后的堆栈还原使用。
+
 # v145 — 2026-11-10
 
 ## 「HY 代理」改名「Android 标准」，HY 封面广播可关闭
