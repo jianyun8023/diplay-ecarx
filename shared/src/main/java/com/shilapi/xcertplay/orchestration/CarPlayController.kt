@@ -523,6 +523,9 @@ class CarPlayController(
     /** Reopens the CH341/MFi path without restarting the app. */
     fun reconnectMfi() = synchronized(lifecycleLock) {
         if (closed) return
+        // MFi discovery replaces the whole stack. Retire the live wireless run now so its callbacks
+        // and status posts stop with the session; startWireless releases its resources afterwards.
+        synchronized(wirelessResourceLock) { wirelessRun?.retire() }
         closeMfiSession()
         startMfi()
     }

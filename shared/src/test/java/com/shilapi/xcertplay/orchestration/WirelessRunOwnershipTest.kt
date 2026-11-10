@@ -198,6 +198,25 @@ class WirelessRunOwnershipTest {
         assertEquals("radio lost", (statuses.single() as CarPlayStatus.Failed).message)
     }
 
+    @Test fun reconnectMfiRetiresTheLiveWirelessRunBeforeDiscoveryCompletes() {
+        val executor = field(controller, "executor") as java.util.concurrent.ExecutorService
+        val release = java.util.concurrent.CountDownLatch(1)
+        // Hold the single worker: retirement must not depend on MFi discovery succeeding or failing.
+        executor.execute { release.await(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val old = run(1)
+        val state = field(old, "state") as WirelessRunState
+        try {
+            controller.reconnectMfi()
+            assertEquals(WirelessRunState.Lifecycle.RETIRED, state.lifecycle)
+            assertFalse(state.failedOnce)
+            runType.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(old, CarPlayStatus.WirelessActive, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(statuses.none { it is CarPlayStatus.WirelessActive })
+            assertTrue(statuses.any { it is CarPlayStatus.DiscoveringMfi })
+        } finally { release.countDown() }
+    }
+
     private fun run(generation: Int): Any {
         field(controller, "wirelessRun")?.let {
             runType.getDeclaredMethod("retire").apply { isAccessible = true }.invoke(it)
