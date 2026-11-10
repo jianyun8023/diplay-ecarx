@@ -100,6 +100,46 @@ class EcarxFactoryNavigationRestoreTest {
         assertEquals("factoryNavigation restore=not-owned", EcarxFactoryNavigationRestore.restoreIfPausedByUs(app))
     }
 
+    @Test fun settledCallbackFiresOnceAfterProcessConfirmation() {
+        EcarxFactoryNavigationRestore.pauseForGuidance(app)
+        var settled = 0
+        EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        assertEquals(0, settled)
+        processManager.setProcesses(listOf(ActivityManager.RunningAppProcessInfo(packageName, 42, arrayOf(packageName))))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(1, settled)
+        assertFalse(store.getBoolean("owned", false))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(8))
+        assertEquals(1, settled)
+    }
+
+    @Test fun settledCallbackFiresAtOnceWhenNothingIsOwnedAndWhenSuperseded() {
+        var settled = 0
+        EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
+        assertEquals(1, settled)
+        EcarxFactoryNavigationRestore.pauseForGuidance(app)
+        EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
+        assertEquals(1, settled)
+        // New guidance cancels the delayed start; the waiting caller must not hang on it.
+        EcarxFactoryNavigationRestore.pauseForGuidance(app)
+        assertEquals(2, settled)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(8))
+        assertEquals(2, settled)
+    }
+
+    @Test fun settledCallbackFiresWhenTheProcessNeverAppears() {
+        EcarxFactoryNavigationRestore.pauseForGuidance(app)
+        var settled = 0
+        EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(6))
+        assertEquals(0, settled)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(1, settled)
+        assertTrue(store.getBoolean("owned", false))
+        assertTrue(EcarxFactoryNavigationRestore.state(app).contains("process-unconfirmed"))
+    }
+
     @Test fun originalExplicitEnabledStateIsPreservedAcrossRepeatedGuidance() {
         app.packageManager.setApplicationEnabledSetting(packageName, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, 0)
         EcarxFactoryNavigationRestore.pauseForGuidance(app)

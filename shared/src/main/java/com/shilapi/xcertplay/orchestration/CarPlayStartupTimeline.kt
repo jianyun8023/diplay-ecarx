@@ -71,6 +71,17 @@ object CarPlayStartupTimeline {
     fun isMeasuredMode(mode: WirelessHotspotMode): Boolean =
         mode == WirelessHotspotMode.MANUAL || mode == WirelessHotspotMode.EXISTING_WIFI
 
+    /** The boot count cannot change within a process; read it once, retrying only while unknown. */
+    @Volatile private var cachedBootCount = -1
+
+    private fun bootCount(context: Context): Int {
+        val known = cachedBootCount
+        if (known >= 0) return known
+        return runCatching {
+            Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        }.getOrDefault(-1).also { if (it >= 0) cachedBootCount = it }
+    }
+
     /**
      * Enum fields and numeric IDs only. Do not add SSID, BSSID, passwords, phone addresses,
      * private authentication material or exception messages to this persisted trace.
@@ -85,10 +96,7 @@ object CarPlayStartupTimeline {
         attempt: Int? = null,
     ) {
         if (!isMeasuredMode(mode)) return
-        val bootCount = runCatching {
-            Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
-        }.getOrDefault(-1)
-        val line = format(SystemClock.elapsedRealtime(), stage, mode, bootCount,
+        val line = format(SystemClock.elapsedRealtime(), stage, mode, bootCount(context),
             Process.myPid(), generation, owner, attempt)
         Log.i(TAG, line)
         runCatching {
@@ -123,8 +131,9 @@ object CarPlayStartupTimeline {
         data class Checkpoint(val stage: Stage, val elapsedMs: Long)
         val runs = linkedMapOf<Run, MutableList<Checkpoint>>()
         // Old or incomplete identities cannot safely join events across boots or process restarts.
+        val measuredModes = WirelessHotspotMode.values().filter(::isMeasuredMode).joinToString("|")
         val pattern = Regex("elapsedSinceBootMs=(\\d+) stage=(WIRELESS_RUN_START|VIDEO_FIRST_FRAME|STABLE_VIDEO_FRAME|WIRELESS_FAILED) " +
-            "mode=(MANUAL|EXISTING_WIFI) generation=(\\d+) owner=(-?\\d+)(?: attempt=\\d+)? bootCount=(\\d+) process=(\\d+)")
+            "mode=($measuredModes) generation=(\\d+) owner=(-?\\d+)(?: attempt=\\d+)? bootCount=(\\d+) process=(\\d+)")
         for (line in lines) {
             val values = pattern.matchEntire(line)?.groupValues ?: continue
             val elapsed = values[1].toLongOrNull() ?: continue

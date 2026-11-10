@@ -262,8 +262,13 @@ internal object EcarxHudBridge {
         override fun onDisplayChanged(displayId: Int) = Unit
     }
 
-    fun recoverFactoryNavigationIfIdle(app: Context) = synchronized(lock) {
-        if (!guidanceActive && !hudActive) report(EcarxFactoryNavigationRestore.restoreIfPausedByUs(app))
+    /** [onSettled] fires once when the restore chain ends or when there was nothing to restore. */
+    fun recoverFactoryNavigationIfIdle(app: Context, onSettled: (() -> Unit)? = null) = synchronized(lock) {
+        if (guidanceActive || hudActive) {
+            onSettled?.invoke()
+            return@synchronized
+        }
+        report(EcarxFactoryNavigationRestore.restoreIfPausedByUs(app, onSettled))
     }
 
     /** Resolves the DIM handles once per process. Safe to call from any thread; idempotent. */

@@ -51,6 +51,8 @@ class WirelessHandoffWatchdogTest {
             override fun getApplicationContext(): Context = this
             override fun bindService(service: Intent, conn: ServiceConnection, flags: Int): Boolean = false
         }, CarPlayRuntimeConfig(mfiTarget = MfiTarget.LOCAL, transport = CarPlayTransport.WIRELESS,
+            // A measured hotspot mode, so failure checkpoints reach the startup timeline.
+            wirelessHotspotMode = WirelessHotspotMode.MANUAL, manualHotspotSsid = "test", manualHotspotPassphrase = "password1",
             identification = Iap2IdentificationConfig(name = "test", modelIdentifier = "test", manufacturer = "test",
                 serialNumber = "test", firmwareVersion = "1", hardwareVersion = "1", carPlayUsbInterfaceNumber = 3)),
             config, identity, PairingStore(), listener, object : AirPlayMediaHandler {}, statuses::add)
@@ -83,6 +85,30 @@ class WirelessHandoffWatchdogTest {
         assertTrue(statuses.single() is CarPlayStatus.Failed)
         verify(bootstrap).close()
         assertEquals(0, confirmations)
+        // The handoff timeout fails the run outside runWireless; the metrics still see a failure.
+        val events = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("diplay_wireless_startup_timeline", Context.MODE_PRIVATE).getString("events", "").orEmpty()
+        assertTrue(events, events.contains("stage=WIRELESS_FAILED mode=MANUAL generation=0"))
+        assertEquals(1, events.lineSequence().count { it.contains("stage=WIRELESS_FAILED") })
+    }
+
+    @Test fun tunnelControlFailureWhileTheSessionRendersIsShownWithoutEndingTheRun() {
+        val run = controller.wirelessRunForTest()
+        val onStatus = run.javaClass.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        onStatus.invoke(run, CarPlayStatus.Failed("Wireless iAP2 tunnel closed"), 0)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(statuses.single() is CarPlayStatus.Failed)
+        // The AirPlay session is still alive: its end and transport callbacks must keep arriving.
+        assertTrue(controller.wirelessStateCallForTest("getRunning") as Boolean)
+        assertEquals(0, hotspotCloses)
+        verify(bootstrap, never()).close()
+        // Without a live session the same status is terminal for the run.
+        ReflectionHelpers.setField(controller, "activeSession", null)
+        onStatus.invoke(run, CarPlayStatus.Failed("Wireless iAP2 tunnel closed after the session ended"), 0)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(controller.wirelessStateCallForTest("getRunning") as Boolean)
+        assertEquals(2, statuses.size)
     }
 
     @Test fun renderedVideoWithoutTunnelPreservesBootstrapAndReportsFallbackOnce() {

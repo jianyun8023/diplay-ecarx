@@ -18,7 +18,7 @@
 3. `CONTROLLER_START`、`LOCAL_MFI_READY`、`WIRELESS_RUN_START`、`AIRPLAY_LISTENING`、`BONJOUR_STARTED`：控制器、监听准备。
 4. `RFCOMM_CONNECTED`、`IAP2_CSM_READY`、`IPHONE_MFI_ACCEPTED`、`START_SESSION_SENT`：蓝牙与协议。
 5. `AIRPLAY_TCP_ACCEPTED`、`AIRPLAY_SESSION_ACTIVE`、`VIDEO_FIRST_FRAME`、`UI_FIRST_FRAME_CALLBACK`：Wi-Fi 建链、会话、视频。
-6. `WIRELESS_FAILED` 为失败检查点；结合现有失败类型日志分析，不将恢复超时预算作为正常连接耗时。
+6. `WIRELESS_FAILED` 为失败检查点，由本代第一次判定失败时记录一次，蓝牙 bring-up 失败、handoff 超时和假蓝牙链路三条路径都经过它；结合现有失败类型日志分析，不将恢复超时预算作为正常连接耗时。隧道控制通道在画面仍在输出时关闭只上报状态，不算本代失败，也不记此检查点。
 
 `bootCount` 为系统开机计数，`process` 为进程 PID，`owner` 为进程内控制器标识，`generation` 为同一控制器的重试代次，`attempt` 为蓝牙 bootstrap 尝试序号。指标按 `(bootCount, process, mode, owner, generation)` 分组，避免跨开机、进程重启、控制器或代次拼接。一代内取第一次对应检查点；局部 bootstrap 重试的等待包含在该代耗时内，整栈重启产生另一行。旧版本事件或读不到开机计数的事件只保留原始记录，不生成推测指标。
 

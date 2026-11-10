@@ -83,9 +83,12 @@ object NavigationOutputs {
         }
     }
 
-    /** Boot recovery must not initialize the cluster display or interrupt active guidance. */
-    fun recoverFactoryNavigationIfIdle(context: Context) =
-        EcarxHudBridge.recoverFactoryNavigationIfIdle(context.applicationContext)
+    /**
+     * Boot recovery must not initialize the cluster display or interrupt active guidance.
+     * [onSettled] fires once when no asynchronous restore work remains.
+     */
+    fun recoverFactoryNavigationIfIdle(context: Context, onSettled: (() -> Unit)? = null) =
+        EcarxHudBridge.recoverFactoryNavigationIfIdle(context.applicationContext, onSettled)
 
     /**
      * Initialize the bridge before a phone connects. It clears an old projection request rather

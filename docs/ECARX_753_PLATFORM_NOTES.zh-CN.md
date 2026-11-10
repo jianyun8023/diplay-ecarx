@@ -112,7 +112,7 @@ stateDiagram-v2
     StableFrame --> [*]
 ```
 
-- `BootRecovery` 在自启开关判断之前检查原厂导航恢复；复用 `EcarxHudBridge.recoverFactoryNavigationIfIdle()`，仅恢复本应用暂停的包，且不覆盖解锁直达路径已经开始的导航或 HUD 输出。未解锁的预热路径不访问这份凭据保护存储。
+- `BootRecovery` 在自启开关判断之前检查原厂导航恢复；复用 `EcarxHudBridge.recoverFactoryNavigationIfIdle()`，仅恢复本应用暂停的包，且不覆盖解锁直达路径已经开始的导航或 HUD 输出。未解锁的预热路径不访问这份凭据保护存储。恢复链的服务拉起与进程确认在主线程延后约 7 s；自启关闭时广播返回后进程没有其他组件，因此 `BOOT_COMPLETED` 用 `goAsync()` 持有广播直到恢复链结束，上限 9 s（`BroadcastHold`），避免进程被回收后服务未启动、owned 标记残留。
 - `Connecting` 内热点准备和蓝牙就绪可并行，热点保护仍由 `CarWifiClientGuard` 负责；蓝牙 OFF 的 8 s 等待、局部重试及所有失败预算不变。上层不复制这些内部状态。
 - 首帧可来自蓝牙 fallback；稳定帧为隧道 StartSession 后的视频回调。两个检查点可能来自同一次回调，代码也可能先记录稳定帧，图中的先后关系不作为回调顺序约束；没有稳定帧不直接判为连接失败。
 - 迟到的 `BOOT_COMPLETED` 仍执行恢复检查，但已有宿主会去重；它不是解锁直达路径的计时起点。ACC 唤醒不等同于整机重启。
@@ -192,6 +192,8 @@ stateDiagram-v2
 | 高通低延迟解码 | 待验 | 默认关闭 | `effectiveness=unverified` |
 | 保留系统栏时的前台布局 | 待验 | | Robolectric 截图，非车机 |
 | 公开 Release 应用内更新 | 实车 | v143→v144 2026-11-09 | |
+| 开机 `BOOT_COMPLETED` 恢复 DiPlay 暂停的原厂导航 | 模拟器 | PR #70 2026-11-10，Android 9 模拟器 | 覆盖自启关闭、解锁后已导航两条路径；广播 `goAsync` 持有仅有单测；实车待验；桌面卡片绑定不恢复 |
+| 启动指标（开机 / 进程 / 代次分组，首帧与稳定帧） | 台架 | PR #70 2026-11-10，小米 8 + 模拟器 | 开机计数与 PID 落盘为真实数据，首帧检查点为注入数据；实车冷启动 p50/p95 未采 |
 
 ## 8. 证据索引（本地工作区 `lyno-carplay/`，不随仓库分发）
 

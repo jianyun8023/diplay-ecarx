@@ -84,7 +84,12 @@ class BootReceiver : BroadcastReceiver() {
 
     private fun onBootCompleted(context: Context) {
         // Unlock may already have started guidance; recover only while both navigation outputs are idle.
-        NavigationOutputs.recoverFactoryNavigationIfIdle(context)
+        // The restore enables the package at once but starts and confirms the service over the next
+        // ~7 s on the main looper. With auto-start off nothing else keeps this process alive, so hold
+        // the broadcast until that chain settles; the cap stays inside the receiver budget.
+        val pendingResult = goAsync()
+        val hold = BroadcastHold(RESTORE_HOLD_MILLIS) { pendingResult?.finish() }
+        NavigationOutputs.recoverFactoryNavigationIfIdle(context, onSettled = hold::release)
         val mode = AirPlayPersistence.loadWirelessHotspotMode(context)
         CarPlayStartupTimeline.record(context, CarPlayStartupTimeline.Stage.BOOT_BROADCAST, mode)
         // Starts the watcher for other apps' calls when that setting is on, even without opening DiPlay.
@@ -124,5 +129,7 @@ class BootReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "xcertplay-boot"
+        /** 2 s service start + up to 5 × 1 s process checks, with margin; under the 10 s receiver budget. */
+        const val RESTORE_HOLD_MILLIS = 9_000L
     }
 }
