@@ -138,9 +138,18 @@ internal fun nextLowLatencyDecoder(requested: String?, used: DecoderAttempt?): S
  * only once one or two later frames had been queued. Decoding order is the display order only for a stream
  * without reordered (B) frames. The iPhone's CarPlay H.264 had none, and its HEVC declares
  * sps_max_num_reorder_pics=0 (Mi 8 bench, 2026-11-10, main and second stream). It is set only for the main
- * screen with smooth video, and only on a decoder that lists the parameter.
+ * screen with smooth video, on a decoder that lists the parameter or on Qualcomm's OMX decoders
+ * ([submitsPictureOrderUnlisted]).
  */
 internal const val PICTURE_ORDER_PARAMETER = "vendor.qti-ext-dec-picture-order.enable"
+
+/**
+ * Qualcomm's OMX decoders never list vendor parameters (API 28 cannot ask; the Mi 8's OMX lists nothing on
+ * Android 15), yet a car probe on the ECARX 753's OMX.qcom.video.decoder.avc/hevc accepted the parameter at
+ * configure. They get it unlisted, and a configure, start or runtime failure drops it as for QTI low latency.
+ */
+internal fun submitsPictureOrderUnlisted(codecName: String): Boolean =
+    codecName.startsWith("OMX.qcom.video.decoder.", ignoreCase = true)
 
 /** Serial MediaCodec video decoder: one worker owns configure and frame feeding. */
 internal class VideoDecoder(
@@ -205,8 +214,10 @@ internal class VideoDecoder(
     } else MtkDecoderMode.NONE
     private var configuredMtkMode = MtkDecoderMode.NONE
     private var configuredMtkCodec2LowLatency = false
-    // Whether the vendor low-latency parameters were set on the codec being configured.
+    // Whether the vendor low-latency parameters were set on the codec being configured, and whether any
+    // private parameter was (those or an unlisted picture order), which a failure then drops.
     private var configuredVendorLowLatency = false
+    private var configuredPrivateParameters = false
     private var vendorLowLatencyRefused = false
     // Likewise the low-latency decoder, not tried again once another decoder had to take over; and what the
     // codec that tryConfigure started last was given.
@@ -523,7 +534,7 @@ internal class VideoDecoder(
     }
 
     private fun dropVendorLowLatency(reason: String) {
-        if (!configuredVendorLowLatency || vendorLowLatencyRefused) return
+        if (!configuredPrivateParameters || vendorLowLatencyRefused) return
         vendorLowLatencyRefused = true
         report("QTI low-latency fallback: $reason; next=without-private-parameters for this stream")
     }
@@ -582,6 +593,7 @@ internal class VideoDecoder(
         var candidate: MediaCodec? = null
         var mtkMode = MtkDecoderMode.NONE
         var vendorKeys = emptyList<String>()
+        var privateParameters = false
         var codecName = attempt.codecName ?: "default"
         var phase = "create"
         var phaseStartNs = System.nanoTime()
@@ -602,7 +614,10 @@ internal class VideoDecoder(
                 vendorLowLatencyKeys(createdName)
             } else emptyList()
             vendorKeys.forEach { format.setInteger(it, 1) }
-            val pictureOrder = attempt.tuned && atOnce && !vendorLowLatencyRefused && listsPictureOrder(codec)
+            val pictureOrderListed = listsPictureOrder(codec)
+            val pictureOrder = attempt.tuned && atOnce && !vendorLowLatencyRefused &&
+                (pictureOrderListed || submitsPictureOrderUnlisted(createdName))
+            privateParameters = vendorKeys.isNotEmpty() || (pictureOrder && !pictureOrderListed)
             if (pictureOrder) format.setInteger(PICTURE_ORDER_PARAMETER, 1)
             if (vendorKeys.isNotEmpty()) {
                 report("QTI low-latency attempt decoder=$codecName api=${Build.VERSION.SDK_INT} " +
@@ -613,6 +628,7 @@ internal class VideoDecoder(
             phaseStartNs = System.nanoTime()
             codec.start()
             configuredVendorLowLatency = vendorKeys.isNotEmpty()
+            configuredPrivateParameters = privateParameters
             if (configuredVendorLowLatency) {
                 report("QTI low-latency configure/start returned decoder=$codecName; effectiveness=unverified")
             }
@@ -639,7 +655,7 @@ internal class VideoDecoder(
                     "mtkTuning=${mtkMode.diagnosticName} mime=$mime size=${width}x$height",
                 error,
             )
-            if (vendorKeys.isNotEmpty()) {
+            if (privateParameters) {
                 vendorLowLatencyRefused = true
                 report("QTI low-latency fallback decoder=$codecName phase=$phase; " +
                     "retry=same-format-without-private-parameters for this stream")
@@ -963,6 +979,7 @@ internal class VideoDecoder(
         configuredMtkMode = MtkDecoderMode.NONE
         configuredMtkCodec2LowLatency = false
         configuredVendorLowLatency = false
+        configuredPrivateParameters = false
         if (codec != null) {
             try {
                 codec.stop()
