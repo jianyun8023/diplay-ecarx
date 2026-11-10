@@ -39,6 +39,7 @@ class ScreenStream(
     private val closed = AtomicBoolean(false)
     private val frameCounter = AtomicLong(0)
     private val firstFrameLogged = AtomicBoolean(false)
+    private var loggedConfig: ByteArray? = null // read thread only
     private var server: ServerSocket? = null
     private var socket: Socket? = null
     private var thread: Thread? = null
@@ -120,7 +121,11 @@ class ScreenStream(
             }
             OP_VIDEO_CONFIG -> {
                 val (codec, codecData) = ScreenCodec.detectConfig(body.copyOf(bodySize))
-                Log.i(TAG, "video codec config codec=$codec body=$bodySize data=${codecData.size}")
+                // The iPhone repeats the same config; the bytes (SPS reorder depth, profile) are logged once per change.
+                val changed = !codecData.contentEquals(loggedConfig)
+                if (changed) loggedConfig = codecData
+                val bytes = if (changed) " hex=${codecData.hexPrefix(codecData.size)}" else ""
+                Log.i(TAG, "video codec config codec=$codec body=$bodySize data=${codecData.size}$bytes")
                 listener.onCodec(codec)
                 listener.onConfig(codecData)
             }
