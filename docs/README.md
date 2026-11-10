@@ -20,6 +20,8 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 
 ## 开发与构建
 
+- [领克 01 / ECARX 753 平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md) — 厂商接口、固件行为、权限、验证矩阵与证据索引，长期维护；新接口先登记再使用。
+- [2026-11-10 适配设计评审](ECARX_753_DESIGN_REVIEW_20261110.zh-CN.md) — 整体架构判断、按影响排序的发现与建议顺序。
 - [构建 DiPlay 领克 01 / ECARX 753 移植版](../BUILD.md) — 本移植版特有的签名与 MFi 身份；通用流程见下一条。
 - [Build DiPlay](BUILD.md) ／ [從原始碼建置 DiPlay](BUILD.zh-TW.md) — 模块、Android Studio、单测与 lint 的通用流程。
 - [753 车机权限与无 ADB 实施清单](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md) — 平台权限与不依赖 ADB 的实施、验收基准。
