@@ -4,7 +4,7 @@ Instructions for coding agents that work on DiPlay.
 
 ## Vehicle scope
 
-Production targets Android 9 / API 28, ECARX 753 / Qualcomm 820A, with the vehicle platform signature. Ship ARM64 and ARMv7 only. Other Android releases are debugging environments. App runtime, permission setup and recovery must not depend on ADB. Use [the permission checklist](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md) and issue #21 as the implementation and validation reference.
+Production targets Android 9 / API 28, ECARX 753 / Qualcomm 820A, with the vehicle platform signature. Ship ARM64 and ARMv7 only. Other Android releases are debugging environments. App runtime, permission setup and recovery must not depend on ADB. Use [the permission checklist](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md) and issue #21 as the implementation and validation reference. Vendor interfaces, firmware behavior and what has been verified on the car are recorded in [the platform notes](docs/ECARX_753_PLATFORM_NOTES.zh-CN.md); register a new interface, property id or broadcast there before using it.
 
 ## Checks
 
