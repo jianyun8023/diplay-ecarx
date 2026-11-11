@@ -179,6 +179,9 @@ internal class VideoDecoder(
     private val framesAtOnce: Boolean = false,
     private val mtkDecoderTuningEnabled: Boolean = false,
     private val debugLogsEnabled: () -> Boolean = { false },
+    /** Draws this decoder's pictures onto its surface and its mirrors while it has any ([setMirror]). */
+    private val fanoutFactory: (width: Int, height: Int, report: (String) -> Unit) -> VideoFanout =
+        { w, h, r -> GlVideoFanout(w, h, r) },
 ) : Closeable {
     private val pacer = FramePacer()
     private val pacingDelay = if (pacingDelayNanos > 0) PacingDelay(pacingDelayNanos) else null
@@ -203,6 +206,10 @@ internal class VideoDecoder(
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
     private var parking: ParkingOutput? = null
+    // The stream's mirrors and, while there are any, the fanout the codec renders to instead of
+    // [outputSurface]; the fanout then draws onto [outputSurface] and every mirror. Worker only.
+    private val mirrors = LinkedHashMap<String, Surface>()
+    private var fanout: VideoFanout? = null
     private var lastConfig: VideoJob.Config? = null
     @Volatile private var renderedFrameLogged = false
     // The operating rate still asked for, dropped for this stream once a decoder refuses it; and the rate
@@ -277,6 +284,11 @@ internal class VideoDecoder(
         queue.offer(VideoJob.SurfaceChanged(surface))
     }
 
+    /** Also shows this stream on [surface] under [key], from the same decoded pictures; null stops it. */
+    fun setMirror(key: String, surface: Surface?) {
+        queue.offer(VideoJob.MirrorChanged(key, surface))
+    }
+
     /** Asks the worker to stop rendering to [surface], parking the codec when [park]. */
     fun requestDetach(surface: Surface, park: Boolean): SurfaceDetachRequest {
         check(Thread.currentThread() !== thread) { "detach from the decoder worker" }
@@ -339,6 +351,7 @@ internal class VideoDecoder(
                             } else feed(job.nalus, job.receivedNs, localTimeOf(job))
                         }
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
+                        is VideoJob.MirrorChanged -> changeMirror(job.key, job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
                         // Once per new surface, so it skips the rate limit an earlier request may still hold.
                         is VideoJob.RefreshPicture -> if (decoder != null) {
@@ -350,7 +363,7 @@ internal class VideoDecoder(
                     }
                     if (outputThread == null) decoder?.let(::drainOutput)
                     if (debugLogsEnabled()) stats.logIfDue()?.let(report)
-                    if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
+                    if (referenceChain.needsKeyFrame && lastConfig != null && codecSurface() != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
                     onJobFailure(job?.javaClass?.simpleName ?: "drain", error)
                 } catch (error: LinkageError) {
@@ -370,6 +383,8 @@ internal class VideoDecoder(
             // The codec is gone, so nothing renders to any surface or to the parking consumer any more.
             parking?.close()
             parking = null
+            fanout?.let { runCatching(it::close) }
+            fanout = null
             queue.drain().forEach { (it as? VideoJob.DetachSurface)?.request?.complete(DetachOutcome.RELEASED) }
             runCatching { onExit(this) }
         }
@@ -451,7 +466,7 @@ internal class VideoDecoder(
         duplicateConfigLogged = false
         releaseDecoder()
         referenceChain.reset()
-        val surface = outputSurface ?: return
+        val surface = codecSurface() ?: return
         val codec = config.codec
         val codecData = config.codecData
         val mime = if (codec == VideoCodec.H265) MediaFormat.MIMETYPE_VIDEO_HEVC
@@ -720,6 +735,25 @@ internal class VideoDecoder(
     /** Completes [request] once the codec no longer renders to its surface, whatever happens here. */
     private fun detach(request: SurfaceDetachRequest): Unit = synchronized(outputLock) {
         var outcome = DetachOutcome.RELEASED
+        val sharing = fanout
+        if (sharing != null) {
+            // The codec renders to the fanout: only the fanout lets go of the surface, and the codec keeps its state.
+            try {
+                if (outputSurface === request.surface) {
+                    sharing.setPrimary(null)
+                    outputSurface = null
+                }
+                mirrors.entries.firstOrNull { it.value === request.surface }?.key?.let { changeMirror(it, null) }
+                outcome = DetachOutcome.NOT_RENDERING
+            } catch (error: Exception) {
+                closeFanout()
+                outputSurface = null
+                throw error
+            } finally {
+                request.complete(outcome)
+            }
+            return
+        }
         try {
             outcome = detachAction(outputSurface, request.surface, request.park, decoder != null)
             when (outcome) {
@@ -756,6 +790,15 @@ internal class VideoDecoder(
     private fun changeSurface(surface: Surface?): Unit = synchronized(outputLock) {
         if (outputSurface === surface) return
         outputSurface = surface
+        fanout?.let { sharing ->
+            try {
+                sharing.setPrimary(surface)
+            } catch (error: Exception) {
+                closeFanout()
+                throw error
+            }
+            return
+        }
         if (surface == null) {
             releaseDecoder()
             queue.discardCurrentChain()
@@ -778,10 +821,99 @@ internal class VideoDecoder(
         lastConfig?.let(::configureDecoder)
     }
 
+    /** Mirrors: one decoder for all of them, through a fanout that also draws onto the stream's own surface. */
+    private fun changeMirror(key: String, surface: Surface?): Unit = synchronized(outputLock) {
+        if (surface == null) {
+            if (mirrors.remove(key) == null) return
+        } else {
+            if (mirrors[key] === surface) return
+            mirrors[key] = surface
+        }
+        val sharing = fanout
+        when {
+            mirrors.isEmpty() -> if (sharing != null) stopFanout(sharing)
+            sharing != null -> try {
+                sharing.setMirror(key, surface)
+            } catch (error: Exception) {
+                closeFanout()
+                throw error
+            }
+            else -> startFanout()
+        }
+    }
+
+    private fun startFanout() {
+        val sharing = try {
+            fanoutFactory(width, height, report)
+        } catch (error: Exception) {
+            Log.w(TAG, "video fanout unavailable; mirrors not shown", error)
+            report("mirrors unavailable: ${MediaFailureSummary.describe(error)}")
+            return
+        }
+        try {
+            mirrors.forEach { (key, surface) -> sharing.setMirror(key, surface) }
+            decoder?.let { codec ->
+                // Leaves the stream's own surface at once, so the fanout can draw there.
+                try {
+                    codec.setOutputSurface(sharing.input)
+                } catch (error: Exception) {
+                    Log.w(TAG, "video decoder could not move to the fanout; reconfiguring", error)
+                    releaseDecoder()
+                    queue.discardCurrentChain()
+                    referenceChain.reset()
+                }
+            }
+            fanout = sharing
+            sharing.setPrimary(outputSurface)
+            report("mirrors share this decoder mirrors=${mirrors.size}")
+        } catch (error: Exception) {
+            if (fanout === sharing) closeFanout() else {
+                runCatching(sharing::close)
+            }
+            throw error
+        }
+    }
+
+    private fun stopFanout(sharing: VideoFanout) {
+        // Frees the stream's own surface before the codec renders there again.
+        runCatching { sharing.setPrimary(null) }
+        fanout = null
+        val primary = outputSurface
+        decoder?.let { codec ->
+            if (primary == null) {
+                releaseDecoder()
+                queue.discardCurrentChain()
+            } else try {
+                codec.setOutputSurface(primary)
+            } catch (error: Exception) {
+                Log.w(TAG, "video decoder could not return to its surface; reconfiguring", error)
+                releaseDecoder()
+                queue.discardCurrentChain()
+                referenceChain.reset()
+            }
+        }
+        runCatching(sharing::close)
+        report("mirrors stopped; decoder renders to its surface")
+    }
+
+    /** After a fanout failure: the codec rendered to it, so it goes too and the next keyframe starts again. */
+    private fun closeFanout() {
+        val sharing = fanout ?: return
+        fanout = null
+        releaseDecoder()
+        queue.discardCurrentChain()
+        referenceChain.reset()
+        runCatching(sharing::close)
+        mirrors.clear()
+    }
+
+    /** Where the codec renders: the fanout while the stream has mirrors, else the stream's own surface. */
+    private fun codecSurface(): Surface? = fanout?.input ?: outputSurface
+
     private fun feed(nalus: ByteArray, receivedNs: Long, presentNs: Long = 0L) {
         val annexB = MediaCodecSupport.toAnnexB(nalus)
         val config = lastConfig ?: return
-        if (outputSurface == null) return
+        if (codecSurface() == null) return
         if (annexB.isEmpty()) { recover("invalid video access unit"); return }
         if (!referenceChain.accepts(annexB, config.codec)) {
             requestKeyFrameIfDue()
@@ -885,10 +1017,11 @@ internal class VideoDecoder(
             index == MediaCodec.INFO_TRY_AGAIN_LATER -> return false
             index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
             index >= 0 -> {
-                val render = outputSurface != null
+                val target = codecSurface()
+                val render = target != null
                 // Parked output goes to the offscreen consumer: it keeps the codec's state, but it is
                 // not shown, so it is neither paced nor counted.
-                val shown = render && outputSurface !== parking?.surface
+                val shown = render && target !== parking?.surface
                 val now = System.nanoTime()
                 val slot = queuedSlotOf(info.presentationTimeUs)
                 val queued = if (slot >= 0) queuedAtNanos[slot] else 0L

@@ -15,6 +15,8 @@ internal sealed interface VideoJob {
         val arrivalNanos: Long = 0L,
     ) : VideoJob
     data class SurfaceChanged(val surface: Surface?) : VideoJob
+    /** Also show the stream on [surface] under [key] (null stops it), drawn from this decoder's pictures. */
+    data class MirrorChanged(val key: String, val surface: Surface?) : VideoJob
     /** Stop rendering to a surface that is going away; completes [request] once the codec has let go. */
     data class DetachSurface(val request: SurfaceDetachRequest) : VideoJob
     /** Ask the iPhone for a keyframe, so a surface that just came back gets a picture without waiting for motion. */
