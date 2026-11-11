@@ -187,3 +187,6 @@ mod tests {
 }
 
 pub unsafe fn size(handle: jlong) -> usize { if handle == 0 { 0 } else { packet(handle).len() } }
+
+/// The bytes behind a live handle; the caller keeps its reference for as long as it reads them.
+pub unsafe fn bytes<'a>(handle: jlong) -> &'a [u8] { packet(handle).bytes() }

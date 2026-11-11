@@ -9,6 +9,8 @@ pub mod buffered;
 pub mod crypto;
 pub mod jvm;
 pub mod packet;
+pub mod pcm;
+pub mod renderer;
 pub mod stats;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
