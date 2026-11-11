@@ -226,6 +226,14 @@ internal class VideoDecoder(
     private var startedPictureOrder = false
     private var submittedFrameLogged = false
     private var duplicateConfigLogged = false
+    // Installed decoders per MIME type, read once: the list does not change while the app runs.
+    private val installedDecoders = HashMap<String, List<InstalledDecoder>>()
+    // Set within one configure pass once the hardware decoder could not be created even after its retries;
+    // the pass then goes to the software decoder instead of creating the hardware one again per attempt.
+    private var hardwareCreateFailed = false
+    // While the stream decodes in software because the hardware was busy: when to check for it again.
+    private var hardwareProbe: HardwareDecoderProbe? = null
+    private var hardwareProbeIntervalMillis = HardwareDecoderProbe.FIRST_INTERVAL_MILLIS
     private var failureReports = 0
     private val referenceChain = VideoReferenceChain()
     private val backlogRecovery = VideoBacklogRecovery()
@@ -349,6 +357,7 @@ internal class VideoDecoder(
                         null -> Unit
                     }
                     if (outputThread == null) decoder?.let(::drainOutput)
+                    probeHardwareIfDue()
                     if (debugLogsEnabled()) stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
@@ -476,15 +485,24 @@ internal class VideoDecoder(
             MtkDecoderTuning.legacyAcodecDecoderName(mime) != null) maximumMtkMode else MtkDecoderMode.NONE
         var configured: ConfiguredVideoDecoder? = null
         var used: DecoderAttempt? = null
+        hardwareCreateFailed = false
+        hardwareProbe = null
         for (attempt in videoDecoderAttempts(
             requestedRate,
             softwareDecoderName(mime),
             requestedLowLatency,
             requestedMtkMode,
         )) {
+            // The default decoder is the hardware one; once it could not be created, only named ones are left.
+            if (attempt.codecName == null && hardwareCreateFailed) continue
+            // API 28 never had a software attempt: there it only stands in for a hardware decoder that is busy,
+            // not for one that was created but refused a format (the next keyframe retries that as before).
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !hardwareCreateFailed &&
+                attempt.codecName != null && isSoftwareDecoderName(attempt.codecName)) continue
             configured = tryConfigure(mime, csd, surface, attempt, framesAtOnce)
             if (configured != null) { used = attempt; break }
         }
+        if (configured != null) noteSoftwareFallback(mime, configured.codecName)
         if (configured == null) {
             queue.discardCurrentChain()
             report("decoder configuration failed mime=$mime size=${width}x$height")
@@ -686,12 +704,62 @@ internal class VideoDecoder(
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             runCatching { PICTURE_ORDER_PARAMETER in codec.supportedVendorParameters }.getOrDefault(false)
 
-    private fun softwareDecoderName(mime: String): String? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
-        return MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
-            !it.isEncoder && it.isSoftwareOnly && mime in it.supportedTypes
-        }?.name
+    private fun softwareDecoderName(mime: String): String? = softwareFallbackDecoder(installedDecoders(mime))
+
+    private fun installedDecoders(mime: String): List<InstalledDecoder> = installedDecoders.getOrPut(mime) {
+        runCatching {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+                .filter { !it.isEncoder && mime in it.supportedTypes }
+                .map { info ->
+                    val q = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    InstalledDecoder(
+                        name = info.name,
+                        software = isSoftwareDecoderName(info.name) || (q && info.isSoftwareOnly),
+                        alias = q && info.isAlias,
+                    )
+                }
+        }.getOrDefault(emptyList())
     }
+
+    /** Whether a software decoder took over only because the hardware was busy; if so, look for it again later. */
+    private fun noteSoftwareFallback(mime: String, codecName: String) {
+        val hardware = defaultHardwareDecoder(installedDecoders(mime))
+        if (hardware == null || !isSoftwareDecoderName(codecName) || prefersSoftware(mime)) {
+            if (hardware != null && codecName.equals(hardware, ignoreCase = true)) {
+                hardwareProbeIntervalMillis = HardwareDecoderProbe.FIRST_INTERVAL_MILLIS
+            }
+            return
+        }
+        val probe = HardwareDecoderProbe.start(hardware, System.nanoTime(), hardwareProbeIntervalMillis)
+        hardwareProbe = probe
+        // A probe that finds the hardware free but whose decoder then fails again waits longer next time.
+        hardwareProbeIntervalMillis = (hardwareProbeIntervalMillis * 2).coerceAtMost(HardwareDecoderProbe.MAX_INTERVAL_MILLIS)
+        report("software decoder fallback decoder=$codecName hardware=$hardware unavailable; " +
+            "next hardware check in ${probe.intervalMillis} ms")
+    }
+
+    /** Worker only: once the hardware decoder can be created again, rebuild the stream on it at the next keyframe. */
+    private fun probeHardwareIfDue() {
+        val probe = hardwareProbe ?: return
+        if (decoder == null) { hardwareProbe = null; return }
+        val now = System.nanoTime()
+        if (now < probe.dueNanos) return
+        val created = runCatching { MediaCodec.createByCodecName(probe.name) }.getOrNull()
+        if (created == null) {
+            hardwareProbe = probe.failed(now)
+            return
+        }
+        runCatching { created.release() }
+        hardwareProbe = null
+        report("hardware decoder ${probe.name} available again; leaving the software decoder")
+        releaseDecoder()
+        queue.discardCurrentChain()
+        referenceChain.reset()
+        requestKeyFrameIfDue()
+    }
+
+    private fun prefersSoftware(mime: String): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mime == MediaFormat.MIMETYPE_VIDEO_HEVC && preferSoftwareHevcDecoder
 
     private fun createDecoder(mime: String): MediaCodec {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -709,7 +777,24 @@ internal class VideoDecoder(
                 }
             }
         }
-        return MediaCodec.createDecoderByType(mime)
+        // Without a known hardware decoder (emulators, debugging boards) keep the platform's own choice.
+        val hardware = defaultHardwareDecoder(installedDecoders(mime)) ?: return MediaCodec.createDecoderByType(mime)
+        if (hardwareCreateFailed) throw java.io.IOException("hardware decoder $hardware unavailable")
+        return try {
+            createWithRetries(
+                HARDWARE_CREATE_RETRY_MILLIS,
+                sleep = Thread::sleep,
+                onRetry = { attempt, failure ->
+                    report("hardware decoder $hardware create failed attempt=$attempt " +
+                        "${MediaFailureSummary.describe(failure)}; retrying")
+                },
+            ) { MediaCodec.createByCodecName(hardware) }
+        } catch (failure: Exception) {
+            hardwareCreateFailed = true
+            // tryConfigure reports and swallows the failure; a close must still end the worker.
+            if (failure is InterruptedException) Thread.currentThread().interrupt()
+            throw failure
+        }
     }
 
     private fun localTimeOf(frame: VideoJob.Frame): Long =
@@ -1026,6 +1111,8 @@ internal class VideoDecoder(
         const val OUTPUT_IDLE_WAIT_MS = 10L
         const val OUTPUT_EXIT_WAIT_MS = 500L
         const val INPUT_TIMEOUT_US = 10_000L
+        // Waits before creating a refused hardware decoder again: 0.7 s in all, while frames queue up.
+        val HARDWARE_CREATE_RETRY_MILLIS = listOf(100L, 200L, 400L)
         // A paced frame more than this ahead is treated as a bad mapping and shown at once.
         const val MAX_PACING_AHEAD_NS = 1_000_000_000L
         // Longer input gaps are a still screen, not decoding work.

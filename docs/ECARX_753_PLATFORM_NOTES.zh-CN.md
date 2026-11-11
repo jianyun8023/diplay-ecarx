@@ -137,6 +137,11 @@ stateDiagram-v2
 - GKUI 麦克风仲裁服务端未实现，申请必然失败；原厂助手与 CarPlay 的硬件麦克风争用没有解。
 - 车机 A2DP 服务在 CarPlay 发 PLAY 后曾回 AVRCP PAUSE 使音乐自动暂停；蓝牙媒体让位（profile 11 `A2DP_SINK`）用于避免这一点，但在本车未实车验证。
 
+**视频解码**
+
+- `OMX.qcom.video.decoder.hevc` 在频繁重建（仪表地图流 0.5 s 内创建、释放 5 次）后会回 `InsufficientResources (0x80001000)`，日志为 `Failed to set format on output port`。这时 API 28 的 `MediaCodec.createDecoderByType` 不报错，直接改用列表里的下一个，即软解 `OMX.google.hevc.decoder`：v141 实车 2026-11-09 22:09:38（软解随后配置失败），v146 实车 2026-11-10 22:24:52（仪表流 1920×720 用软解出了画面）。现改为按名字创建硬解，被拒后最多重试 3 次（共 0.7 s）；仍失败时才显式走软解并写入诊断，之后按 2 s 起、最长 30 s 的间隔探测硬解，可用时在下一关键帧换回。
+- 音频 AAC/Opus 解码在本车是 `OMX.google.aac.decoder` / `OMX.google.opus.decoder` 软解；API 28 没有给应用的压缩音频卸载接口，属预期。
+
 **媒体与按键**
 
 - HY 模式下系统媒体会话第一项是无播放状态的 `ecarx.xsf.mediacenter`，DiPlay 排第二，HY 取第一项，首次方控播放不生效。
