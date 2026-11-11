@@ -7,13 +7,13 @@ import java.io.Closeable
 import java.nio.ByteBuffer
 
 /**
- * An [AudioRenderer]'s PCM work in `libdiplay_media`: Opus decoding with the shipped libopus, wired
+ * An [AudioRenderer]'s PCM work in `libdiplay_media`: Opus decoding with opus-pure, wired
  * LPCM byte order, and the steps before each track write (call high-pass, navigation sound
  * detection, navigation attenuation, fade-in), all on the renderer's direct PCM buffer. Only the
  * renderer's worker uses it, and closes it.
  */
 internal class NativePcm private constructor(private var handle: Long, val decodesOpus: Boolean) : Closeable {
-    /** PCM bytes written from the start of [out]; negative is a libopus error. */
+    /** PCM bytes written from the start of [out]; negative is an Opus decode error. */
     fun decodeOpus(packet: MediaPacket, offset: Int, length: Int, out: ByteBuffer): Int =
         withHandle(packet) { NativeMedia.pcmDecodeOpus(handle, it, offset, length, out) }
 
@@ -44,7 +44,7 @@ internal class NativePcm private constructor(private var handle: Long, val decod
         const val FADE_IN = 4
 
         /**
-         * Null without the library. Asked for [opus] when libopus is missing, it returns a renderer that
+         * Null without the library. If the requested [opus] decoder cannot be created, returns a renderer that
          * does not decode Opus ([decodesOpus] false), and MediaCodec decodes instead.
          */
         fun create(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): NativePcm? {

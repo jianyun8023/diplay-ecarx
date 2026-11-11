@@ -2213,6 +2213,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveDirectVideoOutput(this, it)
                 reconnectIfRunning()
             }
+            toggle(card, getString(R.string.settings_native_wired_data_path),
+                getString(R.string.settings_native_wired_data_path_description),
+                AirPlayPersistence.loadNativeWiredDataPath(this)) {
+                AirPlayPersistence.saveNativeWiredDataPath(this, it)
+                markReconnectNeeded()
+            }
             toggle(card, getString(R.string.settings_low_latency_decoder),
                 getString(R.string.settings_low_latency_decoder_description),
                 AirPlayPersistence.loadLowLatencyDecoder(this)) {

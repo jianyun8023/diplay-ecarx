@@ -9,6 +9,7 @@ pub mod annexb;
 pub mod buffered;
 pub mod crypto;
 pub mod jvm;
+pub mod ncm;
 pub mod pacing;
 pub mod packet;
 pub mod pcm;
@@ -22,6 +23,8 @@ pub mod audio;
 pub mod ndk;
 #[cfg(target_os = "android")]
 pub mod vpipe;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub mod ncm_engine;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub mod stream;
 #[cfg(any(target_os = "android", target_os = "linux"))]

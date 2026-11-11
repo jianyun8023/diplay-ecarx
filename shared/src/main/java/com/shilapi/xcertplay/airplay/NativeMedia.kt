@@ -101,6 +101,20 @@ internal object NativeMedia {
     @JvmStatic external fun uplinkSend(handle: Long, frame: ByteArray, length: Int): Int
     @JvmStatic external fun uplinkClose(handle: Long)
 
+    /**
+     * The wired data path (see `NcmUsbBridge.startNative`): bulk IN/OUT on [usbFd] and the VPN tun on
+     * [tunFd], both duplicates the engine owns. 0 on bad arguments.
+     */
+    @JvmStatic external fun ncmStart(
+        usbFd: Int, inEndpoint: Int, outEndpoint: Int, packetSize: Int, tunFd: Int, hostMac: ByteArray,
+        inbound: NativeStreamCallbacks, outbound: NativeStreamCallbacks,
+    ): Long
+    @JvmStatic external fun ncmTraffic(handle: Long, airPlayPort: Int): String
+    @JvmStatic external fun ncmAttemptSince(handle: Long, port: Int, sinceNanos: Long): Boolean
+    /** System.nanoTime of the first frame the phone accepted on bulk OUT, 0 before. */
+    @JvmStatic external fun ncmLinkOpened(handle: Long): Long
+    @JvmStatic external fun ncmStop(handle: Long)
+
     /** An AAudio output for 16-bit PCM routed by [usage]; 0 when AAudio cannot open it. */
     @JvmStatic external fun outOpen(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): Long
     @JvmStatic external fun outWrite(handle: Long, buffer: ByteBuffer, offset: Int, length: Int): Int

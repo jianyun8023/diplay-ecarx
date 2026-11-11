@@ -116,17 +116,17 @@ impl Resampler {
         let frames = input.len() / self.channels;
         if frames == 0 { return; }
         // Position 0 is the last frame of the previous block; 1 is the first frame of this one.
-        let sample = |frame: isize, channel: usize, last: &[i16]| -> f64 {
-            if frame < 0 { last[channel] as f64 } else { input[frame as usize * self.channels + channel] as f64 }
+        let sample = |frame: isize, channel: usize, last: &[i16]| -> f32 {
+            if frame < 0 { last[channel] as f32 } else { input[frame as usize * self.channels + channel] as f32 }
         };
         while self.position < frames as f64 {
             let base = self.position.floor();
-            let fraction = self.position - base;
+            let fraction = (self.position - base) as f32;
             let index = base as isize - 1;
             for channel in 0..self.channels {
                 let a = sample(index, channel, &self.last);
                 let b = sample(index + 1, channel, &self.last);
-                out.push((a + (b - a) * fraction).round().clamp(i16::MIN as f64, i16::MAX as f64) as i16);
+                out.push((a + (b - a) * fraction).round().clamp(i16::MIN as f32, i16::MAX as f32) as i16);
             }
             self.position += self.step;
         }
@@ -197,6 +197,26 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
     let length = (length.max(0) as usize / frame_bytes) * frame_bytes;
     if offset < 0 || offset as usize + length > capacity { return -1; }
     let bytes = std::slice::from_raw_parts(address.add(offset as usize), length);
+    let frames = (length / frame_bytes) as i32;
+    if out.gain >= 1.0 && out.resampler.is_identity() {
+        // The common case: the renderer's buffer is already 16-bit PCM, written as it is.
+        if frames > 0 {
+            let last = bytes.len() - frame_bytes;
+            let tail: Vec<i16> = bytes[last..].chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect();
+            out.resampler.remember(&tail);
+        }
+        let mut written = 0i32;
+        while written < frames {
+            let result = (api.stream_write)(out.stream, bytes.as_ptr().add(written as usize * frame_bytes) as *const c_void,
+                frames - written, WRITE_TIMEOUT_NS);
+            if result < 0 { return result; }
+            if result == 0 { break; }
+            written += result;
+        }
+        out.input_frames += written as i64;
+        out.output_frames += written as i64;
+        return (written as usize * frame_bytes) as jint;
+    }
     out.scratch.clear();
     out.scratch.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
     if out.gain < 1.0 {

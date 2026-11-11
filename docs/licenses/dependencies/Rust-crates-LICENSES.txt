@@ -1,5 +1,6 @@
 Licenses of the Rust crates linked into libdiplay_media.so
-(shared/src/main/rust/diplay-media; versions pinned in Cargo.lock)
+(shared/src/main/rust/diplay-media; versions pinned in Cargo.lock).
+opus-pure 0.2.3 (BSD-3-Clause, carrying the libopus notices) is in Opus-COPYING.txt.
 
 ================================================================
 ring 0.17.14 — LICENSE

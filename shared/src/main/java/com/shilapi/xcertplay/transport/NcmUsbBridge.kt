@@ -6,8 +6,12 @@ import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.shilapi.xcertplay.airplay.NativeMedia
+import com.shilapi.xcertplay.airplay.NativeStreamCallbacks
 import java.io.Closeable
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.concurrent.TimeoutException
@@ -42,8 +46,12 @@ class NcmUsbBridge internal constructor(
     private var notReadyFrames = 0
 
     /** [System.nanoTime] when the iPhone first took a frame on bulk OUT, or null while it still NAKs the pipe. */
-    @Volatile var linkOpenedAtNanos: Long? = null
-        private set
+    @Volatile private var javaLinkOpenedAtNanos: Long? = null
+    val linkOpenedAtNanos: Long?
+        get() = nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmLinkOpened(it).takeIf { at -> at != 0L } }
+            ?: javaLinkOpenedAtNanos
+    // The native data path ([startNative]) while it runs; it then owns every bulk transfer.
+    @Volatile private var nativeEngine = 0L
     private val frames = ArrayDeque<ByteArray>()
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
@@ -106,7 +114,7 @@ class NcmUsbBridge internal constructor(
         }
         if (!bulkOutAccepted) {
             bulkOutAccepted = true
-            linkOpenedAtNanos = System.nanoTime()
+            javaLinkOpenedAtNanos = System.nanoTime()
             runCatching { onDiagnostic("NCM bulk-out ready after $notReadyFrames dropped frames") }
         }
         if (transferred != block.size) {
@@ -122,10 +130,43 @@ class NcmUsbBridge internal constructor(
     }
 
     /** Frames to and from the iPhone so far, for a report line; see [NcmTrafficCounter]. */
-    fun trafficSummary(airPlayPort: Int?): String = traffic.summary(airPlayPort)
+    fun trafficSummary(airPlayPort: Int?): String =
+        nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmTraffic(it, airPlayPort ?: -1) } ?: traffic.summary(airPlayPort)
 
     /** Whether the iPhone tried to connect to [port] at or after [sinceNanos]; see [NcmTrafficCounter]. */
-    fun connectionAttemptSince(port: Int, sinceNanos: Long): Boolean = traffic.connectionAttemptSince(port, sinceNanos)
+    fun connectionAttemptSince(port: Int, sinceNanos: Long): Boolean =
+        nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmAttemptSince(it, port, sinceNanos) }
+            ?: traffic.connectionAttemptSince(port, sinceNanos)
+
+    /**
+     * Hands both directions of the data link to `libdiplay_media` (experimental, off by default): bulk
+     * IN/OUT and [tun] then never pass through Java. Call before any [recv]: a queued Java read would take
+     * the engine's data. False when the engine cannot start; the caller then bridges in Kotlin.
+     */
+    fun startNative(tun: ParcelFileDescriptor, hostMac: ByteArray, onDiagnosticLine: (String) -> Unit, onError: (Throwable) -> Unit): Boolean {
+        if (!NativeMedia.available || readQueued) return false
+        val usbFd = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor).detachFd() }.getOrNull() ?: return false
+        val tunFd = runCatching { tun.dup().detachFd() }.getOrNull() ?: run {
+            runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
+            return false
+        }
+        fun callbacks(direction: String) = object : NativeStreamCallbacks() {
+            override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) = NativeMedia.packetRelease(handle)
+            override fun onLog(level: Int, line: String) { if (level == 0) Log.i(IphoneCarPlayConfiguration.TAG, line) else Log.w(IphoneCarPlayConfiguration.TAG, line) }
+            override fun onReport(line: String) { runCatching { onDiagnosticLine(line) } }
+            override fun onEnded(error: String?) {
+                if (!closedState()) onError(IOException("NCM $direction ended natively: ${error ?: "end of stream"}"))
+            }
+        }
+        val handle = NativeMedia.ncmStart(usbFd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunFd, hostMac,
+            callbacks("inbound"), callbacks("outbound"))
+        if (handle == 0L) return false
+        nativeEngine = handle
+        Log.i(IphoneCarPlayConfiguration.TAG, "ncm data path native in=${inEndpoint.address} out=${outEndpoint.address} packet=$usbPacketSize")
+        return true
+    }
+
+    private fun closedState(): Boolean = synchronized(stateLock) { closed }
 
     /**
      * Returns the next complete Ethernet frame, or null when [timeoutMillis] elapses without one.
@@ -153,6 +194,9 @@ class NcmUsbBridge internal constructor(
 
     override fun close() {
         statusRunning.set(false)
+        val engine = nativeEngine
+        nativeEngine = 0L
+        if (engine != 0L) NativeMedia.ncmStop(engine)
         val requestToClose = synchronized(stateLock) {
             if (closed) return
             closed = true
@@ -409,6 +453,10 @@ class NcmUsbBridge internal constructor(
             ((source[offset + 3].toInt() and 0xff) shl 24)
 
     companion object {
+        /** The app's preferences file and the key of the experimental native wired data path (off by default). */
+        const val NATIVE_DATA_PATH_PREFS = "xcertplay_airplay"
+        const val NATIVE_DATA_PATH_KEY = "native_wired_data_path"
+
         private const val READ_CHUNK_BYTES = 32 * 1024
         private const val USB_PACKET_SIZE = 512
         private const val NTH16_LENGTH = 12

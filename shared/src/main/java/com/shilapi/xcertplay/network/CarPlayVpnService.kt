@@ -63,7 +63,7 @@ class CarPlayVpnService : VpnService() {
     @Volatile private var attachment: AirPlayAttachment? = null
     private var serverSocket: ServerSocket? = null
     private var additionalServers: List<ServerSocket> = emptyList()
-    private var bridge: Ipv6NcmBridge? = null
+    private var bridge: java.io.Closeable? = null
     private var tun: ParcelFileDescriptor? = null
     private var attachGeneration = 0
 
@@ -111,11 +111,22 @@ class CarPlayVpnService : VpnService() {
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
 
-            val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
-                onTransportError(generation, listener, error)
+            val nativePath = getSharedPreferences(NcmUsbBridge.NATIVE_DATA_PATH_PREFS, MODE_PRIVATE)
+                .getBoolean(NcmUsbBridge.NATIVE_DATA_PATH_KEY, false) &&
+                ncm.startNative(tunFd, hostMac, { line -> runCatching { listener.onDebugLog(line) } }) { error ->
+                    onTransportError(generation, listener, error)
+                }
+            runCatching { listener.onDebugLog("wired data path=${if (nativePath) "native" else "kotlin"}") }
+            bridge = if (nativePath) {
+                java.io.Closeable {
+                    ncm.close()
+                    tunFd.close()
+                }
+            } else {
+                Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
+                    onTransportError(generation, listener, error)
+                }.also { it.start() }
             }
-            ipv6Bridge.start()
-            bridge = ipv6Bridge
 
             startAirPlayServer(
                 generation,

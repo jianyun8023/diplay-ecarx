@@ -54,20 +54,21 @@ Keep the applicable licenses and corresponding source when redistributing native
 
 `libdiplay_media.so` is the media data plane (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
 screen and audio streams, runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio
-and seals the microphone uplink. It is built from
+and seals the microphone uplink. It also contains the optional, default-off USB NCM/tun bridge. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
 There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
-of Gradle or CI builds; `cargo test` in that directory runs the host tests. With rustc 1.97.1 and NDK `28.2.13676358` two clean builds give identical bytes.
+of Gradle or CI builds; `cargo test` in that directory runs the host tests. Both shipped ABIs were rebuilt from
+the current source on 2026-11-12 with NDK `28.2.13676358`; the hashes below identify that build.
 When the library cannot load, the Kotlin receivers and the platform cipher (Conscrypt) handle the same data.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 375816 | `a1fdac22c71c03e11652adc729513930314623df5262134768bd9a63b2c09bb8` |
-| armeabi-v7a | libdiplay_media.so | 264288 | `0bf9087777241adbd3b2f13f9ae4a92c7deca2b1b901875f43fd055d026479e7` |
+| arm64-v8a | libdiplay_media.so | 1105864 | `ca5e99d290dcd42c1476a262a7ade33185481a1773231fad1d2947b96f387123` |
+| armeabi-v7a | libdiplay_media.so | 757716 | `9b2960667a4a99f08a6348ad073d89c79dd2b20b629a13d885f8a0dfb8353841` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

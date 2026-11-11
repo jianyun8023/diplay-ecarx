@@ -144,6 +144,11 @@ where
     Box::into_raw(Box::new(control)) as jlong
 }
 
+/// Gives up a handle from [spawn] without stopping its thread, for an owner that keeps the control.
+pub unsafe fn release_handle(handle: jlong) {
+    if handle != 0 { drop(Box::from_raw(handle as *mut Arc<Control>)); }
+}
+
 /// Stops the stream and gives up Kotlin's handle; safe to call from the receiver's own callbacks.
 pub unsafe fn stop(handle: jlong) {
     if handle == 0 { return; }

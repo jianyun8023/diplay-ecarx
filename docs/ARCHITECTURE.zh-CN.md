@@ -2,7 +2,7 @@
 
 本文说明 DiPlay 领克 01 / ECARX 753 移植版的模块划分、一次 CarPlay 会话的组成、控制面与数据面的分工，以及媒体数据面迁到 Rust 的目标设计。代码归属的细则以根目录 [AGENTS.md](../AGENTS.md) 为准；厂商接口与实车结论见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。
 
-状态标记：**现状** 指 `dev` 上已有的实现；**目标** 指已确定方向、正在或即将实现的设计。目标一节落地后，把对应行改成现状，不另留历史。
+本文描述阶段 1–6 的实现与边界：阶段 1 已由 PR #94 合入 `dev`，阶段 2–6 在本次 PR 中交付。实现完成不等于实车验收通过；台架结果、版本和未验证范围见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)。
 
 ## 1. 目标平台
 
@@ -54,14 +54,14 @@
 | 归属 | 内容 |
 | --- | --- |
 | 控制面（Kotlin） | 连接编排与重试、RTSP / 配对 / 加密控制通道、设置与持久化、流的建立与拆除；解码器的选型、格式参数、私有参数回退、渲染目标（Surface、fanout、停放）与何时重建；音频的路由、焦点、车机 BUS 与旧式流类型选择；缓冲音乐的锚点与 SETRATE / FLUSH；仪表与 HUD；诊断报告。 |
-| 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；回声消除、RTP 打包；有线 NCM 与 tun 之间的转发。 |
+| 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；RTP 打包；有线 NCM 与 tun 之间的转发。Speex 回声消除仍通过原有 C/JNI 库执行。 |
 
 Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“每一帧、每一包、每一块 PCM”。两点说明：
 
 - **视频**：解码由高通硬件完成，Java 与 NDK 走同一条 OMX/Codec2 路径，迁移省下的是轮询与线程交接。Java `MediaCodec` 以 `dequeueOutputBuffer` 超时轮询，台架上它的 `MediaCodec_loop` 线程单独占一个核的约 16%；API 28 起 NDK 提供 `AMediaCodec_setAsyncNotifyCallback`，输出到达时回调，不再轮询，接收线程也能直接喂帧。`VideoDecoder` 的选型与回退逻辑保留在 Kotlin，由它驱动 Rust 侧的解码循环。
-- **音频输出**：按 usage 路由的流改用 AAudio。两处没有 AAudio 对应物：设置里选择的旧式流类型（AAudio 与 OpenSL ES 都不能指定任意流类型），以及音乐时钟微调用到的 `AudioTrack.setPlaybackRate`。前者的渲染器保留 `AudioTrack`，同样从 Rust 的直接缓冲写入；后者改为 Rust 内重采样。AAC 仍由系统 Google AAC 解码（实车上高通 AAC 解码器创建失败，见平台笔记）。
+- **音频输出**：按 usage 路由的音乐与导航流尝试 AAudio，打开失败时回退到 `AudioTrack`。通话、Siri 和指定旧式流类型的流保留 `AudioTrack`。AAudio 路径用 Rust PCM 增益处理焦点衰减，用重采样处理原先由 `AudioTrack.setPlaybackRate` 执行的时钟微调。AAC 仍由系统 Google AAC 解码（实车上高通 AAC 解码器创建失败，见平台笔记）。
 
-## 5. 现状：媒体数据路径的开销
+## 5. 迁移前的开销与测量依据
 
 | 路径 | 现状 | 每包 / 每帧的 Java 侧工作 |
 | --- | --- | --- |
@@ -77,14 +77,15 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 - 整进程约占一个核的 39–46%。
 - 实车：视频输入拷贝约 29 µs/帧，不是主要成本（`analysis/20261110-car-codec-kit`，工作区）。
 
-因此数据面迁移的收益主要来自：每包零 Java 分配（减少 GC 暂停）、每包一次以内的 JNI 跨越、少一次线程交接，而不是单纯更快的拷贝。
+这些数据用于选择迁移方向。后续实验确认的主要收益来自视频解码循环变化；不能把减少数组分配直接等同于已测得的 GC 或体感改善。
 
-## 6. 目标：Rust 数据面 `diplay-media`
+## 6. Rust 数据面 `diplay-media`
 
 ### 6.1 库与构建
 
 - 一个 crate：`shared/src/main/rust/diplay-media`，产物 `libdiplay_media.so`，取代 `libdiplay_chacha.so`。
-- 模块：`crypto`（ring 的 ChaCha20-Poly1305）、`pool`（帧与 PCM 缓冲池）、`video_rx`、`audio_rx`、`buffered_rx`、`opus`（链接已预编译的 `libopus.so`）、`pcm`、`aec`（Speex，用 `cc` 编进同一 `.so`）、`uplink`、`ncm`、`jni`（全部 `extern "system"` 入口）。
+- 模块：`crypto`（ring 的 ChaCha20-Poly1305）、`packet`（池化包）、`video` / `audio` / `buffered`（接收）、`vpipe`（视频解码循环）、`pacing`、`renderer` / `pcm`（Opus 解码与 PCM 步骤）、`aaudio`（输出）、`uplink`（麦克风发送）、`ncm` / `ncm_engine`（有线数据通路）、`stats`、`jvm`（JNI 封装）。
+- Opus 由 [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3) 编解码，编进同一 `.so`；不再携带预编译的 `libopus.so` 与其 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
 - 构建：NDK r28、`aarch64-linux-android` 与 `armv7-linux-androideabi`、最低 API 28，`build.sh` 生成后把 `.so` 检入 `shared/src/main/jniLibs/`，CI 不需要 Rust。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。
 - 第三方许可写进 `shared/src/main/jniLibs/NOTICE.md` 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -93,36 +94,36 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 - **套接字移交**：Kotlin 照旧负责绑定、`accept`、对端校验（只接受控制会话的 iPhone），之后把 fd 交给 Rust（`ParcelFileDescriptor.detachFd`），Rust 拥有它直到关闭。关闭流时 Kotlin 调 `close(handle)`，Rust 用 `shutdown` 唤醒阻塞读并在线程退出时 `close(fd)`。
 - **线程**：每条流一个 Rust 接收线程，名字沿用 `airplay-screen`、`airplay-audio-rx`、`airplay-buffered-rx`，诊断和 `/proc` 采样脚本不必改。音频线程设 `THREAD_PRIORITY_AUDIO` 对应的 nice 值。
 - **向上回调**：Rust 线程附着到 JVM，每帧调用一次 Kotlin 监听器，只传句柄与元数据（长度、关键帧标志、发送端时间、到达时间、RTP 序号与时间戳），不传字节数组。
-- **帧句柄**：`NativeFrame` 持有引用计数的池化缓冲，暴露只读直接 `ByteBuffer` 视图。主屏与镜像解码器各 `retain` 一次；写入解码器、被队列丢弃或流关闭时 `release`。`VideoDecodeQueue` 的丢弃、`drain` 路径都必须释放。池满时按最新帧优先的规则丢帧并触发现有的 Resync 恢复。
-- **写入解码器**：解码线程照旧 `dequeueInputBuffer` / `getInputBuffer`，然后调 `NativeMedia.copyInto(frame, inputBuffer)`，Rust 经 `GetDirectBufferAddress` 一次 `memcpy`，再由 Kotlin `queueInputBuffer`。关键帧判断（`VideoReferenceChain`）读取 Rust 给出的标志，不再扫描字节。
+- **帧句柄**：`NativePacket` 持有引用计数的池化缓冲，Kotlin 通过 `MediaPacket` 传递所有权。镜像消费方各持有自己的引用；写入解码器、被队列丢弃或流关闭时释放。
+- **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin 保留配置、Surface 和恢复决策。Kotlin 回退路径通过 `MediaPacket.copyInto` 写入解码器输入缓冲。
 - **统计**：`StreamReceiveStats` 的字段与日志格式不变，计数在 Rust 内累计，按原有心跳与异常间隔回调一行文本。
 - **回退**：每条流在建立时选择实现。库加载失败或在 JVM 单测中，使用现有 Kotlin 实现；日志里记录 `impl=native|kotlin`。Kotlin 实现保留，供主机单测与运行时回退，不再做性能优化。
 
-### 6.3 各路径的目标形态
+### 6.3 各路径的实现
 
 | 路径 | 目标 |
 | --- | --- |
 | 视频 | Rust：`recv` 进池化缓冲 → 原地开封 → 原地 AVCC→Annex B、解析 NAL 类型 → 回调句柄（阶段 1，已实现）。阶段 3：句柄直接进 Rust 的解码循环（NDK `AMediaCodec` 异步模式），关键帧门控、输入背压恢复、按 iPhone 帧时间的节拍与统计在 Rust；`VideoDecoder` 的 worker 只处理配置、Surface、镜像、停放与 Rust 发来的事件（要关键帧、要解码器、重建、出错）。 |
-| UDP 音频 | Rust：`recvmmsg` 批量收包 → 原地开封 → 回调句柄。`AudioRenderer`：Opus 由 Rust 用 libopus 解成 PCM；AAC 由 Rust 加 ADTS 头写入 MediaCodec 输入、从输出缓冲读回 PCM；LPCM 由 Rust 转字节序。PCM 处理（通话高通、有声检测、导航衰减、淡入）在 Rust 内对直接缓冲原地完成（阶段 2）。阶段 4：输出改为 AAudio，选择了旧式流类型的渲染器保留 `AudioTrack`，时钟微调改为 Rust 重采样；焦点与路由选择留在 Kotlin。 |
+| UDP 音频 | Rust 接收、开封并回调池化包句柄。Opus 用 opus-pure 解码；AAC 保留系统 MediaCodec；LPCM 字节序、通话高通、有声检测、导航衰减与淡入在 Rust 处理。音乐和导航的 usage 路径尝试 AAudio；通话、Siri、旧式流类型及打开失败时使用 `AudioTrack`。 |
 | 缓冲音乐 | Rust 读长度前缀帧、开封、回调句柄；锚点、SETRATE、FLUSH、填充节奏与回压留在 Kotlin，队列保存句柄。 |
-| 麦克风 | Kotlin：`AudioRecord.read` 到直接缓冲，每 20 ms 调一次 `uplink.push(buffer, echoRef)`。Rust：Speex AEC → libopus 编码 → RTP 打包 → 封装 → `sendto`。回声参考由 `AudioRenderer` 写出的 PCM 直接进 Rust 环形缓冲。 |
-| 有线 | Kotlin 照旧认领 USB 接口、建立 VPN 与 tun、管理生命周期。Rust：用 `UsbDeviceConnection.getFileDescriptor()` 上的 usbdevfs URB 收发 bulk，解析 / 构造 NTB16，与 tun fd 直接互转，包括现有 IPv6 桥接规则。 |
+| 麦克风 | Kotlin 保留 `AudioRecord` 采集和原有 Speex C/JNI 回声处理。原生发送器用 opus-pure 编码、组 RTP、加密并发送；不可用时保留 Kotlin 发送路径。 |
+| 有线 | Kotlin 保留 USB 接口认领、VPN 与生命周期。默认使用原 Kotlin 通路；实验开关开启后尝试 Rust usbdevfs 同步 bulk、NTB16 重组、邻居通告修补与 tun 转发，启动失败时使用 Kotlin 通路。 |
 
 ## 7. 分阶段与验收
 
-每一阶段单独成 PR，先在小米 8 台架对照，再上车验证。
+阶段 1 已单独合入；本次按要求把阶段 2–6 放在同一个 PR。小米 8 台架对照与实车验收分别记录，不能互相替代。
 
 | 阶段 | 内容 | 验收 |
 | --- | --- | --- |
 | 0 | 基线：60 fps 会话 + 音乐，记录各线程与整进程 CPU、每包接收耗时、恢复次数 | 两轮可复现的数字 |
 | 1 | 接收与开封：视频、UDP 音频、缓冲音乐；池化包句柄，解码器从包直接拷入输入缓冲 | 接收线程每包 CPU 下降；包无泄漏（`pooled` 稳定）；无新增恢复、欠载 |
-| 2 | 音频解码与 PCM 处理（libopus、LPCM、PCM 步骤；AAC 输出经直接缓冲） | 与 Kotlin 实现同一黄金向量；Siri 走 libopus；导航衰减、通话路由、焦点不变 |
-| 3 | 视频解码循环：NDK `AMediaCodec` 异步模式、接收线程直接喂帧、Rust 内节拍与背压恢复 | `MediaCodec_loop` 与解码线程 CPU 下降；首帧、恢复、Surface 切换与停放行为不变 |
-| 4 | 音频输出：AAudio（按 usage 路由），旧式流类型保留 `AudioTrack`；时钟微调改为 Rust 重采样 | 实车各声道路由、焦点、欠载不变 |
-| 5 | 麦克风上行全链路（AEC、编码、打包、封装、发送） | Siri 与通话实车可用；同输入下上行包逐字节一致 |
-| 6 | 有线 NCM ↔ tun | 有线连接、断开、重连实车可用；有线帧率与 CPU 对照 |
+| 2 | 音频解码与 PCM 处理（opus-pure、LPCM、PCM 步骤；AAC 输出经直接缓冲） | 与 Kotlin 实现同一黄金向量；Siri 走原生 Opus；导航衰减、通话路由、焦点不变 |
+| 3 | 视频解码循环：NDK `AMediaCodec` 异步模式，回调只排队、专用喂帧线程调用编解码器；Rust 内节拍、关键帧门控与背压恢复 | `MediaCodec_loop` 与解码线程 CPU 下降；首帧、恢复、Surface 切换与停放行为不变 |
+| 4 | 音频输出：AAudio（按 usage 路由的音乐与导航），通话、Siri 与旧式流类型保留 `AudioTrack`；焦点压低音量改为 PCM 增益，时钟微调改为 Rust 重采样 | 实车各声道路由、焦点、欠载不变 |
+| 5 | 麦克风发送：opus-pure 编码、RTP、封装、`sendto` 一次调用；采集仍是 `AudioRecord`（车机麦克风策略与平台音效挂在它的会话上），Speex 回声消除仍是原 C 库 | Siri 与通话实车可用；同输入下上行包与 Kotlin 逐字节一致 |
+| 6 | 有线 NCM ↔ tun：usbdevfs 同步 bulk、NTB16 重组与重同步、邻居通告修补、流量计数全在 Rust；高级设置“有线数据通路原生化（实验性）”，默认关 | 有线连接、断开、重连实车可用；有线帧率与 CPU 对照 |
 
-阶段 0 / 1 结果（小米 8，Android 15，60 fps 主屏约 57 帧/秒 + 音乐，A/B/A/B 各 300 秒，2026-11-11）：
+阶段 0 / 1 结果（小米 8，Android 15，请求 60 fps，两路视频合计约 57 个接收消息/秒，并播放音乐；A/B/A/B 各 300 秒，2026-11-11）。两路均值约为 22 和 35，日志没有流 ID，不把合计值写成主屏帧率：
 
 | 指标 | 基线 A1 / A2 | 阶段 1 B1 / B2 |
 | --- | --- | --- |
@@ -131,7 +132,18 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 | 音乐接收线程 | 0.61% / 0.62%，每包 132 µs | 0.34% / 0.34%，每包 73 / 72 µs |
 | 未释放的包（`pooled` 峰值） | — | 8 |
 
-接收线程每帧 / 每包 CPU 分别降约 11% 与 45%；整进程只降约 0.8 个点，在噪声范围内。剩下的大头是 `MediaCodec_loop`（约 16%）、`carplay-video`（约 9%）、`carplay-audio`（约 6.5%）与 `CodecLooper`（约 5.7%），由阶段 2–4 处理。台架上 ART 的 GC 线程不在前列，“减少 GC”在这台机器上不是主要收益。
+接收线程每帧 / 每包 CPU 分别降约 11% 与 45%；整进程只降约 0.8 个点，在噪声范围内。
+
+阶段 2–5 结果（同一台架与流程，2026-11-12）：
+
+| 指标 | 基线 A | 阶段 1–3（C1 / C2） | 阶段 1–5（D1 / D2） |
+| --- | --- | --- | --- |
+| 整进程 CPU | 50.7% / 50.8% | 40.7% / 40.5% | 41.3% / 41.6% |
+| `MediaCodec_loop` | 16.3% / 16.2% | 9.4% / 9.2% | 9.3% / 9.3% |
+| 视频解码（Kotlin worker → Rust 喂帧线程 + NDK 回调线程） | 9.0% / 8.9% | 0.4% + 2.0% + 2.2% | 0.4% + 2.0% + 2.2–2.4% |
+| `carplay-audio` | 6.6% / 6.5% | 7.2% / 7.1% | 7.4% / 7.4% |
+
+包含原生视频解码循环的 C 版本比 A 基线低约 10.16 个百分点（20.0%）；主要线程下降与视频循环变化相符，但这不是单一改动的隔离实验。D 版本约为 41.45%，比 C 均值高约 0.87 个百分点，没有测出 AAudio 带来的 CPU 改善。台架日志观察到 AAudio 使用 AudioStreamTrack，尚不能推断 753 车机的 MMAP 能力或实际延迟。台架 GC 线程 CPU 接近计数精度下限，没有测得明确的 GC 收益。各轮数据、版本与限制见[实验记录](benchmarks/native-media-2026-11-12.md)。
 
 测量方法：接收线程 CPU 取 `/proc/<pid>/task/*/stat` 的 utime/stime，会话日志里的 `Receive:` 心跳行给出每包读、处理与解密耗时；A/B 为同一流程构建的两个 release 车测包交替安装，脚本与原始结果放在本地工作区，结论回填到本节或平台笔记。
 

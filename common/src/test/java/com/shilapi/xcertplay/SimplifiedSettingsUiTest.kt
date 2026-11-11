@@ -152,6 +152,28 @@ class SimplifiedSettingsUiTest {
         assertFalse(rebuilt.single { it.contentDescription == map.contentDescription }.isChecked)
     }
 
+    @Test fun nativeWiredPathIsOptInAndSurvivesSettingsBackup() {
+        assertFalse(AirPlayPersistence.loadNativeWiredDataPath(activity))
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(DiPlayPalette.DARK.surface)
+        }
+        ReflectionHelpers.callInstanceMethod<Unit>(activity, "renderSections",
+            ReflectionHelpers.ClassParameter.from(LinearLayout::class.java, root),
+            ReflectionHelpers.ClassParameter.from(Set::class.java, setOf(SettingsSection.ADVANCED_MEDIA)))
+        val control = views(root).filterIsInstance<android.widget.Switch>().single {
+            it.contentDescription == activity.getString(R.string.settings_native_wired_data_path)
+        }
+        assertFalse(control.isChecked)
+        screenshot(root, "native-wired-data-path")
+        control.performClick()
+        assertTrue(AirPlayPersistence.loadNativeWiredDataPath(activity))
+        val backup = com.shilapi.xcertplay.backup.SettingsBackupCodec.export(activity, "test")
+        AirPlayPersistence.saveNativeWiredDataPath(activity, false)
+        assertFalse(com.shilapi.xcertplay.backup.SettingsBackupCodec.import(activity, backup).invalid)
+        assertTrue(AirPlayPersistence.loadNativeWiredDataPath(activity))
+    }
+
     @Test @Config(sdk = [28]) fun carHotspotBootSwitchSavesWithoutAdb() {
         AirPlayPersistence.saveWirelessHotspotMode(activity, com.shilapi.xcertplay.orchestration.WirelessHotspotMode.MANUAL)
         com.shilapi.xcertplay.network.CarHotspotSettings.setEnabled(activity, true)
