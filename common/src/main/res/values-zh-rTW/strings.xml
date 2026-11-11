@@ -831,6 +831,8 @@
     <string name="ecarx_cluster_mirror_confirm">開啟後會把整個中央螢幕鏡像到儀表，並蓋住儀表上的導航箭頭與媒體卡片。\n\n確定要開啟嗎？</string>
     <string name="ecarx_instrument_cluster_projection">開始導航時自動顯示儀表地圖</string>
     <string name="ecarx_instrument_cluster_projection_description">設定每條新路線開始時是否顯示儀表地圖，儀表上的顯隱操作優先。變更從下一條路線生效。</string>
+    <string name="settings_ecarx_cruise_map">未導航時也顯示儀表地圖（實驗性）</string>
+    <string name="settings_ecarx_cruise_map_description">CarPlay 連線後，沒有路線時也在儀表顯示地圖，儀表上的顯隱操作優先。Apple 地圖只在畫面變化時更新；其他地圖 App 可能讓儀表空白。立即生效。</string>
     <string name="ecarx_media_on_instrument_cluster">儀表媒體卡片</string>
     <string name="ecarx_media_on_instrument_cluster_description">透過億咖通 ECARX MediaCenter 輸出媒體資訊，與導航獨立，需要相容韌體及權限。</string>
     <string name="ecarx_navigation">億咖通導航</string>

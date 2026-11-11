@@ -129,6 +129,10 @@ object NavigationOutputs {
         if (useEcarx) ecarx.submit { EcarxHudBridge.settingsChanged() }
     }
 
+    fun cruiseMapChanged() {
+        if (useEcarx) ecarx.submit { EcarxHudBridge.cruiseMapChanged() }
+    }
+
     /**
      * Routes the cluster bridges' own lines into the session report. Called once the session log
      * exists — see `AndroidMediaSink`'s `onAudioDiagnostic` for the same seam on the audio side.

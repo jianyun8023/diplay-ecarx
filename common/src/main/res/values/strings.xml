@@ -874,6 +874,8 @@
     <string name="ecarx_navigation_on_instrument_cluster_description">Show CarPlay turns, distance, road names, ETA and lanes independently of the cluster map. Applies immediately. During guidance, DiPlay pauses factory navigation. On 753 units, you may need to add the home screen navigation card again afterward.</string>
     <string name="ecarx_instrument_cluster_projection">Show cluster map when navigation starts</string>
     <string name="ecarx_instrument_cluster_projection_description">Choose whether each new route starts with the cluster map visible. The instrument’s show/hide controls take precedence. Changes apply to the next route.</string>
+    <string name="settings_ecarx_cruise_map">Show cluster map without a route (experimental)</string>
+    <string name="settings_ecarx_cruise_map_description">Keep the CarPlay map on the cluster while CarPlay is connected and no route is set. The cluster’s own show/hide controls take priority. Apple Maps updates the picture only when the map changes; other map apps may leave the cluster blank. Takes effect immediately.</string>
     <string name="ecarx_cluster_call_rejected">The head unit refused that call. It needs the system signature and the DIM permissions to be granted.</string>
     <string name="ecarx_cluster_mirror_confirm">This mirrors the whole centre screen onto the instrument cluster and covers the navigation arrow and media card drawn there.\n\nTurn it on anyway?</string>
     <string name="ecarx_media_on_instrument_cluster">Cluster media card</string>
