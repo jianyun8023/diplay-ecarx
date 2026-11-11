@@ -5,9 +5,12 @@ internal class StreamReceiveStats(
     private val label: String,
     private val report: (String) -> Unit,
     private val reportIntervalNs: Long = DEFAULT_REPORT_INTERVAL_NS,
+    /** CPU time of the calling thread; every call comes from the stream's receive thread. */
+    private val threadCpuNs: () -> Long = { runCatching { android.os.Debug.threadCpuTimeNanos() }.getOrDefault(-1L) },
     private val nowNs: () -> Long = System::nanoTime,
 ) {
     private var windowStart = nowNs()
+    private var windowCpuStart = -1L
     private var readStart = windowStart
     private var processingStart = windowStart
     private var packets = 0
@@ -32,7 +35,10 @@ internal class StreamReceiveStats(
     private var decryptSumNs = 0L
     private var maxDecryptNs = 0L
 
-    fun reading() { readStart = nowNs() }
+    fun reading() {
+        readStart = nowNs()
+        if (windowCpuStart < 0) windowCpuStart = threadCpuNs()
+    }
 
     fun received(size: Int, sequence: Int? = null, timestamp: Int? = null) {
         processingStart = nowNs()
@@ -100,7 +106,7 @@ internal class StreamReceiveStats(
             "seqGapLast=[$lastSequenceGap] seqGapAtMs=$lastSequenceGapAtMs ended=$ended " +
             "windowMs=${(now - windowStart).coerceAtLeast(0) / 1_000_000} " +
             "readsOver250Ms=$readsOver250Ms seqGapAfterReadOver250Ms=$seqGapAfterReadOver250Ms " +
-            "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + decryptSummary()) }
+            "seqMissingAfterReadOver250Ms=$seqMissingAfterReadOver250Ms" + threadCpuSummary() + decryptSummary()) }
         windowStart = now
         decryptSamples = 0
         decryptBytes = 0
@@ -120,6 +126,14 @@ internal class StreamReceiveStats(
         lastSequenceGap = "none"
         lastSequenceGapAtMs = -1L
         lateOrDuplicate = 0
+    }
+
+    /** Receive-thread CPU in this window; the next window starts from now. */
+    private fun threadCpuSummary(): String {
+        val start = windowCpuStart
+        val cpu = threadCpuNs()
+        windowCpuStart = cpu
+        return if (start < 0 || cpu < 0) "" else " threadCpuMs=${(cpu - start) / 1_000_000}"
     }
 
     private fun Int.toUnsignedLong(): Long = toLong() and 0xffff_ffffL

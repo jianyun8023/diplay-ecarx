@@ -32,8 +32,8 @@ object AirPlayCrypto {
     private val PLATFORM_CHACHA_NAMES = listOf("ChaCha20/Poly1305/NoPadding", "ChaCha20-Poly1305")
 
     /**
-     * The platform's ChaCha20-Poly1305 (Conscrypt on Android), used before BouncyCastle's Java one;
-     * every video frame goes through it. Conscrypt gained its native direct-buffer AEAD path in
+     * The platform's ChaCha20-Poly1305 (Conscrypt on Android): opens when [NativeChacha] did not load,
+     * seals always, and is used before BouncyCastle's Java one. Conscrypt gained its native direct-buffer AEAD path in
      * Android 12. Older supported releases use the array API to avoid extra staging copies. Buffers
      * for unusually large frames are temporary, so a frame cannot permanently retain large native
      * allocations on a long-lived receive thread.
@@ -129,6 +129,16 @@ object AirPlayCrypto {
     ): ByteArray {
         require(offset >= 0 && length >= 0 && offset <= ciphertextAndTag.size - length)
         require(aadOffset >= 0 && aadLength >= 0 && aadOffset <= aad.size - aadLength)
+        // Native first: the media streams open every frame and packet here (see NativeChacha).
+        if (length >= MAC_BITS / 8 && key.size == 32 && nonce.size == NONCE_SIZE &&
+            NativeChacha.available
+        ) {
+            val output = ByteArray(length - MAC_BITS / 8)
+            val opened = NativeChacha.open(key, nonce, aad, aadOffset, aadLength, ciphertextAndTag, offset, length, output, 0)
+            if (opened < 0) throw AEADBadTagException("ChaCha20-Poly1305 tag mismatch")
+            platformState.get()?.implementation = "ring"
+            return output
+        }
         return platformChacha(
             Cipher.DECRYPT_MODE, key, nonce, ciphertextAndTag, aad,
             inputOffset = offset, inputLength = length, aadOffset = aadOffset, aadLength = aadLength,

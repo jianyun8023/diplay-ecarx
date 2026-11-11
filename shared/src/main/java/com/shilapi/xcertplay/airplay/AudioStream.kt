@@ -135,8 +135,11 @@ class AudioStream(
                 val nonce = ByteArray(12).also { shortNonce.copyInto(it, 4) }
                 val sample = readU32Be(wire, 4)
 
+                val decryptStart = System.nanoTime()
                 val payload = try {
-                    AirPlayCrypto.chachaOpen(key, nonce, sealed, aad)
+                    AirPlayCrypto.chachaOpen(key, nonce, sealed, aad).also {
+                        stats.decrypted(System.nanoTime() - decryptStart, sealed.size)
+                    }
                 } catch (error: Exception) {
                     val failureNumber = authenticationFailures.incrementAndGet()
                     if (failureNumber == 1) {

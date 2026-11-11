@@ -50,6 +50,18 @@ class AirPlayCryptoChachaTest {
         }
     }
 
+    @Test fun opensWithThePlatformCipherWhenTheNativeLibraryIsMissing() {
+        // Unit tests run on the JVM, where libdiplay_chacha (an Android .so) cannot load.
+        val key = bytes(32)
+        val nonce = AirPlayCrypto.nonce64(9)
+        val aad = bytes(8)
+        val plaintext = bytes(1400)
+        val sealed = AirPlayCrypto.chachaSeal(key, nonce, plaintext, aad)
+        assertTrue(!NativeChacha.available)
+        assertArrayEquals(plaintext, AirPlayCrypto.chachaOpen(key, nonce, sealed, aad, offset = 0, length = sealed.size))
+        assertNotEquals("ring", AirPlayCrypto.chachaImplementation)
+    }
+
     @Test fun aChangedByteOrAadFailsToOpen() {
         val key = bytes(32)
         val nonce = AirPlayCrypto.nonce64(1)
