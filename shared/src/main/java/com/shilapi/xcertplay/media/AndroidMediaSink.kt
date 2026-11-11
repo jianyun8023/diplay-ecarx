@@ -713,6 +713,10 @@ class AndroidMediaSink(
         }
     }
 
+    // Once one decoder had to drop the QTI low-latency request (refused, failed or stalled), the decoders
+    // this sink builds later, including the cluster's, start without it instead of stalling again.
+    @Volatile private var vendorLowLatencyRefused = false
+
     private fun newVideoDecoder(type: Int, surface: Surface?, statsLabel: String? = null, startImmediately: Boolean = true): VideoDecoder {
         lateinit var video: VideoDecoder
         video = VideoDecoder(
@@ -733,6 +737,8 @@ class AndroidMediaSink(
             pacingDelayNanos = if (type == MAIN_SCREEN_TYPE && statsLabel == null) videoPacingDelayMillis * 1_000_000L else 0L,
             operatingRate = videoOperatingRate(type, statsLabel, mainVideoFrameRate),
             vendorLowLatency = vendorLowLatencyDecoder,
+            vendorLowLatencyRefusedEarlier = vendorLowLatencyRefused,
+            onVendorLowLatencyRefused = { vendorLowLatencyRefused = true },
             dedicatedOutputThread = vendorLowLatencyDecoder,
             framesAtOnce = type == MAIN_SCREEN_TYPE && statsLabel == null && videoPacingDelayMillis > 0,
             // Keep the experimental MTK mode on the main CarPlay picture only. Mirrors and the

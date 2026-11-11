@@ -97,6 +97,18 @@ class QualcommLowLatencyTest {
         assertTrue(reports.any { "QTI low-latency fallback: codec failed" in it })
     }
 
+    @Test fun aFallbackOnOneStreamKeepsTheClusterDecoderWithoutPrivateKeys() {
+        configure()
+        NamedCodec.failInput = true
+        sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        barrier()
+        sink!!.setSurface(111, surface())
+        sink!!.onVideoConfig(111, avcC)
+        sink!!.onVideoFrame(111, idr, 1L, System.nanoTime())
+        barrier()
+        assertEquals(listOf(true, false), formats.map { it.containsKey(QTI_LOW_LATENCY_PARAMETER) })
+    }
+
     @Test fun otherVendorsReceiveNoPrivateKeys() {
         NamedCodec.name = "OMX.MTK.VIDEO.DECODER.AVC"
         configure()
