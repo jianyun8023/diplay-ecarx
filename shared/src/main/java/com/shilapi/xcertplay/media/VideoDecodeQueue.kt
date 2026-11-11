@@ -69,6 +69,15 @@ internal class VideoDecodeQueue(
         jobs.offer(job)
     }
 
+    /** True when an overflow already dropped the chain the consumer's current frame belongs to. */
+    @Synchronized fun resyncPending(): Boolean {
+        for (job in jobs) {
+            if (job === VideoJob.Resync) return true
+            if (job !is VideoJob.Frame) return false // a later config or surface starts another chain
+        }
+        return false
+    }
+
     /** Drop only the invalidated chain; the next config/surface owns later frames. */
     @Synchronized fun discardCurrentChain() {
         val iterator = jobs.iterator()

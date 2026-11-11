@@ -34,6 +34,19 @@ class VideoDecodeQueueTest {
         assertNull(queue.poll(0))
     }
 
+    @Test fun aPendingResyncCountsOnlyForTheCurrentChain() {
+        val queue = VideoDecodeQueue(maxFrames = 1)
+        assertFalse(queue.resyncPending())
+        queue.offer(VideoJob.Frame(byteArrayOf(1)))
+        queue.offer(VideoJob.Frame(byteArrayOf(2))) // overflow: the worker's current frame lost its chain
+        assertTrue(queue.resyncPending())
+        val later = VideoDecodeQueue(maxFrames = 1)
+        later.offer(VideoJob.SurfaceChanged(null))
+        later.offer(VideoJob.Frame(byteArrayOf(1)))
+        later.offer(VideoJob.Frame(byteArrayOf(2)))
+        assertFalse(later.resyncPending()) // that overflow belongs to the chain after the surface change
+    }
+
     @Test fun byteBudgetAlsoTriggersRecoveryAndRejectsOversizedFrame() {
         val queue = VideoDecodeQueue(maxFrames = 8, maxBytes = 5)
         queue.offer(VideoJob.Frame(ByteArray(3)))
