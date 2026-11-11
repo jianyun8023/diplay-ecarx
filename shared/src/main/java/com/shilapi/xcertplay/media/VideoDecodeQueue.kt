@@ -1,19 +1,27 @@
 package com.shilapi.xcertplay.media
 
 import android.view.Surface
+import com.shilapi.xcertplay.airplay.HeapPacket
+import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 internal sealed interface VideoJob {
     data class Config(val codec: VideoCodec, val codecData: ByteArray) : VideoJob
+    /** A frame the queue owns until the worker takes it; whoever drops or feeds it releases [packet]. */
     data class Frame(
-        val nalus: ByteArray,
+        val packet: MediaPacket,
         val receivedNs: Long = System.nanoTime(),
         /** The iPhone's frame time and when the frame arrived (System.nanoTime), 0 when unknown. */
         val senderNanos: Long = 0L,
         val arrivalNanos: Long = 0L,
-    ) : VideoJob
+    ) : VideoJob {
+        constructor(nalus: ByteArray, receivedNs: Long = System.nanoTime(), senderNanos: Long = 0L, arrivalNanos: Long = 0L) :
+            this(HeapPacket(nalus), receivedNs, senderNanos, arrivalNanos)
+
+        val nalus: ByteArray get() = packet.toByteArray()
+    }
     data class SurfaceChanged(val surface: Surface?) : VideoJob
     /** Also show the stream on [surface] under [key] (null stops it), drawn from this decoder's pictures. */
     data class MirrorChanged(val key: String, val surface: Surface?) : VideoJob
@@ -31,6 +39,7 @@ internal class VideoReferenceChain {
     fun reset() { needsKeyFrame = true }
     fun accepts(bytes: ByteArray, codec: VideoCodec): Boolean =
         !needsKeyFrame || MediaCodecSupport.isRandomAccess(bytes, codec)
+    fun accepts(annexB: MediaPacket, codec: VideoCodec): Boolean = !needsKeyFrame || annexB.isRandomAccess(codec)
     fun onQueued() { needsKeyFrame = false }
 }
 
@@ -41,6 +50,8 @@ internal class VideoDecodeQueue(
     private val maxBytes: Int = 8 * 1024 * 1024,
 ) {
     private val jobs = LinkedBlockingQueue<VideoJob>()
+    // Set by [drain]: the worker is gone, so a frame offered later is released instead of kept forever.
+    private var drained = false
 
     data class Backlog(val pendingFrames: Int, val newestPendingReceivedNs: Long?)
 
@@ -58,13 +69,14 @@ internal class VideoDecodeQueue(
 
     @Synchronized fun offer(job: VideoJob) {
         if (job is VideoJob.Frame) {
+            if (drained) { job.packet.release(); return }
             val frames = jobs.filterIsInstance<VideoJob.Frame>()
-            if (frames.size >= maxFrames || frames.sumOf { it.nalus.size.toLong() } + job.nalus.size > maxBytes) {
+            if (frames.size >= maxFrames || frames.sumOf { it.packet.size.toLong() } + job.packet.size > maxBytes) {
                 discardFrames()
                 jobs.offer(VideoJob.Resync)
             }
             // A single oversized frame is also a lost reference chain.
-            if (job.nalus.size > maxBytes) return
+            if (job.packet.size > maxBytes) { job.packet.release(); return }
         }
         jobs.offer(job)
     }
@@ -82,21 +94,27 @@ internal class VideoDecodeQueue(
     @Synchronized fun discardCurrentChain() {
         val iterator = jobs.iterator()
         while (iterator.hasNext()) {
-            when (iterator.next()) {
-                is VideoJob.Frame, VideoJob.Resync -> iterator.remove()
+            when (val job = iterator.next()) {
+                is VideoJob.Frame -> { iterator.remove(); job.packet.release() }
+                VideoJob.Resync -> iterator.remove()
                 else -> return
             }
         }
     }
 
     @Synchronized fun discardFrames() {
-        jobs.removeIf { it is VideoJob.Frame || it is VideoJob.Resync }
+        jobs.removeIf { job ->
+            (job is VideoJob.Frame || job is VideoJob.Resync).also { if (it) (job as? VideoJob.Frame)?.packet?.release() }
+        }
     }
 
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
 
-    /** Removes and returns every queued job, for a worker that is shutting down. */
-    @Synchronized fun drain(): List<VideoJob> = ArrayList<VideoJob>().also { jobs.drainTo(it) }
+    /** Removes and returns every queued job, for a worker that is shutting down; it releases their frames. */
+    @Synchronized fun drain(): List<VideoJob> {
+        drained = true
+        return ArrayList<VideoJob>().also { jobs.drainTo(it) }
+    }
 }
 
 /** Drain output while waiting for input: full output buffers can otherwise starve input forever. Video and audio decoders share it. */
@@ -118,3 +136,25 @@ internal object DecoderInputPump {
         return -1
     }
 }
+
+/**
+ * The frame as Annex B, or null when it is not a valid access unit. A native receiver converted it
+ * already; a Kotlin one's length-prefixed units are converted here, as [MediaCodecSupport.toAnnexB].
+ */
+internal fun MediaPacket.annexBOrNull(): MediaPacket? = when {
+    flags and MediaPacket.FLAG_ANNEX_B != 0 -> this
+    this is HeapPacket -> MediaCodecSupport.toAnnexB(bytes).let { converted ->
+        when {
+            converted.isEmpty() -> null
+            converted === bytes -> this
+            else -> HeapPacket(converted)
+        }
+    }
+    else -> null
+}
+
+/** Whether an Annex B frame starts an independently decodable chain: IDR (AVC) or IRAP (HEVC). */
+internal fun MediaPacket.isRandomAccess(codec: VideoCodec): Boolean =
+    if (flags and MediaPacket.FLAG_ANNEX_B != 0) {
+        flags and (if (codec == VideoCodec.H265) MediaPacket.FLAG_RANDOM_ACCESS_H265 else MediaPacket.FLAG_RANDOM_ACCESS_H264) != 0
+    } else MediaCodecSupport.isRandomAccess(toByteArray(), codec)

@@ -1,5 +1,5 @@
-Licenses of the Rust crates linked into libdiplay_chacha.so
-(shared/src/main/rust/diplay-chacha; versions pinned in Cargo.lock)
+Licenses of the Rust crates linked into libdiplay_media.so
+(shared/src/main/rust/diplay-media; versions pinned in Cargo.lock)
 
 ================================================================
 ring 0.17.14 — LICENSE

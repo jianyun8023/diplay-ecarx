@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Frames are length-prefixed RTP packets sealed with the stream's key (shk) like the other audio
  * streams. They are kept here and handed to the [MediaSink] about [LEAD_MILLIS] ahead of playback, so
  * the media renderer (focus, ducking, channel settings) treats them like any music stream.
+ *
+ * With [NativeMedia] each frame is opened into a pooled [MediaPacket]; the queue holds those, and every
+ * frame that leaves it (played, flushed, dropped or closed) is released.
  */
 internal class BufferedAudioStream(
     private val key: ByteArray,
@@ -30,7 +33,11 @@ internal class BufferedAudioStream(
     private val pause: (Long) -> Unit = { Thread.sleep(it) },
     private val expectedPeer: InetAddress = InetAddress.getLoopbackAddress(),
 ) : Closeable {
-    internal class Frame(val sequence: Int, val timestamp: Long, val rtp: ByteArray)
+    internal class Frame(val sequence: Int, val timestamp: Long, val packet: MediaPacket) {
+        constructor(sequence: Int, timestamp: Long, rtp: ByteArray) : this(sequence, timestamp, HeapPacket(rtp))
+        val rtp: ByteArray get() = packet.toByteArray()
+        val size: Int get() = packet.size
+    }
 
     private val id = AudioStreamId(format.payloadType, format.audioType)
     private val closed = AtomicBoolean(false)
@@ -84,6 +91,7 @@ internal class BufferedAudioStream(
             val input = DataInputStream(socket.getInputStream().buffered())
             var failures = 0
             var receivedBytes = 0L
+            var body = ByteArray(0)
             var windowStart = nanoTime()
             while (!closed.get()) {
                 val length = input.readUnsignedShort()
@@ -92,11 +100,12 @@ internal class BufferedAudioStream(
                     close()
                     return
                 }
-                val body = ByteArray(length - LENGTH_BYTES)
-                input.readFully(body)
-                val frame = open(key, body)
+                val bodyLength = length - LENGTH_BYTES
+                if (body.size < bodyLength) body = ByteArray(maxOf(bodyLength, MIN_BODY_BUFFER))
+                input.readFully(body, 0, bodyLength)
+                val frame = openReceived(key, body, bodyLength)
                 if (frame == null) {
-                    if (failures++ < 3) log("Buffered audio: frame did not open (${body.size} bytes)")
+                    if (failures++ < 3) log("Buffered audio: frame did not open ($bodyLength bytes)")
                     continue
                 }
                 receivedBytes += length
@@ -108,12 +117,13 @@ internal class BufferedAudioStream(
                     receivedBytes = 0
                     windowStart = now
                 }
-                if (frame.rtp.size <= RTP_HEADER) continue
+                if (frame.size <= RTP_HEADER) { frame.packet.release(); continue }
                 var pacing = false
-                synchronized(lock) {
+                var queued = false
+                try { synchronized(lock) {
                     while (!closed.get() &&
                         flushUntil?.let { before(frame.timestamp, it) } != true &&
-                        (queuedBytes + frame.rtp.size > AUDIO_BUFFER_BYTES || queue.size + fed.size >= maxBufferedFrames)) {
+                        (queuedBytes + frame.size > AUDIO_BUFFER_BYTES || queue.size + fed.size >= maxBufferedFrames)) {
                         // TCP backpressure preserves music rather than dropping an arbitrary part
                         // of a track. Close, playback and flush all wake the bounded receiver.
                         lock.wait()
@@ -121,7 +131,8 @@ internal class BufferedAudioStream(
                     if (closed.get()) return
                     if (flushUntil?.let { before(frame.timestamp, it) } == true) return@synchronized
                     queue.addLast(frame)
-                    queuedBytes += frame.rtp.size
+                    queued = true
+                    queuedBytes += frame.size
                     lock.notifyAll()
                     // Past the floor, hold the intake near FILL_RATE_MULTIPLE times real time.
                     // Reading the remaining two minutes as fast as TCP allows is a multi-megabit
@@ -130,6 +141,8 @@ internal class BufferedAudioStream(
                     // so pacing the fill never delays the music, and a queue drained by playback
                     // or by a flush falls back below the floor and refills at full speed.
                     pacing = queue.size + fed.size >= pacedFillFloorFrames
+                } } finally {
+                    if (!queued) frame.packet.release()
                 }
                 if (pacing) pause(pacedFrameMillis)
             }
@@ -188,7 +201,8 @@ internal class BufferedAudioStream(
                             fedSamples += SAMPLES_PER_FRAME
                             // The same lock orders every sink callback against pause/flush/close.
                             // Otherwise a stale RTP callback can recreate a renderer after stop.
-                            sink.onAudioRtp(id, format, frame.rtp, frame.timestamp.toInt())
+                            // The frame stays in [fed] until it has played, so the sink gets its own reference.
+                            sink.onAudioPacket(id, format, frame.packet.share(), frame.timestamp.toInt())
                         }
                     }
                 }
@@ -275,7 +289,7 @@ internal class BufferedAudioStream(
     private fun dropBeforeLocked(timestamp: Long) {
         flushUntil = timestamp
         while (queue.peekFirst()?.let { before(it.timestamp, timestamp) } == true) {
-            queuedBytes -= queue.pollFirst()!!.rtp.size
+            queue.pollFirst()!!.let { queuedBytes -= it.size; it.packet.release() }
         }
         lock.notifyAll()
     }
@@ -286,7 +300,7 @@ internal class BufferedAudioStream(
             val end = (frame.timestamp + SAMPLES_PER_FRAME) and U32
             end == position || before(end, position)
         } == true) {
-            queuedBytes -= fed.removeFirst().rtp.size
+            fed.removeFirst().let { queuedBytes -= it.size; it.packet.release() }
         }
         lock.notifyAll()
     }
@@ -315,6 +329,8 @@ internal class BufferedAudioStream(
             try {
                 runCatching { client?.close() }
                 client = null
+                queue.forEach { it.packet.release() }
+                fed.forEach { it.packet.release() }
                 queue.clear()
                 fed.clear()
                 queuedBytes = 0
@@ -347,9 +363,20 @@ internal class BufferedAudioStream(
         private const val RTP_HEADER = 12
         private const val NONCE_BYTES = 8
         private const val TAG_BYTES = 16
+        private const val MIN_BODY_BUFFER = 4096
         private const val U32 = 0xffff_ffffL
         /** Seconds between NTP's 1900 epoch and the 1970 epoch the anchor's networkTimeSecs uses. */
         private const val NTP_UNIX_OFFSET = 2_208_988_800L
+
+        /** Opens the first [length] bytes of [body] (a reused read buffer), natively when the library loaded. */
+        private fun openReceived(key: ByteArray, body: ByteArray, length: Int): Frame? {
+            if (!NativeMedia.available) return open(key, body.copyOf(length))
+            if (length < RTP_HEADER + TAG_BYTES + NONCE_BYTES) return null
+            val handle = NativeMedia.openRtp(key, body, length)
+            if (handle == 0L) return null
+            val sequence = ((body[2].toInt() and 0xff) shl 8) or (body[3].toInt() and 0xff)
+            return Frame(sequence, u32(body, 4), NativePacket(handle, NativeMedia.packetSize(handle)))
+        }
 
         /**
          * One buffered frame: RTP header, ChaCha20-Poly1305 ciphertext and tag sealed with [key] (the

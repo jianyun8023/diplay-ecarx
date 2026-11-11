@@ -27,11 +27,27 @@ interface MediaSink {
     /** A frame with the iPhone's frame time and its arrival time (System.nanoTime); see [ScreenStream.Listener]. */
     fun onVideoFrame(type: Int, naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) =
         onVideoFrame(type, naluBytes)
+    /** A frame the sink now owns and releases once done with it; see [MediaPacket]. */
+    fun onVideoFrame(type: Int, frame: MediaPacket, senderNanos: Long, arrivalNanos: Long) {
+        try {
+            onVideoFrame(type, frame.toByteArray(), senderNanos, arrivalNanos)
+        } finally {
+            frame.release()
+        }
+    }
     fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {}
     fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {}
     fun onScreenStreamActive(type: Int, active: Boolean) {}
     fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {}
     fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {}
+    /** An RTP packet the sink now owns and releases once done with it; see [MediaPacket]. */
+    fun onAudioPacket(id: AudioStreamId, format: AudioFormat, rtp: MediaPacket, sample: Int) {
+        try {
+            onAudioRtp(id, format, rtp.toByteArray(), sample)
+        } finally {
+            rtp.release()
+        }
+    }
     fun onAudioStopped(id: AudioStreamId) {}
     fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {}
     fun onMicrophoneStopped(id: AudioStreamId) {}
@@ -57,6 +73,9 @@ internal fun currentScreenListener(type: Int, sink: MediaSink, isCurrent: () -> 
     override fun onFrame(naluBytes: ByteArray) { if (isCurrent()) sink.onVideoFrame(type, naluBytes) }
     override fun onFrame(naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) {
         if (isCurrent()) sink.onVideoFrame(type, naluBytes, senderNanos, arrivalNanos)
+    }
+    override fun onFrame(frame: MediaPacket, senderNanos: Long, arrivalNanos: Long) {
+        if (isCurrent()) sink.onVideoFrame(type, frame, senderNanos, arrivalNanos) else frame.release()
     }
 }
 
@@ -236,7 +255,8 @@ class CarPlayMediaEngine(
         if (capture != null) audioCaptures[streamKey] = capture
         val clockProbe = RtpClockProbe()
         val microphoneStart = microphone?.let { config -> MicrophoneStart { sink.onMicrophoneStarted(streamId, config) } }
-        val audio = AudioStream(key, type, session::logDebug)
+        // Packet capture records the wire bytes, which only the Kotlin receiver keeps.
+        val audio = AudioStream(key, type, session::logDebug, preferNative = capture == null)
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
                 override fun onStarted(firstSample: Int) {
@@ -247,6 +267,11 @@ class CarPlayMediaEngine(
                 }
 
                 override fun onRtp(rtp: ByteArray, sample: Int) {
+                    observe(sample)
+                    sink.onAudioRtp(streamId, format, rtp, sample)
+                }
+
+                private fun observe(sample: Int) {
                     meta.position.observeRtp(sample)
                     clockProbe.observe(sample, System.nanoTime())?.let { hz ->
                         session.logDebug(
@@ -255,7 +280,11 @@ class CarPlayMediaEngine(
                                 "measuredHz=$hz microphoneClockHz=${microphone?.rtpClockRate ?: "none"}",
                         )
                     }
-                    sink.onAudioRtp(streamId, format, rtp, sample)
+                }
+
+                override fun onPacket(rtp: MediaPacket, sample: Int) {
+                    observe(sample)
+                    sink.onAudioPacket(streamId, format, rtp, sample)
                 }
 
                 override fun onPacket(

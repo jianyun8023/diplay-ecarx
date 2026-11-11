@@ -8,6 +8,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
+import com.shilapi.xcertplay.airplay.HeapPacket
+import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -288,11 +290,15 @@ internal class VideoDecoder(
         queue.offer(VideoJob.Config(codec, codecData))
     }
 
-    fun submit(nalus: ByteArray, senderNanos: Long = 0L, arrivalNanos: Long = 0L) {
-        stats.onReceived(nalus.size)
+    fun submit(nalus: ByteArray, senderNanos: Long = 0L, arrivalNanos: Long = 0L) =
+        submit(HeapPacket(nalus), senderNanos, arrivalNanos)
+
+    /** Takes ownership of [frame]: the worker releases it once fed or dropped. */
+    fun submit(frame: MediaPacket, senderNanos: Long = 0L, arrivalNanos: Long = 0L) {
+        stats.onReceived(frame.size)
         liveReceived.incrementAndGet()
         // Pacing runs on the worker, in queue order: callbacks of a replaced stream may still deliver here.
-        queue.offer(VideoJob.Frame(nalus, senderNanos = senderNanos, arrivalNanos = arrivalNanos))
+        queue.offer(VideoJob.Frame(frame, senderNanos = senderNanos, arrivalNanos = arrivalNanos))
     }
 
     fun setSurface(surface: Surface?) {
@@ -355,7 +361,7 @@ internal class VideoDecoder(
                 try {
                     when (job) {
                         is VideoJob.Config -> configureDecoder(job)
-                        is VideoJob.Frame -> {
+                        is VideoJob.Frame -> try {
                             val backlog = queue.backlogAfterCurrent()
                             val overloaded = !referenceChain.needsKeyFrame && backlogRecovery.observe(
                                 System.nanoTime(), job.receivedNs,
@@ -363,7 +369,9 @@ internal class VideoDecoder(
                             )
                             if (overloaded) {
                                 recover("video backlog kept growing or exceeded hard limit")
-                            } else feed(job.nalus, job.receivedNs, localTimeOf(job))
+                            } else feed(job.packet, job.receivedNs, localTimeOf(job))
+                        } finally {
+                            job.packet.release()
                         }
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
                         is VideoJob.MirrorChanged -> changeMirror(job.key, job.surface)
@@ -403,7 +411,10 @@ internal class VideoDecoder(
             parking = null
             fanout?.let { runCatching(it::close) }
             fanout = null
-            queue.drain().forEach { (it as? VideoJob.DetachSurface)?.request?.complete(DetachOutcome.RELEASED) }
+            queue.drain().forEach { job ->
+                (job as? VideoJob.DetachSurface)?.request?.complete(DetachOutcome.RELEASED)
+                (job as? VideoJob.Frame)?.packet?.release()
+            }
             runCatching { onExit(this) }
         }
     }
@@ -1007,11 +1018,12 @@ internal class VideoDecoder(
     /** Where the codec renders: the fanout while the stream has mirrors, else the stream's own surface. */
     private fun codecSurface(): Surface? = fanout?.input ?: outputSurface
 
-    private fun feed(nalus: ByteArray, receivedNs: Long, presentNs: Long = 0L) {
-        val annexB = MediaCodecSupport.toAnnexB(nalus)
+    /** [frame] stays owned by the caller, which releases it afterwards. */
+    private fun feed(frame: MediaPacket, receivedNs: Long, presentNs: Long = 0L) {
+        val annexB = frame.annexBOrNull()
         val config = lastConfig ?: return
         if (codecSurface() == null) return
-        if (annexB.isEmpty()) { recover("invalid video access unit"); return }
+        if (annexB == null) { recover("invalid video access unit"); return }
         if (!referenceChain.accepts(annexB, config.codec)) {
             requestKeyFrameIfDue()
             return
@@ -1034,7 +1046,8 @@ internal class VideoDecoder(
             submittedFrameLogged = true
             Log.i(
                 TAG,
-                "video decoder first input avcc=${nalus.size} annexB=${annexB.size}",
+                "video decoder first input avcc=${frame.size} annexB=${annexB.size} " +
+                    "packet=${frame.javaClass.simpleName}",
             )
         }
         val index = DecoderInputPump.acquire(
@@ -1051,7 +1064,7 @@ internal class VideoDecoder(
         val input = checkNotNull(codec.getInputBuffer(index)) { "Decoder input buffer unavailable" }
         input.clear()
         if (annexB.size <= input.remaining()) {
-            input.put(annexB)
+            annexB.copyInto(input)
             // A paced frame carries its local time; MediaCodec returns it with the decoded output.
             val presentationUs = if (presentNs > 0) presentNs / 1000 else System.nanoTime() / 1000
             // Recorded before queueing: the output thread may dequeue the frame as soon as it is queued.

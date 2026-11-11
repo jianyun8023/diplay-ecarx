@@ -1,15 +1,16 @@
 [package]
-name = "diplay-chacha"
+name = "diplay-media"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [lib]
-name = "diplay_chacha"
-crate-type = ["cdylib"]
+name = "diplay_media"
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 jni-sys = "0.3"
+libc = "0.2"
 ring = "0.17"
 
 [profile.release]

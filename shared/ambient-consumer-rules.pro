@@ -7,3 +7,12 @@
 -keep class com.shilapi.xcertplay.transport.LinuxI2cNativeException {
     public <init>(int, java.lang.String);
 }
+
+# libdiplay_media calls these from its receiver threads by name (see NativeMedia).
+-keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeStreamCallbacks {
+    void onPacket(long, int, int, long, long);
+    void onConfig(byte[]);
+    void onLog(int, java.lang.String);
+    void onReport(java.lang.String);
+    void onEnded(java.lang.String);
+}

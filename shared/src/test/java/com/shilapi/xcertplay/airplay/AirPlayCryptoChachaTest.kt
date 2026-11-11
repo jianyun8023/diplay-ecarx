@@ -57,7 +57,7 @@ class AirPlayCryptoChachaTest {
         val aad = bytes(8)
         val plaintext = bytes(1400)
         val sealed = AirPlayCrypto.chachaSeal(key, nonce, plaintext, aad)
-        assertTrue(!NativeChacha.available)
+        assertTrue(!NativeMedia.available)
         assertArrayEquals(plaintext, AirPlayCrypto.chachaOpen(key, nonce, sealed, aad, offset = 0, length = sealed.size))
         assertNotEquals("ring", AirPlayCrypto.chachaImplementation)
     }

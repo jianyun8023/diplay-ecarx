@@ -13,6 +13,8 @@ import android.os.Looper
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
+import com.shilapi.xcertplay.airplay.HeapPacket
+import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -57,7 +59,8 @@ internal class AudioRenderer(
     @Volatile private var navigationAudible = false
     private var navigationAudioEnded = false
     @Volatile private var lastAudibleNs = 0L
-    private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
+    /** A queued RTP packet; whoever takes it off the queue releases [rtp]. */
+    private class AudioPacket(val rtp: MediaPacket, val sample: Int, val arrivedNs: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
     private val voiceFilter = if (voiceFilter && format.sampleRate > 0) VoiceFilter(format.sampleRate, pcmChannels) else null
@@ -78,6 +81,8 @@ internal class AudioRenderer(
     @Volatile private var navigationAttenuationDb = 0
     private var appliedNavigationAttenuationDb: Int? = null
     private var pcm = ByteArray(64 * 1024)
+    private val adtsHeader = ByteArray(MediaCodecSupport.ADTS_HEADER_BYTES)
+    private var packetKind = ""
     private var playbackStarted = false
     private var prebufferBytes = 0
     private var startThresholdBytes = 0
@@ -133,7 +138,10 @@ internal class AudioRenderer(
         thread.start()
     }
 
-    fun submit(rtp: ByteArray, sample: Int) {
+    fun submit(rtp: ByteArray, sample: Int) = submit(HeapPacket(rtp), sample)
+
+    /** Takes ownership of [rtp]: it is released once decoded or dropped. */
+    fun submit(rtp: MediaPacket, sample: Int) {
         val now = System.nanoTime()
         if (started) {
             packetsReceived.incrementAndGet()
@@ -142,7 +150,7 @@ internal class AudioRenderer(
             newestRtpSample = sample
             // Hold short Wi-Fi bursts intact. If compressed audio remains >1.5s behind for
             // another 1.5s, skip only stale undecoded packets to catch up to the live song.
-            val removed = mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) ?: 0
+            val removed = mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) { it.rtp.release() } ?: 0
             if (removed > 0) {
                 packetsDropped.addAndGet(removed)
                 packetsDroppedTotal.addAndGet(removed)
@@ -154,6 +162,7 @@ internal class AudioRenderer(
             }
         }
         if (!started || !queue.offer(AudioPacket(rtp, sample, now))) {
+            rtp.release()
             if (started) {
                 packetsDropped.incrementAndGet()
                 packetsDroppedTotal.incrementAndGet()
@@ -167,6 +176,12 @@ internal class AudioRenderer(
                 }
             }
         }
+        // The worker may have stopped and emptied the queue meanwhile; nothing would take this packet then.
+        if (!running) releaseQueued()
+    }
+
+    private fun releaseQueued() {
+        while (true) queue.poll()?.rtp?.release() ?: return
     }
 
     override fun close() {
@@ -579,43 +594,52 @@ internal class AudioRenderer(
             .array()
 
     private fun handle(packet: AudioPacket) {
+        try {
+            handleRtp(packet)
+        } finally {
+            packet.rtp.release()
+        }
+    }
+
+    private fun handleRtp(packet: AudioPacket) {
         if (queue.isEmpty()) {
             droppedPacketsLogged = false
         }
         val rtp = packet.rtp
+        packetKind = rtp.javaClass.simpleName
+        val payloadBytes = (rtp.size - RTP_HEADER_BYTES).coerceAtLeast(0)
         val timestampUs = sampleTimestampUs(packet.sample)
         when (format.codec) {
-            AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.copyOfRange(12, rtp.size)))
+            AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.toByteArray().copyOfRange(RTP_HEADER_BYTES, rtp.size)))
             AudioCodecKind.AAC_LC -> {
-                val accessUnit = rtp.copyOfRange(12, rtp.size)
-                if (accessUnit.isNotEmpty()) {
+                if (payloadBytes > 0) {
                     if (!firstAacPayloadLogged) {
                         firstAacPayloadLogged = true
                         Log.i(
                             TAG,
-                            "audio AAC access unit bytes=${accessUnit.size}",
+                            "audio AAC access unit bytes=$payloadBytes",
                         )
                     }
-                    feedCodec(
-                        MediaCodecSupport.adtsFrame(accessUnit, format.sampleRate, format.channels),
-                        timestampUs,
-                    )
+                    MediaCodecSupport.writeAdtsHeader(adtsHeader, payloadBytes, format.sampleRate, format.channels)
+                    feedCodec(adtsHeader.size + payloadBytes, timestampUs) { input ->
+                        input.put(adtsHeader)
+                        rtp.copyInto(input, RTP_HEADER_BYTES, payloadBytes)
+                    }
                 }
             }
             AudioCodecKind.OPUS -> {
-                val accessUnit = rtp.copyOfRange(12, rtp.size)
-                if (accessUnit.size < MIN_OPUS_PACKET_BYTES) {
+                if (payloadBytes < MIN_OPUS_PACKET_BYTES) {
                     shortOpusPackets++
                     if (!firstOpusShortPacketLogged) {
                         firstOpusShortPacketLogged = true
                         Log.i(
                             TAG,
-                            "audio Opus skipping short packet bytes=${accessUnit.size}",
+                            "audio Opus skipping short packet bytes=$payloadBytes",
                         )
                     }
                     return
                 }
-                feedCodec(accessUnit, timestampUs)
+                feedCodec(payloadBytes, timestampUs) { input -> rtp.copyInto(input, RTP_HEADER_BYTES, payloadBytes) }
             }
         }
     }
@@ -623,7 +647,8 @@ internal class AudioRenderer(
     private fun sampleTimestampUs(sample: Int): Long =
         (sample.toLong() and 0xffff_ffffL) * 1_000_000L / format.sampleRate
 
-    private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
+    /** Queues [length] bytes that [write] puts into the codec's input buffer at its position. */
+    private fun feedCodec(length: Int, presentationTimeUs: Long, write: (ByteBuffer) -> Unit) {
         val codec = codec ?: run { decoderUnavailablePackets++; return }
         diagnosticStage = "decoder-input"
         // While a blocking track write holds this thread, decoded output fills up and the decoder
@@ -651,15 +676,15 @@ internal class AudioRenderer(
         }
         val input = codec.getInputBuffer(index) ?: return
         input.clear()
-        if (payload.size <= input.remaining()) {
-            input.put(payload)
-            codec.queueInputBuffer(index, 0, payload.size, presentationTimeUs, 0)
+        if (length <= input.remaining()) {
+            write(input)
+            codec.queueInputBuffer(index, 0, length, presentationTimeUs, 0)
             inputQueued++
             if (!firstInputQueuedLogged) {
                 firstInputQueuedLogged = true
                 Log.i(
                     TAG,
-                    "audio decoder first input codec=${format.codec} bytes=${payload.size}",
+                    "audio decoder first input codec=${format.codec} bytes=$length packet=$packetKind",
                 )
             }
         } else {
@@ -987,6 +1012,7 @@ internal class AudioRenderer(
 
     @Synchronized
     private fun release() {
+        releaseQueued()
         NavigationPlayback.close(navigationPlaybackToken)
         abandonAudioFocus()
         val codec = codec
@@ -1034,6 +1060,7 @@ internal class AudioRenderer(
     private companion object {
         const val TAG = "xcertplay-usb"
         const val AAC_OBJECT_TYPE_LC = 2
+        const val RTP_HEADER_BYTES = 12
         const val MIN_OPUS_PACKET_BYTES = 4
         const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
