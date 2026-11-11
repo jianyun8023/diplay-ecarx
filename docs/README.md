@@ -17,6 +17,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 
 ## 开发与构建
 
+- [技术架构](ARCHITECTURE.zh-CN.md) — 模块与包分层、会话组成、控制面（Kotlin）与数据面（Rust）的分工、媒体数据面迁移的目标设计与分阶段验收。
 - [领克 01 / ECARX 753 平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md) — 厂商接口、固件行为、权限、验证矩阵与证据索引，长期维护；新接口先登记再使用。
 - [构建 DiPlay 领克 01 / ECARX 753 移植版](../BUILD.md) — 本移植版特有的签名与 MFi 身份；通用流程见下一条。
 - [Build DiPlay](BUILD.md) ／ [從原始碼建置 DiPlay](BUILD.zh-TW.md) — 模块、Android Studio、单测与 lint 的通用流程。
