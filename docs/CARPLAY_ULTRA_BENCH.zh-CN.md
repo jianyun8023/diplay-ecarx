@@ -69,13 +69,35 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 
 - 在 debug 或车测 release 包（`-PcarTestLabel=…`）的 **设置 → 高级 → 显示（实验性） → CarPlay Ultra 主题（实验性）** 粘贴下方格式的配置，保存后重连。默认按 8:3 声明中控，勾选「使用车机窗口尺寸」可以对照测试较高的画布。「关闭 Ultra」保留上一次配置，下次重连时使用普通 CarPlay。
 - 实验包仍兼容应用 `files/` 或 `/sdcard/Android/data/<包名>/files/` 下的旧 `ultra-experiment.txt`。保存或关闭过主题设置后，以设置为准。公开 Release 不启用这两种配置入口。
-- 只有同时存在 `ultra-bench.enabled` 才声明模拟车辆能力；只有主题配置时只做显示层。
+- 只有同时存在 `ultra-bench.enabled` 才声明模拟车辆能力；只有主题配置时只做显示层。打开「无主题车控」时，`ultra-bench.enabled` 也会让模拟车辆接到无主题面板上，用来在手机上测普通 CarPlay 界面的车辆功能。
 - 原车风格仪表 `UltraBenchActivity` 只在 debug 源集。
 - 仓库不含任何车厂主题素材或主题 ID；主题由 iPhone 按 ID 从 Apple 公共资源目录下载。测试用主题 ID、设备与命令放在本地工作区，不进仓库。
 
+## 按车机尺寸搭台架
+
+台架手机可以按车机的两块屏声明尺寸，复现实车画面：
+
+- 中控 1920×1080：把手机逻辑分辨率改成竖屏 1080×1920（`adb shell wm size 1080x1920`），横屏时 CarPlay 窗口就是 1920×1080；同时勾选「使用车机窗口尺寸」，否则 Ultra 会把中控裁成 8:3。
+- 仪表 1920×720：开一块开发者叠加屏（`adb shell settings put global overlay_display_devices 1920x720/160`），用 `dumpsys display` 查到显示 ID 后，把 `UltraBenchActivity` 启动到这块屏上。叠加屏窗口本身半透明，会盖住一部分中控，截图看起来半透明不代表绘制有问题。
+- 测完恢复：`wm size reset`，`overlay_display_devices` 设回 `null`。
+
+台架仪表按领克 05 原车仪表的几何资料重画（照片标定，误差约 10–15 px）：iPhone 仪表视频铺满 1920×720，异形可视轮廓以外涂黑；顶部状态区（A）和底部状态栏（H）是不透明背景；转速刻度（B）、导航卡片（C）、车速（D）、巡航（E）、车道辅助（F）、右侧菜单（G）按原车位置和透明度叠加。右上角「标注」按钮显示 B–G 的范围虚线，用来核对 Apple 的卡片是否被原车组件压住。几何资料只用于台架，不是原厂素材，也不是安全区。
+
+台架上的调试手段：
+
+| 手段 | 用法 |
+| --- | --- |
+| 改模拟数据 | `adb shell am broadcast -a com.shilapi.xcertplay.BENCH_SET -p <包名> --es set "leftTemperature=25.5,fan=5"`，或 `--es scene CITY` 切场景。支持 `speed`、`leftTemperature`、`rightTemperature`、`fan`、`ac`、`seatHeating`、`seatVentilation`、`radioKhz`、`fuel`、`range`、`volume`。需要台架仪表界面在运行 |
+| 看模拟数据变化 | `adb logcat -s DiPlay-Bench`：每次变化记一行 `Bench vehicle changed 字段=旧->新`，不论来自上面的遥控还是 iPhone 写入 |
+| 看 iPhone 订阅了哪些字段 | 应用日志 `Vehicle state registerRequest fields=N supported=N ids=[…]` |
+| 看推送和写入 | `Vehicle state updateNotify …`（首次和每 100 次记一行）、`Vehicle state write iid=… status=…` |
+| 看 iPhone 端日志 | iPhone 用 USB 接电脑：`pymobiledevice3 syslog live`（实时），或 macOS `sudo log collect --device-udid <UDID> --last 15m`（归档，需在终端里输入密码）。主题相关看 `carkitd [ThemeAssets]` 和 `CarPlay [DBSessionController]` |
+
+判断主题有没有生效，看应用日志里有没有 UI Sync。没有 UI Sync 时，界面就是普通 CarPlay，画面探针铺满整屏也不说明主题能铺满。
+
 ## 中控与仪表画布（2026-11-09 实车结论）
 
-- 已测主题把中控定义为 1920×720。声明 1920×944 时 iPhone 只画上部 8:3（`box=0,0..100,75`），声明 1920×720 时整块画满（`box=0,0..100,100`）。Ultra 默认声明 8:3 中控画布并贴顶显示。保留原车底栏时，车机窗口剩 224 px；隐藏底栏时，剩 360 px。
+- 已测主题把中控定义为 1920×720。声明 1920×944 时 iPhone 只画上部 8:3（`box=0,0..100,75`），声明 1920×720 时整块画满（`box=0,0..100,100`）。声明 1920×1080 时只画上方 2/3（`box=0,0..100,66`），台架（2026-11-11）与实车一致。Ultra 默认声明 8:3 中控画布并贴顶显示。保留原车底栏时，车机窗口剩 224 px；隐藏底栏时，剩 360 px。
 - 原车仪表“小屏导航”只露出中间窗口（约 x 31–68 %、y 16–89 %），DigiRing 等表盘布局的地图区也只是中间 600×480。MapsMedia 布局声明地图 1920×720，在原车仪表菜单切到“全屏导航”能扩大可见地图范围，原车读数会叠加在地图上。2026-11-11 复核确认实车画面下方仍有空白，尚未证明铺满；需同场次原始视频、校准图和最终照片定位原因。
 - 仪表窗口中的第二张导航卡片来自 DiPlay 发给原车的 DIM 引导（`DIM guidance started …`），与主题自带卡片重叠。可在 设置 → 导航 关闭仪表导航引导对比；关闭也会停止 HUD 引导。
 - Ultra 仪表会声明手动保存的「仪表安全区」。重置后 Ultra 用整块画布；iPhone 地图卡片是否随安全区移动仍需实车验证。
@@ -99,7 +121,74 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 | r1，22:14 | LIVI 格式：`<UUID>-panel` 两块真实屏幕 + 一块无视频流、带空插件的虚拟仪表面板 | iPhone 订阅 68 个车辆字段，仪表出图；中控流全黑（`Frame probe … drawn=0% box=none`，持续 1.5 min） |
 | r2，22:20 | 上面的两块真实屏幕，无插件 | 中控仍无画面，车辆 App 未出现 |
 
-关闭本开关重连后恢复普通 CarPlay。结论：在这台车与 iOS 27.3 上，无主题 `displayPanels` 会让 iPhone 停止绘制中控，未能得到 Tarmac 记录的无主题车辆 App。r2 的诊断报告没有导出（无线 ADB 已断开），下一次实车先补报告，核对 `/info displayPanels` 与 `Frame probe`。开关保留用于复测，不建议默认打开。
+关闭本开关重连后恢复普通 CarPlay。结论：在这台车与 iOS 27.3 上，无主题 `displayPanels` 会让 iPhone 停止绘制中控，未能得到 Tarmac 记录的无主题车辆 App。
+
+2026-11-11 台架复测（r2 格式，模拟车辆，iOS 27.3，中控 1920×1080）：画面正常，没有黑屏；车辆数据通道建立，iPhone 只订阅 1 组 17 个字段（空调 519–559 和 2050–2065），台架改温度后能推送过去（`updateNotify fields=[520]`），但界面上**没有任何车辆功能**：Dock 没有空调温度，没有空调、广播、车辆 App，设置里也没有车辆数据页。也就是说，只发无主题面板，iPhone 会收数据却不给用户入口。台架和实车在中控是否黑屏上的差别，原因还没查。r2 的诊断报告没有导出（无线 ADB 已断开），下一次实车先补报告，核对 `/info displayPanels` 与 `Frame probe`。开关保留用于复测，不建议默认打开。
+
+## 主题包与黑屏（2026-11-11 台架）
+
+iPhone 只有在本地有这台车主题包的情况下才进 Ultra。主题包不在时：
+
+1. iPhone 照常建立会话，回报 `themeAssets=true`，然后去下载主题包（`com.apple.MobileAsset.CarDDPAssets`，本次约 50 MB）。
+2. 下载完成前，iPhone 既不发中控和仪表视频，也不建立 UI Sync，表现为**两块屏都黑**，不会自动退回普通 CarPlay。关闭 Ultra 重连则立即有画面。
+3. iPhone 连着 CarPlay 的 Wi-Fi 时，这个下载会被系统后台调度挡住，一直报 `Stalled`：
+
+   ```text
+   carkitd [ThemeAssets] theme asset exists for <private> but is not downloaded, requesting download
+   dasd    Network Quality Policy ... networkPathAvailability Required:1.00, Observed:0.00 → Decision: AMNP
+   DownloadService [Progress]: Stalled
+   ```
+
+   车机热点本身能上网也没用。断开 CarPlay（关掉热点）后，iPhone 回到普通 Wi-Fi，很快下完；再连接就正常进 Ultra。
+
+会触发这种情况的操作：
+
+- 在 iPhone 的 设置 → 通用 → CarPlay 里“忘记此车”：主题包会被一起删除。
+- 声明一个 iPhone 从没下载过的主题变体（例如 CN、Single）。
+
+对实车的影响：用户第一次连接，或忘记车辆后重新连接时，如果主题包没准备好，Ultra 会一直黑屏，连着车也下载不完。车测前先让 iPhone 在普通网络下完成一次下载。DiPlay 以后可以考虑：会话已建立但长时间没有视频、也没有 UI Sync 时，提示用户断开去下载主题，或者自动退回普通 CarPlay。
+
+## 普通界面下的车辆功能（2026-11-11 台架）
+
+普通 CarPlay 界面（没有 Ultra 布局）里能不能出现车辆功能，取决于 iPhone 如何看待这台车的主题，而不是视频画面。台架上见到三种状态：
+
+| 状态 | 握手时声明主题 | iPhone 端的主题 | 订阅的车辆字段 | 界面上的车辆功能 |
+| --- | --- | --- | --- | --- |
+| 无主题车控 | 否 | — | 1 组 17 个 | 无，只有返回原车的 OEM App |
+| 主题生效 | 是 | 已应用（有 UI Sync） | 5–6 组 | Ultra 界面，侧边栏空调，车辆 App |
+| 主题布局解析失败 | 是 | `theme asset: (null)` | 5 组 | 普通界面，Dock 两侧带箭头的空调温度，广播、车辆 App，设置里有车辆数据页 |
+
+主题生效和解析失败时订阅的字段相同：
+
+```text
+空调：519 520 521 524 528 530 533 534 535 538 549 554 559 2050 2055 2060 2065
+空调与座椅：514 515 516 517 525 526 541 545 550 551 555 556 560 561 1026 1027 1030 1031 1034（主驾通风）
+音量与广播：2306 2309 2311 2314 2317 2321 4116 4117 4118
+其他：1538 4355 4359
+胎压：1284 1292 1300 1308 1316 1324 1332 1340 1348 1356 1364 1372
+```
+
+解析失败状态下，两个方向都在台架上验证过：
+
+- 推送：台架把左侧温度改为 24.5，Dock 左侧即时显示 24.5。
+- 控制：在中控上调左侧温度（`iid=520`，24.5 → 26.0）、开关前挡除雾（`iid=517`）、打开温度同步（`iid=538`），写入全部 `status=0`，模拟车辆随之变化。广播、座椅和音量没有在这个状态下测。
+
+解析失败的复现方法：主题生效后，声明一个 iPhone 没下载过的变体（CN）连一次，再切回原主题（EC）连一次。切回那次 iPhone 报：
+
+```text
+CarPlay [DBSessionController] Theme asset layout document available at URL <private>
+CarPlay [DBSessionController] Failed to decode document at URL <private>
+CarPlay [DBSessionController] Notifying session did connect with theme asset: (null)
+```
+
+DashBoard 把主题当成 null，退回普通界面；carkitd 仍认为车辆支持主题，所以车辆数据和车辆 App 都保留。只重新生成配对身份、或在 UI Sync 刚开始时强杀应用，都不会触发。
+
+**这个状态依赖 iPhone 的解析错误，不能当作产品方案**，只能说明：普通界面本身能承载完整的车辆功能，iPhone 是否打开它，与“这台车声明了主题、且 iPhone 认为主题可用”有关。要回到正常 Ultra，需要在 iPhone 上忘记此车，再按上一节让它重新下载主题包。
+
+还没回答的问题：
+
+1. 不依赖解析错误时，怎样让 iPhone 在普通界面里打开车辆功能；
+2. 无主题时，实车中控黑屏而台架画面正常，差别在哪。
 
 ## 实车测试：探针与 A/B 开关
 
@@ -159,7 +248,7 @@ adb shell ls $D
 
 | 范围 | 已实现 | 边界 |
 | --- | --- | --- |
-| 原车风格仪表 | 顶部时间/灯光/挡位/雨刷/环境温度；转速条；左侧车速和 ADAS；地图；右侧页签；底部续航、驾驶模式、水温和警告 | 近似重绘，非原厂资产；只针对固定的地图+媒体布局 |
+| 原车风格仪表 | 按领克 05 仪表几何重画：异形轮廓、顶部状态区、转速、导航卡片、车速、巡航、车道辅助、右侧菜单、底部续航/安全带/驾驶模式/水温；「标注」显示组件范围 | 几何来自照片标定，误差约 10–15 px，非原厂资产 |
 | 行驶数据 | 车速、转速、挡位、油量、续航、里程、胎压、水温/油温、车门、安全带、灯光、ADAS、故障警告；驻车/城市/高速/警告四场景 | 不改变 iPhone GPS |
 | 车辆 App | 十二组模拟读数和来源，音量入口 | 部分读数以自定义只读信息行传给 iPhone |
 | 温控 App | 双区温度、同步、风量、A/C、AUTO、MAX A/C、内外循环、出风、除雾、座椅加热 | 只改模拟状态 |
@@ -173,7 +262,7 @@ adb shell ls $D
 - 未实现完整的动态主题布局渲染器，不保证其他主题/布局的透明区域正确。
 - 手机台架的车速、CAN、ADAS 和空调仍为模拟值；上文的真实车辆源独立启用。车机自身覆盖层不会消失，不能称为完整的原厂 Ultra 集成。
 - 主题目录可用性、iOS 版本、地区及 Apple 远端禁用都会影响 iPhone 是否接受主题。
-- 只在一台 Android 15 测试手机和一台 iOS 27.3 iPhone 上验证过。
+- 只在一台 Android 15 测试手机和一台 iOS 27.3 iPhone 上验证过；另一台 iOS 27.2.1 的 iPhone Air 在台架上每次握手后立刻断开，原因未查。
 
 ## 来源
 

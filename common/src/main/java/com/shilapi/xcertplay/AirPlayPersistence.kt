@@ -1006,8 +1006,10 @@ object AirPlayPersistence {
         preferences(context).edit().putBoolean("ecarx_vehicle_controls", enabled).apply()
     }
 
+    /** The bench vehicle backs an Ultra theme or, to test plain CarPlay with vehicle apps, the theme-less panels. */
     fun loadSimulatedVehicle(context: Context): com.shilapi.xcertplay.airplay.SimulatedVehicle? =
-        if (loadUltraExperiment(context) != null && loadDebugFlag(context, "ultra-bench.enabled")) benchVehicle else null
+        if ((loadUltraExperiment(context) != null || loadThemelessVehicleControls(context)) &&
+            loadDebugFlag(context, "ultra-bench.enabled")) benchVehicle else null
 
     fun loadClusterMapEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CLUSTER_MAP, false)

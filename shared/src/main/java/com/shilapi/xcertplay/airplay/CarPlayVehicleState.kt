@@ -44,7 +44,7 @@ internal class CarPlayVehicleState(private val source: CarPlayVehicleSource, pri
                     }
                 }
                 answer["values"] = values; if (errors.isNotEmpty()) answer["errors"] = errors
-                log("Vehicle state $command fields=${ids.size} supported=${values.size}")
+                log("Vehicle state $command fields=${ids.size} supported=${values.size} ids=${ids.sorted()}")
             }
             "writeRequest" -> {
                 val values = request["values"] as? Map<*, *> ?: error("vehicle writes missing")
