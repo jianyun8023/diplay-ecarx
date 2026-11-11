@@ -25,6 +25,8 @@ class EcarxVehicleStateTest {
         val readings = mutableMapOf(1048832 to 10f, 1050112 to 32000f, 1050368 to 23861f, 1050624 to 610f)
         val temperatures = mutableMapOf(1 to 22.5f, 4 to 23f)
         val functions = mutableMapOf(0x10020100 to 268566787, 0x10030100 to 268632322)
+        var ventilationValues = intArrayOf(0, 0x10050101, 0x10050102, 0x10050103)
+        val watchedFunctions = mutableSetOf<Int>()
         val writes = mutableListOf<Triple<Int, Int, Number>>()
         var accepted = true
         var denied = false
@@ -41,6 +43,7 @@ class EcarxVehicleStateTest {
         override fun getSupportedFunctionValue(function: Int) = when (function) {
             0x10020100 -> intArrayOf(0, 268566785, 268566786, 268566787, 268566788, 268566789, 268566790, 268566791)
             0x10050200 -> intArrayOf(0, 268763649, 268763650, 268763651)
+            0x10050100 -> ventilationValues
             0x10030100 -> intArrayOf(268632321, 268632322)
             else -> intArrayOf(0, 1)
         }
@@ -56,6 +59,7 @@ class EcarxVehicleStateTest {
         }
         override fun registerFunctionValueWatcher(functions: IntArray, watcher: ICarFunction.IFunctionValueWatcher): Boolean {
             this.watcher = watcher
+            watchedFunctions.addAll(functions.toList())
             return true
         }
         override fun unregisterFunctionValueWatcher(watcher: ICarFunction.IFunctionValueWatcher): Boolean { this.watcher = null; return true }
@@ -127,6 +131,79 @@ class EcarxVehicleStateTest {
             assertEquals(22.5, source.values()[520])
             source.close()
             assertFalse(source.write(520, 22.0))
+        }
+    }
+
+    @Test fun driverSeatVentilationUsesItsOwnServiceAndSdkEnumsWithReadback() {
+        val car = Vehicle().apply {
+            functions[0x10050100] = 0x10050102
+            functions[0x10050200] = 0x10050201
+            Car.instance = this
+        }
+        val logs = mutableListOf<String>()
+        requireNotNull(EcarxVehicleState.create(RuntimeEnvironment.getApplication()) { logs += it }).use { source ->
+            val seats = source.configuration().single { it["iid"] == 1024 }
+            val fan = (seats["services"] as List<*>).map { it as Map<*, *> }.single { it["type"] == 0x22000002 }
+            assertEquals(1033, fan["iid"])
+            val fields = (fan["characteristics"] as List<*>).map { it as Map<*, *> }
+            val level = fields.single { it["iid"] == 1034 }
+            assertEquals(0x31000012, level["type"])
+            assertEquals(1, level["format"])
+            assertEquals(0, level["minimumValue"])
+            assertEquals(3, level["maximumValue"])
+            assertEquals(1, level["stepValue"])
+            assertEquals(true, level["writable"])
+            assertEquals("seat_front_left", fields.single { it["type"] == 0x36000065 }["initialValue"])
+            assertTrue(0x10050100 in car.watchedFunctions)
+            assertTrue(car.writes.isEmpty())
+            assertEquals(2, source.values()[1034])
+            for (target in listOf(3, 1, 2, 0)) {
+                val previous = source.values()[1034]
+                val raw = if (target == 0) 0 else 0x10050100 + target
+                assertTrue(source.write(1034, target.toLong()))
+                assertEquals(Triple(0x10050100, 1, raw), car.writes.last())
+                assertEquals(previous, source.values()[1034])
+                car.functions[0x10050100] = raw
+                car.watcher!!.onFunctionValueChanged(0x10050100, 1, raw)
+                assertEquals(target, source.values()[1034])
+                assertEquals(1, source.values()[1026])
+                assertEquals(1, source.values()[1030])
+                assertEquals(3, source.values()[525])
+                assertTrue(logs.last { it.startsWith("Vehicle state ECARX availability") }.contains("seatVentilation=$target"))
+            }
+        }
+    }
+
+    @Test fun ventilationRejectsInvalidUnsupportedAndUnavailableValues() {
+        val car = Vehicle().also { Car.instance = it }
+        requireNotNull(EcarxVehicleState.create(RuntimeEnvironment.getApplication()) {}).use { source ->
+            for (value in listOf(-1, 4, 1.5, Double.NaN, Double.POSITIVE_INFINITY, true, "1", 0x10050101, Long.MAX_VALUE))
+                assertFalse("must reject $value", source.write(1034, value))
+            car.ventilationValues = intArrayOf(0, 0x10050101)
+            assertFalse(source.write(1034, 2))
+            assertTrue(car.writes.isEmpty())
+            car.accepted = false
+            assertFalse(source.write(1034, 1))
+            car.accepted = true
+            car.denied = true
+            assertFalse(source.write(1034, 1))
+            car.denied = false
+            car.functions[0x10050100] = 0x1005010f // SDK AUTO is not one of the advertised manual levels.
+            car.watcher!!.onFunctionValueChanged(0x10050100, 1, 0x1005010f)
+            assertFalse(source.values().containsKey(1034L))
+            car.status = FunctionStatus.notavailable
+            car.watcher!!.onSupportedFunctionStatusChanged(0x10050100, 1, car.status)
+            assertFalse(source.values().containsKey(1034L))
+            assertFalse(source.write(1034, 0))
+            car.connection!!.onDisConnected()
+            assertFalse(source.write(1034, 0))
+            car.status = FunctionStatus.active
+            car.functions[0x10050100] = 0
+            car.connection!!.onConnected()
+            assertEquals(0, source.values()[1034])
+            source.close()
+            assertFalse(source.values().containsKey(1034L))
+            assertFalse(source.write(1034, 1))
         }
     }
 

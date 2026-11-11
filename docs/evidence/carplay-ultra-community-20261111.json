@@ -1,0 +1,147 @@
+{
+  "retrievedDate": "2026-11-11",
+  "purpose": "CarPlay Ultra 四项问题的外部资料复查",
+  "sources": [
+    {
+      "key": "seat_fan_0",
+      "url": "https://github.com/EthanArbuckle/iPhone17-1_18.2_22C152_Restore/blob/e26ed4563f78871c59d2d96856756a65d62517e5/System/Library/PrivateFrameworks/CarAccessoryFramework.framework/CAFSeatFan.m",
+      "blobSha": "0ecf9579cfe150dbf82d894e4e2674aee64557c4",
+      "lines": 458
+    },
+    {
+      "key": "seat_fan_1",
+      "url": "https://github.com/EthanArbuckle/iPhone17-1_18.2_22C152_Restore/blob/e26ed4563f78871c59d2d96856756a65d62517e5/System/Library/PrivateFrameworks/CarAccessoryFramework.framework/CAFSeat.m",
+      "blobSha": "963058ffd5c9790c68e478a77429228722142ccb",
+      "lines": 210
+    },
+    {
+      "key": "seat_fan_2",
+      "url": "https://github.com/EthanArbuckle/iPhone17-1_18.2_22C152_Restore/blob/e26ed4563f78871c59d2d96856756a65d62517e5/Applications/Climate.app/ClimateSeatFanServiceButton.m",
+      "blobSha": "3f9db2c939dc054157f3337ce7a4abe279f0f5dd",
+      "lines": 72
+    },
+    {
+      "key": "caf_seat",
+      "url": "https://github.com/EthanArbuckle/iPhone17-1_18.2_22C152_Restore/blob/e26ed4563f78871c59d2d96856756a65d62517e5/System/Library/PrivateFrameworks/CarAccessoryFramework.framework/CAFSeatHeatingCooling.m",
+      "blobSha": "25d136ace992141f0b74351eb27df5706c4f7ba6",
+      "lines": 458
+    },
+    {
+      "key": "livi_body",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-cp/src/vehicle_state/body.rs",
+      "blobSha": "fe6821abc14902b5a50d69699128b3d9e4f1ca8d",
+      "lines": 236
+    },
+    {
+      "key": "livi_telemetry",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-core-proto/src/telemetry.rs",
+      "blobSha": "4944f053903e809c86f410f39e4180895d8cd9b6",
+      "lines": 359
+    },
+    {
+      "key": "belgee_readme",
+      "url": "https://github.com/IgnatovichStanislav/belgee-x50-carhome-launcher/blob/017537a0059bcd3cc303cb8d8a18e6b1f1bcaebf/README.md",
+      "blobSha": "be70e4d8cfb4668bd703ccfd42e5729cc2faa5dc",
+      "lines": 118
+    },
+    {
+      "key": "belgee_source",
+      "url": "https://github.com/IgnatovichStanislav/belgee-x50-carhome-launcher/blob/017537a0059bcd3cc303cb8d8a18e6b1f1bcaebf/app/src/main/java/by/carhome/data/EcarxCarDataSource.kt",
+      "blobSha": "81ba653b170174989ff9d5a8a7b685452676afe3",
+      "lines": 516
+    },
+    {
+      "key": "tarmac_ultra",
+      "url": "https://github.com/Altair571/tarmac/blob/49e4b6ecb96ee3cc5b781b86b01001eff32cd852/docs/CARPLAY_ULTRA.md",
+      "blobSha": "9200f7b446a805c0465b265f963b095c6bfc596f",
+      "lines": 425
+    },
+    {
+      "key": "final_research_2",
+      "url": "https://github.com/rPlayAI/carcast-public/blob/1d08ba65c4704b5f525ca78e237738e817f008b0/docs/icarcast-user-guide.md",
+      "blobSha": "7750c83fa3678bd60f417519f03708214b97f4bb",
+      "lines": 284
+    },
+    {
+      "key": "climate_diff",
+      "url": "https://github.com/blacktop/ipsw-diffs/blob/178049c35e1625cce0fe377dda3b938e76030a80/iOS/26_4_23E5218e__vs_26_4_23E5223f/MACHOS/Climate.md",
+      "blobSha": "95f9e216c99a3ba4e2203626c2f90f30af830537",
+      "lines": 255
+    }
+  ],
+  "issues": [
+    {
+      "key": 0,
+      "data": {
+        "url": "https://github.com/shilapi/xcertplay/issues/59",
+        "author": "autunn",
+        "created": "2026-10-26T19:25:49Z",
+        "updated": "2026-11-11T01:45:49Z",
+        "state": "open",
+        "comments": 3
+      }
+    },
+    {
+      "key": 1,
+      "data": [
+        {
+          "url": "https://github.com/shilapi/xcertplay/issues/59#issuecomment-6731850386",
+          "author": "Herrengit",
+          "created": "2026-11-09T03:55:54Z",
+          "updated": "2026-11-09T03:55:54Z"
+        },
+        {
+          "url": "https://github.com/shilapi/xcertplay/issues/59#issuecomment-6746262514",
+          "author": "autunn",
+          "created": "2026-11-09T17:05:27Z",
+          "updated": "2026-11-09T17:07:34Z"
+        },
+        {
+          "url": "https://github.com/shilapi/xcertplay/issues/59#issuecomment-6784550550",
+          "author": "Herrengit",
+          "created": "2026-11-11T01:45:49Z",
+          "updated": "2026-11-11T01:45:49Z"
+        }
+      ]
+    },
+    {
+      "key": 2,
+      "data": {
+        "url": "https://github.com/rPlayAI/carcast-public/issues/38",
+        "author": "hatchbackhatchling",
+        "created": "2026-11-07T13:05:26Z",
+        "updated": "2026-11-07T13:05:26Z",
+        "state": "open",
+        "comments": 0
+      }
+    },
+    {
+      "key": 3,
+      "data": []
+    }
+  ],
+  "seatFanEvidence": {
+    "sourceVersion": "iOS 18.2 build 22C152 publicly decompiled; not a current MFi specification",
+    "accessory": "0x01500001",
+    "service": "0x22000002",
+    "fanLevel": {
+      "type": "0x31000012",
+      "format": "UInt8"
+    },
+    "on": "0x30000002",
+    "vehicleLayoutKey": "0x36000065",
+    "qualification": "静态字段与类存在已核对；当前 iOS/主题渲染、ECARX 主驾通风读写尚未实测"
+  },
+  "searchCoverage": [
+    "GitHub 项目源码、issues 及 comments",
+    "X / Twitter 索引与 @vmlite 公开页；公开页无可读正文，镜像索引不作为协议证据",
+    "Reddit r/cafari 和 r/CarPlay 作者帖",
+    "4PDA、XDA、MacRumors、Ars OpenForum 定向检索"
+  ],
+  "notVerified": [
+    "本车仪表下方空白的图层归属",
+    "当前主题 1920×1080 原生满屏布局",
+    "可用真实 RPM 数据源",
+    "SeatFan 在当前 iOS 和本车的端到端工作状态"
+  ]
+}

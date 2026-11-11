@@ -109,7 +109,12 @@ class SimulatedVehicleState(private val vehicle: SimulatedVehicle) : CarPlayVehi
                 }) { (if (passenger) it.passengerHeating else it.seatHeating) > 0 },
                 constant(id + 3, 0x36000065, if (passenger) "seat_front_right" else "seat_front_left"),
             ))
-        }
+        } + Service(1033, 0x22000002, listOf(
+            f(1034, 0x31000012, 1, range = Triple(0.0, 3.0, 1.0), write = { s, v ->
+                s.copy(seatVentilation = (v as Number).toInt())
+            }) { it.seatVentilation },
+            constant(1036, 0x36000065, "seat_front_left"),
+        ))
         val stations = listOf(90500, 101700, 106100).map { frequency -> mapOf(
             "identifier" to frequency.toString(), "mediaItemName" to "模拟 FM ${frequency / 1000.0}",
             "mediaItemShortName" to "模拟FM", "mediaItemType" to "fm", "mediaItemCategory" to 0, "frequency" to frequency,

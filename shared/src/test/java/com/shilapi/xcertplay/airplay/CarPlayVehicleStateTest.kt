@@ -59,6 +59,38 @@ class CarPlayVehicleStateTest {
         assertTrue(types.all { it["minimumValue"] == 0L && it["maximumValue"] == 7L })
     }
 
+    @Test fun seatVentilationWritesNotifyIndependentlyOfSeatHeatAndCabinFan() {
+        val car = SimulatedVehicle().apply { change { it.copy(seatHeating = 1, passengerHeating = 2) } }
+        val protocol = CarPlayVehicleState(SimulatedVehicleState(car)) {}
+        val config = payload(protocol.handle(message("configRequest", emptyList<Any>())).single())
+        val accessories = (config["values"] as Map<*, *>)["accessories"] as List<*>
+        val seats = accessories.map { it as Map<*, *> }.single { it["iid"] == 1024L }
+        val fan = (seats["services"] as List<*>).map { it as Map<*, *> }.single { it["type"] == 0x22000002L }
+        assertEquals(1033L, fan["iid"])
+        val fields = (fan["characteristics"] as List<*>).map { it as Map<*, *> }
+        val level = fields.single { it["iid"] == 1034L }
+        assertEquals(0x31000012L, level["type"])
+        assertEquals(1L, level["format"])
+        assertEquals(0L, level["minimumValue"])
+        assertEquals(3L, level["maximumValue"])
+        assertEquals("seat_front_left", fields.single { it["type"] == 0x36000065L }["initialValue"])
+        val initial = payload(protocol.handle(message("registerRequest", listOf(1034, 1026, 1030, 525))).single())
+        assertEquals(mapOf(1034L to 0L, 1026L to 1L, 1030L to 2L, 525L to 3L), initial["values"])
+        for (target in listOf(1, 2, 3, 0)) {
+            val response = payload(protocol.handle(message("writeRequest", mapOf(1034 to target))).single())
+            assertEquals(mapOf(1034L to 0L), response["errors"])
+            assertEquals(target, car.reading().seatVentilation)
+            assertEquals(mapOf(1034L to target.toLong()), payload(protocol.updates().single())["values"])
+            assertTrue(protocol.updates().isEmpty())
+        }
+        val rejected = payload(protocol.handle(message("writeRequest", mapOf(1034 to 4))).single())
+        assertEquals(mapOf(1034L to -6727L), rejected["errors"])
+        assertTrue(protocol.updates().isEmpty())
+        assertEquals(1, car.reading().seatHeating)
+        assertEquals(2, car.reading().passengerHeating)
+        assertEquals(3, car.reading().fan)
+    }
+
     @Test fun radioCommandsChangeOnlyTheSimulatorAndRejectInvalidFrequencies() {
         val car = SimulatedVehicle()
         val protocol = CarPlayVehicleState(SimulatedVehicleState(car)) {}

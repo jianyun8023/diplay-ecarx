@@ -141,6 +141,11 @@ class EcarxAdaptapiAbiTest {
             for (method in listOf("getAvailability", "hasDoubleData", "getDoubleData")) expect(proto, method)
             assertEquals("methods missing from the vendor JAR", emptyList<String>(), missing)
             assertEquals(0x10060500, type("com.ecarx.xui.adaptapi.car.hvac.IHvac").getField("HVAC_FUNC_TEMP_DUAL").getInt(null))
+            val hvac = type("com.ecarx.xui.adaptapi.car.hvac.IHvac")
+            assertEquals(0x10050100, hvac.getField("HVAC_FUNC_SEAT_VENTILATION").getInt(null))
+            assertEquals(0, hvac.getField("SEAT_VENTILATION_OFF").getInt(null))
+            for (level in 1..3)
+                assertEquals(0x10050100 + level, hvac.getField("SEAT_VENTILATION_LEVEL_$level").getInt(null))
             // Exercise the real SDK parser, not our fixture, with the tire signal's wire shape.
             val bytes = ByteBuffer.allocate(11).order(ByteOrder.LITTLE_ENDIAN).put(8).put(1).put(41).putDouble(235.0).array()
             val parsed = proto.getMethod("parseFrom", ByteArray::class.java).invoke(null, bytes)

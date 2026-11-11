@@ -1,8 +1,10 @@
 # CarPlay Ultra：753 车辆接入与台架实验
 
-## 753 真实车辆接入（实验性，待实车验收）
+## 753 真实车辆接入（实验性）
 
 本分支现在也提供独立的真实车辆源。入口为 **设置 → 高级 → CarPlay 车辆与空调（实验性）**，默认关闭，下次连接生效；关闭也在下次连接停止声明车辆能力。该开关可用于车机签名版本，不要求 ADB 或台架配置文件。需 iPhone 支持 CarPlay 车辆 App，是否显示由 iPhone 决定。主题与仪表布局实验仍遵守下文的 debug 限制，真实数据开关本身不替 iPhone 开启 Ultra 或下载主题。
+
+2026-11-11 现场反馈：已测座椅/空调操作实车成功，除 RPM 外当时已测车辆数据取得；不将结论扩展到未测项。RPM 仍未取得有效值，新增主驾通风待实车验证。公开来源、结论修正和定向测试记录见[研究复核](CARPLAY_ULTRA_RESEARCH_20261111.zh-CN.md)。
 
 | 已接入 | 接口及转换 |
 | --- | --- |
@@ -13,8 +15,9 @@
 | 内外循环 | 0x10030100；内 0x10030101 / 外 0x10030102 |
 | 前挡 MAX 除雾、后挡除雾 | 0x10040200、0x10040300；不调用本固件返回未知值的普通前除雾 0x10040100 |
 | 前排左右座椅加热 | 0x10050200，左 1 / 右 4；关闭 0，1–3 档转换成 SDK 枚举 |
+| 主驾座椅通风（新增，待实车验证） | 独立 `SeatFan` 服务；`ICarFunction` 0x10050100，左前 zone 1；关闭 0，1–3 档为 0x10050101–0x10050103 |
 | 温度同步（Dual） | 0x10060500；固件实际映射 `PaClSync` / `CbClSync`，1 = 同步、0 = 独立；不按网页示例反转 |
-| 发动机转速 | `CarPropertyManager` 的 `ENGINE_RPM` 291504901，Float r/min，5 Hz；本车属性表声明 1–10 Hz。需 `CAR_ENGINE_DETAILED` 权限 |
+| 发动机转速（尚未取得有效值） | `CarPropertyManager` 的 `ENGINE_RPM` 291504901，Float r/min，5 Hz；本车属性表声明 1–10 Hz。需 `CAR_ENGINE_DETAILED` 权限；属性存在不等于已有有效转速 |
 | 四轮胎压 | 560992339–560992342，顺序左前/右前/左后/右后；使用系统 `GeelyProto.PublicAttrValue` 解析，availability = 1 且有有效 double 数据时，以 kPa 提供原生胎压特征及只读汇总 |
 | ADAS 设置状态 | `ICarFunction` 537329920 车道保持开关、537330432 变道警告开关；仅只读信息行。不是正在介入的巡航/车道辅助状态 |
 | 媒体、导航、通话、语音音量 | `CarAudioManager` 按 usage 1/12/2/16 查询音量组和实际上下限；CarPlay 0–100% 换算到原车档位，不写 Settings 值模拟生效 |
@@ -34,6 +37,30 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 
 车测时核对：iPhone 是否显示车辆/温控/广播 App；转速及四轮胎压与原车一致；先逐项测试左右温度、同步、低档风量及 A/C，再测除雾/座椅；四类音量各自影响正确声音，实体按键改动能同步；原车广播播放时 CarPlay 视频保持连接、手机媒体正确让出焦点；断开/重连后无旧值或重复监听。源码测试和 SDK ABI 检查不能代替这些实车验收。
 
+## 主驾座椅通风（2026-11-11）
+
+此前实车已确认可操作座椅加热和空调，主驾通风硬件存在，但旧接入未声明通风服务。本次在真实车辆源和模拟台架中加入同一组主驾通风字段，不借用加热档位，也不声明副驾通风。
+
+| 声明 | 类型 / 值 | 实例 ID |
+| --- | --- | --- |
+| 原有座椅 accessory | `0x01500001` | 1024 |
+| 新增 `SeatFan` service | `0x22000002` | 1033 |
+| `fanLevel` | `0x31000012`，UInt8（format 1），0–3，步进 1；0 关闭 | 1034 |
+| `vehicleLayoutKey` | `0x36000065`，`seat_front_left` | 1036 |
+
+声明依据为公开 iOS 18.2 反编译源码 [CAFSeatFan.m](https://github.com/EthanArbuckle/iPhone17-1_18.2_22C152_Restore/blob/e26ed4563f78871c59d2d96856756a65d62517e5/System/Library/PrivateFrameworks/CarAccessoryFramework.framework/CAFSeatFan.m)：`serviceType`、`fanLevel` / `fanLevelRange` / `setFanLevel` 及 `vehicleLayoutKey`。本次只声明档位，关闭写 0；该类的 `on` 有 `hasOn` 检查，不额外实现第二套开关语义。它证明字段定义，不能证明当前 iOS / 主题一定显示此控件。
+
+车端依据为本车 753 SDK 的 `IHvac.HVAC_FUNC_SEAT_VENTILATION`、`SEAT_VENTILATION_OFF`、`SEAT_VENTILATION_LEVEL_1..3`；`CarFunctionSupported.getSupportedFunctionValue` 返回关闭及三档枚举，`CarFunctionValueUtil.getMappedFunctionValue(PaSvcSts)` 也映射这四个值。真实源沿用已有 `ICarFunction` 的 zone 1 路径：先检查 `active` 和支持枚举，再调用 setter；立即回读，后续由 function watcher 更新订阅值。失败或未知值不填模拟数，也不把 setter 接受当作档位已经改变。SDK ABI 测试核对这些常量；zone 1 的通风执行效果仍待实车验证。
+
+复测保持此前能显示车辆/空调 App 的主题配置，更新实验包后重新连接 CarPlay：
+
+1. 查看主驾是否新增通风控件，副驾保持原有加热能力；若未出现，导出诊断报告并保留 iOS 版本和主题信息。
+2. 停车时依次切换通风 1、2、3、关闭，核对座椅实际风量、原车面板和 CarPlay 的回显。新增字段的写入日志是 `Vehicle state ECARX write iid=1034 accepted=…`。
+3. 从原车面板改通风，确认 CarPlay 跟随。可用性日志新增 `seatVentilation=0..3`，表示 SDK 回读档位；`unavailable` 表示没有可用读数。它不能单独证明座椅风机已经执行。
+4. 复核主副驾加热和空调风量独立可用；断开并重连后读数正确。
+
+本次自动测试覆盖服务声明、OPACK 订阅/通知、0–3 档读写、SDK 枚举与 zone、非法/不支持/不可用值拒绝，以及按真实回读更新。未做本次 iPhone 或实车验证。
+
 ## 手机台架
 
 在测试手机上让 iPhone 进入 CarPlay Ultra：声明车厂主题、协商仪表布局、提供车辆数据，并在本地绘制一块原车风格的仪表。地图是 iPhone 实时视频；车速、转速、ADAS、车身读数和控制响应全部来自内置模拟器，**没有连接真实车身总线**。这是协议研究台架，不是发布功能。
@@ -49,7 +76,7 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 ## 中控与仪表画布（2026-11-09 实车结论）
 
 - 已测主题把中控定义为 1920×720。声明 1920×944 时 iPhone 只画上部 8:3（`box=0,0..100,75`），声明 1920×720 时整块画满（`box=0,0..100,100`）。Ultra 默认声明 8:3 中控画布并贴顶显示。保留原车底栏时，车机窗口剩 224 px；隐藏底栏时，剩 360 px。
-- 原车仪表“小屏导航”只露出中间窗口（约 x 31–68 %、y 16–89 %），DigiRing 等表盘布局的地图区也只是中间 600×480。要铺满仪表，用 MapsMedia 布局（地图 1920×720）并在原车仪表菜单切到“全屏导航”；原车读数会叠加在地图上。
+- 原车仪表“小屏导航”只露出中间窗口（约 x 31–68 %、y 16–89 %），DigiRing 等表盘布局的地图区也只是中间 600×480。MapsMedia 布局声明地图 1920×720，在原车仪表菜单切到“全屏导航”能扩大可见地图范围，原车读数会叠加在地图上。2026-11-11 复核确认实车画面下方仍有空白，尚未证明铺满；需同场次原始视频、校准图和最终照片定位原因。
 - 仪表窗口中的第二张导航卡片来自 DiPlay 发给原车的 DIM 引导（`DIM guidance started …`），与主题自带卡片重叠。可在 设置 → 导航 关闭仪表导航引导对比；关闭也会停止 HUD 引导。
 - Ultra 仪表会声明手动保存的「仪表安全区」。重置后 Ultra 用整块画布；iPhone 地图卡片是否随安全区移动仍需实车验证。
 
@@ -85,7 +112,7 @@ ADAS 本轮只提供两个已有设置的读数；未找到可确认的 ACC 接�
 
 `box` 是解码画布中高于亮度阈值的范围，`shown` 是画布在窗口中的显示位置，均为百分比。亮度图把 18 行用 `/` 分隔后写入一条诊断日志。开启后的连接会先记录 `Debug probes: frameProbe=… ultraNoCornerMasks=…`。
 
-车辆数据开关（设置 → 高级）会在可用性变化时记录一行：`Vehicle state ECARX availability connected=… present=[…] missing=[…] tires=n/4 climate=n/13 volume=n/4 radio=…`。转速等高频信号的原始值每 30 s 最多记一条（`Vehicle signal engineRpm changed raw=…`）。另一份领克 05 实车记录称 VHAL 的转速、胎压恒为空；这一行能直接确认本车是否同样如此。
+车辆数据开关（设置 → 高级）会在可用性或通风档位变化时记录一行：`Vehicle state ECARX availability connected=… present=[…] missing=[…] tires=n/4 climate=n/14 seatVentilation=… volume=n/4 radio=…`。转速等高频信号的原始值每 30 s 最多记一条（`Vehicle signal engineRpm changed raw=…`）。另一份领克 05 实车记录称 VHAL 的转速、胎压恒为空；这一行能直接确认本车是否同样如此。
 
 每轮只改一个变量，否则无法归因：
 

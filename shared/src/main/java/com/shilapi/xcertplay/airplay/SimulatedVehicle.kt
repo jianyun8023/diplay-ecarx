@@ -24,7 +24,7 @@ class SimulatedVehicle(private val clock: () -> Long = { System.nanoTime() / 1_0
         val syncTemperature: Boolean = false, val upperVent: Boolean = false,
         val middleVent: Boolean = true, val lowerVent: Boolean = false,
         val defrost: Boolean = false, val rearDefrost: Boolean = false,
-        val seatHeating: Int = 0, val passengerHeating: Int = 0,
+        val seatHeating: Int = 0, val passengerHeating: Int = 0, val seatVentilation: Int = 0,
         val radioKhz: Int = 101700, val radioPlaying: Boolean = false,
         val volume: Int = 35, val navVolume: Int = 45, val callVolume: Int = 50,
         val musicVolume: Int = 35, val siriVolume: Int = 45, val muted: Boolean = false,

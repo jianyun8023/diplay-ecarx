@@ -37,7 +37,7 @@ class EcarxVehicleState private constructor(
         }
     }
 
-    // Values are SDK enums, not UI levels (fan and seat heat use funcId + level).
+    // Values are SDK enums, not UI levels (fan, seat heat and ventilation use funcId + level).
     internal data class Binding(val id: Int, val function: Int, val zone: Int = 0,
         val kind: Int, val format: Int = 0, val maximum: Int = 1) {
         fun decode(raw: Number): Any? {
@@ -240,7 +240,8 @@ class EcarxVehicleState private constructor(
             service(537, 0x11000012, listOf(climateField(538), field(539, 0x36000065, 10, "seat_front"))),
             service(544, 0x11000005, listOf(climateField(545), field(546, 0x31000014, 1, 2), field(547, 0x36000065, 10, "windshield_rear"))))
         val seats = listOf(1025, 1029).map { id -> service(id, 0x22000001,
-            listOf(climateField(id + 1), field(id + 3, 0x36000065, 10, if (id == 1025) "seat_front_left" else "seat_front_right"))) }
+            listOf(climateField(id + 1), field(id + 3, 0x36000065, 10, if (id == 1025) "seat_front_left" else "seat_front_right"))) } +
+            service(1033, 0x22000002, listOf(climateField(1034), field(1036, 0x36000065, 10, "seat_front_left")))
         val volumes = EcarxVehicleAudio.CHANNELS.mapIndexed { index, channel ->
             service(channel.id - 1, 0x13000002, listOf(
                 field(channel.id, 0x33000006, 1, writable = true).apply { put("maximumValue", 100); put("disabled", false) },
@@ -298,7 +299,8 @@ class EcarxVehicleState private constructor(
         val volumes = EcarxVehicleAudio.CHANNELS.count { cache.containsKey(it.id.toLong()) }
         val tires = (0..3).count { cache.containsKey(2050L + it * 5) }
         val summary = "connected=$ready present=$present missing=${keys - present.toSet()} tires=$tires/4 " +
-            "climate=$climate/${BINDINGS.size} volume=$volumes/${EcarxVehicleAudio.CHANNELS.size} radio=${radioState?.band ?: "none"}"
+            "climate=$climate/${BINDINGS.size} seatVentilation=${cache[1034] ?: "unavailable"} " +
+            "volume=$volumes/${EcarxVehicleAudio.CHANNELS.size} radio=${radioState?.band ?: "none"}"
         if (summary == lastAvailability) return
         lastAvailability = summary
         log("Vehicle state ECARX availability $summary")
@@ -377,6 +379,7 @@ class EcarxVehicleState private constructor(
             Binding(538, 0x10060500, kind = 0x30000002),
             Binding(545, 0x10040300, kind = 0x30000004, format = 1),
             Binding(1026, 0x10050200, 1, 0x31000021, 7, 3), Binding(1030, 0x10050200, 4, 0x31000021, 7, 3),
+            Binding(1034, 0x10050100, 1, 0x31000012, 1, 3),
         )
 
         fun supported(context: Context): Boolean = EcarxCapabilities.detect(context).identified && EcarxCapabilities.classPresent(CAR)
