@@ -236,6 +236,9 @@ internal class VideoDecoder(
     private var startedLowLatency = false
     private var startedPictureOrder = false
     private var submittedFrameLogged = false
+    // Frames queued into the current codec. Its CSD is in the configure format, so a codec that has had
+    // none can wait for the next keyframe as it is.
+    private var framesSinceConfigure = 0
     private var duplicateConfigLogged = false
     // Installed decoders per MIME type, read once: the list does not change while the app runs.
     private val installedDecoders = HashMap<String, List<InstalledDecoder>>()
@@ -370,7 +373,9 @@ internal class VideoDecoder(
                             lastKeyFrameRequestNs = System.nanoTime()
                             requestKeyFrame()
                         }
-                        is VideoJob.Resync -> recover("video queue overflow")
+                        // A slow configure can fill the queue before the codec got a frame (1.9 s on a
+                        // cold head unit); rebuilding that unused codec only adds another configure.
+                        is VideoJob.Resync -> recover("video queue overflow", keepUnusedDecoder = true)
                         null -> Unit
                     }
                     if (outputThread == null) decoder?.let(::drainOutput)
@@ -535,6 +540,7 @@ internal class VideoDecoder(
         submittedFrameLogged = false
         synchronized(outputLock) {
             decoder = configured?.codec
+            framesSinceConfigure = 0
             outputLock.notifyAll()
         }
         if (configured != null) backlogRecovery.decoderStarted(System.nanoTime())
@@ -1021,6 +1027,9 @@ internal class VideoDecoder(
             requestKeyFrameIfDue()
             return
         }
+        // The queue overflowed behind this frame (a slow configure): its chain is gone, and the
+        // pending Resync recovers, so do not spend the fresh codec on it.
+        if (queue.resyncPending()) return
         if (!submittedFrameLogged) {
             submittedFrameLogged = true
             Log.i(
@@ -1066,6 +1075,7 @@ internal class VideoDecoder(
                 queuedSlot = (queuedSlot + 1) % queuedPresentationUs.size
             }
             codec.queueInputBuffer(index, 0, annexB.size, presentationUs, 0)
+            framesSinceConfigure++
             referenceChain.onQueued()
         } else {
             recover("video frame exceeded codec input capacity")
@@ -1074,12 +1084,13 @@ internal class VideoDecoder(
         if (outputThread == null) drainOutput(codec)
     }
 
-    private fun recover(reason: String) {
+    private fun recover(reason: String, keepUnusedDecoder: Boolean = false) {
+        val keep = keepUnusedDecoder && decoder != null && framesSinceConfigure == 0
         Log.w(TAG, "Video recovery: $reason; waiting for keyframe")
         stats.onRecovery()
-        report("recovery: $reason; waiting for keyframe")
+        report("recovery: $reason; waiting for keyframe" + if (keep) "; decoder kept, no frame queued yet" else "")
         // Recreate with codec-specific data: flush can discard CSD before the first output.
-        releaseDecoder()
+        if (!keep) releaseDecoder()
         queue.discardCurrentChain()
         referenceChain.reset()
         requestKeyFrameIfDue()
