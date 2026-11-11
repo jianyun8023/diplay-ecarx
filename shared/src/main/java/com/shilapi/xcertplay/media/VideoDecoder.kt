@@ -167,6 +167,10 @@ internal class VideoDecoder(
     operatingRate: Int = 0,
     /** Set [vendorLowLatencyKeys] on the tuned configure attempts. */
     private val vendorLowLatency: Boolean = false,
+    /** Another decoder of this sink had to drop [vendorLowLatency]; this one starts without it. */
+    vendorLowLatencyRefusedEarlier: Boolean = false,
+    /** Called when this decoder drops [vendorLowLatency], so the sink's later decoders skip it. */
+    private val onVendorLowLatencyRefused: () -> Unit = {},
     /**
      * Release decoded frames from a thread that waits on the codec's output, instead of when the worker
      * next comes back from its queue or from feeding: a frame is shown as soon as it is decoded.
@@ -225,7 +229,7 @@ internal class VideoDecoder(
     // private parameter was (those or an unlisted picture order), which a failure then drops.
     private var configuredVendorLowLatency = false
     private var configuredPrivateParameters = false
-    private var vendorLowLatencyRefused = false
+    private var vendorLowLatencyRefused = vendorLowLatencyRefusedEarlier
     // Likewise the low-latency decoder, not tried again once another decoder had to take over; and what the
     // codec that tryConfigure started last was given.
     private var lowLatencyDecoderRefused = false
@@ -569,7 +573,8 @@ internal class VideoDecoder(
     private fun dropVendorLowLatency(reason: String) {
         if (!configuredPrivateParameters || vendorLowLatencyRefused) return
         vendorLowLatencyRefused = true
-        report("QTI low-latency fallback: $reason; next=without-private-parameters for this stream")
+        onVendorLowLatencyRefused()
+        report("QTI low-latency fallback: $reason; next=without-private-parameters for this session")
     }
 
     private fun dropOperatingRate(reason: String) {
@@ -690,8 +695,9 @@ internal class VideoDecoder(
             )
             if (privateParameters) {
                 vendorLowLatencyRefused = true
+                onVendorLowLatencyRefused()
                 report("QTI low-latency fallback decoder=$codecName phase=$phase; " +
-                    "retry=same-format-without-private-parameters for this stream")
+                    "retry=same-format-without-private-parameters for this session")
                 tryConfigure(mime, csd, surface, attempt, atOnce)
             } else null
         }
