@@ -1,6 +1,10 @@
-//! One screen stream's decode loop (Kotlin's `NativeVideoDecoder`): frames from the receiver go
-//! straight into an NDK MediaCodec running in async mode, and decoded pictures are released to the
-//! surface from the codec's callback, paced as `VideoDecoder` paces them. Nothing polls the codec.
+//! One screen stream's decode loop (driven by Kotlin's `VideoDecoder`): frames from the receiver go
+//! into an NDK MediaCodec running in async mode, and decoded pictures are released to the surface,
+//! paced as `VideoDecoder` paces them. Nothing polls the codec.
+//!
+//! The codec's callbacks run on the same looper as the codec itself, so a codec call made from a
+//! callback waits on its own thread forever. Callbacks and the receiver therefore only queue work;
+//! one feeder thread per pipe makes every input and output call, outside the lock.
 //!
 //! Kotlin keeps the decisions: which decoder and format to try, where the codec renders, when to
 //! rebuild it. This side runs the frames: the reference chain (no frame before a keyframe), the input
@@ -42,6 +46,13 @@ const DECODE_SAMPLES: usize = 1024;
 
 struct Frame { handle: jlong, size: usize, flags: i32, received_ns: i64, local_ns: i64 }
 
+/// What the feeder does with the codec, decided under the lock and carried out outside it.
+enum Action {
+    Feed { index: usize, handle: jlong, size: usize, presentation_us: i64 },
+    Render { index: usize, at_ns: Option<i64> },
+    Drop { index: usize },
+}
+
 #[derive(Clone, Copy, Default)]
 struct Slot { presentation_us: i64, queued_ns: i64, paced: bool, before_pause: bool }
 
@@ -71,6 +82,10 @@ struct Inner {
     frames: VecDeque<Frame>,
     frame_bytes: usize,
     inputs: VecDeque<i32>,
+    outputs: VecDeque<(i32, AMediaCodecBufferInfo)>,
+    /// The feeder is using [codec] outside the lock; a release waits for it.
+    busy: bool,
+    destroyed: bool,
     waiting_since_ns: i64,
     slots: [Slot; SLOTS],
     slot_next: usize,
@@ -95,6 +110,8 @@ unsafe impl Send for Inner {}
 
 pub struct Pipe {
     inner: Mutex<Inner>,
+    /// Wakes the feeder (work queued) and a release waiting for the feeder.
+    work: Condvar,
     events: Mutex<(VecDeque<(i32, Option<String>)>, bool)>,
     wake: Condvar,
     live_received: AtomicI64,
@@ -155,8 +172,9 @@ impl Inner {
         frame.flags & (if self.hevc { FLAG_RANDOM_ACCESS_H265 } else { FLAG_RANDOM_ACCESS_H264 }) != 0
     }
 
-    /// Feeds queued frames into free input buffers.
-    fn pump(&mut self, now: i64, events: &mut Events) {
+    /// Pairs queued frames with free input buffers: the reference chain and backlog checks run here,
+    /// the copies in the feeder.
+    fn plan_feeds(&mut self, now: i64, events: &mut Events, actions: &mut Vec<Action>) {
         while !self.codec.is_null() && !self.retired && !self.inputs.is_empty() && !self.frames.is_empty() {
             let front = &self.frames[0];
             let pending = self.frames.len() - 1;
@@ -182,18 +200,6 @@ impl Inner {
             self.frame_bytes -= frame.size;
             let index = self.inputs.pop_front().unwrap() as usize;
             self.waiting_since_ns = if self.frames.is_empty() { 0 } else { now };
-            let mut capacity = 0usize;
-            let input = unsafe { AMediaCodec_getInputBuffer(self.codec, index, &mut capacity) };
-            if input.is_null() || frame.size > capacity {
-                unsafe {
-                    AMediaCodec_queueInputBuffer(self.codec, index, 0, 0, 0, 0);
-                    packet::release(frame.handle);
-                }
-                self.recover("video frame exceeded codec input capacity", false, now, events);
-                return;
-            }
-            let bytes = unsafe { packet::bytes(frame.handle) };
-            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), input, frame.size) };
             let presentation_us = if frame.local_ns > 0 { frame.local_ns / 1000 } else { now / 1000 };
             let slot = self.slot_next;
             if self.last_queued_ns != 0 && now - self.last_queued_ns > STILL_GAP_NS { self.resumed_at_ns = now; }
@@ -208,16 +214,13 @@ impl Inner {
                 self.recent_paced[0] = Some(slot);
             }
             self.slot_next = (slot + 1) % SLOTS;
-            unsafe {
-                AMediaCodec_queueInputBuffer(self.codec, index, 0, frame.size, presentation_us as u64, 0);
-                packet::release(frame.handle);
-            }
             self.frames_since_configure += 1;
             self.needs_keyframe = false;
             if !self.first_input_logged {
                 self.first_input_logged = true;
                 events.push((EVENT_LOG, Some(format!("video decoder first input annexB={} packet=NativePacket decoder=native", frame.size))));
             }
+            actions.push(Action::Feed { index, handle: frame.handle, size: frame.size, presentation_us });
         }
         if !self.codec.is_null() && !self.retired && self.inputs.is_empty() && !self.frames.is_empty() {
             if self.waiting_since_ns == 0 {
@@ -229,79 +232,126 @@ impl Inner {
             }
         }
     }
+
+    /// Decides how each decoded picture is released: paced, at once, or not shown (retired codec).
+    fn plan_outputs(&mut self, pipe: &Pipe, now: i64, events: &mut Events, actions: &mut Vec<Action>) {
+        while let Some((index, info)) = self.outputs.pop_front() {
+            let index = index as usize;
+            if self.retired { actions.push(Action::Drop { index }); continue; }
+            let shown = self.shown;
+            let slot = self.slots.iter().position(|s| s.presentation_us == info.presentation_time_us && s.queued_ns != 0);
+            let entry = slot.map(|s| self.slots[s]).unwrap_or_default();
+            let held_over_gap = entry.queued_ns > 0 && entry.queued_ns < self.resumed_at_ns;
+            if entry.queued_ns > 0 {
+                let latency = now - entry.queued_ns;
+                if held_over_gap {
+                    self.stats.held_samples += 1;
+                    self.stats.held_max_ns = self.stats.held_max_ns.max(latency);
+                } else {
+                    if self.stats.decode_micros.len() < DECODE_SAMPLES {
+                        self.stats.decode_micros.push((latency / 1000).clamp(0, i32::MAX as i64) as i32);
+                    }
+                    pipe.live_decode_ns.fetch_add(latency, Ordering::Relaxed);
+                    pipe.live_decode_samples.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            let paced = shown && self.delay.is_some() && entry.paced;
+            let local_ns = info.presentation_time_us * 1000;
+            let pause_held = paced && entry.before_pause;
+            let mut target = 0;
+            if paced {
+                let delay = self.delay.as_mut().unwrap();
+                if !held_over_gap && !pause_held { delay.on_frame(now - local_ns); }
+                let delay_ns = delay.nanos;
+                self.stats.pacing_delay_ns = delay_ns;
+                target = local_ns + delay_ns;
+            }
+            if (1..=MAX_PACING_AHEAD_NS).contains(&(target - now)) {
+                actions.push(Action::Render { index, at_ns: Some(target) });
+            } else {
+                if shown && self.delay.is_some() && !held_over_gap && !pause_held { self.stats.late += 1; }
+                actions.push(Action::Render { index, at_ns: None });
+            }
+            if shown {
+                self.stats.rendered += 1;
+                pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
+                if !self.first_frame_sent {
+                    self.first_frame_sent = true;
+                    events.push((EVENT_FIRST_FRAME, Some(format!("bytes={}", info.size))));
+                }
+            }
+        }
+    }
+}
+
+/// The feeder: waits for queued work, plans it under the lock, and makes the codec calls outside it.
+fn run_feeder(pipe: Arc<Pipe>) {
+    let mut guard = pipe.inner.lock().unwrap();
+    loop {
+        if guard.destroyed { break; }
+        let now = clock(libc::CLOCK_MONOTONIC);
+        let mut events = Vec::new();
+        let mut actions = Vec::new();
+        guard.plan_outputs(&pipe, now, &mut events, &mut actions);
+        guard.plan_feeds(now, &mut events, &mut actions);
+        if actions.is_empty() {
+            if !events.is_empty() { drop(guard); pipe.post_all(events); guard = pipe.inner.lock().unwrap(); continue; }
+            // Woken by queued work; the timeout only notices an input stall when no frame arrives.
+            guard = pipe.work.wait_timeout(guard, std::time::Duration::from_millis(100)).unwrap().0;
+            continue;
+        }
+        let codec = guard.codec;
+        guard.busy = true;
+        drop(guard);
+        let mut oversized = false;
+        for action in actions {
+            unsafe {
+                match action {
+                    Action::Feed { index, handle, size, presentation_us } => {
+                        let mut capacity = 0usize;
+                        let input = AMediaCodec_getInputBuffer(codec, index, &mut capacity);
+                        if input.is_null() || size > capacity {
+                            AMediaCodec_queueInputBuffer(codec, index, 0, 0, 0, 0);
+                            oversized = true;
+                        } else {
+                            std::ptr::copy_nonoverlapping(packet::bytes(handle).as_ptr(), input, size);
+                            AMediaCodec_queueInputBuffer(codec, index, 0, size, presentation_us as u64, 0);
+                        }
+                        packet::release(handle);
+                    }
+                    Action::Render { index, at_ns: Some(at) } => { AMediaCodec_releaseOutputBufferAtTime(codec, index, at); }
+                    Action::Render { index, at_ns: None } => { AMediaCodec_releaseOutputBuffer(codec, index, true); }
+                    Action::Drop { index } => { AMediaCodec_releaseOutputBuffer(codec, index, false); }
+                }
+            }
+        }
+        guard = pipe.inner.lock().unwrap();
+        guard.busy = false;
+        pipe.work.notify_all();
+        if oversized && guard.codec == codec {
+            guard.recover("video frame exceeded codec input capacity", false, clock(libc::CLOCK_MONOTONIC), &mut events);
+        }
+        if !events.is_empty() { drop(guard); pipe.post_all(events); guard = pipe.inner.lock().unwrap(); }
+    }
+    drop(guard);
 }
 
 unsafe fn pipe<'a>(handle: jlong) -> &'a Arc<Pipe> { &*(handle as *const Arc<Pipe>) }
 
 unsafe extern "C" fn on_input(codec: *mut AMediaCodec, user: *mut c_void, index: i32) {
     let pipe = &*(user as *const Pipe);
-    let mut events = Vec::new();
-    {
-        let mut inner = pipe.inner.lock().unwrap();
-        if inner.codec != codec { return; }
-        inner.inputs.push_back(index);
-        inner.pump(clock(libc::CLOCK_MONOTONIC), &mut events);
-    }
-    pipe.post_all(events);
+    let mut inner = pipe.inner.lock().unwrap();
+    if inner.codec != codec { return; }
+    inner.inputs.push_back(index);
+    pipe.work.notify_all();
 }
 
 unsafe extern "C" fn on_output(codec: *mut AMediaCodec, user: *mut c_void, index: i32, info: *mut AMediaCodecBufferInfo) {
     let pipe = &*(user as *const Pipe);
-    let info = *info;
-    let mut events = Vec::new();
-    {
-        let mut inner = pipe.inner.lock().unwrap();
-        if inner.codec != codec { return; }
-        let index = index as usize;
-        if inner.retired {
-            AMediaCodec_releaseOutputBuffer(codec, index, false);
-            return;
-        }
-        let now = clock(libc::CLOCK_MONOTONIC);
-        let shown = inner.shown;
-        let slot = inner.slots.iter().position(|s| s.presentation_us == info.presentation_time_us && s.queued_ns != 0);
-        let entry = slot.map(|s| inner.slots[s]).unwrap_or_default();
-        let held_over_gap = entry.queued_ns > 0 && entry.queued_ns < inner.resumed_at_ns;
-        if entry.queued_ns > 0 {
-            let latency = now - entry.queued_ns;
-            if held_over_gap {
-                inner.stats.held_samples += 1;
-                inner.stats.held_max_ns = inner.stats.held_max_ns.max(latency);
-            } else {
-                if inner.stats.decode_micros.len() < DECODE_SAMPLES {
-                    inner.stats.decode_micros.push((latency / 1000).clamp(0, i32::MAX as i64) as i32);
-                }
-                pipe.live_decode_ns.fetch_add(latency, Ordering::Relaxed);
-                pipe.live_decode_samples.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        let paced = shown && inner.delay.is_some() && entry.paced;
-        let local_ns = info.presentation_time_us * 1000;
-        let pause_held = paced && entry.before_pause;
-        let mut target = 0;
-        if paced {
-            let delay = inner.delay.as_mut().unwrap();
-            if !held_over_gap && !pause_held { delay.on_frame(now - local_ns); }
-            let delay_ns = delay.nanos;
-            inner.stats.pacing_delay_ns = delay_ns;
-            target = local_ns + delay_ns;
-        }
-        if (1..=MAX_PACING_AHEAD_NS).contains(&(target - now)) {
-            AMediaCodec_releaseOutputBufferAtTime(codec, index, target);
-        } else {
-            if shown && inner.delay.is_some() && !held_over_gap && !pause_held { inner.stats.late += 1; }
-            AMediaCodec_releaseOutputBuffer(codec, index, true);
-        }
-        if shown {
-            inner.stats.rendered += 1;
-            pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
-            if !inner.first_frame_sent {
-                inner.first_frame_sent = true;
-                events.push((EVENT_FIRST_FRAME, Some(format!("bytes={}", info.size))));
-            }
-        }
-    }
-    pipe.post_all(events);
+    let mut inner = pipe.inner.lock().unwrap();
+    if inner.codec != codec { return; }
+    inner.outputs.push_back((index, *info));
+    pipe.work.notify_all();
 }
 
 fn format_int(format: *mut AMediaFormat, key: &CStr) -> String {
@@ -381,7 +431,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
             // Held until Kotlin has a configuration: frames before it have nothing to decode with.
             codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, accepting: false, retired: true,
             shown: true, need_decoder_sent: false, needs_keyframe: true, frames: VecDeque::new(), frame_bytes: 0,
-            inputs: VecDeque::new(), waiting_since_ns: 0, slots: [Slot::default(); SLOTS], slot_next: 0,
+            inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, slots: [Slot::default(); SLOTS], slot_next: 0,
             recent_paced: [None; PAUSE_HELD_FRAMES], last_queued_ns: 0, resumed_at_ns: 0, last_queued_local_ns: 0,
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),
             delay: (pacing_delay_nanos > 0).then(|| PacingDelay::new(pacing_delay_nanos)),
@@ -389,6 +439,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
             first_input_logged: false, first_frame_sent: false, report_vendor_format: false, requested_size: (0, 0),
             stats: Stats::default(),
         }),
+        work: Condvar::new(),
         events: Mutex::new((VecDeque::new(), false)),
         wake: Condvar::new(),
         live_received: AtomicI64::new(0),
@@ -402,6 +453,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
     if std::thread::Builder::new().name("carplay-video-events".into())
         .spawn(move || run_events(thread_pipe, global as jobject, mid as jmethodID)).is_err() {
         e.delete_global(global as jobject);
+        return 0;
+    }
+    let feeder = pipe.clone();
+    if std::thread::Builder::new().name("carplay-video-feed".into()).spawn(move || run_feeder(feeder)).is_err() {
+        pipe.events.lock().unwrap().1 = true;
+        pipe.wake.notify_one();
         return 0;
     }
     Box::into_raw(Box::new(pipe)) as jlong
@@ -482,6 +539,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
         inner.hevc = hevc != 0;
         inner.retired = false;
         inner.inputs.clear();
+        inner.outputs.clear();
         inner.frames_since_configure = 0;
         inner.first_input_logged = false;
         inner.first_frame_sent = false;
@@ -516,7 +574,10 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
         let mut inner = pipe.inner.lock().unwrap();
         let codec = std::mem::replace(&mut inner.codec, std::ptr::null_mut());
         let window = std::mem::replace(&mut inner.window, std::ptr::null_mut());
+        // The feeder may be mid-call on this codec; it rechecks the codec once it holds the lock again.
+        while inner.busy { inner = pipe.work.wait(inner).unwrap(); }
         inner.inputs.clear();
+        inner.outputs.clear();
         inner.retired = false;
         inner.needs_keyframe = true;
         inner.backlog.reset();
@@ -594,7 +655,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
                 inner.need_decoder_sent = true;
                 events.push((EVENT_NEED_DECODER, None));
             }
-            inner.pump(clock(libc::CLOCK_MONOTONIC), &mut events);
+            pipe.work.notify_all();
         }
     }
     pipe.post_all(events);
@@ -642,7 +703,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
                     inner.need_decoder_sent = true;
                     events.push((EVENT_NEED_DECODER, None));
                 }
-                inner.pump(now, &mut events);
+                pipe.work.notify_all();
             }
         }
     }
@@ -684,7 +745,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
     if handle == 0 { return; }
     Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeRelease(env, class, handle);
     let pipe = Box::from_raw(handle as *mut Arc<Pipe>);
-    pipe.inner.lock().unwrap().drop_frames();
+    {
+        let mut inner = pipe.inner.lock().unwrap();
+        inner.drop_frames();
+        inner.destroyed = true;
+        pipe.work.notify_all();
+    }
     let mut events = pipe.events.lock().unwrap();
     events.1 = true;
     pipe.wake.notify_one();
