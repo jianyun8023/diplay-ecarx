@@ -79,6 +79,18 @@ internal object NativeMedia {
     @JvmStatic external fun pipeTakeStats(handle: Long, out: LongArray, decodeMicros: IntArray): Int
     @JvmStatic external fun pipeDestroy(handle: Long)
 
+    /** An AAudio output for 16-bit PCM routed by [usage]; 0 when AAudio cannot open it. */
+    @JvmStatic external fun outOpen(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): Long
+    @JvmStatic external fun outWrite(handle: Long, buffer: ByteBuffer, offset: Int, length: Int): Int
+    @JvmStatic external fun outFramesRead(handle: Long): Int
+    /** 0 underruns, 1 buffer frames, 2 state, 3 sample rate. */
+    @JvmStatic external fun outQuery(handle: Long, what: Int): Int
+    /** 0 start, 1 pause, 2 flush. */
+    @JvmStatic external fun outControl(handle: Long, what: Int): Int
+    @JvmStatic external fun outSetGain(handle: Long, gain: Float)
+    @JvmStatic external fun outSetRate(handle: Long, rate: Int): Int
+    @JvmStatic external fun outClose(handle: Long)
+
     @JvmStatic external fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int
 }
 

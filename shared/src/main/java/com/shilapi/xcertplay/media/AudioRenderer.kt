@@ -85,6 +85,14 @@ internal class AudioRenderer(
     @Volatile private var started = false
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
+    // AAudio in place of [track] for a stream routed by usage, when the native PCM path runs.
+    private var nativeOut: NativeAudioOut? = null
+    private var trackOutput: TrackOutput? = null
+    /** Where the worker plays: the AAudio output when open, else [track] (which tests may set directly). */
+    private val output: PcmOutput?
+        get() = nativeOut ?: track?.let { current ->
+            trackOutput?.takeIf { it.track === current } ?: TrackOutput(current).also { trackOutput = it }
+        }
     @Volatile private var navigationAttenuationDb = 0
     private var appliedNavigationAttenuationDb: Int? = null
     private var pcm = ByteArray(64 * 1024)
@@ -289,7 +297,7 @@ internal class AudioRenderer(
     /** Only while no prompt plays: the old track then holds the iPhone's digital silence at most. */
     private fun switchNavigationRouteIfWanted() {
         val wanted = navigationRouteWanted?.let { runCatching(it).getOrNull() } ?: return
-        if (wanted == navigationChannel || mappedChannel != AudioChannel.NAVIGATION || navigationAudible || track == null) return
+        if (wanted == navigationChannel || mappedChannel != AudioChannel.NAVIGATION || navigationAudible || output == null) return
         diagnosticStage = "navigation-route"
         val from = navigationChannel
         releaseTrack()
@@ -373,9 +381,21 @@ internal class AudioRenderer(
         val plan = MediaAudioBuffer.plan(selection.channel == AudioChannel.MEDIA,
             format.sampleRate, format.channels, minBuffer, mediaBufferMillis)
         bytesPerSecond = format.sampleRate * frameBytes
+        diagnosticStage = "track-build"
+        // AAudio for music and guidance routed by usage; calls, Siri and legacy stream types keep AudioTrack.
+        val native = if (streamOverride == 0 && nativePcm != null &&
+            (selection.channel == AudioChannel.MEDIA || selection.channel == AudioChannel.NAVIGATION)) {
+            val nativeAttributes = audioAttributesFor(selection)
+            NativeAudioOut.open(format.sampleRate, pcmChannels, nativeAttributes.usage, nativeAttributes.contentType,
+                plan.trackBufferBytes / frameBytes)?.also { attributes = nativeAttributes }
+        } else null
+        if (native != null) {
+            nativeOut = native
+            prepareOutput(native, selection, streamOverride, plan, attributes, "usage(aaudio)")
+            return
+        }
         val built: AudioTrack
         var routeLabel: String
-        diagnosticStage = "track-build"
         if (streamOverride == 0) {
             attributes = audioAttributesFor(selection)
             routeLabel = "usage"
@@ -417,9 +437,22 @@ internal class AudioRenderer(
                 routingListener = listener
             }
         }
-        applyNavigationAttenuation()
         diagnosticStage = "track-attributes"
-        trackAttributes = audioTrackAttributesForFocus(built, attributes)
+        prepareOutput(checkNotNull(output), selection, streamOverride, plan,
+            audioTrackAttributesForFocus(built, attributes), routeLabel)
+    }
+
+    /** What every output gets once built: thresholds, clock trim, and the ready/route lines. */
+    private fun prepareOutput(
+        built: PcmOutput,
+        selection: AudioChannelSelection,
+        streamOverride: Int,
+        plan: MediaAudioBuffer.Plan,
+        attributes: AudioAttributes,
+        routeLabel: String,
+    ) {
+        applyNavigationAttenuation()
+        trackAttributes = attributes
         diagnosticStage = "track-capacity"
         val capacityBytes = built.bufferSizeInFrames * frameBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
@@ -529,12 +562,15 @@ internal class AudioRenderer(
             Log.i(TAG, "audio focus skipped channel=NAVIGATION; overlays without ducking")
             return
         }
-        track?.let { audioFocusCoordinator.acquire(it, channel, attributes) }
+        output?.let { out -> audioFocusCoordinator.acquire(focusOwner(out), channel, attributes, out::setVolume) }
     }
 
     private fun abandonAudioFocus() {
-        track?.let(audioFocusCoordinator::release)
+        output?.let { audioFocusCoordinator.release(focusOwner(it)) }
     }
+
+    /** The focus coordinator keys an AudioTrack by itself, as before. */
+    private fun focusOwner(out: PcmOutput): Any = (out as? TrackOutput)?.track ?: out
 
     private fun pcmFormat(encoding: Int, channelMask: Int) = AndroidAudioFormat.Builder()
         .setSampleRate(format.sampleRate)
@@ -803,7 +839,7 @@ internal class AudioRenderer(
     }
 
     private fun writePcm(data: ByteArray, offset: Int = 0, length: Int = data.size) {
-        val track = track ?: return
+        val track = output ?: return
         diagnosticStage = "track-write"
         logFirstPcm(length)
         voiceFilter?.process(data, offset, length)
@@ -816,7 +852,7 @@ internal class AudioRenderer(
             fadeApplied = true
         }
         writeTrack(track, length,
-            write = { at, count -> track.write(data, offset + at, count, AudioTrack.WRITE_BLOCKING) },
+            write = { at, count -> track.write(data, offset + at, count) },
             echo = { reference, at, count, pending ->
                 reference.append(data, offset + at, count, pcmChannels, pending, System.nanoTime())
             })
@@ -824,7 +860,7 @@ internal class AudioRenderer(
 
     /** The native path of [writePcm]: the first [length] bytes of the direct [buffer], processed in place. */
     private fun writePcm(buffer: ByteBuffer, length: Int) {
-        val track = track ?: return
+        val track = output ?: return
         val native = nativePcm ?: return
         diagnosticStage = "track-write"
         logFirstPcm(length)
@@ -838,10 +874,7 @@ internal class AudioRenderer(
             if (!navigationAudible) reportNavigationAudio(true)
         }
         writeTrack(track, length,
-            write = { at, count ->
-                buffer.limit(at + count).position(at)
-                track.write(buffer, count, AudioTrack.WRITE_BLOCKING)
-            },
+            write = { at, count -> track.write(buffer, at, count) },
             echo = { reference, at, count, pending ->
                 reference.append(buffer, at, count, pcmChannels, pending, System.nanoTime())
             })
@@ -859,7 +892,7 @@ internal class AudioRenderer(
 
     /** Writes [length] bytes to the track through [write] (offset, count), prebuffering before playback. */
     private inline fun writeTrack(
-        track: AudioTrack,
+        track: PcmOutput,
         length: Int,
         write: (Int, Int) -> Int,
         echo: (EchoReference, Int, Int, Long?) -> Unit,
@@ -911,7 +944,7 @@ internal class AudioRenderer(
         }
     }
 
-    private fun startPlayback(track: AudioTrack) {
+    private fun startPlayback(track: PcmOutput) {
         diagnosticStage = "track-play"
         underrunsAtPlaybackStart = track.underrunCount
         headAtPlaybackStart = track.playbackHeadPosition
@@ -925,7 +958,7 @@ internal class AudioRenderer(
         }
     }
 
-    private fun reportNavigationPlayback(track: AudioTrack) {
+    private fun reportNavigationPlayback(track: PcmOutput) {
         if (!running) return
         val priorityVoice = mappedChannel == AudioChannel.PHONE || mappedChannel == AudioChannel.ASSISTANT
         if (mappedChannel != AudioChannel.NAVIGATION && !priorityVoice) return
@@ -941,7 +974,7 @@ internal class AudioRenderer(
         if (device?.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) onRoutedToEarpiece?.invoke()
     }
 
-    private fun trimClock(track: AudioTrack) {
+    private fun trimClock(track: PcmOutput) {
         val trim = clockTrim ?: return
         val now = System.nanoTime()
         val compressedRtpFrames = mediaLagGuard?.pendingFrames(queue, newestRtpSample, AudioPacket::sample)
@@ -984,7 +1017,7 @@ internal class AudioRenderer(
     }
 
     private fun maintainPlaybackBuffer() {
-        val track = track ?: return
+        val track = output ?: return
         if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
                 track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition,
                 startThresholdBytes / 2L)) {
@@ -1016,9 +1049,9 @@ internal class AudioRenderer(
         val now = System.nanoTime()
         if (statsWindowStartNs == 0L) statsWindowStartNs = now
         if (!force && now - statsWindowStartNs < STATS_WINDOW_NS) return
-        val underruns = track?.underrunCount ?: 0
+        val underruns = output?.underrunCount ?: 0
         val lastRx = lastArrivalNs.get()
-        val currentTrack = track
+        val currentTrack = output
         val playbackHeadFrames = currentTrack?.playbackHeadPosition
             ?.toLong()?.and(0xffff_ffffL)
         val playbackAdvanceFrames = playbackHeadFrames?.let { current ->
@@ -1129,6 +1162,12 @@ internal class AudioRenderer(
 
     @Synchronized
     private fun releaseTrack() {
+        nativeOut?.let { native ->
+            nativeOut = null
+            runCatching { native.pause() }
+            runCatching { native.flush() }
+            runCatching { native.release() }
+        }
         val track = track
         this.track = null
         if (track != null) {

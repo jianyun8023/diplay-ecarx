@@ -4,6 +4,7 @@
 // JNI references are opaque handles that the JVM checks; only the JVM calls the `Java_*` entry points.
 #![allow(clippy::not_unsafe_ptr_arg_deref, clippy::missing_safety_doc)]
 
+pub mod aaudio;
 pub mod annexb;
 pub mod buffered;
 pub mod crypto;
