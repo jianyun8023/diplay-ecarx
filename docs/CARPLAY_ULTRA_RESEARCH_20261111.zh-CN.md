@@ -1,12 +1,12 @@
 # CarPlay Ultra：带着四项实车问题复查公开资料
 
-检索与核对日期：2026-11-11。检索 GitHub 源码、issues/comments、X/Twitter、Reddit、4PDA、XDA、MacRumors 和 Ars 论坛。固定版本、文件 blob SHA 和当日 issue 状态见[取证清单](evidence/carplay-ultra-community-20261111.json)。本文整理既有研究，未重新开展外部检索。
+检索与核对日期：2026-11-11。第一轮检索 GitHub 源码、issues/comments、X/Twitter、Reddit、4PDA、XDA、MacRumors 和 Ars 论坛，固定版本、文件 blob SHA 和当日 issue 状态见[取证清单](evidence/carplay-ultra-community-20261111.json)。本次显示专项继续读取项目源码、公开发布包和本地主题样本，新增结果见第 6 节及[显示取证清单](evidence/carplay-ultra-display-20261111.json)。
 
 车辆范围：领克 05 2020 / ECARX 753 / Qualcomm 820A / Android 9，仪表 1920×720、中控 1920×1080。沿用用户已经确认的实车基线：已测空调/座椅操作成功，除 RPM 外当时已测车辆数据取得；测试时主驾有通风硬件但没有接入；仪表下方空白、中控上方 8:3 下方黑区仍存在。本轮未重新连车。
 
 实现更新：本次已在 `exp/carplay-ultra-bench` 增加主驾 SeatFan 声明、ECARX 通风档位读写/回读、模拟台架和针对性测试。[接入与复测说明](CARPLAY_ULTRA_BENCH.zh-CN.md#主驾座椅通风2026-11-11)记录具体映射。下文的“缺项”描述固定基线 `2cd54650`；当前代码已补齐，iPhone 控件展示及实车执行仍未验收。
 
-**最有价值的新发现是座椅通风的协议候选已经能从公开反编译代码定位；两块屏幕的留白仍没有找到可直接采用的公开修复。**
+**座椅通风映射已实现；显示专项进一步找到可读主题脚本、UI Sync 区域数据处理和 CarCast 本地渲染宿主的证据。两块屏幕的留白仍没有找到可直接采用、已在本车验证的修复。**
 
 | 本车问题 | 新找到的证据 | 能支持到哪一步 |
 | --- | --- | --- |
@@ -82,7 +82,58 @@ GitHub 上的 iOS 18.2 / 22C152 反编译仓库，固定提交 `e26ed4563f78871c
 
 建议研究顺序：先在现有实验分支的台架验证 SeatFan 声明；两块屏分别采集能定位图层的同场次证据；RPM 继续寻找本车实际来源。已有实车成功的车控和数据应作为基线保留，无须仅因外部项目叫 Ultra 就整体换栈。
 
-## 本次改动与验证
+## 6. 显示专项深入：从接收视频转向主题宿主与图层组合
+
+本节以本分支 `872d9952` 为实现基线；只做静态分析，没有改运行代码、执行主题脚本、安装发布包或重新连车。新增 JSON 记录固定提交、发布包 SHA-256、源文件位置和证据边界；不包含认证信息、主题标识、主题源码或反编译正文。
+
+### 6.1 完整主题存在可读的研究入口
+
+从此前已核对的四包中抽查**一个** `CarPlayAccessory.assets.zip`：其中有 **193 份 `.lua` 和 193 份同名 `.luac`**，包含 `main.lua`、`LayoutController.lua`、`Layout.lua` 和 APL 图层模块。`.lua` 含入口、布局、主题解析和宿主调用逻辑，并非仅有字节码。193 份字节码的前两字节均为 `05 01`；这本身不是兼容性证明。
+
+入口通过 `CP.enumerateOutputStreams` 取得输出流，再加载包与主题数据。脚本使用的宿主接口涉及图形/文字/图片/视频图层、车辆数据、消息收发和时钟。因此，研究完整主题可以从现成脚本追踪所需宿主接口，不必仅凭视频猜测表盘绘制方式；但仍须实现这些接口及资源、时序和视频合成，**安装一个 Lua/Luau VM 不等于有完整仪表**。
+
+这是本地样本核验，脚本哈希与计数见显示取证清单，原文件不分发；不能作为任何读者无需持有主题即可独立复跑的证明。通过 Context7 查询的 [Luau 官方嵌入说明](https://github.com/luau-lang/luau/blob/master/README.md)提供源码编译和 VM 加载路径，不提供 Apple 的图形/车辆宿主。当前既未编译这些脚本，也未证明原始字节码能被某个版本的 Luau 直接加载。
+
+### 6.2 UI Sync 有确切的区域更新语义，当前分支没有应用
+
+样本 `LayoutController.lua:36` 的内层命令表规定：`0x02=TRANSITION_DATA`、`0x06=END_LAYOUT_TRANSITION`。前者处理 `data.regions` 和 `data.pts`，并按帧时间窗口应用；`Layout.lua:940` 将区域分到 `comp:`、`stream:`、`layout:`、`popover:`，`:1008` 再更新相应组件。**不要把外层信封的 command 类型 2 与内层过渡数据类型 2 混为一层，也不要把类型 6 当成区域更新。**
+
+对照 [本分支 CarPlayUiSync.kt](../shared/src/main/java/com/shilapi/xcertplay/airplay/CarPlayUiSync.kt)：当前请求固定 layout/palette/activeComponents，收到手机命令后主要记录、应答及处理焦点请求，没有把区域或布局/配色变化交给本地渲染层。它隐藏的是类型 6 日志；区域数据类型 2 并未被这条过滤规则隐藏。本次在本地 `analysis` 下 `.log/.txt` 中未检索到匹配的区域命令记录，不代表手机没有发送。
+
+这证明一处实现缺口，**尚不证明它造成当前固定底部空白**。最小验证应复用现有校准入口，在同一会话保存内层 `0x02` 的区域/PTS、布局选择、视频帧与最终仪表照片；先确认数据确实发送、所属流与坐标单位，再决定是否应用变换。不能看到一个矩形就直接裁整帧。
+
+### 6.3 CarCast 提供了本地主题宿主的更强参照
+
+静态检查 [Android 0.3.27 发布包](https://github.com/rPlayAI/carcast-public/releases/tag/android-0.3.27)，APK 的 SHA-256 与 GitHub release asset digest 一致。ARM64 `libcarcast.so` 中有 Luau、`main.lua` 加载、APL core、`DPVideoLayer`、`DPShapeLayer`、`DPTextLayout` 等标识，以及视频图层坐标诊断；`NativeBridge` 同时声明 `setScreenSurface(int, Surface)` 与 `setUltraSurface(Surface, int, int)`。这些与 [0.3.25 发布说明](https://github.com/rPlayAI/carcast-public/releases/tag/android-0.3.25)中“由 CarCast 绘制仪表、使用模拟车辆数据”的描述一致。
+
+因此，更有依据的研究方向是**接收端运行主题/图层逻辑，与手机视频组合**，不能继续将 CarCast 归为“iPhone 已经画好完整表盘的一路视频”。静态标识尚不能证明它实现全部宿主 API、所有主题兼容或本车帧率，也没有证明其二进制能被本项目直接接入。
+
+后续可把 CarCast 当作同主题/同布局的输出对照，重点比地图区域、仪表下沿和布局切换。当前 Android 发行声明最低 Android 5；这只覆盖版本门槛，不证明 ECARX 仪表通路兼容。该测试版有到期时间，不应作为长期运行方案的前提。
+
+### 6.4 LIVI 的可借鉴部分是自绘仪表和选择同步
+
+固定提交 `870d2644` 的 [dashboard.slint](https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-ui/ui/dashboard.slint#L15)自行绘制仪表；逻辑画布为 1280×720，并按可用区域缩放、向两侧扩展表盘位置。[布局模型](https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-ui-model/src/dashboard/layout.rs)对不认识的布局默认采用地图加自绘表盘；[主题解析](https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-core/src/theme_catalog.rs#L285)提取布局、调色和地图 zone/component，并没有在此执行 OEM 主题脚本。
+
+其 [UI Sync](https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-cp/src/ui_sync.rs#L174)跟随手机的布局、配色、外观选择；本次所读实现同样没有消费上述 `0x02` 区域数据。此前泛称 LIVI 有“区域处理”不应理解为已经实现这一段主题协议；视频裁切/可用区布局是另一层。
+
+可借鉴方案是沿用现有视频通路，在本车 1920×720 上实现本地仪表层，并跟随选择变化。现有 `UltraBenchActivity` 已有模拟 Canvas 仪表，可作起点，但仍须接真实数据、布局、状态和生命周期；RPM 缺失时不能用模拟值冒充。此路线能补本地信息展示，不能声称复现全部原厂主题。
+
+### 6.5 Ultra-Lite 的源码包提供参数实验，但没有证明 16:9 重排
+
+[Ultra-Lite v1.0.0](https://github.com/SafariForest/carplay-ultra-lite-gen5w/releases/tag/v1.0.0)的源码在 bundle 内，主分支主要放说明。已核对 ZIP 内源码与作者发布的 `SHA256SUMS`，`native/hooks.c` 可见三类操作：显式底部 dock 的 View Area；保留像素尺寸、调整物理尺寸以改变 UI 大小；声明全屏及右侧 2/3 的两块可切换区域。`UiSync.java` 则只记录手机选择，不实现完整主题绘制。
+
+这些可以参考底部空调入口、图标密度和分区布局；本分支已有 View Area、dock edge、多区域切换及物理尺寸配置能力，优先核对实际 `/info`，没有必要另造配置系统。该项目针对 Gen5W/HMG-API，未提供把 1920×720 OEM 主题重排为 1920×1080 的复现，不能当作本车留黑补丁。
+
+中控仍应保留三种方案的区别：适配/取得真正适合 16:9 的主题布局；上方 1920×720 加下方本地 1920×360 区域；缩放裁切或拉伸。后两者都不是原生主题重排。若将一幅 1920×720 有效画面等比放大到高 1080，宽会变成 2880，要填入 1920 宽窗口就会裁掉左右各 480 个输出像素；拉伸则会改变图形比例。没有找到新证据可以承诺仅改尺寸参数就铺满。
+
+### 6.6 建议只推进两个有判据的小验证
+
+1. **先定位当前几何。** 一次会话收齐校准图、源帧、区域/PTS 和最终屏幕。判据是底部空白已经存在于视频内容、属于本地层预留，还是在窗口/原车合成后才出现；两个屏幕分别判断。
+2. **再试一个主题、一个布局的最小宿主。** 从可读 `main.lua` 及实际调用的 CP 接口出发，先离线确认能否加载、建立图层和输出一张仪表图，再加入手机视频区域与已有真实数据。对暂缺能力记录明确缺口，避免先做通用主题引擎。若成本过高，再选择现有 Canvas + LIVI 思路的自绘路线。
+
+[VNC Automotive 2026-11-02 的供应商说明](https://www.vncautomotive.com/carplay-ultra-qa-with-peter-galek-director-of-sales-engineering/)也描述了 Linux/Android/AAOS 演示和宿主 Display Plugin 渲染，可作为商业集成路径的线索；不是现成开放 SDK，也不是本车已经支持的证明。
+
+## 通风改动与既有验证
 
 - [真实车辆源](../shared/src/main/java/com/shilapi/xcertplay/hud/EcarxVehicleState.kt)：独立 SeatFan，0–3 档，SDK 支持检查与回读同步；诊断日志新增 `seatVentilation`。
 - [模拟车辆源](../shared/src/main/java/com/shilapi/xcertplay/airplay/SimulatedVehicleState.kt)：采用相同的主驾通风字段；与加热、空调风量独立。

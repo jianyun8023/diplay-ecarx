@@ -1,0 +1,180 @@
+{
+  "checkedDate": "2026-11-11",
+  "scope": "Display project static research; no app install, script execution, device session or vehicle test",
+  "localBaseline": "872d995255be1cb5eab516465f3ae9a2e0c17de0",
+  "publicSources": [
+    {
+      "repository": "f-io/LIVI",
+      "commit": "870d26441e073cdb802c427c5ae8833dba694951",
+      "path": "native/crates/livi-cp/src/ui_sync.rs",
+      "blobSha": "1bec2fce3aa108c0b1eea0f7035cba73afdb1e49",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-cp/src/ui_sync.rs"
+    },
+    {
+      "repository": "f-io/LIVI",
+      "commit": "870d26441e073cdb802c427c5ae8833dba694951",
+      "path": "native/crates/livi-core/src/theme_catalog.rs",
+      "blobSha": "00d29f0795009b13e3b7f7efdc22974140b43fdf",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-core/src/theme_catalog.rs"
+    },
+    {
+      "repository": "f-io/LIVI",
+      "commit": "870d26441e073cdb802c427c5ae8833dba694951",
+      "path": "native/crates/livi-core-proto/src/theme.rs",
+      "blobSha": "dbb1a2bc7814ae63469aa105e716a4be2a13a8e7",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-core-proto/src/theme.rs"
+    },
+    {
+      "repository": "f-io/LIVI",
+      "commit": "870d26441e073cdb802c427c5ae8833dba694951",
+      "path": "native/crates/livi-ui-model/src/dashboard/layout.rs",
+      "blobSha": "6da53296815bc3a630e21d30d4c7b26561edaab8",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-ui-model/src/dashboard/layout.rs"
+    },
+    {
+      "repository": "f-io/LIVI",
+      "commit": "870d26441e073cdb802c427c5ae8833dba694951",
+      "path": "native/crates/livi-ui/ui/dashboard.slint",
+      "blobSha": "86e8842b0e2c91eeab377cafd1b87e398956faeb",
+      "url": "https://github.com/f-io/LIVI/blob/870d26441e073cdb802c427c5ae8833dba694951/native/crates/livi-ui/ui/dashboard.slint"
+    },
+    {
+      "repository": "SafariForest/carplay-ultra-lite-gen5w",
+      "commit": "e66c64d375f934751670438a7c88e9e9638d5d63",
+      "path": "README.md",
+      "blobSha": "663f92d0700d1fa70f08bcb123edaf04ab3748da",
+      "url": "https://github.com/SafariForest/carplay-ultra-lite-gen5w/blob/e66c64d375f934751670438a7c88e9e9638d5d63/README.md"
+    },
+    {
+      "repository": "EthanArbuckle/iPhone17-1_18.2_22C152_Restore",
+      "commit": "e26ed4563f78871c59d2d96856756a65d62517e5",
+      "path": "System/Library/PrivateFrameworks/DashBoard.framework/DBSystemUILayout.m",
+      "blobSha": "00b270f360ba90333e60c1f9a214e187c43aa71f",
+      "url": "https://github.com/EthanArbuckle/iPhone17-1_18.2_22C152_Restore/blob/e26ed4563f78871c59d2d96856756a65d62517e5/System/Library/PrivateFrameworks/DashBoard.framework/DBSystemUILayout.m"
+    },
+    {
+      "url": "https://www.vncautomotive.com/carplay-ultra-qa-with-peter-galek-director-of-sales-engineering/",
+      "published": "2026-11-02",
+      "scope": "Supplier reports Android/Linux/AAOS demonstrations and host Display Plugin rendering; not verification on ECARX 753"
+    },
+    {
+      "url": "https://github.com/luau-lang/luau/blob/master/README.md",
+      "discovery": "Context7 /luau-lang/luau",
+      "scope": "General VM embedding, source compilation and loading only; not an Apple Display Plugin host"
+    }
+  ],
+  "releaseArtifacts": [
+    {
+      "project": "CarCast",
+      "version": "android-0.3.27",
+      "url": "https://github.com/rPlayAI/carcast-public/releases/download/android-0.3.27/CarCast-0.3.27.apk",
+      "bytes": 15771677,
+      "sha256": "5ed5f7dddba07ef5cd1b2231026a9ebb48a13a2cd5256522bffbe0060893ae45",
+      "githubDigest": "sha256:5ed5f7dddba07ef5cd1b2231026a9ebb48a13a2cd5256522bffbe0060893ae45",
+      "inspection": "Static ZIP/native-string inspection and targeted JADX 1.4.7 class inspection; no execution",
+      "nativeEntry": "lib/arm64-v8a/libcarcast.so",
+      "selectedIdentifiers": [
+        "Luau",
+        "DPLuaTask",
+        "DPVideoLayer",
+        "DPShapeLayer",
+        "DPTextLayout",
+        "DPImageLayer",
+        "main.lua",
+        "CarPlayAccessory.assets.zip"
+      ],
+      "javaClass": "ai.rplay.carcast.NativeBridge",
+      "javaMethods": [
+        "setScreenSurface(int, Surface)",
+        "setUltraSurface(Surface, int, int)"
+      ],
+      "limit": "Identifiers support a local rendering-host path; they do not prove complete theme API coverage, live performance or exact behavior of every method",
+      "sha256MatchesGithubReleaseDigest": true
+    },
+    {
+      "project": "CarPlay Ultra-Lite",
+      "version": "v1.0.0",
+      "url": "https://github.com/SafariForest/carplay-ultra-lite-gen5w/releases/download/v1.0.0/carplay-ultra-lite-bundle-1.0.0.zip",
+      "bytes": 5722659,
+      "sha256": "a4632aa4a55e57dd6cd8f205fccc9962240bc0ec6569301ead24709e7fdb03d3",
+      "githubDigest": "sha256:a4632aa4a55e57dd6cd8f205fccc9962240bc0ec6569301ead24709e7fdb03d3",
+      "nestedSource": "source/carplay-ultra-lite-1.0.0-source.zip",
+      "nestedSourceSha256": "e25795363106ca7c986efe0f3528458fb46e37d330824b69074403b6b58a06de",
+      "nestedChecksumMatchesPublishedSHA256SUMS": true,
+      "sourceFile": "carplay-ultra-lite-1.0.0/native/hooks.c",
+      "relevantLines": [
+        5,
+        349,
+        371,
+        396,
+        414,
+        673
+      ],
+      "finding": "Bottom dock View Area, physical-size UI scaling, optional full/right-two-thirds areas. No demonstrated 16:9 Ultra theme reflow",
+      "sha256MatchesGithubReleaseDigest": true
+    }
+  ],
+  "localThemeSample": {
+    "scope": "One previously verified local accessory package, not all themes. Original package and scripts are not redistributed; local result only.",
+    "archiveSha256": "19b494909d87c928d16a3dcbba9077128822ed69b7ca3e0edf6468bd5db17eda",
+    "scriptExtensions": {
+      ".luac": 193,
+      ".lua": 193
+    },
+    "matchingSourceAndBytecodeBasenames": true,
+    "bytecodeHeaderPrefixCounts": {
+      "0501": 193
+    },
+    "selectedFiles": {
+      "main.lua": {
+        "sha256": "0fa2940b92852feb4cb653e732c1877dadbe926057d8201d581fb929d0863339",
+        "lines": 93
+      },
+      "LayoutController.lua": {
+        "sha256": "a7808deb8d42a77379578e23fabf8c8567e5ce61ee006c0e314f7a55ea6e7c4d",
+        "lines": 2079
+      },
+      "Layout.lua": {
+        "sha256": "70cde7191186f5b1a0d77c37868a17f6d003fb94a606610855ede4c728c357f0",
+        "lines": 3075
+      },
+      "VideoLayer.lua": {
+        "sha256": "a1c39a7e6ec8208e8899c53a2954724ee763162b3433035c106d639da4ddda50",
+        "lines": 271
+      }
+    },
+    "innerUiSyncCommands": {
+      "0x02": "TRANSITION_DATA",
+      "0x06": "END_LAYOUT_TRANSITION"
+    },
+    "transitionDataFields": [
+      "regions",
+      "pts"
+    ],
+    "regionIdentifierPrefixes": [
+      "comp:",
+      "stream:",
+      "layout:",
+      "popover:"
+    ],
+    "sourceLocations": {
+      "LayoutController.lua": [
+        36,
+        1587,
+        1592,
+        1908,
+        1930
+      ],
+      "Layout.lua": [
+        940,
+        1008
+      ],
+      "main.lua": [
+        5,
+        34,
+        52
+      ]
+    },
+    "finding": "Readable scripts expose the renderer host boundary and region/PTS application. No scripts were compiled or executed; source availability does not establish VM or host compatibility."
+  }
+}
