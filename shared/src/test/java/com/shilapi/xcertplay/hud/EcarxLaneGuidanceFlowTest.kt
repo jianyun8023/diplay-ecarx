@@ -684,6 +684,73 @@ class EcarxLaneGuidanceFlowTest {
         assertEquals(ClusterMapIntent.NO_ROUTE, intents.last())
     }
 
+    @Test fun theCruiseMapShowsWithoutARouteOnlyWhileConnectedAndOptedIn() {
+        initialize()
+        EcarxHudBridge.setCurrentSession { true }
+        assertFalse(panelRequests.lastOrNull() ?: false)
+        assertFalse(NavigationOutputs.requestPresentation(context, true, "no route"))
+
+        EcarxOutputSettings.setCruiseMap(context, true)
+        EcarxHudBridge.cruiseMapChanged()
+        assertTrue(panelRequests.last())
+        assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster first texture frame"))
+        assertEquals(true, calls("setPresentationToDimSwitch").last().payload["show"])
+        assertFalse(EcarxHudBridge.isActive())
+
+        // The cluster's own controls still win.
+        DimInteraction.instance().callback.onShowPresentationOptionChanged(3)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(panelRequests.last())
+        DimInteraction.instance().callback.onShowPresentationOptionChanged(2)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(panelRequests.last())
+
+        EcarxHudBridge.setCurrentSession(null)
+        assertFalse(panelRequests.last())
+        assertFalse(NavigationOutputs.requestPresentation(context, true, "after disconnect"))
+    }
+
+    @Test fun aRouteEndKeepsTheCruiseMapUpAndTheSwitchOffTakesItDown() {
+        EcarxOutputSettings.setCruiseMap(context, true)
+        EcarxOutputSettings.setAutoShowMap(context, false)
+        initialize()
+        EcarxHudBridge.setCurrentSession { true }
+        assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster first texture frame"))
+        maneuver(); guidance()
+        assertTrue(EcarxHudBridge.isActive())
+        // A map already up for cruising is not hidden by "show at route start" being off.
+        assertTrue(panelRequests.last())
+
+        val switches = calls("setPresentationToDimSwitch").size
+        send(0x5201) { u8(1, 0) }
+        assertFalse(EcarxHudBridge.isActive())
+        assertTrue(panelRequests.last())
+        assertEquals(switches, calls("setPresentationToDimSwitch").size)
+        assertTrue(reports.any { "cluster map kept for cruising" in it })
+        // Guidance stops on the cluster; the projection itself is not handed back.
+        assertEquals("idle", DimInteraction.navi.navigationEvents.last())
+        // The projection keepalive goes on without a route.
+        repeat(3) { tick() }
+        assertTrue(calls("setPresentationToDimSwitch").size > switches)
+        assertEquals(true, calls("setPresentationToDimSwitch").last().payload["show"])
+
+        EcarxOutputSettings.setCruiseMap(context, false)
+        EcarxHudBridge.cruiseMapChanged()
+        assertFalse(panelRequests.last())
+        assertTrue(NavigationOutputs.requestPresentation(context, false, "cluster surface detached"))
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
+    @Test fun withoutTheCruiseMapARouteEndStillReleasesTheCluster() {
+        initialize()
+        EcarxHudBridge.setCurrentSession { true }
+        maneuver(); guidance()
+        assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster first texture frame"))
+        send(0x5201) { u8(1, 0) }
+        assertFalse(panelRequests.last())
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
     @Test fun navigationDetailsFollowTheDebugSwitchWithoutStoppingOutput() {
         NavigationOutputs.attachReport { reports += it }
         initialize()

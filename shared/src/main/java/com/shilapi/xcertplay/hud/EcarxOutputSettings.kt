@@ -7,6 +7,7 @@ object EcarxOutputSettings {
     private const val PREFS = "diplay_ecarx_outputs_v2"
     private const val KEY_ENABLED = "dim_navigation_enabled"
     private const val KEY_AUTO_SHOW_MAP = "dim_auto_show_map_on_guidance"
+    private const val KEY_CRUISE_MAP = "dim_cruise_map"
     private const val KEY_LEGACY_PRESENTATION = "dim_presentation_switch"
     private const val KEY_PRESENTATION_RELEASE_PENDING = "dim_presentation_release_pending"
     private const val KEY_MIRROR_MAIN = "dim_mirror_main_screen"
@@ -37,6 +38,15 @@ object EcarxOutputSettings {
     fun setAutoShowMap(context: Context, enabled: Boolean) {
         check(prefs(context).edit().putBoolean(KEY_AUTO_SHOW_MAP, enabled).commit()) {
             "Could not persist the ECARX initial map visibility setting"
+        }
+    }
+
+    /** Whether the cluster map also shows while CarPlay runs without a route. Off by default. */
+    fun cruiseMap(context: Context): Boolean = prefs(context).getBoolean(KEY_CRUISE_MAP, false)
+
+    fun setCruiseMap(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_CRUISE_MAP, enabled).commit()) {
+            "Could not persist the ECARX cruise map setting"
         }
     }
 

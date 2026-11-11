@@ -4135,6 +4135,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             EcarxOutputSettings.autoShowMap(this)) {
             EcarxOutputSettings.setAutoShowMap(this, it)
         }
+        toggle(card, getString(R.string.settings_ecarx_cruise_map),
+            getString(R.string.settings_ecarx_cruise_map_description),
+            EcarxOutputSettings.cruiseMap(this)) {
+            EcarxOutputSettings.setCruiseMap(this, it)
+            NavigationOutputs.cruiseMapChanged()
+        }
         toggle(card, getString(R.string.center_map_follows_dashboard),
             getString(R.string.center_map_follows_dashboard_description),
             AirPlayPersistence.loadCenterMapOverlay(this) && AirPlayPersistence.loadCenterMapFollowsDashboard(this)) { on ->

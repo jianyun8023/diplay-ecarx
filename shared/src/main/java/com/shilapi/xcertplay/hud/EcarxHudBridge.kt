@@ -235,10 +235,21 @@ internal object EcarxHudBridge {
     private var clusterPresentationRequested: ((ClusterMapIntent) -> Unit)? = null
 
     private val mapIntent: ClusterMapIntent get() = when {
-        !guidanceActive -> ClusterMapIntent.NO_ROUTE
+        !guidanceActive -> if (cruiseShown) ClusterMapIntent.SHOWN else ClusterMapIntent.NO_ROUTE
         clusterVisibleWanted -> ClusterMapIntent.SHOWN
         else -> ClusterMapIntent.HIDDEN
     }
+
+    /**
+     * Without a route the map shows only when the driver opted in, the platform still allows it and
+     * a phone is connected. The phone draws its cluster scene whenever the head unit shows it, route
+     * or not; Apple Maps then sends frames only when its picture changes.
+     */
+    private val cruiseShown: Boolean get() = !guidanceActive && clusterVisibleWanted &&
+        context?.let(EcarxOutputSettings::cruiseMap) == true && currentSession?.invoke() == true
+
+    /** The map's visibility outside a route until the platform or the driver says otherwise. */
+    private fun idleWanted(app: Context) = EcarxOutputSettings.cruiseMap(app) || EcarxOutputSettings.autoShowMap(app)
 
     fun setClusterPanelOwner(owner: ((ClusterMapIntent) -> Unit)?) = synchronized(lock) {
         clusterPresentationRequested = owner
@@ -287,7 +298,7 @@ internal object EcarxHudBridge {
             return@synchronized
         }
         EcarxOutputSettings.retirePresentationSwitch(app)
-        clusterVisibleWanted = EcarxOutputSettings.autoShowMap(app)
+        clusterVisibleWanted = idleWanted(app)
         presentationOption = 0
         val pending = EcarxOutputSettings.presentationReleasePending(app)
         releaseStalePresentation = pending
@@ -382,7 +393,7 @@ internal object EcarxHudBridge {
                         if (option !in 1..3) return@synchronized
                         presentationOption = option
                         val show = when (option) {
-                            1 -> if (guidanceActive) routeAutoShowMap else EcarxOutputSettings.autoShowMap(app)
+                            1 -> if (guidanceActive) routeAutoShowMap else idleWanted(app)
                             2 -> true
                             else -> false
                         }
@@ -534,6 +545,16 @@ internal object EcarxHudBridge {
     fun setCurrentSession(isCurrent: (() -> Boolean)?) = synchronized(lock) {
         lastRawOption = null
         currentSession = isCurrent
+        // A cruise map depends on the connection, not on a route event.
+        if (context?.let(EcarxOutputSettings::cruiseMap) == true) clusterPresentationRequested?.invoke(mapIntent)
+    }
+
+    /** The cruise map switch applies at once: the panel owner shows or hides the map without a route. */
+    fun cruiseMapChanged() = synchronized(lock) {
+        val app = context ?: return@synchronized
+        if (!guidanceActive && presentationOption !in 2..3) clusterVisibleWanted = idleWanted(app)
+        report("cluster cruise map setting=${EcarxOutputSettings.cruiseMap(app)} routeActive=$guidanceActive panel=$mapIntent")
+        clusterPresentationRequested?.invoke(mapIntent)
     }
 
     fun clear() = synchronized(lock) {
@@ -575,7 +596,7 @@ internal object EcarxHudBridge {
         // settings screen rebuilt. This line is what separates them next time.
         report("presentation request show=$show origin=$origin")
         if (context == null) return EcarxDimApi.EcarxResult.failed("DIM not initialized")
-        if (show && (!clusterVisibleWanted || !guidanceActive)) {
+        if (show && mapIntent != ClusterMapIntent.SHOWN) {
             return EcarxDimApi.EcarxResult.failed("cluster display not requested")
         }
         // Only an accepted window request supersedes startup recovery.
@@ -696,7 +717,7 @@ internal object EcarxHudBridge {
      * switch keeps projection alive while the latest platform option allows it.
      */
     private fun watchProjectionLocked() {
-        if (!presentationWanted || !clusterVisibleWanted || !guidanceActive) return
+        if (!presentationWanted || mapIntent != ClusterMapIntent.SHOWN) return
         if (presentationCountdown > 0) {
             presentationCountdown -= 1
             return
@@ -840,8 +861,10 @@ internal object EcarxHudBridge {
 
     private fun startGuidanceLocked(maneuver: AppleManeuver, guidance: EcarxDimApi.Guidance) {
         val app = context ?: return
+        // A map already up for cruising stays up when a route starts.
+        val cruising = cruiseShown
         guidanceActive = true
-        routeAutoShowMap = EcarxOutputSettings.autoShowMap(app)
+        routeAutoShowMap = EcarxOutputSettings.autoShowMap(app) || cruising
         clusterVisibleWanted = when (presentationOption) {
             2 -> true
             3 -> false
@@ -1027,9 +1050,15 @@ internal object EcarxHudBridge {
             }
             if (guidanceActive) {
                 guidanceActive = false
-                val released = applyPresentation(false, "guidance ended")
-                NavigationOutputs.diagnostic("cleanup release=${outcome(released)}")
-                report("DIM navigation end release ${outcome(released)} detail=${released.reason}")
+                if (app != null && presentationOption !in 2..3) clusterVisibleWanted = idleWanted(app)
+                if (cruiseShown) {
+                    // The window and its decoder stay; only the route's own outputs ended above.
+                    report("DIM navigation end: cluster map kept for cruising")
+                } else {
+                    val released = applyPresentation(false, "guidance ended")
+                    NavigationOutputs.diagnostic("cleanup release=${outcome(released)}")
+                    report("DIM navigation end release ${outcome(released)} detail=${released.reason}")
+                }
                 report("DIM guidance ended $lastGuidanceEnd")
                 // Hand the panel back: the presentation stops requesting the cluster stream, so the
                 // head unit's own instrument page returns instead of a frozen last map frame.
@@ -1336,6 +1365,7 @@ internal object EcarxHudBridge {
         append(" enabled=").append(EcarxOutputSettings.enabled(context))
         append(" hudActive=").append(hudActive)
         append(" autoShowMap=").append(EcarxOutputSettings.autoShowMap(context))
+        append(" cruiseMap=").append(EcarxOutputSettings.cruiseMap(context))
         append(" presentation=").append(clusterVisibleWanted)
         append(" arrowExperimental=").append(EcarxOutputSettings.turnArrowExperimental(context))
         append(" media=").append(EcarxOutputSettings.mediaEnabled(context))

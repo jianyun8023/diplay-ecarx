@@ -832,6 +832,8 @@
     <string name="ecarx_navigation_on_instrument_cluster_description">显示 CarPlay 转向、距离、路名、预计到达时间和车道指引，与仪表地图分别控制，立即生效。引导期间暂停原厂导航服务；753 车机的原厂桌面导航卡片可能需要手动重新添加。</string>
     <string name="ecarx_instrument_cluster_projection">开始导航时自动显示仪表地图</string>
     <string name="ecarx_instrument_cluster_projection_description">设置每条新路线开始时是否显示仪表地图，仪表上的显隐操作优先。更改从下一条路线生效。</string>
+    <string name="settings_ecarx_cruise_map">未导航时也显示仪表地图（实验性）</string>
+    <string name="settings_ecarx_cruise_map_description">CarPlay 连接后，没有路线时也在仪表显示地图，仪表上的显隐操作优先。苹果地图只在画面变化时更新；其他地图应用可能让仪表空白。立即生效。</string>
     <string name="ecarx_cluster_call_rejected">车机拒绝了这次调用：需要系统签名且 DIM 权限被授予。</string>
     <string name="ecarx_cluster_mirror_confirm">打开后会把整个中控画面镜像到仪表，并盖住仪表上的导航箭头与媒体卡片。\n\n确定要打开吗？</string>
     <string name="ecarx_media_on_instrument_cluster">仪表媒体卡片</string>
