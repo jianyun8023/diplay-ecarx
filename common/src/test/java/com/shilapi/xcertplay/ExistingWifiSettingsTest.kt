@@ -93,6 +93,19 @@ class ExistingWifiSettingsTest {
         assertEquals(CarPlayTransport.WIRED, runtime().transport)
     }
 
+    @Test fun hostWithoutSavedCarHotspotDetailsDoesNotStartOrCrash() {
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
+        val host = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        CarPlayHostActivity::class.java.getDeclaredField("airPlayIdentity").apply { isAccessible = true }
+            .set(host, AirPlayPersistence.loadIdentity(app))
+        CarPlayHostActivity::class.java.getDeclaredMethod("loadPersistedSettings").apply { isAccessible = true }.invoke(host)
+        CarPlayHostActivity::class.java.getDeclaredMethod("startCarPlayWhenHotspotIdle",
+            CarPlayHostActivity.DisplaySize::class.java).apply { isAccessible = true }
+            .invoke(host, CarPlayHostActivity.DisplaySize(1920, 1080))
+        assertNull(CarPlayHostActivity::class.java.getDeclaredField("controller").apply { isAccessible = true }.get(host))
+    }
+
     private fun controls(): List<View> {
         val parent = LinearLayout(activity)
         DiPlayActivity::class.java.getDeclaredMethod("wirelessLinkControls", LinearLayout::class.java)

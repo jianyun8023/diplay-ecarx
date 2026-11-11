@@ -4816,6 +4816,13 @@ open class CarPlayHostActivity : ComponentActivity() {
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         runCatching { DiPlayBootstrap.ensure(this, mfiTarget) }
         loadManualHotspotSettings()
+        // A fresh install starts in car-hotspot mode with no details saved. The runtime config rejects that,
+        // so ask for the details instead of crashing a boot or direct start (Mi 8 bench, 2026-11-11).
+        if (useWirelessTransport && wirelessHotspotMode == WirelessHotspotMode.MANUAL && manualHotspotSsid.isBlank()) {
+            appendLog("CarPlay not started: car hotspot details are not saved")
+            setStatus(R.string.hotspot_hint_local)
+            return
+        }
         val config = createRuntimeConfig()
         val effectiveSize = if (isMultiWindowActive() && !AirPlayPersistence.loadAdaptPipResolution(this) &&
             maximumDetectedWidthPixels >= size.width && maximumDetectedHeightPixels >= size.height &&
