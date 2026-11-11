@@ -55,6 +55,44 @@ class CarPlayAudioStreamIsolationTest {
         }
     }
 
+    @Test fun aSessionClosedWithoutTeardownStopsItsAudio() {
+        val stopped = mutableListOf<AudioStreamId>()
+        val engine = CarPlayMediaEngine(object : MediaSink {
+            override fun onAudioStopped(id: AudioStreamId) { stopped.add(id) }
+        })
+        val session = session()
+        try {
+            assertNotNull(engine.onAudio(session, 102, setup("media")))
+            assertNotNull(engine.onAudio(session, 100, setup("default")))
+            stopped.clear()
+            engine.onSessionClosed(session)
+            assertEquals(setOf(AudioStreamId(102, "media"), AudioStreamId(100, "default")), stopped.toSet())
+        } finally {
+            session.close()
+        }
+    }
+
+    @Test fun aClosingSessionLeavesAudioANewerSessionPlays() {
+        val stopped = mutableListOf<AudioStreamId>()
+        val engine = CarPlayMediaEngine(object : MediaSink {
+            override fun onAudioStopped(id: AudioStreamId) { stopped.add(id) }
+        })
+        val old = session()
+        val current = session()
+        try {
+            assertNotNull(engine.onAudio(old, 102, setup("media")))
+            assertNotNull(engine.onAudio(old, 100, setup("default")))
+            assertNotNull(engine.onAudio(current, 102, setup("media")))
+            stopped.clear()
+            engine.onSessionClosed(old)
+            assertEquals(listOf(AudioStreamId(100, "default")), stopped)
+        } finally {
+            engine.onSessionClosed(current)
+            old.close()
+            current.close()
+        }
+    }
+
     private fun setup(audioType: String): Map<String, Any?> = mapOf(
         "audioType" to audioType,
         "audioFormat" to 0x8000L,

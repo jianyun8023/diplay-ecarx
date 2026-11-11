@@ -584,6 +584,16 @@ class CarPlayMediaEngine(
             if (it.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
             removed?.close()
         }
+        // A session that ends without TEARDOWN (a wireless restart) must still release its renderers,
+        // or they keep their codec, track and focus until the sink closes. Renderers are keyed by stream
+        // id only, so one a newer session already uses stays.
+        sessionStreams
+            .filter { !isScreenStreamType(it.type) && it.type != STREAM_TYPE_DATA }
+            .forEach { key ->
+                val streamId = AudioStreamId(key.type, key.audioType)
+                if (pendingMicrophone.remove(key) != null) sink.onMicrophoneStopped(streamId)
+                if (streams.keys.none { it.type == key.type && it.audioType == key.audioType }) sink.onAudioStopped(streamId)
+            }
         audioMeta.clear()
         pendingMicrophone.clear()
         audioCaptures.values.forEach(AudioPacketCapture::close)
