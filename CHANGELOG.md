@@ -106,7 +106,6 @@
 
 基线升级至上游 [DiPlay v0.2.22](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.22)，
 `versionCode 134`。保留 ECARX 的应用标识、可选本地认证资产和签名配置。
-合并取舍与验收项见 [升级记录](docs/UPSTREAM-0.2.22-INTEGRATION.md)。
 
 使用手册已对照 v122 更新至 v134（代码基线 `7619ee32`）：补齐导航声音、热点保护、开机启动、后台连接和诊断说明，纠正设置入口；README 同步简体、繁体和英文摘要。[车主使用说明](docs/USER-GUIDE.zh-CN.md)按连接、日常设置、排错与升级重写，删去开发过程和协议细节；注明高德仪表地图需 iOS 17.4 或更新版本，补充新版设置图。以下条目保留各阶段改动，功能细节见[详细说明](docs/FEATURES.zh-CN.md)。
 
@@ -426,7 +425,7 @@
 - Install on Android 7.0, add Italian, and add options that are off by default: temporary system bars, black rounded corners, a play/pause wheel key, double press for Siri, car hotspot import, a home-screen bubble, the car's own music rhythm and music data for it (#847, #863, #818, #811, #823, #813, #769, #844, #695, #908).
 - Record more in the diagnostic report: DiPlay's own frames in the crash record, the USB devices Android lists while waiting for the iPhone, a wheel-speed line each minute, and the USB network traffic when the iPhone never opens CarPlay; note screenshots under screen turning (#827, #830, #862, #907, #864).
 
-See [0.2.21 release notes](docs/RELEASE-NOTES-0.2.21.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.21 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.21) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.20 — 2026-10-15
 
@@ -437,7 +436,7 @@ See [0.2.21 release notes](docs/RELEASE-NOTES-0.2.21.md) for contribution links 
 - Find the dashboard cluster on controller 13 and 17 firmware and the Leopard 5 Ultra, hide the DiLink 4 cluster routes on DiLink 3, fall back from HEVC to H.264 without a hardware decoder, show CarPlay with FFmpeg-backed decoders, and group the settings menu inside CarPlay by goal (#714, #734, #707, #710).
 - Record DiPlay's last crash, the wheel and media keys it received, the car Bluetooth pause, app-call vocoder info, music rebuffers and the USB devices listed while waiting for a CH341 adapter in the diagnostic report (#700, #702, #788, #740, #759, #793).
 
-See [0.2.20 release notes](docs/RELEASE-NOTES-0.2.20.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.20 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.20) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.19 — 2026-10-12
 
@@ -448,7 +447,7 @@ See [0.2.20 release notes](docs/RELEASE-NOTES-0.2.20.md) for contribution links 
 - Download the diagnostic report on a phone by QR code or a typed address and code, keep the phone page answering behind idle connections, show connection recovery tips and a Bluetooth-off message, and fix wireless CarPlay on MIUI 13 (#686, #687, #685, #677, #679, #673).
 - Set BYD navigation audio defaults on a first setup, add an optional album-artwork card on the dashboard map, record why the car hotspot could not be started, and fall back to the default Bluetooth adapter (#656, #660, #667, #641).
 
-See [0.2.19 release notes](docs/RELEASE-NOTES-0.2.19.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.19 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.19) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.18 — 2026-10-11
 
@@ -459,7 +458,7 @@ See [0.2.19 release notes](docs/RELEASE-NOTES-0.2.19.md) for contribution links 
 - Settings backup and restore from a phone, an installer choice for updates, and About inside Settings (#598, #593, #597).
 - Experimental, off-by-default options: Harman full screen with 32-bit x86 libraries, square corners, clearer navigation voice over USB, MediaTek low-latency decoding, a media-key audio focus opt-out, car phone audio for calls, a cluster speedometer and FCE cluster guidance (#613, #596, #622, #608, #615, #595, #607, #599).
 
-See [0.2.18 release notes](docs/RELEASE-NOTES-0.2.18.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.18 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.18) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.17 — 2026-10-10
 
@@ -470,7 +469,7 @@ See [0.2.18 release notes](docs/RELEASE-NOTES-0.2.18.md) for contribution links 
 - Check daily for updates with an Update available notice, recognize the DiLink generation from the controller version, and save Android 9 reports to Download/DiPlay (#488, #531, #541).
 - Add album-cover ambient lighting and fix saving ambient settings on hotfix firmware; add experimental BYD call popup hiding and external controller keys (#537, #550, #539, #549).
 
-See [0.2.17 release notes](docs/RELEASE-NOTES-0.2.17.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.17 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.17) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.16 — 2026-10-09
 
@@ -482,7 +481,7 @@ See [0.2.17 release notes](docs/RELEASE-NOTES-0.2.17.md) for contribution links 
 - Place the dashboard car marker with 1% sliders, give the small-window turn card its own placement, theme the cluster waiting screen, show the full DiLink 3 arrival time, declare initial appearance and add side-panel resizing (#494, #493, #481, #458, #346, #480).
 - Add experimental, off-by-default car Bluetooth pause, music-following ambient lighting, navigation wheel volume and a Platform 21 instrument route; refine call echo alignment, buffered-audio pacing and audio diagnostics (#307, #345, #344, #348, #421, #484, #499).
 
-See [0.2.16 release notes](docs/RELEASE-NOTES-0.2.16.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.16 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.16) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.15 — 2026-10-08
 
@@ -494,7 +493,7 @@ See [0.2.16 release notes](docs/RELEASE-NOTES-0.2.16.md) for contribution links 
 - Correct square-canvas physical dimensions, refine turn-card placement to 1% steps and add optional small-window marker layouts with experimental Auto following (#404, #440, #438).
 - Add explicit experimental ADB boot-start repair and correct Ukrainian wording (#441, #399).
 
-See [0.2.15 release notes](docs/RELEASE-NOTES-0.2.15.md) for contribution links and limits, and [validation](docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
+See [0.2.15 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.15) for contribution links and limits, and [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for checks. Full-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.14 — 2026-10-07
 
@@ -510,7 +509,7 @@ See [0.2.15 release notes](docs/RELEASE-NOTES-0.2.15.md) for contribution links 
 - Repair BYD call-watcher/audio-status behavior and add opt-in, default-off experimental software call echo cancellation and voice filtering (#370).
 - Preserve artwork proportions, correct system-bar-aware split/rotation geometry and recognize the specifically observed 1280×480 DiLink 3 cluster surface (#375, #389, #388).
 
-See [0.2.14 release notes](docs/RELEASE-NOTES-0.2.14.md) for all 20 contribution links, credits and limitations. Android 9/API 28 remains required. See [validation](docs/VALIDATION.md) for measured checks; complete-release vehicle acceptance is not claimed.
+See [0.2.14 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.14) for all 20 contribution links, credits and limitations. Android 9/API 28 remains required. See [validation](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md) for measured checks; complete-release vehicle acceptance is not claimed.
 
 # DiPlay 0.2.13 — 2026-10-06
 
@@ -532,7 +531,7 @@ See [0.2.14 release notes](docs/RELEASE-NOTES-0.2.14.md) for all 20 contribution
 - Add Traditional Chinese (Taiwan) as the seventh app language, preserve explicit script selection and correct Simplified Chinese hotspot wording (#314, #286). The release website also gains a Traditional Chinese edition.
 - Retain the multilingual website groundwork, add the smooth-wireless guide and make buffered-ownership tests deterministic without runtime/API changes (#240, #310, #312).
 
-See [0.2.13 release notes](docs/RELEASE-NOTES-0.2.13.md) for all 35 contribution links, credits, experimental settings, compatibility limits and diagnostic export steps. Final exact-release validation is recorded in [VALIDATION](docs/VALIDATION.md). This remains a public preview; no fresh complete-release vehicle test is claimed.
+See [0.2.13 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.13) for all 35 contribution links, credits, experimental settings, compatibility limits and diagnostic export steps. Final exact-release validation is recorded in [VALIDATION](https://github.com/shihabal3amri/DiPlay/blob/main/docs/VALIDATION.md). This remains a public preview; no fresh complete-release vehicle test is claimed.
 
 # DiPlay 0.2.12 — 2026-10-04
 
@@ -551,7 +550,7 @@ See [0.2.13 release notes](docs/RELEASE-NOTES-0.2.13.md) for all 35 contribution
 - Add a five-second dashboard-song-on-change window with timer invalidation, and retain album art while the next transfer is pending (#215, #228).
 - Export reports through Downloads, document picker, app-external or private fallback storage, with explicit View/Share actions (#185, #219).
 
-See [0.2.12 release notes](docs/RELEASE-NOTES-0.2.12.md) for the complete corrections, hardware evidence and issue-reporting steps. This remains a public preview; no fresh end-to-end vehicle test of the complete repaired release is claimed.
+See [0.2.12 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.12) for the complete corrections, hardware evidence and issue-reporting steps. This remains a public preview; no fresh end-to-end vehicle test of the complete repaired release is claimed.
 
 # DiPlay 0.2.11 — 2026-10-03
 
@@ -566,7 +565,7 @@ See [0.2.12 release notes](docs/RELEASE-NOTES-0.2.12.md) for the complete correc
 - Correct Android 9 audio API use, release failed codecs, reconnect with settled geometry/readiness, and require own-app VPN scope (#168 and local corrections).
 - Add one guarded Auto-mode API 29 P2P recovery for the exact reported pre-create Builder error, plus bounded wireless/media/theme/own-app-exit diagnostics without payload recording or automatic uploads.
 
-See [0.2.11 release notes](docs/RELEASE-NOTES-0.2.11.md) for requirements, device-test limits and fresh-report guidance. Preferred channel selection does not establish stutter as fixed; Qin Plus, Siri, iOS 15 and day/night reports remain under investigation. Android 9 is still the minimum; Wi-Fi Direct needs Android 10+.
+See [0.2.11 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.11) for requirements, device-test limits and fresh-report guidance. Preferred channel selection does not establish stutter as fixed; Qin Plus, Siri, iOS 15 and day/night reports remain under investigation. Android 9 is still the minimum; Wi-Fi Direct needs Android 10+.
 
 # DiPlay 0.2.10 — 2026-10-03
 
@@ -581,7 +580,7 @@ See [0.2.11 release notes](docs/RELEASE-NOTES-0.2.11.md) for requirements, devic
 - Extend Ukrainian translations, including the new map-mirror setting (#128 and release localization).
 - Add bounded anonymous Bluetooth/USB/boot and microphone capture/encode/send diagnostics to exported reports; omit audio and packet contents.
 
-See [0.2.10 release notes](docs/RELEASE-NOTES-0.2.10.md) for contributor credits, requirements and validation limits. Android 9 remains the minimum supported version.
+See [0.2.10 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.10) for contributor credits, requirements and validation limits. Android 9 remains the minimum supported version.
 
 # DiPlay 0.2.9 — 2026-10-02
 
@@ -599,7 +598,7 @@ See [0.2.10 release notes](docs/RELEASE-NOTES-0.2.10.md) for contributor credits
 - Thanks to @lpcheng1208 for PRs [#71](https://github.com/shihabal3amri/DiPlay/pull/71), [#88](https://github.com/shihabal3amri/DiPlay/pull/88), and [#89](https://github.com/shihabal3amri/DiPlay/pull/89).
 - Thanks to @romanchukg-cloud for PRs [#93](https://github.com/shihabal3amri/DiPlay/pull/93), [#101](https://github.com/shihabal3amri/DiPlay/pull/101), [#105](https://github.com/shihabal3amri/DiPlay/pull/105), [#106](https://github.com/shihabal3amri/DiPlay/pull/106), [#107](https://github.com/shihabal3amri/DiPlay/pull/107), [#108](https://github.com/shihabal3amri/DiPlay/pull/108), and [#109](https://github.com/shihabal3amri/DiPlay/pull/109).
 
-See [0.2.9 release notes](docs/RELEASE-NOTES-0.2.9.md) for the merged changes and validation limits.
+See [0.2.9 release notes](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.9) for the merged changes and validation limits.
 
 # DiPlay 0.2.8 — 2026-09-30
 

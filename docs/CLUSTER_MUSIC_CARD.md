@@ -1,7 +1,5 @@
 # Cluster music card (experimental)
 
-Based on v0.2.18; branch `feature/cluster-music-card`.
-
 Enable the cluster map, then open Settings → Advanced → the dashboard map card →
 Music on cluster (experimental). The feature defaults to off.
 
