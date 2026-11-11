@@ -233,5 +233,4 @@ stateDiagram-v2
 - 接口细节：[ECARX SDK 与麦克风 Policy](ECARX_SDK_CONTEXT.zh-CN.md)、[车机媒体接管方](MEDIACENTER_BACKENDS.md)、[蓝牙媒体让位](BLUETOOTH_MEDIA_YIELD.md)
 - 权限：[753 车机权限与无 ADB 实施清单](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)
 - 连接：[RFCOMM 建链与 iAP2 局部恢复](RFCOMM_LOCAL_RECOVERY.zh-CN.md)、[启动耗时采样](CARPLAY_STARTUP_SAMPLING.zh-CN.md)
-- 验证记录：[领克 01 dev 验证范围](LYNK_01_PENDING_VALIDATION.md)、[已确认功能整理](LYNK_01_VERIFIED_BRANCH.md)
-- 评审：[2026-11-10 设计评审](ECARX_753_DESIGN_REVIEW_20261110.zh-CN.md)
+- 按日期的验证记录、试车清单与 2026-11-10 设计评审已移出仓库，放在本地工作区 `docs/repo-moved-20261111/`；结论以第 7 节验证矩阵为准。

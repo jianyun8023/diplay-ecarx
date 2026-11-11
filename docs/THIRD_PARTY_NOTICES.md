@@ -2,7 +2,7 @@
 
 ## Receiver
 
-DiPlay is a modified version of [xcertplay by shilapi](https://github.com/shilapi/xcertplay). The upstream receiver is licensed under GNU GPL version 3; the full text is in `LICENSE` and the original README is retained in `docs/UPSTREAM-README.md`.
+DiPlay is a modified version of [xcertplay by shilapi](https://github.com/shilapi/xcertplay). The upstream receiver is licensed under GNU GPL version 3; the full text is in `LICENSE`; the original README is in the upstream repository.
 
 This repository retains component-specific licenses. [GPLv3 section 13](https://www.gnu.org/licenses/gpl.en.html#section13)
 permits combination with AGPLv3 code; the GPL portion retains its terms and AGPL network-source requirements

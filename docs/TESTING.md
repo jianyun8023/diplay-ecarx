@@ -2,16 +2,14 @@
 
 Use the [installation guide](INSTALL.md). With the car parked, verify wired and wireless connection, picture, touch and music. Test disconnect/reconnect, then settings Apply/Cancel. Save a diagnostic report after reproducing an issue.
 
-For the USB trailer, software-window video and RFCOMM reliability changes, complete the
-[connection reliability matrix](CONNECTION_RELIABILITY.md#vehicle-acceptance-before-release).
-Record the exact candidate APK and each untested setup before a release.
-
-For ECARX hotspot recovery, Siri short-press handling and vehicle regression, use the [current vehicle checklist](CAR_TEST_20261028.md).
+Record the exact candidate APK and each untested setup before a release. Per-build vehicle checklists are kept
+with the car-test packages, outside the repository; confirmed results go into the verification matrix of the
+[platform notes](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵).
 
 ## ECARX capability and cluster ownership baseline
 
-The boundary refactor preserves dev `71737833` behavior. The existing vehicle feedback is recorded in
-[the vehicle checklist](CAR_TEST_20261028.md); it is not a new on-car acceptance of this refactor.
+The boundary refactor preserves dev `71737833` behavior. Earlier vehicle feedback is not a new on-car
+acceptance of this refactor.
 
 - `EcarxCapabilities.detect` reports identity evidence in the existing order: DIM class, ECARX build
   marker, vendor package, or none. Build/package evidence keeps the existing feature gates and
