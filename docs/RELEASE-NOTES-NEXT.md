@@ -11,7 +11,7 @@ The current ECARX release is **[v146](https://github.com/jianyun8023/diplay-ecar
 Guides:
 
 - [Owner's guide](USER-GUIDE.zh-CN.md) (Simplified Chinese, follows the v142 car-test build): connection, everyday settings, troubleshooting and upgrades, with car screenshots.
-- [Detailed feature guide](FEATURES.zh-CN.md) (v134 baseline): behavior, prerequisites, per-map cluster differences and remaining vehicle checks.
+- [Detailed feature guide](FEATURES.zh-CN.md) (v146): behavior, prerequisites, per-map cluster differences and remaining vehicle checks.
 
 The instrument-cluster map requires **iOS 17.4 or later** on the iPhone: turn-by-turn, distance and lane prompts use the navigation-metadata channel added in iOS 17.4, while the cluster map picture itself is supported from iOS 16.4. **Amap additionally requires iOS 17.4 and iPhone 12 or later.**
 
