@@ -207,6 +207,9 @@ internal class VideoDecoder(
     private var lastQueuedNanos = 0L
     private var resumedAtNanos = 0L
     private var lastQueuedLocalNanos = 0L
+    // Worker only: the cached debug-log switch for the periodic stats line.
+    private var debugLogsCached = false
+    private var debugLogsCheckedNanos = 0L
     private val queue = VideoDecodeQueue()
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
@@ -353,7 +356,7 @@ internal class VideoDecoder(
     private fun run() {
         try {
             while (running) {
-                val job = queue.poll(5)
+                val job = queue.poll(workerWaitMillis())
                 outputFailure?.let { failure ->
                     outputFailure = null
                     onJobFailure("output", failure)
@@ -388,7 +391,7 @@ internal class VideoDecoder(
                     }
                     if (outputThread == null) decoder?.let(::drainOutput)
                     probeHardwareIfDue()
-                    if (debugLogsEnabled()) stats.logIfDue()?.let(report)
+                    if (statsLoggingEnabled()) stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && codecSurface() != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
                     onJobFailure(job?.javaClass?.simpleName ?: "drain", error)
@@ -1109,6 +1112,25 @@ internal class VideoDecoder(
         requestKeyFrameIfDue()
     }
 
+    /**
+     * How long the worker may wait for the next job; see [videoWorkerWaitMillis].
+     */
+    private fun workerWaitMillis(): Long = videoWorkerWaitMillis(
+        drainsOutput = outputThread == null && decoder != null,
+        lastQueuedNanos = lastQueuedNanos,
+        nowNanos = System.nanoTime(),
+    )
+
+    /** [debugLogsEnabled] reads settings; the worker loop checks it at most once a second. */
+    private fun statsLoggingEnabled(): Boolean {
+        val now = System.nanoTime()
+        if (debugLogsCheckedNanos == 0L || now - debugLogsCheckedNanos >= DEBUG_LOGS_RECHECK_NS) {
+            debugLogsCached = debugLogsEnabled()
+            debugLogsCheckedNanos = now
+        }
+        return debugLogsCached
+    }
+
     private fun requestKeyFrameIfDue() {
         val now = System.nanoTime()
         if (lastKeyFrameRequestNs != 0L && now - lastKeyFrameRequestNs < 1_000_000_000L) return
@@ -1274,12 +1296,13 @@ internal class VideoDecoder(
         const val OUTPUT_IDLE_WAIT_MS = 10L
         const val OUTPUT_EXIT_WAIT_MS = 500L
         const val INPUT_TIMEOUT_US = 10_000L
+        const val DEBUG_LOGS_RECHECK_NS = 1_000_000_000L
         // Waits before creating a refused hardware decoder again: 0.7 s in all, while frames queue up.
         val HARDWARE_CREATE_RETRY_MILLIS = listOf(100L, 200L, 400L)
         // A paced frame more than this ahead is treated as a bad mapping and shown at once.
         const val MAX_PACING_AHEAD_NS = 1_000_000_000L
         // Longer input gaps are a still screen, not decoding work.
-        const val STILL_GAP_NS = 500_000_000L
+        const val STILL_GAP_NS = VIDEO_STILL_GAP_NS
         // Consecutive frames this far apart in iPhone time are a pause in its frames: about four frame
         // intervals at 30 fps.
         const val SENDER_PAUSE_NS = 120_000_000L
@@ -1297,3 +1320,20 @@ internal object VideoRecoveryFrameAge {
                 it <= nowNs && it - receivedNs >= 100_000_000L
             } == true
 }
+
+internal const val VIDEO_DRAIN_POLL_MS = 5L
+internal const val VIDEO_IDLE_POLL_MS = 50L
+internal const val VIDEO_STILL_GAP_NS = 500_000_000L
+
+/**
+ * The decoder worker's wait for its next job. When it drains a codec's output itself ([drainsOutput]: a
+ * codec and no output thread) it polls every [VIDEO_DRAIN_POLL_MS] while the codec may still emit a
+ * frame. The codec holds the last frames of a burst until later input arrives, so once input has
+ * paused for a still-screen gap nothing comes out until the next frame, and that frame wakes the
+ * queue at once. Otherwise only due checks (hardware probe, keyframe request, stats) run, every
+ * [VIDEO_IDLE_POLL_MS].
+ */
+internal fun videoWorkerWaitMillis(drainsOutput: Boolean, lastQueuedNanos: Long, nowNanos: Long): Long =
+    if (drainsOutput && lastQueuedNanos != 0L && nowNanos - lastQueuedNanos < VIDEO_STILL_GAP_NS) {
+        VIDEO_DRAIN_POLL_MS
+    } else VIDEO_IDLE_POLL_MS
