@@ -183,3 +183,27 @@ class MapMirrorSharedDecoderTest {
         const val MAP = 111
     }
 }
+
+class FanoutStatsTest {
+    private val second = 1_000_000_000L
+
+    @Test fun oneLinePerWindowWithRateDrawTimeAndCpuShare() {
+        val stats = FanoutStats(intervalNanos = 10 * second)
+        var line: String? = null
+        // 30 fps: frame k starts at k/30 s and takes 2 ms on the wall (the last one 8 ms) and 1 ms of CPU.
+        for (k in 0..300) {
+            val wall = if (k == 300) 8_000_000L else 2_000_000L
+            line = stats.onFrame(k * second / 30 + wall, wall, 1_000_000L, targets = 3) ?: line
+        }
+        assertEquals("video fanout windowS=10 frames=301 fps=30.1 drawAvgMs=2.0 drawMaxMs=8.0 cpu=3.0% targets=3 dropped=0", line)
+    }
+
+    @Test fun nothingBeforeTheWindowEndsAndTheRestAtClose() {
+        val stats = FanoutStats(intervalNanos = 300 * second)
+        assertNull(stats.onFrame(second, 1_000_000L, -1, targets = 2))
+        stats.onTargetDropped()
+        assertEquals("video fanout windowS=1 frames=1 fps=1.0 drawAvgMs=1.0 drawMaxMs=1.0 cpu=unknown targets=1 dropped=1",
+            stats.flush(2 * second - 1_000_000L, targets = 1))
+        assertNull("an empty window writes nothing", stats.flush(3 * second, targets = 1))
+    }
+}

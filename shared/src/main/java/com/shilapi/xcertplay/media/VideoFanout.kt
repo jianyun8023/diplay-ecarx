@@ -38,6 +38,56 @@ internal interface VideoFanout {
 internal fun mirrorsShareDecoder(type: Int): Boolean = type != MAIN_SCREEN_TYPE
 
 /**
+ * What the fanout thread costs, as one diagnostic line per [intervalNanos] (and at close): frames drawn, the
+ * thread's wall time per frame (taking the picture and drawing it onto every target, swaps included), its CPU
+ * time as a share of one core, the targets drawn to and the targets dropped because their surface had gone.
+ * GPU work that the driver finishes later is not in it.
+ */
+internal class FanoutStats(private val intervalNanos: Long = 5 * 60 * 1_000_000_000L) {
+    private var windowStart = -1L
+    private var frames = 0
+    private var wallNanos = 0L
+    private var maxWallNanos = 0L
+    private var cpuNanos = 0L
+    private var cpuKnown = true
+    private var dropped = 0
+
+    /** [cpuNanos] below 0 means the platform could not tell. Returns a line when a window is complete. */
+    fun onFrame(nowNanos: Long, wallNanos: Long, cpuNanos: Long, targets: Int): String? {
+        if (windowStart < 0) windowStart = nowNanos - wallNanos
+        frames++
+        this.wallNanos += wallNanos
+        maxWallNanos = maxOf(maxWallNanos, wallNanos)
+        if (cpuNanos < 0) cpuKnown = false else this.cpuNanos += cpuNanos
+        return if (nowNanos - windowStart >= intervalNanos) line(nowNanos, targets) else null
+    }
+
+    fun onTargetDropped() { dropped++ }
+
+    /** The partial window, or null when nothing was drawn in it. */
+    fun flush(nowNanos: Long, targets: Int): String? = if (frames == 0) null else line(nowNanos, targets)
+
+    private fun line(nowNanos: Long, targets: Int): String {
+        val window = (nowNanos - windowStart).coerceAtLeast(1)
+        val text = "video fanout windowS=${window / 1_000_000_000L} frames=$frames " +
+            "fps=${oneDecimal(frames * 1_000_000_000.0 / window)} " +
+            "drawAvgMs=${oneDecimal(wallNanos / 1_000_000.0 / frames)} drawMaxMs=${oneDecimal(maxWallNanos / 1_000_000.0)} " +
+            "cpu=${if (cpuKnown) oneDecimal(cpuNanos * 100.0 / window) + "%" else "unknown"} " +
+            "targets=$targets dropped=$dropped"
+        windowStart = nowNanos
+        frames = 0
+        wallNanos = 0
+        maxWallNanos = 0
+        cpuNanos = 0
+        cpuKnown = true
+        dropped = 0
+        return text
+    }
+
+    private fun oneDecimal(value: Double): String = String.format(java.util.Locale.ROOT, "%.1f", value)
+}
+
+/**
  * [VideoFanout] with OpenGL ES 2 on a thread of its own: each decoded picture arrives as an external texture
  * and is drawn, stretched as the decoder itself would scale it, onto every target's window surface.
  */
@@ -61,6 +111,7 @@ internal class GlVideoFanout(width: Int, height: Int, private val report: (Strin
     private val mirrors = LinkedHashMap<String, Target>()
     private var hasPicture = false
     private var closed = false
+    private val stats = FanoutStats()
     override val input: Surface
 
     init {
@@ -99,6 +150,7 @@ internal class GlVideoFanout(width: Int, height: Int, private val report: (Strin
     override fun close() {
         try {
             runOnGl {
+                stats.flush(System.nanoTime(), targetCount())?.let(report)
                 closed = true
                 releaseGl()
             }
@@ -204,6 +256,8 @@ internal class GlVideoFanout(width: Int, height: Int, private val report: (Strin
 
     private fun drawFrame() {
         if (closed) return
+        val startNanos = System.nanoTime()
+        val startCpu = android.os.Debug.threadCpuTimeNanos()
         try {
             surfaceTexture.updateTexImage()
         } catch (error: RuntimeException) {
@@ -213,14 +267,20 @@ internal class GlVideoFanout(width: Int, height: Int, private val report: (Strin
         surfaceTexture.getTransformMatrix(transform)
         hasPicture = true
         drawCurrent()
+        val endCpu = android.os.Debug.threadCpuTimeNanos()
+        val now = System.nanoTime()
+        stats.onFrame(now, now - startNanos, if (startCpu < 0 || endCpu < 0) -1 else endCpu - startCpu, targetCount())
+            ?.let(report)
     }
+
+    private fun targetCount(): Int = mirrors.size + if (primary != null) 1 else 0
 
     /** Draws the latest picture onto every target; a target whose surface has gone is dropped. */
     private fun drawCurrent() {
         if (closed || !hasPicture) return
-        primary?.let { if (!draw(it)) { destroy(it); primary = null } }
+        primary?.let { if (!draw(it)) { destroy(it); primary = null; stats.onTargetDropped() } }
         val gone = mirrors.filterValues { !draw(it) }.keys
-        gone.forEach { key -> mirrors.remove(key)?.let(::destroy) }
+        gone.forEach { key -> mirrors.remove(key)?.let(::destroy); stats.onTargetDropped() }
     }
 
     private fun draw(target: Target): Boolean {
