@@ -17,7 +17,7 @@ android {
         minSdk = 24
         targetSdk = 37
         // ECARX release sequence; upstream baseline is v0.2.22.
-        versionCode = 146
+        versionCode = 147
         versionName = "0.2"
         testInstrumentationRunner = "com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation"
 
