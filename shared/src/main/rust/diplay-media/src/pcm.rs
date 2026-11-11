@@ -148,6 +148,16 @@ mod tests {
         assert!(peak > 7500, "{peak}");
     }
 
+    /// The same vector as Kotlin's VoiceFilterGoldenTest, so both filters are held to one output.
+    #[test]
+    fn the_high_pass_matches_the_golden_vector() {
+        let input: [i16; 40] = [-3000, -942, 1101, 3115, 5085, 7000, 8845, 3608, 5281, 6852, 8314, 9662, 10889, 11993, 5972, 6827, 7559, 8173, 8673, 9067, 9363, 2571, 2702, 2767, 2781, 2755, 2706, 2646, -4407, -4442, -4444, -4397, -4290, -4109, -3843, -10483, -10019, -9443, -8751, -7937];
+        let expected: [i16; 40] = [-2707, -294, 1665, 3207, 4361, 5164, 5647, -475, 763, 1644, 2209, 2498, 2547, 2395, -4240, -3395, -2786, -2374, -2124, -2001, -1976, -8336, -7126, -6073, -5145, -4321, -3575, -2892, -8568, -6664, -4917, -3308, -1826, -458, 802, -4353, -1990, 146, 2064, 3775];
+        let mut data = pcm(&input);
+        VoiceFilter::new(16_000, 1, DEFAULT_CUTOFF_HZ).process(&mut data);
+        assert_eq!(samples(&data), expected.to_vec());
+    }
+
     #[test]
     fn audible_and_swap() {
         assert!(!is_audible(&pcm(&[63, -63]), 64));

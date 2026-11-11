@@ -63,7 +63,14 @@ internal class AudioRenderer(
     private class AudioPacket(val rtp: MediaPacket, val sample: Int, val arrivedNs: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
-    private val voiceFilter = if (voiceFilter && format.sampleRate > 0) VoiceFilter(format.sampleRate, pcmChannels) else null
+    private val voiceFilterEnabled = voiceFilter && format.sampleRate > 0
+    private val voiceFilter = if (voiceFilterEnabled) VoiceFilter(format.sampleRate, pcmChannels) else null
+    /**
+     * The worker's native PCM path ([NativePcm]), null without the library. With it, decoded PCM stays in
+     * [pcmBuffer] (direct) from the decoder to the track, and Opus is decoded by libopus, not MediaCodec.
+     */
+    private var nativePcm: NativePcm? = null
+    private var pcmBuffer: ByteBuffer = ByteBuffer.allocateDirect(0)
 
     private var trackAttributes: AudioAttributes? = null
     private var mappedChannel: AudioChannel? = null
@@ -232,9 +239,13 @@ internal class AudioRenderer(
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
                 "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} " +
                 "mediaChannel=$mediaChannel navigationChannel=$navigationChannel navigationOemContent=$navigationOemContent focus=$audioFocusEnabled") }
+            nativePcm = NativePcm.create(format.sampleRate, pcmChannels, voiceFilterEnabled, format.codec == AudioCodecKind.OPUS)
+            if (nativePcm != null) pcmBuffer = ByteBuffer.allocateDirect(PCM_BUFFER_BYTES)
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
-                AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
+                AudioCodecKind.OPUS -> if (nativePcm?.decodesOpus == true) {
+                    runCatching { report("Audio: decoder ready audioType=${format.audioType} codec=${format.codec} name=libopus") }
+                } else configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
                 AudioCodecKind.LPCM -> Unit
             }
             createTrack()
@@ -609,8 +620,13 @@ internal class AudioRenderer(
         packetKind = rtp.javaClass.simpleName
         val payloadBytes = (rtp.size - RTP_HEADER_BYTES).coerceAtLeast(0)
         val timestampUs = sampleTimestampUs(packet.sample)
+        val native = nativePcm
         when (format.codec) {
-            AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.toByteArray().copyOfRange(RTP_HEADER_BYTES, rtp.size)))
+            AudioCodecKind.LPCM -> if (native != null) {
+                ensurePcmCapacity(payloadBytes)
+                val length = native.copySwapped(rtp, RTP_HEADER_BYTES, payloadBytes, pcmBuffer)
+                if (length > 0) writePcm(pcmBuffer, length)
+            } else writePcm(byteSwapS16(rtp.toByteArray().copyOfRange(RTP_HEADER_BYTES, rtp.size)))
             AudioCodecKind.AAC_LC -> {
                 if (payloadBytes > 0) {
                     if (!firstAacPayloadLogged) {
@@ -639,9 +655,35 @@ internal class AudioRenderer(
                     }
                     return
                 }
-                feedCodec(payloadBytes, timestampUs) { input -> rtp.copyInto(input, RTP_HEADER_BYTES, payloadBytes) }
+                if (native?.decodesOpus == true) decodeOpus(native, rtp, payloadBytes)
+                else feedCodec(payloadBytes, timestampUs) { input -> rtp.copyInto(input, RTP_HEADER_BYTES, payloadBytes) }
             }
         }
+    }
+
+    /** libopus in place of MediaCodec: no input queue to wait on, the PCM goes straight to the track. */
+    private fun decodeOpus(native: NativePcm, rtp: MediaPacket, payloadBytes: Int) {
+        diagnosticStage = "decoder-input"
+        val length = native.decodeOpus(rtp, RTP_HEADER_BYTES, payloadBytes, pcmBuffer)
+        if (length < 0) {
+            inputDropped++
+            if (inputDropped == 1) Log.w(TAG, "audio Opus packet did not decode bytes=$payloadBytes error=$length")
+            return
+        }
+        inputQueued++
+        if (!firstInputQueuedLogged) {
+            firstInputQueuedLogged = true
+            Log.i(TAG, "audio decoder first input codec=${format.codec} bytes=$payloadBytes packet=$packetKind decoder=libopus")
+        }
+        if (length > 0) {
+            outputBuffers++
+            if (outputBuffers == 1) Log.i(TAG, "audio decoder output codec=${format.codec} buffers=1 bytes=$length decoder=libopus")
+            writePcm(pcmBuffer, length)
+        }
+    }
+
+    private fun ensurePcmCapacity(bytes: Int) {
+        if (pcmBuffer.capacity() < bytes) pcmBuffer = ByteBuffer.allocateDirect(bytes)
     }
 
     private fun sampleTimestampUs(sample: Int): Long =
@@ -730,21 +772,29 @@ internal class AudioRenderer(
                         }
                     }
                     var copied = false
+                    val direct = nativePcm != null
                     try {
                         if (size > 0) {
                             val output = codec.getOutputBuffer(index)
                             if (output != null) {
-                                if (size > pcm.size) pcm = ByteArray(size)
                                 output.position(info.offset)
                                 output.limit(info.offset + size)
-                                output.get(pcm, 0, size)
+                                if (direct) {
+                                    // Direct to direct: a memcpy, and the PCM never reaches the Java heap.
+                                    ensurePcmCapacity(size)
+                                    pcmBuffer.clear()
+                                    pcmBuffer.put(output)
+                                } else {
+                                    if (size > pcm.size) pcm = ByteArray(size)
+                                    output.get(pcm, 0, size)
+                                }
                                 copied = true
                             }
                         }
                     } finally {
                         codec.releaseOutputBuffer(index, false)
                     }
-                    if (copied) writePcm(pcm, 0, size)
+                    if (copied) { if (direct) writePcm(pcmBuffer, size) else writePcm(pcm, 0, size) }
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
                 }
                 else -> return
@@ -755,13 +805,7 @@ internal class AudioRenderer(
     private fun writePcm(data: ByteArray, offset: Int = 0, length: Int = data.size) {
         val track = track ?: return
         diagnosticStage = "track-write"
-        if (!firstPcmLogged && length > 0) {
-            firstPcmLogged = true
-            Log.i(
-                TAG,
-                "audio first PCM type=${format.payloadType} bytes=$length",
-            )
-        }
+        logFirstPcm(length)
         voiceFilter?.process(data, offset, length)
         // Before the first write of the prompt: the focus is asked for while this PCM still prebuffers.
         trackNavigationSound(data, offset, length)
@@ -771,6 +815,55 @@ internal class AudioRenderer(
             applyFadeIn(data, offset, length)
             fadeApplied = true
         }
+        writeTrack(track, length,
+            write = { at, count -> track.write(data, offset + at, count, AudioTrack.WRITE_BLOCKING) },
+            echo = { reference, at, count, pending ->
+                reference.append(data, offset + at, count, pcmChannels, pending, System.nanoTime())
+            })
+    }
+
+    /** The native path of [writePcm]: the first [length] bytes of the direct [buffer], processed in place. */
+    private fun writePcm(buffer: ByteBuffer, length: Int) {
+        val track = track ?: return
+        val native = nativePcm ?: return
+        diagnosticStage = "track-write"
+        logFirstPcm(length)
+        val navigation = mappedChannel == AudioChannel.NAVIGATION
+        applyNavigationAttenuation()
+        var flags = 0
+        if (navigation) flags = flags or NativePcm.DETECT_AUDIBLE or NativePcm.ATTENUATE
+        if (!fadeApplied) { flags = flags or NativePcm.FADE_IN; fadeApplied = true }
+        if (native.process(buffer, length, flags, navigationAttenuationDb, NAVIGATION_AUDIBLE_PEAK)) {
+            lastAudibleNs = System.nanoTime()
+            if (!navigationAudible) reportNavigationAudio(true)
+        }
+        writeTrack(track, length,
+            write = { at, count ->
+                buffer.limit(at + count).position(at)
+                track.write(buffer, count, AudioTrack.WRITE_BLOCKING)
+            },
+            echo = { reference, at, count, pending ->
+                reference.append(buffer, at, count, pcmChannels, pending, System.nanoTime())
+            })
+    }
+
+    private fun logFirstPcm(length: Int) {
+        if (!firstPcmLogged && length > 0) {
+            firstPcmLogged = true
+            Log.i(
+                TAG,
+                "audio first PCM type=${format.payloadType} bytes=$length native=${nativePcm != null}",
+            )
+        }
+    }
+
+    /** Writes [length] bytes to the track through [write] (offset, count), prebuffering before playback. */
+    private inline fun writeTrack(
+        track: AudioTrack,
+        length: Int,
+        write: (Int, Int) -> Int,
+        echo: (EchoReference, Int, Int, Long?) -> Unit,
+    ) {
         var written = 0
         while (written < length && running) {
             val writeLength = if (playbackStarted) {
@@ -780,7 +873,7 @@ internal class AudioRenderer(
             }
             val writeStarted = System.nanoTime()
             diagnosticStage = "track-write"
-            val count = track.write(data, offset + written, writeLength, AudioTrack.WRITE_BLOCKING)
+            val count = write(written, writeLength)
             maxWriteMs = maxOf(maxWriteMs, (System.nanoTime() - writeStarted) / 1_000_000L)
             if (count < 0) {
                 writeErrorsThisWindow++
@@ -813,7 +906,7 @@ internal class AudioRenderer(
                 } else {
                     null
                 }
-                reference.append(data, offset + written - count, count, pcmChannels, pending, System.nanoTime())
+                echo(reference, written - count, count, pending)
             }
         }
     }
@@ -1013,6 +1106,8 @@ internal class AudioRenderer(
     @Synchronized
     private fun release() {
         releaseQueued()
+        nativePcm?.close()
+        nativePcm = null
         NavigationPlayback.close(navigationPlaybackToken)
         abandonAudioFocus()
         val codec = codec
@@ -1061,6 +1156,8 @@ internal class AudioRenderer(
         const val TAG = "xcertplay-usb"
         const val AAC_OBJECT_TYPE_LC = 2
         const val RTP_HEADER_BYTES = 12
+        // Holds the largest decoder output seen in practice (1024 AAC frames, stereo, 16-bit is 4 KiB).
+        const val PCM_BUFFER_BYTES = 64 * 1024
         const val MIN_OPUS_PACKET_BYTES = 4
         const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L

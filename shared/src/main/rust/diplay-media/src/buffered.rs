@@ -46,3 +46,21 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pac
 ) -> jint {
     packet::size(handle) as jint
 }
+
+/// A pooled packet holding a copy of `length` bytes of `bytes`, for a Kotlin receiver's packet that
+/// native code must read (Opus decoding); 0 on bad arguments.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetWrap(
+    env: *mut JNIEnv, _class: jclass, bytes: jbyteArray, length: jint,
+) -> jlong {
+    let e = Env(env);
+    if length < 0 || length as usize > e.array_len(bytes) { return 0; }
+    let length = length as usize;
+    let mut packet = shared_pool().take(length.max(1));
+    if !e.read_array(bytes, 0, std::slice::from_raw_parts_mut(packet.spare(), length)) {
+        packet.recycle();
+        return 0;
+    }
+    packet.set_len(length);
+    packet.into_handle()
+}

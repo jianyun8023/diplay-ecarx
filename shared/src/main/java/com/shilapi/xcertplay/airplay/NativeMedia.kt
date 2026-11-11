@@ -52,6 +52,18 @@ internal object NativeMedia {
     /** Bytes copied into the direct [target] at [position], or -1 when it is not direct or too small. */
     @JvmStatic external fun packetCopyInto(handle: Long, offset: Int, length: Int, target: ByteBuffer, position: Int): Int
     @JvmStatic external fun packetRead(handle: Long, offset: Int, length: Int, out: ByteArray, outOffset: Int): Boolean
+    /** A pooled copy of the first [length] bytes of [bytes]; 0 on bad arguments. */
+    @JvmStatic external fun packetWrap(bytes: ByteArray, length: Int): Long
+
+    /** An audio renderer's PCM state (see `NativePcm`); 0 when [opus] was asked for and libopus is missing. */
+    @JvmStatic external fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): Long
+    @JvmStatic external fun pcmDestroy(handle: Long)
+    /** PCM bytes written from the start of the direct [out], or a negative libopus error. */
+    @JvmStatic external fun pcmDecodeOpus(handle: Long, packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
+    /** Big-endian LPCM bytes copied into the start of the direct [out] as little-endian, or -1. */
+    @JvmStatic external fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
+    /** Runs the PCM steps on the first [length] bytes of the direct [buffer]; 1 when sound was detected. */
+    @JvmStatic external fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int
 }
 
 /**

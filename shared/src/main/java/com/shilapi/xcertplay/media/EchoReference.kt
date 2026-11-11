@@ -26,14 +26,21 @@ internal class EchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
      * queued ahead of the speaker after this block, or null while the track is not playing.
      */
     @Synchronized
-    fun append(pcm: ByteArray, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) {
+    fun append(pcm: ByteArray, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) =
+        appendFrames(length, channels, pendingFrames, nowNs) { at -> (pcm[offset + at + 1].toInt() shl 8) or (pcm[offset + at].toInt() and 0xff) }
+
+    /** As the array form, reading [length] bytes of [pcm] from [offset] without moving its position. */
+    @Synchronized
+    fun append(pcm: java.nio.ByteBuffer, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) =
+        appendFrames(length, channels, pendingFrames, nowNs) { at -> (pcm.get(offset + at + 1).toInt() shl 8) or (pcm.get(offset + at).toInt() and 0xff) }
+
+    private inline fun appendFrames(length: Int, channels: Int, pendingFrames: Long?, nowNs: Long, sampleAt: (Int) -> Int) {
         val frameBytes = 2 * channels
         for (frame in 0 until length / frameBytes) {
-            val base = offset + frame * frameBytes
+            val base = frame * frameBytes
             var sum = 0
             for (channel in 0 until channels) {
-                val at = base + channel * 2
-                sum += (pcm[at + 1].toInt() shl 8) or (pcm[at].toInt() and 0xff)
+                sum += sampleAt(base + channel * 2)
             }
             ring[(written % ring.size).toInt()] = (sum / channels).toShort()
             written++
