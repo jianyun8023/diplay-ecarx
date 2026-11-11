@@ -183,6 +183,8 @@ CarPlay [DBSessionController] Notifying session did connect with theme asset: (n
 
 DashBoard 把主题当成 null，退回普通界面；carkitd 仍认为车辆支持主题，所以车辆数据和车辆 App 都保留。只重新生成配对身份、或在 UI Sync 刚开始时强杀应用，都不会触发。
 
+这个状态会一直保留：之后断开重连、在 iPhone 上开关 Wi-Fi，每次都还是普通界面加完整的车辆功能。它跟着 iPhone 上这台车的记录走，预计只有“忘记此车”能清掉。
+
 **这个状态依赖 iPhone 的解析错误，不能当作产品方案**，只能说明：普通界面本身能承载完整的车辆功能，iPhone 是否打开它，与“这台车声明了主题、且 iPhone 认为主题可用”有关。要回到正常 Ultra，需要在 iPhone 上忘记此车，再按上一节让它重新下载主题包。
 
 还没回答的问题：
