@@ -39,6 +39,15 @@ class DisplayDiagnosticSnapshotTest {
         assertTrue(report.contains("crop=0,0,1919,1079"))
     }
 
+    @Test fun theDashboardStreamDoesNotReplaceTheMainScreensLines() {
+        val attempt = DisplayDiagnosticSnapshot.begin(context, "request", "capability", "effective")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video: output format requested=1920x880 coded=1920x880 crop=0,0,1919,879")
+        DisplayDiagnosticSnapshot.record(context, attempt, "Video stream=111: output format requested=1920x720 coded=1920x720 crop=0,0,1919,719")
+        val report = DisplayDiagnosticSnapshot.report(context)
+        assertTrue(report.contains("coded=1920x880"))
+        assertFalse(report.contains("coded=1920x720"))
+    }
+
     @Test fun reconnectClearsOldOutputAndRejectsLateCallbacks() {
         val old = DisplayDiagnosticSnapshot.begin(context, "old request", "old capability", "old effective")
         DisplayDiagnosticSnapshot.record(context, old, "Video: output format coded=2560x1440")

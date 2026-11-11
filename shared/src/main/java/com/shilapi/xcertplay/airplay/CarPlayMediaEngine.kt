@@ -156,7 +156,8 @@ class CarPlayMediaEngine(
                     }
                 }
             }
-            session.logDebug("Video: $it")
+            // Other screens are labeled: the report's display negotiation keeps only the main screen's lines.
+            session.logDebug(if (type == STREAM_TYPE_MAIN_SCREEN) "Video: $it" else "Video stream=$type: $it")
         }
         sink.setVideoRecoveryHandler(type) {
             if (streams[streamKey] === screen) {
