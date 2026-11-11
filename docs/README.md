@@ -60,6 +60,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 
 - [verification/navigation-v109](verification/navigation-v109/) — 导航接管决策引用的 v109 导航验证素材。
 - [预编译 libopus 实测（2026-11-10）](benchmarks/native-opus-2026-11-10.md) — `shared/src/main/jniLibs` 原生库的性能依据。
+- [媒体流原生解密实测（2026-11-11）](benchmarks/native-chacha-2026-11-11.md) — `libdiplay_chacha.so` 的性能依据。
 
 ## 发布
 

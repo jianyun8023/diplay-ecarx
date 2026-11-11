@@ -71,6 +71,19 @@ DiPlay also vendors [Concentus](https://github.com/lostromb/concentus), Logan St
 
 Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/main/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/main/java/org/concentus/README.md) identify the source commit.
 
+## Media stream decryption (ring)
+
+The CarPlay screen and audio streams are opened with ChaCha20-Poly1305 from [ring 0.17.14](https://github.com/briansmith/ring)
+by Brian Smith, which carries ChaCha20 and Poly1305 assembly from Google's [BoringSSL](https://boringssl.googlesource.com/boringssl)
+and, through it, OpenSSL. They are compiled with a small app-owned JNI glue crate into `libdiplay_chacha.so`;
+ARM64 and ARMv7 binaries are checked in and used directly by APK builds. The glue also links jni-sys, libc, cfg-if
+and getrandom, each dual-licensed MIT or Apache-2.0.
+
+ring's own code and `untrusted` use ISC-style licenses; code taken from BoringSSL keeps its Apache-2.0, ISC or
+OpenSSL notices. The full texts are in [the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt),
+and [native provenance](../shared/src/main/jniLibs/NOTICE.md) records the source, hashes and rebuild command.
+When the library cannot load, the platform cipher opens the same data.
+
 ## Experimental authentication data
 
 Historical upstream preview APKs included an accessory certificate/key pair recovered from public

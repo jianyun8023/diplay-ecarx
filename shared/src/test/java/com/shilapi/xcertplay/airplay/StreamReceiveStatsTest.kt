@@ -82,6 +82,24 @@ class StreamReceiveStatsTest {
         assertTrue(!output.last().contains("decrypt"))
     }
 
+    @Test fun receiveThreadCpuIsReportedPerWindow() {
+        var clock = 0L
+        var cpu = 1_000_000L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats("video", output::add, nowNs = { clock }, threadCpuNs = { cpu })
+        stats.reading()
+        stats.received(1_000)
+        cpu += 7_000_000L
+        stats.processed()
+        clock = 5_000_000_000L
+        stats.flush()
+        assertTrue(output.last().contains(" threadCpuMs=7"))
+        cpu += 2_000_000L
+        clock = 10_000_000_000L
+        stats.flush()
+        assertTrue(output.last().contains(" threadCpuMs=2"))
+    }
+
     @Test fun heartbeatIntervalDefersHealthyWindows() {
         var clock = 0L
         val output = mutableListOf<String>()
