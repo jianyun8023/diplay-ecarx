@@ -21,8 +21,11 @@ class CarHotspotSetupTest {
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
     }
 
-    @Test fun freshInstallAndExistingHotspotConfigurationRemainOptedOut() {
-        assertFalse(CarHotspotSettings.enabled(context))
+    @Test fun carHotspotDefaultsOnAndPreservesExplicitOptOut() {
+        assertTrue(CarHotspotSettings.enabled(context))
+        configureHotspot()
+        assertTrue(eligible())
+        CarHotspotSettings.setEnabled(context, false)
         configureHotspot()
         assertFalse(eligible())
     }
@@ -98,9 +101,11 @@ class CarHotspotSetupTest {
 
     @Test fun wifiDirectAndLocalOnlyHotspotAreNotAutomaticallyManaged() {
         configureHotspot()
-        CarHotspotSettings.setEnabled(context, true)
         AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.WIFI_P2P)
         assertFalse(eligible())
+        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.EXISTING_WIFI)
+        assertFalse(eligible())
+        assertFalse(CarHotspotSettings.shouldEnable(context, true, WirelessHotspotMode.EXISTING_WIFI))
         assertFalse(CarHotspotSettings.shouldEnable(context, true, WirelessHotspotMode.LOCAL_ONLY_HOTSPOT))
     }
 

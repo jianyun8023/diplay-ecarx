@@ -18,7 +18,7 @@ internal object BootStartupPreferences {
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun loadAutoStartOnBoot(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_AUTO_START_ON_BOOT, false)
+        prefs(context).getBoolean(KEY_AUTO_START_ON_BOOT, true)
 
     fun saveAutoStartOnBoot(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_AUTO_START_ON_BOOT, enabled).apply()

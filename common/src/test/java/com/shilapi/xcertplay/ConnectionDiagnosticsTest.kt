@@ -59,6 +59,7 @@ class ConnectionDiagnosticsTest {
     }
 
     @Test fun setupBlockKeepsConnectionSourceButDoesNotClaimProjectionStarted() {
+        com.shilapi.xcertplay.network.CarHotspotSettings.setEnabled(app, false)
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         ReflectionHelpers.setField(activity, "setupError", "Private setup details")
         val connect = DiPlayActivity::class.java.getDeclaredMethod("connectWithSource", Boolean::class.javaPrimitiveType,

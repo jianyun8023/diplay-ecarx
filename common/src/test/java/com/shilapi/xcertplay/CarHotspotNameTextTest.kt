@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.network.CarHotspotSettings
 import java.util.Locale
 import org.junit.After
 import org.junit.Assert.assertFalse
@@ -29,6 +30,7 @@ class CarHotspotNameTextTest {
 
     @Before fun setUp() {
         clearSettings()
+        CarHotspotSettings.setEnabled(context, false)
         // The car hotspot is off, as on a head unit that has just been switched on.
         @Suppress("DEPRECATION") // The head unit exposes hotspot state through this sticky broadcast.
         context.sendStickyBroadcast(Intent("android.net.wifi.WIFI_AP_STATE_CHANGED")
@@ -42,6 +44,7 @@ class CarHotspotNameTextTest {
     }
 
     private fun clearSettings() {
+        context.getSharedPreferences("diplay_car_hotspot", 0).edit().clear().commit()
         context.getSharedPreferences("diplay", 0).edit().clear().commit()
         context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
     }

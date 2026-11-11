@@ -36,6 +36,7 @@ class CarHotspotPreflightFallbackTest {
             app.getSharedPreferences(name, 0).edit().clear().commit()
         }
         ApState.enabled = null
+        CarHotspotSettings.setEnabled(app, false)
         owner = Robolectric.buildActivity(DiPlayActivity::class.java)
         activity = owner.get()
         owner.setup()

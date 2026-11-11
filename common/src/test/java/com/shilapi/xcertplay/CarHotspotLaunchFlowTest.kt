@@ -80,6 +80,7 @@ class CarHotspotLaunchFlowTest {
     }
 
     @Test fun firstConnectionJoinsLaunchPreparationAndContinuesWithoutAnotherStart() {
+        CarHotspotSettings.setEnabled(RuntimeEnvironment.getApplication(), false)
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()
         CarHotspotSettings.setEnabled(activity, true)

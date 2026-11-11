@@ -49,6 +49,7 @@ class CarPlayVpnConsentTest {
         VpnPreConsentTestShadow.allowsVpn = false
         CarPlayBackgroundSession.clear()
         activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        AirPlayPersistence.saveDirectVideoOutput(activity, false)
         ReflectionHelpers.setField(activity, "stageStatusView", TextView(activity))
         instructions = TextView(activity)
         help = TextView(activity).apply { visibility = View.GONE }

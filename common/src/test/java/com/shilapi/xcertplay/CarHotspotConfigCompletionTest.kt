@@ -43,13 +43,13 @@ class CarHotspotConfigCompletionTest {
             app.getSharedPreferences(name, 0).edit().clear().commit()
         }
         WifiApi.reset()
+        CarHotspotSettings.setEnabled(app, false)
         owner = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         activity = owner.get()
         AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)
         AirPlayPersistence.saveManualHotspotSsid(app, "Saved car")
         AirPlayPersistence.saveManualHotspotPassphrase(app, "saved-password")
         AirPlayPersistence.saveManualHotspotSecurity(app, ManualHotspotSecurity.WPA2)
-        CarHotspotSettings.setEnabled(app, false)
     }
 
     @After fun cleanup() {

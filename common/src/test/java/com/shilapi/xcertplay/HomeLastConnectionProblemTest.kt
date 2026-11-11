@@ -111,6 +111,7 @@ class HomeLastConnectionProblemTest {
     }
 
     @Test fun withTheCarHotspotOffHomeKeepsItsOneHotspotWarning() {
+        com.shilapi.xcertplay.network.CarHotspotSettings.setEnabled(context, false)
         CarHotspotOffConnectTest.HotspotState.on = false
         fail(ConnectionFailureCause.CAR_HOTSPOT_OFF)
         val home = openHome()

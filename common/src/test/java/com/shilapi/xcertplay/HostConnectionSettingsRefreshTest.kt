@@ -28,6 +28,7 @@ class HostConnectionSettingsRefreshTest {
 
     @Before fun setUp() {
         app.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
+        AirPlayPersistence.saveDirectVideoOutput(app, false)
     }
 
     @Test fun projectionScreenUsesConnectionSettingsSavedWhileItWasInTheBackground() {
