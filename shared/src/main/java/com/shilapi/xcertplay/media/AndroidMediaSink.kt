@@ -28,6 +28,9 @@ class AndroidMediaSink(
     surface: Surface? = null,
     private val videoWidth: Int = 1280,
     private val videoHeight: Int = 720,
+    /** The size negotiated for the instrument-cluster stream (111); 0 uses the main size. */
+    private val clusterVideoWidth: Int = 0,
+    private val clusterVideoHeight: Int = 0,
     private val preferSoftwareHevcDecoder: Boolean = false,
     private val advancedAudioChannelMapping: Boolean = false,
     private val audioFocusEnabled: Boolean = false,
@@ -714,12 +717,13 @@ class AndroidMediaSink(
     }
 
     private fun newVideoDecoder(type: Int, surface: Surface?, statsLabel: String? = null, startImmediately: Boolean = true): VideoDecoder {
+        val cluster = type == 111 && clusterVideoWidth > 0 && clusterVideoHeight > 0
         lateinit var video: VideoDecoder
         video = VideoDecoder(
             type,
             surface,
-            videoWidth,
-            videoHeight,
+            if (cluster) clusterVideoWidth else videoWidth,
+            if (cluster) clusterVideoHeight else videoHeight,
             preferSoftwareHevcDecoder,
             requestKeyFrame = { requestVideoRecovery(type) },
             debugLogsEnabled = debugLogsEnabled,

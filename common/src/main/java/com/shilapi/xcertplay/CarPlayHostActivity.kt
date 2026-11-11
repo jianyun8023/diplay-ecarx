@@ -4329,6 +4329,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun createMediaSink(
         videoWidth: Int,
         videoHeight: Int,
+        cluster: AirPlayDisplayConfig?,
         controllerGeneration: Int,
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
@@ -4344,6 +4345,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             surface = null,
             videoWidth = videoWidth,
             videoHeight = videoHeight,
+            clusterVideoWidth = cluster?.widthPixels ?: 0,
+            clusterVideoHeight = cluster?.heightPixels ?: 0,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
@@ -4854,6 +4857,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val renderer = createMediaSink(
             videoWidth = airPlayConfig.main.widthPixels,
             videoHeight = airPlayConfig.main.heightPixels,
+            cluster = airPlayConfig.cluster,
             controllerGeneration = controllerGeneration,
         )
         sink = renderer

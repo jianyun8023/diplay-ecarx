@@ -5,6 +5,7 @@ import android.os.Looper
 import android.view.Surface
 import android.view.View
 import android.widget.TextView
+import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.host.R
@@ -164,6 +165,7 @@ class CarPlayNoPictureTest {
         val sink = ReflectionHelpers.callInstanceMethod<AndroidMediaSink>(host, "createMediaSink",
             ClassParameter.from(Int::class.javaPrimitiveType, 1280),
             ClassParameter.from(Int::class.javaPrimitiveType, 720),
+            ClassParameter.from(AirPlayDisplayConfig::class.java, null),
             ClassParameter.from(Int::class.javaPrimitiveType, ReflectionHelpers.getField<Int>(host, "restartGeneration")),
         )
         sinks += sink
