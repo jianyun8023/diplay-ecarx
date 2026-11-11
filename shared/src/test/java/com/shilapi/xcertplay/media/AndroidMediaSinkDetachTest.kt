@@ -15,7 +15,7 @@ import kotlin.concurrent.thread
 class AndroidMediaSinkDetachTest {
     private val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 1)
 
-    @Test fun reapplyingTheSameMapSurfaceKeepsItsDecoder() {
+    @Test fun reapplyingTheSameMainMirrorSurfaceKeepsItsDecoder() {
         val surface = Surface(SurfaceTexture(0))
         val replacement = Surface(SurfaceTexture(0))
         val sink = AndroidMediaSink(surface = null)
@@ -23,16 +23,16 @@ class AndroidMediaSinkDetachTest {
         @Suppress("UNCHECKED_CAST")
         val mirrors = field.get(sink) as Map<Pair<Int, String>, Any>
         try {
-            sink.setMirrorSurface(111, "launcher:1", surface)
-            sink.onVideoFrame(111, predicted)
-            val original = checkNotNull(mirrors[111 to "launcher:1"])
-            sink.setMirrorSurface(111, "launcher:1", surface)
-            assertSame("adopting a session reapplies its unchanged surface", original, mirrors[111 to "launcher:1"])
-            sink.setMirrorSurface(111, "launcher:1", replacement)
-            sink.onVideoFrame(111, predicted)
-            assertNotSame(original, mirrors[111 to "launcher:1"])
-            sink.setMirrorSurface(111, "launcher:1", null)
-            assertFalse(mirrors.containsKey(111 to "launcher:1"))
+            sink.setMirrorSurface(110, "ecarx-cluster-main", surface)
+            sink.onVideoFrame(110, predicted)
+            val original = checkNotNull(mirrors[110 to "ecarx-cluster-main"])
+            sink.setMirrorSurface(110, "ecarx-cluster-main", surface)
+            assertSame("adopting a session reapplies its unchanged surface", original, mirrors[110 to "ecarx-cluster-main"])
+            sink.setMirrorSurface(110, "ecarx-cluster-main", replacement)
+            sink.onVideoFrame(110, predicted)
+            assertNotSame(original, mirrors[110 to "ecarx-cluster-main"])
+            sink.setMirrorSurface(110, "ecarx-cluster-main", null)
+            assertFalse(mirrors.containsKey(110 to "ecarx-cluster-main"))
         } finally {
             sink.close()
         }

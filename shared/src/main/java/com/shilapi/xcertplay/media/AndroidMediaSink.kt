@@ -162,6 +162,8 @@ class AndroidMediaSink(
     // How long a surface detach waits for decoders to confirm, and then for an unconfirmed one to exit
     // after it is closed. Variables so tests can shorten them.
     internal var detachTimeoutNanos = 2_000_000_000L
+    // Builds the fanout a stream's decoder draws its mirrors with; a variable so tests can replace OpenGL.
+    internal var videoFanoutFactory: (Int, Int, (String) -> Unit) -> VideoFanout = { w, h, r -> GlVideoFanout(w, h, r) }
     internal var detachGraceNanos = 500_000_000L
     private val mediaAudioTypes = mutableSetOf<AudioStreamId>()
     private val audioRenderers = ConcurrentHashMap<AudioStreamId, AudioRenderer>()
@@ -185,7 +187,8 @@ class AndroidMediaSink(
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
     private val recoveryPending = AtomicBoolean(false)
-    // Extra decoders draw the same stream on other surfaces, such as the centre card.
+    // Other surfaces that show a stream too, such as the centre card. The main screen gives each its own
+    // decoder; other streams draw them from the stream's decoder ([mirrorsShareDecoder]).
     private val mirrorLock = Any()
     private val mirrorSurfaces = HashMap<Pair<Int, String>, Surface>()
     private val mirrorDecoders = HashMap<Pair<Int, String>, VideoDecoder>()
@@ -337,8 +340,9 @@ class AndroidMediaSink(
     }
 
     /**
-     * Also decodes stream [type] onto [surface] with its own decoder, one per [key], which
-     * starts at the next keyframe it asks for; null stops it. The stream's own surface is not affected.
+     * Also shows stream [type] on [surface], one per [key]; null stops it. The stream's own surface is not
+     * affected. The main screen decodes it with a decoder of its own, which starts at the next keyframe it asks
+     * for. Other streams draw it from their one decoder, so a mirror costs no second hardware decoder.
      */
     fun setMirrorSurface(type: Int, key: String, surface: Surface?) {
         synchronized(videoOwnershipLock) {
@@ -347,18 +351,20 @@ class AndroidMediaSink(
             synchronized(mirrorLock) {
                 if (surface != null && mirrorSurfaces[id] === surface) return
                 mirrorDecoders.remove(id)?.close()
-                if (surface == null) {
-                    mirrorSurfaces.remove(id)
-                    return
-                }
-                mirrorSurfaces[id] = surface
+                if (surface == null) mirrorSurfaces.remove(id) else mirrorSurfaces[id] = surface
             }
+            if (mirrorsShareDecoder(type)) {
+                // A decoder created later picks up every mirror when it starts.
+                videoDecoders[type]?.setMirror(key, surface)
+                return
+            }
+            if (surface == null) return
             lastVideoConfig[type]?.let { (codec, data) -> mirrorDecoders(type).forEach { it.configure(codec, data) } }
         }
     }
 
     private fun mirrorDecoders(type: Int): List<VideoDecoder> = synchronized(videoOwnershipLock) {
-        if (videoClosed) return emptyList()
+        if (videoClosed || mirrorsShareDecoder(type)) return emptyList()
         synchronized(mirrorLock) {
             if (mirrorSurfaces.isEmpty()) return emptyList()
             mirrorSurfaces.filterKeys { it.first == type }.map { (id, surface) ->
@@ -698,6 +704,9 @@ class AndroidMediaSink(
             // A decoder that replaces a closed one picks up the stream's codec configuration.
             val decoder = newVideoDecoder(type, surfaces[type] ?: defaultSurface, startImmediately = false)
             videoDecoders[type] = decoder
+            if (mirrorsShareDecoder(type)) synchronized(mirrorLock) {
+                mirrorSurfaces.filterKeys { it.first == type }.forEach { (id, surface) -> decoder.setMirror(id.second, surface) }
+            }
             lastVideoConfig[type]?.let { (codec, data) -> decoder.configure(codec, data) }
             decoder.start()
             decoder
@@ -729,6 +738,7 @@ class AndroidMediaSink(
             // Keep the experimental MTK mode on the main CarPlay picture only. Mirrors and the
             // cluster have separate timing and must retain their established decoder configuration.
             mtkDecoderTuningEnabled = mtkDecoderTuningEnabled && type == MAIN_SCREEN_TYPE && statsLabel == null,
+            fanoutFactory = videoFanoutFactory,
         )
         if (startImmediately) video.start()
         return video
