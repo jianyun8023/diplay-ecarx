@@ -1,3 +1,10 @@
+Opus codec in libdiplay_media.so: opus-pure 0.2.3 (https://crates.io/crates/opus-pure/0.2.3),
+a pure-Rust port of the reference libopus. License text as shipped in the crate:
+
+Copyright 2026 Stephen Berry
+
+Copyright 2026 restsend.com
+
 Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
                     Jean-Marc Valin, Timothy B. Terriberry,
                     CSIRO, Gregory Maxwell, Mark Borgerding,

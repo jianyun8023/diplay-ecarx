@@ -10,11 +10,15 @@ import java.nio.ByteBuffer
  * does not load (host unit tests, an unexpected ABI) every caller keeps its Kotlin path.
  */
 internal object NativeMedia {
-    val available: Boolean by lazy {
+    private val load: Result<Unit> by lazy {
         runCatching { System.loadLibrary("diplay_media") }
             .onFailure { runCatching { Log.w("xcertplay-usb", "native media library unavailable: $it") } }
-            .isSuccess
     }
+
+    val available: Boolean get() = load.isSuccess
+
+    /** Why the library did not load, for callers that report it; null when it loaded. */
+    val loadError: Throwable? get() = load.exceptionOrNull()
 
     /** Plaintext length written at [out] + [outOffset]; -1 when the tag does not verify. */
     @JvmStatic external fun chachaOpen(
@@ -55,10 +59,10 @@ internal object NativeMedia {
     /** A pooled copy of the first [length] bytes of [bytes]; 0 on bad arguments. */
     @JvmStatic external fun packetWrap(bytes: ByteArray, length: Int): Long
 
-    /** An audio renderer's PCM state (see `NativePcm`); 0 when [opus] was asked for and libopus is missing. */
+    /** An audio renderer's PCM state (see `NativePcm`); 0 on bad arguments. */
     @JvmStatic external fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): Long
     @JvmStatic external fun pcmDestroy(handle: Long)
-    /** PCM bytes written from the start of the direct [out], or a negative libopus error. */
+    /** PCM bytes written from the start of the direct [out], or negative when the packet does not decode. */
     @JvmStatic external fun pcmDecodeOpus(handle: Long, packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
     /** Big-endian LPCM bytes copied into the start of the direct [out] as little-endian, or -1. */
     @JvmStatic external fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
@@ -78,6 +82,24 @@ internal object NativeMedia {
     @JvmStatic external fun pipeLive(handle: Long, out: LongArray)
     @JvmStatic external fun pipeTakeStats(handle: Long, out: LongArray, decodeMicros: IntArray): Int
     @JvmStatic external fun pipeDestroy(handle: Long)
+
+    /** A 48 kHz mono VoIP Opus encoder (opus-pure); 0 when [bitrate] is refused. */
+    @JvmStatic external fun opusEncoderCreate(bitrate: Int): Long
+    /** Encodes 960 samples of [pcm] into [output]; the packet length, or negative (the encoder is then reset). */
+    @JvmStatic external fun opusEncode(handle: Long, pcm: ByteArray, output: ByteArray): Int
+    @JvmStatic external fun opusEncoderDestroy(handle: Long)
+
+    /**
+     * The microphone sender on [fd] (a duplicate it owns): Opus at [opusBitrate] (0 for PCM), sealed,
+     * to [address] ([scopeId] for a link-local IPv6 peer) and [port]. 0 when an argument is wrong.
+     */
+    @JvmStatic external fun uplinkCreate(
+        fd: Int, key: ByteArray, payloadType: Int, address: ByteArray, scopeId: Int, port: Int,
+        opusBitrate: Int, rtpSamplesPerPacket: Int,
+    ): Long
+    /** Packets sent for one frame (0 when the encoder produced none), -1 encode failure, -errno send failure. */
+    @JvmStatic external fun uplinkSend(handle: Long, frame: ByteArray, length: Int): Int
+    @JvmStatic external fun uplinkClose(handle: Long)
 
     /** An AAudio output for 16-bit PCM routed by [usage]; 0 when AAudio cannot open it. */
     @JvmStatic external fun outOpen(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): Long

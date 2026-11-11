@@ -2,39 +2,14 @@
 //! PCM steps of [crate::pcm]. Every call comes from that renderer's worker thread, into its direct
 //! PCM buffer, so no PCM crosses the Java heap.
 //!
-//! Opus comes from the `libopus.so` the app already ships for the microphone encoder, opened with
-//! dlopen: a phone without it still gets every other part of this library.
+//! Opus is decoded by opus-pure, a pure-Rust port of libopus whose 16-bit API matches libopus 1.6.1
+//! sample for sample.
 
 use crate::jvm::Env;
 use crate::packet;
 use crate::pcm::{self, VoiceFilter, DEFAULT_CUTOFF_HZ};
 use jni_sys::{jboolean, jclass, jint, jlong, jobject, JNIEnv};
-use std::ffi::{c_void, CStr};
-use std::os::raw::c_int;
-use std::sync::OnceLock;
-
-type Create = unsafe extern "C" fn(i32, c_int, *mut c_int) -> *mut c_void;
-type Decode = unsafe extern "C" fn(*mut c_void, *const u8, i32, *mut i16, c_int, c_int) -> c_int;
-type Destroy = unsafe extern "C" fn(*mut c_void);
-
-struct Opus { create: Create, decode: Decode, destroy: Destroy }
-
-fn opus() -> Option<&'static Opus> {
-    static OPUS: OnceLock<Option<Opus>> = OnceLock::new();
-    OPUS.get_or_init(|| unsafe {
-        let library = libc::dlopen(c"libopus.so".as_ptr(), libc::RTLD_NOW);
-        if library.is_null() { return None; }
-        let symbol = |name: &CStr| libc::dlsym(library, name.as_ptr());
-        let (create, decode, destroy) =
-            (symbol(c"opus_decoder_create"), symbol(c"opus_decode"), symbol(c"opus_decoder_destroy"));
-        if create.is_null() || decode.is_null() || destroy.is_null() { return None; }
-        Some(Opus {
-            create: std::mem::transmute::<*mut c_void, Create>(create),
-            decode: std::mem::transmute::<*mut c_void, Decode>(decode),
-            destroy: std::mem::transmute::<*mut c_void, Destroy>(destroy),
-        })
-    }).as_ref()
-}
+use opus_pure::OpusDecoder;
 
 /// Samples the Android Opus decoder drops at the start (OpusHead pre-skip, 6.5 ms at 48 kHz).
 const OPUS_PRE_SKIP: usize = 312;
@@ -47,17 +22,9 @@ pub struct Renderer {
     sample_rate: i32,
     channels: usize,
     filter: Option<VoiceFilter>,
-    opus: *mut c_void,
+    opus: Option<OpusDecoder>,
     pre_skip_left: usize,
     decoded: Vec<i16>,
-}
-
-impl Drop for Renderer {
-    fn drop(&mut self) {
-        if !self.opus.is_null() {
-            if let Some(library) = opus() { unsafe { (library.destroy)(self.opus) } }
-        }
-    }
 }
 
 unsafe fn renderer<'a>(handle: jlong) -> &'a mut Renderer { &mut *(handle as *mut Renderer) }
@@ -66,7 +33,7 @@ fn direct(env: *mut JNIEnv, buffer: jobject) -> Option<&'static mut [u8]> {
     Env(env).direct_buffer(buffer).map(|(address, capacity)| unsafe { std::slice::from_raw_parts_mut(address, capacity) })
 }
 
-/// 0 when Opus was asked for and cannot be decoded here; the renderer then keeps MediaCodec.
+/// 0 on bad arguments (or an Opus rate the codec does not take); the renderer then keeps MediaCodec.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmCreate(
     _env: *mut JNIEnv, _class: jclass, sample_rate: jint, channels: jint, voice_filter: jboolean, opus_decoder: jboolean,
@@ -76,15 +43,13 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
         sample_rate,
         channels: channels as usize,
         filter: (voice_filter != 0).then(|| VoiceFilter::new(sample_rate, channels as usize, DEFAULT_CUTOFF_HZ)),
-        opus: std::ptr::null_mut(),
+        opus: None,
         pre_skip_left: 0,
         decoded: Vec::new(),
     });
     if opus_decoder != 0 {
-        let Some(library) = opus() else { return 0 };
-        let mut error: c_int = 0;
-        state.opus = (library.create)(sample_rate, channels, &mut error);
-        if state.opus.is_null() || error != 0 { return 0; }
+        let Ok(decoder) = OpusDecoder::new(sample_rate, channels as usize) else { return 0 };
+        state.opus = Some(decoder);
         state.pre_skip_left = OPUS_PRE_SKIP * sample_rate as usize / 48_000;
         // 120 ms, the longest Opus packet.
         state.decoded = vec![0; sample_rate as usize * 120 / 1000 * channels as usize];
@@ -100,23 +65,23 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
 }
 
 /// Decodes `length` bytes at `offset` of a packet into `out` (from its start). Returns the PCM bytes
-/// written, or a negative libopus error (-100 for bad arguments or a buffer that is not direct).
+/// written, or -1 when the packet does not decode (-100 for bad arguments or a buffer that is not direct).
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmDecodeOpus(
     env: *mut JNIEnv, _class: jclass, handle: jlong, packet_handle: jlong, offset: jint, length: jint, out: jobject,
 ) -> jint {
     if handle == 0 || packet_handle == 0 || offset < 0 || length <= 0 { return -100; }
     let state = renderer(handle);
-    let (Some(library), Some(out)) = (opus(), direct(env, out)) else { return -100 };
-    if state.opus.is_null() { return -100; }
+    let Some(out) = direct(env, out) else { return -100 };
     let source = packet::bytes(packet_handle);
     let (offset, length) = (offset as usize, length as usize);
     if offset > source.len() || length > source.len() - offset { return -100; }
-    let frames = (library.decode)(
-        state.opus, source.as_ptr().add(offset), length as i32,
-        state.decoded.as_mut_ptr(), (state.decoded.len() / state.channels) as c_int, 0,
-    );
-    if frames < 0 { return frames; }
+    let capacity = state.decoded.len() / state.channels;
+    let Some(decoder) = state.opus.as_mut() else { return -100 };
+    let frames = match decoder.decode_s16(&source[offset..offset + length], capacity, &mut state.decoded) {
+        Ok(frames) => frames as i32,
+        Err(_) => return -1,
+    };
     let skip = state.pre_skip_left.min(frames as usize);
     state.pre_skip_left -= skip;
     let decoded = &state.decoded[skip * state.channels..frames as usize * state.channels];

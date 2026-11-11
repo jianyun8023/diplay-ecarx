@@ -60,6 +60,8 @@ internal class MicrophoneUplink(
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: MicrophoneOpusEncoder? = null
+    // Encodes, seals and sends each frame natively when the library is there; then [opusEncoder] is unused.
+    @Volatile private var nativeSender: NativeUplinkSender? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
     @Volatile private var echoCanceller: CallEchoCanceller? = null
     private var thread: Thread? = null
@@ -112,12 +114,6 @@ internal class MicrophoneUplink(
             running.set(false)
             return false
         }
-        if (nextEncoder != null) {
-            val message = "Microphone: encoder type=${config.audioType} codec=OPUS " +
-                "implementation=${nextEncoder.implementation}"
-            Log.i(TAG, message)
-            runCatching { onDiagnostic(message) }
-        }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
         // Some head units throw on VOICE_RECOGNITION at build(); VOICE_COMMUNICATION works there.
         val nextRecorder = createRecorder(source, channelMask, bufferSize)
@@ -149,7 +145,17 @@ internal class MicrophoneUplink(
 
         recorder = nextRecorder
         socket = nextSocket
-        opusEncoder = nextEncoder
+        nativeSender = NativeUplinkSender.create(nextSocket, config)
+        // The native sender encodes itself; the Kotlin encoder is only the fallback.
+        opusEncoder = if (nativeSender != null) null.also { nextEncoder?.close() } else nextEncoder
+        val implementation = when {
+            nativeSender != null && config.codec == AudioCodecKind.OPUS -> "native encoder=opus-pure"
+            nativeSender != null -> "native"
+            else -> opusEncoder?.implementation?.let { "kotlin encoder=$it" } ?: "kotlin"
+        }
+        val message = "Microphone: sender type=${config.audioType} codec=${config.codec} implementation=$implementation"
+        Log.i(TAG, message)
+        runCatching { onDiagnostic(message) }
         return try {
             if (config.audioType == "telephony") {
                 echoCanceller = createEchoCanceller()
@@ -397,6 +403,22 @@ internal class MicrophoneUplink(
     }
 
     private fun sendFrame(socket: DatagramSocket, counters: MicrophoneCounters, frame: ByteArray) {
+        nativeSender?.let { sender ->
+            val result = sender.send(frame)
+            when {
+                result >= 0 -> {
+                    stats.encoded(result, if (result == 0) 1 else 0)
+                    repeat(result) { stats.sent() }
+                }
+                result == -1 -> stats.encoded(0, 1)
+                else -> {
+                    stats.encoded(1, 0)
+                    stats.sendFailed()
+                    if (running.get()) throw java.io.IOException("microphone send failed errno=${-result}")
+                }
+            }
+            return
+        }
         val bodies = if (config.codec == AudioCodecKind.OPUS) {
             opusEncoder?.encode(frame).orEmpty()
         } else {
@@ -528,6 +550,9 @@ internal class MicrophoneUplink(
         val currentEncoder = opusEncoder
         opusEncoder = null
         currentEncoder?.close()
+        val currentSender = nativeSender
+        nativeSender = null
+        currentSender?.close()
     }
 
     private companion object {

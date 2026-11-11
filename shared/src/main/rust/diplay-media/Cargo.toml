@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 jni-sys = "0.3"
 libc = "0.2"
+opus-pure = "=0.2.3"
 ring = "0.17"
 
 [profile.release]

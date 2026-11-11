@@ -14,6 +14,7 @@ pub mod packet;
 pub mod pcm;
 pub mod renderer;
 pub mod stats;
+pub mod uplink;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub mod audio;

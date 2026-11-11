@@ -59,15 +59,15 @@ DiPlay vendors a subset of [SpeexDSP 1.2.1](https://github.com/xiph/speexdsp/tre
 
 SpeexDSP uses a BSD-style three-clause license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored COPYING file](../shared/src/main/jni/speexdsp/COPYING). Component source headers retain their additional notices, including KISS FFT's Mark Borgerding attribution, also copied to [KISS-FFT-LICENSE.txt](licenses/dependencies/KISS-FFT-LICENSE.txt). The [vendoring notes](../shared/src/main/jni/speexdsp/README.md) identify the source version and build configuration.
 
-## Software Opus microphone encoder
+## Opus codec (opus-pure)
 
-On head units without a MediaCodec Opus encoder, DiPlay prefers prebuilt [libopus 1.5.2](https://opus-codec.org/)
-from the `io.voxkit:kopus-android:1.0.1` AAR, with a small app-owned JNI bridge. ARM64 and ARMv7 binaries
-are checked in and used directly by APK builds; no Opus compilation or additional runtime download is required.
-The full Opus license is retained in [COPYING](../shared/src/main/jni/opus/COPYING), and
-[native provenance](../shared/src/main/jniLibs/NOTICE.md) records the artifact URL, hashes and bridge rebuild command.
+Opus audio is decoded and the microphone is encoded by [opus-pure 0.2.3](https://github.com/stephenberry/opus-pure),
+Stephen Berry's pure-Rust port of the reference libopus (derived from rusty-opus and opus-rs), compiled into
+`libdiplay_media.so`. Its BSD-3-Clause license keeps the copyright notices of Xiph.Org, Skype Limited, Octasic,
+Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla and
+Amazon; the full text is in [Opus-COPYING.txt](licenses/dependencies/Opus-COPYING.txt).
 
-DiPlay also vendors [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors. It remains the fallback when the native encoder cannot load or initialize.
+DiPlay also vendors [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors. It remains the fallback when `libdiplay_media.so` cannot load.
 
 Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/main/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/main/java/org/concentus/README.md) identify the source commit.
 
