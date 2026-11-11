@@ -61,6 +61,20 @@ internal class VideoStats(
         if (decodeSamples < decodeMicros.size) decodeMicros[decodeSamples++] = (ns / 1000).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
     }
 
+    /** The counters a native decode loop kept over the window ([NativeVideoPipe.drainStats]). */
+    @Synchronized fun addNative(
+        renderedFrames: Int, recoveryCount: Int, lateFrames: Int, pacingDelay: Long, held: Int, heldMaxNs: Long,
+        decode: IntArray, decodeCount: Int,
+    ) {
+        rendered += renderedFrames
+        recoveries += recoveryCount
+        late += lateFrames
+        if (pacingDelay > 0) pacingDelayNanos = pacingDelay
+        heldDecodeSamples += held
+        maxHeldDecodeNs = maxOf(maxHeldDecodeNs, heldMaxNs)
+        for (i in 0 until decodeCount) if (decodeSamples < decodeMicros.size) decodeMicros[decodeSamples++] = decode[i]
+    }
+
     /** A paced frame left the decoder after its display time and was shown at once. */
     @Synchronized fun onLate() { late++ }
 

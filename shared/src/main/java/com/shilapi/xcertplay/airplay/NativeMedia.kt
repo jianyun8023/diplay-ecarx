@@ -63,6 +63,22 @@ internal object NativeMedia {
     /** Big-endian LPCM bytes copied into the start of the direct [out] as little-endian, or -1. */
     @JvmStatic external fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
     /** Runs the PCM steps on the first [length] bytes of the direct [buffer]; 1 when sound was detected. */
+    /** A screen stream's native decode loop (see `NativeVideoPipe`); 0 when this system cannot run one. */
+    @JvmStatic external fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long): Long
+    @JvmStatic external fun pipeConfigure(
+        handle: Long, name: String?, mime: String, width: Int, height: Int, keys: Array<String>, values: IntArray,
+        csd0: ByteArray?, csd1: ByteArray?, surface: android.view.Surface, hevc: Boolean, reportVendorFormat: Boolean,
+        detailOut: Array<String?>,
+    ): Int
+    @JvmStatic external fun pipeRelease(handle: Long)
+    @JvmStatic external fun pipeSetSurface(handle: Long, surface: android.view.Surface, shown: Boolean): Int
+    @JvmStatic external fun pipeHold(handle: Long, hold: Boolean)
+    @JvmStatic external fun pipeSetAccepting(handle: Long, accepting: Boolean, resetChain: Boolean)
+    @JvmStatic external fun pipeSubmit(handle: Long, frame: Long, size: Int, flags: Int, senderNanos: Long, arrivalNanos: Long)
+    @JvmStatic external fun pipeLive(handle: Long, out: LongArray)
+    @JvmStatic external fun pipeTakeStats(handle: Long, out: LongArray, decodeMicros: IntArray): Int
+    @JvmStatic external fun pipeDestroy(handle: Long)
+
     @JvmStatic external fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int
 }
 
@@ -81,4 +97,9 @@ internal abstract class NativeStreamCallbacks {
     abstract fun onReport(line: String)
     /** The receive loop ended on its own: [error] is null at end of stream. Not called after [NativeMedia.stop]. */
     abstract fun onEnded(error: String?)
+}
+
+/** Events from a native video pipe, delivered in order on its own `carplay-video-events` thread. */
+internal abstract class NativeVideoCallbacks {
+    abstract fun onEvent(kind: Int, detail: String?)
 }

@@ -16,3 +16,6 @@
     void onReport(java.lang.String);
     void onEnded(java.lang.String);
 }
+-keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeVideoCallbacks {
+    void onEvent(int, java.lang.String);
+}
