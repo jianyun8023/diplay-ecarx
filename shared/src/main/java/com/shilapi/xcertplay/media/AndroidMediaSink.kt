@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioStreamId
+import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.MediaSink
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
@@ -417,6 +418,16 @@ class AndroidMediaSink(
         }
     }
 
+    override fun onVideoFrame(type: Int, frame: MediaPacket, senderNanos: Long, arrivalNanos: Long) {
+        if (type == MAIN_SCREEN_TYPE) mainVideoReceived = true
+        synchronized(videoOwnershipLock) {
+            if (videoClosed) { frame.release(); return }
+            // Each mirror decoder holds its own reference; the main decoder takes this one.
+            mirrorDecoders(type).forEach { it.submit(frame.share()) }
+            videoDecoder(type).submit(frame, senderNanos, arrivalNanos)
+        }
+    }
+
     override fun onScreenStreamActive(type: Int, active: Boolean) {
         synchronized(videoOwnershipLock) {
             if (videoClosed) return
@@ -443,6 +454,10 @@ class AndroidMediaSink(
     }
 
     override fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {
+        audioRenderer(id, format).submit(rtp, sample)
+    }
+
+    override fun onAudioPacket(id: AudioStreamId, format: AudioFormat, rtp: MediaPacket, sample: Int) {
         audioRenderer(id, format).submit(rtp, sample)
     }
 

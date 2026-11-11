@@ -115,12 +115,17 @@ object MediaCodecSupport {
         return false
     }
 
+    const val ADTS_HEADER_BYTES = 7
+
     /** Wraps one raw AAC-LC access unit in an MPEG-4 ADTS frame. */
-    fun adtsFrame(accessUnit: ByteArray, sampleRate: Int, channels: Int): ByteArray {
+    fun adtsFrame(accessUnit: ByteArray, sampleRate: Int, channels: Int): ByteArray =
+        ByteArray(ADTS_HEADER_BYTES).also { writeAdtsHeader(it, accessUnit.size, sampleRate, channels) } + accessUnit
+
+    /** Writes the ADTS header for an access unit of [accessUnitBytes] into [header] (7 bytes). */
+    fun writeAdtsHeader(header: ByteArray, accessUnitBytes: Int, sampleRate: Int, channels: Int) {
         val frequencyIndex = aacFrequencyIndex(sampleRate)
         val channelConfig = channels.coerceIn(1, 7)
-        val frameLength = accessUnit.size + 7
-        val header = ByteArray(7)
+        val frameLength = accessUnitBytes + ADTS_HEADER_BYTES
         header[0] = 0xff.toByte()
         header[1] = 0xf1.toByte()
         header[2] = ((1 shl 6) or (frequencyIndex shl 2) or (channelConfig ushr 2)).toByte()
@@ -128,7 +133,6 @@ object MediaCodecSupport {
         header[4] = ((frameLength ushr 3) and 0xff).toByte()
         header[5] = (((frameLength and 0x7) shl 5) or 0x1f).toByte()
         header[6] = 0xfc.toByte()
-        return header + accessUnit
     }
 
     /** Extracts one RFC 3640 AAC access unit from an RTP payload. */

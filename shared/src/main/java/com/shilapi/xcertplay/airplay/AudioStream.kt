@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import android.os.ParcelFileDescriptor
 import java.io.Closeable
 import java.io.IOException
 import java.net.DatagramPacket
@@ -8,6 +9,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 enum class AudioCodecKind { AAC_LC, OPUS, LPCM }
 
@@ -30,15 +32,28 @@ data class AudioFormat(
  * Wire layout follows LIVI `livi_audio_stream`: one RTP packet per datagram, a 12-byte header,
  * ciphertext, a 16-byte tag, then an 8-byte little-endian nonce. The header's last eight bytes
  * (timestamp + SSRC) are the AEAD associated data.
+ *
+ * With [NativeMedia] (and [preferNative]) the data socket goes to the native receiver, which opens
+ * each packet in a pooled buffer and delivers it through [Listener.onPacket]; [Listener.onPacket] with
+ * the wire bytes (packet capture) is then not called.
  */
 class AudioStream(
     private val key: ByteArray,
     private val streamType: Int = -1,
     private val onDiagnostic: (String) -> Unit = {},
+    private val preferNative: Boolean = true,
 ) : Closeable {
     interface Listener {
         fun onStarted(firstSample: Int) {}
         fun onRtp(rtp: ByteArray, sample: Int) {}
+        /** An opened RTP packet the listener now owns: it releases [rtp] once done with it. */
+        fun onPacket(rtp: MediaPacket, sample: Int) {
+            try {
+                onRtp(rtp.toByteArray(), sample)
+            } finally {
+                rtp.release()
+            }
+        }
         fun onPacket(
             wire: ByteArray,
             rtp: ByteArray?,
@@ -56,6 +71,7 @@ class AudioStream(
     private var dataThread: Thread? = null
     private var controlThread: Thread? = null
     private var started = false
+    private val nativeHandle = AtomicLong(0)
 
     fun listen(listener: Listener): Pair<Int, Int> {
         val data = bindAnyPort()
@@ -69,9 +85,11 @@ class AudioStream(
         val control = bindAnyPort()
         dataSocket = data
         controlSocket = control
-        dataThread = Thread({ runData(data, listener) }, "airplay-audio-rx").apply {
-            isDaemon = true
-            start()
+        if (!preferNative || !NativeMedia.available || !startNative(data, listener)) {
+            dataThread = Thread({ runData(data, listener) }, "airplay-audio-rx").apply {
+                isDaemon = true
+                start()
+            }
         }
         controlThread = Thread({ runControl(control) }, "airplay-rtcp-rx").apply {
             isDaemon = true
@@ -82,10 +100,48 @@ class AudioStream(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        nativeHandle.getAndSet(0).takeIf { it != 0L }?.let(NativeMedia::stop)
         dataSocket?.close()
         controlSocket?.close()
         dataThread?.interrupt()
         controlThread?.interrupt()
+    }
+
+    /** Hands [socket]'s receiving to the native receiver; false when it could not start. */
+    private fun startNative(socket: DatagramSocket, listener: Listener): Boolean {
+        val fd = runCatching { ParcelFileDescriptor.fromDatagramSocket(socket).detachFd() }.getOrNull() ?: return false
+        val callbacks = object : NativeStreamCallbacks() {
+            override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) {
+                val rtp = NativePacket(handle, size, flags)
+                if (closed.get()) { rtp.release(); return }
+                receivedPackets.incrementAndGet()
+                decryptedPackets.incrementAndGet()
+                val sample = a.toInt()
+                if (!started) {
+                    started = true
+                    listener.onStarted(sample)
+                }
+                listener.onPacket(rtp, sample)
+            }
+
+            override fun onLog(level: Int, line: String) {
+                if (level == 0) android.util.Log.i(TAG, line) else android.util.Log.w(TAG, line)
+            }
+
+            override fun onReport(line: String) = onDiagnostic(line)
+
+            override fun onEnded(error: String?) {
+                if (error != null) android.util.Log.w(TAG, "audio stream type=$streamType receive ended: $error")
+            }
+        }
+        val handle = NativeMedia.startAudio(fd, key, streamType, callbacks)
+        if (handle == 0L) {
+            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+            return false
+        }
+        nativeHandle.set(handle)
+        if (closed.get()) nativeHandle.getAndSet(0).takeIf { it != 0L }?.let(NativeMedia::stop)
+        return true
     }
 
     private fun runData(socket: DatagramSocket, listener: Listener) {

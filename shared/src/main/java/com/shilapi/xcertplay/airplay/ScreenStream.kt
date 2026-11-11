@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.Closeable
 import java.io.InputStream
@@ -7,6 +8,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -18,6 +20,9 @@ enum class VideoCodec { H264, H265 }
  * Each message is a 128-byte AirPlayScreenHeader followed by a body: a clear VideoConfig
  * (avcC/hvcC) or a ChaCha20-Poly1305 sealed VideoFrame. The key is the DataStream output key
  * and the per-frame nonce is an 8-byte little-endian counter.
+ *
+ * With [NativeMedia] the accepted socket goes to the native receiver, which delivers each frame as a
+ * pooled Annex B [MediaPacket]; otherwise this class reads and opens the frames itself.
  */
 class ScreenStream(
     private val key: ByteArray,
@@ -33,6 +38,14 @@ class ScreenStream(
          * arriving ([arrivalNanos], System.nanoTime). Listeners that do not pace frames ignore both.
          */
         fun onFrame(naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) = onFrame(naluBytes)
+        /** A frame the listener now owns: it releases [frame] once done with it. */
+        fun onFrame(frame: MediaPacket, senderNanos: Long, arrivalNanos: Long) {
+            try {
+                onFrame(frame.toByteArray(), senderNanos, arrivalNanos)
+            } finally {
+                frame.release()
+            }
+        }
         fun onClosed(cause: Throwable?) {}
     }
 
@@ -42,6 +55,7 @@ class ScreenStream(
     private var server: ServerSocket? = null
     private var socket: Socket? = null
     private var thread: Thread? = null
+    private val nativeHandle = AtomicLong(0)
     @Volatile private var listener: Listener = object : Listener {}
 
     fun listen(listener: Listener): Int {
@@ -58,14 +72,20 @@ class ScreenStream(
         if (!closed.compareAndSet(false, true)) return
         safeClose(socket)
         safeClose(server)
+        stopNative()
         thread?.interrupt()
+    }
+
+    private fun stopNative() {
+        val handle = nativeHandle.getAndSet(0)
+        if (handle != 0L) NativeMedia.stop(handle)
     }
 
     private fun accept(bound: ServerSocket) {
         try {
             val accepted = bound.acceptFrom(expectedPeer) { onDiagnostic("Video: rejected sender outside the control session") }
             socket = accepted
-            run(accepted)
+            if (!NativeMedia.available || !runNative(accepted)) run(accepted)
         } catch (error: Exception) {
             if (!closed.get()) listener.onClosed(error)
         }
@@ -101,6 +121,48 @@ class ScreenStream(
         }
     }
 
+    /** Hands [sock]'s reading to the native receiver; false when it could not start. */
+    private fun runNative(sock: Socket): Boolean {
+        val fd = runCatching { ParcelFileDescriptor.fromSocket(sock).detachFd() }.getOrNull() ?: return false
+        val callbacks = object : NativeStreamCallbacks() {
+            override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) {
+                val frame = NativePacket(handle, size, flags)
+                if (closed.get()) frame.release() else listener.onFrame(frame, a, b)
+            }
+
+            override fun onConfig(bytes: ByteArray) = onConfigBody(bytes)
+
+            override fun onLog(level: Int, line: String) {
+                if (level == 0) Log.i(TAG, line) else Log.w(TAG, line)
+            }
+
+            override fun onReport(line: String) = onDiagnostic(line)
+
+            override fun onEnded(error: String?) {
+                stopNative()
+                if (socket === sock) socket = null
+                safeClose(sock)
+                if (!closed.get()) listener.onClosed(error?.let(::IOException))
+            }
+        }
+        val handle = NativeMedia.startVideo(fd, key, callbacks)
+        if (handle == 0L) {
+            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
+            return false
+        }
+        nativeHandle.set(handle)
+        // A close that ran before the handle was published stops the receiver here.
+        if (closed.get()) stopNative()
+        return true
+    }
+
+    private fun onConfigBody(bytes: ByteArray) {
+        val (codec, codecData) = ScreenCodec.detectConfig(bytes)
+        Log.i(TAG, "video codec config codec=$codec body=${bytes.size} data=${codecData.size}")
+        listener.onCodec(codec)
+        listener.onConfig(codecData)
+    }
+
     private fun onMessage(header: ByteArray, body: ByteArray, bodySize: Int, stats: StreamReceiveStats, arrivalNanos: Long) {
         when (header[OPCODE_OFFSET].toInt() and 0xff) {
             OP_VIDEO_FRAME -> {
@@ -118,12 +180,7 @@ class ScreenStream(
                 }
                 listener.onFrame(ScreenCodec.lengthPrefixedToAnnexB(payload), ScreenCodec.senderNanos(header), arrivalNanos)
             }
-            OP_VIDEO_CONFIG -> {
-                val (codec, codecData) = ScreenCodec.detectConfig(body.copyOf(bodySize))
-                Log.i(TAG, "video codec config codec=$codec body=$bodySize data=${codecData.size}")
-                listener.onCodec(codec)
-                listener.onConfig(codecData)
-            }
+            OP_VIDEO_CONFIG -> onConfigBody(body.copyOf(bodySize))
         }
     }
 

@@ -77,21 +77,22 @@ the [official Opus 1.5.2 source archive](https://downloads.xiph.org/releases/opu
 The JNI bridge is covered by this repository's GPL license. The original Java Concentus encoder
 remains available when native loading or initialization fails. See the [third-party notices](../../../../docs/THIRD_PARTY_NOTICES.md).
 
-## Media stream ChaCha20-Poly1305
+## Media data plane
 
-`libdiplay_chacha.so` opens the ChaCha20-Poly1305 frames and packets of the CarPlay screen and audio
-streams. It is built from `../rust/diplay-chacha` (our JNI glue plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14),
-whose ChaCha20 and Poly1305 come from BoringSSL's assembly). `Cargo.lock` pins every crate.
+`libdiplay_media.so` receives the CarPlay screen and audio streams, opens their ChaCha20-Poly1305 frames and
+packets in pooled buffers, and hands Kotlin packet handles (see `docs/ARCHITECTURE.zh-CN.md`). It is built from
+`../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
+and Poly1305 come from BoringSSL's assembly, jni-sys and libc). `Cargo.lock` pins every crate.
 Build it from the repository root with
-`ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-chacha/build.sh`;
+`ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
-of Gradle or CI builds. With rustc 1.97.1 and NDK `28.2.13676358` two clean builds give identical bytes.
-When the library cannot load, the platform cipher (Conscrypt) opens the same data.
+of Gradle or CI builds; `cargo test` in that directory runs the host tests. With rustc 1.97.1 and NDK `28.2.13676358` two clean builds give identical bytes.
+When the library cannot load, the Kotlin receivers and the platform cipher (Conscrypt) handle the same data.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_chacha.so | 286992 | `5f2a90fc795114dd76062c3a8aa58bb2817813676d2e5bba9e0935d1e601d550` |
-| armeabi-v7a | libdiplay_chacha.so | 214028 | `db325c2b5b8b2bbc1d798fa51022a5c6a471cd7ec89a4d8a53e498abac09b2b6` |
+| arm64-v8a | libdiplay_media.so | 375816 | `a1fdac22c71c03e11652adc729513930314623df5262134768bd9a63b2c09bb8` |
+| armeabi-v7a | libdiplay_media.so | 264288 | `0bf9087777241adbd3b2f13f9ae4a92c7deca2b1b901875f43fd055d026479e7` |
 
-The JNI glue is covered by this repository's GPL license. The licenses of the linked crates are in
+The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).
