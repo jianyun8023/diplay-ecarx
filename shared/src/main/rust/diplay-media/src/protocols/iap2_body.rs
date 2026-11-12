@@ -78,7 +78,6 @@ mod tests {
 
 // ---- JNI boundary: `com.shilapi.xcertplay.iap2.wire.NativeIap2Body` ----
 
-use crate::platform::jvm::Env;
 use jni_sys::{jbyteArray, jclass, jint, jintArray, jobjectArray, jvalue, JNIEnv};
 use std::ptr::null_mut;
 
@@ -91,7 +90,8 @@ unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     // Kotlin's protocol exception has (String, Throwable), not ThrowNew's String-only constructor.
     let init = (f.GetMethodID.unwrap())(env, target, c"<init>".as_ptr(), c"(Ljava/lang/String;Ljava/lang/Throwable;)V".as_ptr());
     if init.is_null() { return; }
-    let text = Env(env).string(message);
+    let message = std::ffi::CString::new(message).unwrap();
+    let text = (f.NewStringUTF.unwrap())(env, message.as_ptr());
     if text.is_null() { return; }
     let args = [jvalue { l: text }, jvalue { l: null_mut() }];
     let error = (f.NewObjectA.unwrap())(env, target, init, args.as_ptr());
@@ -104,7 +104,15 @@ unsafe fn read_bytes(env: *mut JNIEnv, array: jbyteArray) -> Option<Vec<u8>> {
     let length = (f.GetArrayLength.unwrap())(env, array) as usize;
     let mut bytes = vec![0u8; length];
     (f.GetByteArrayRegion.unwrap())(env, array, 0, length as jint, bytes.as_mut_ptr() as *mut i8);
-    if Env(env).clear_exception() { None } else { Some(bytes) }
+    if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(bytes) }
+}
+
+unsafe fn byte_array(env: *mut JNIEnv, bytes: &[u8]) -> jbyteArray {
+    let f = &**env;
+    let array = (f.NewByteArray.unwrap())(env, bytes.len() as jint);
+    if array.is_null() { return null_mut(); }
+    (f.SetByteArrayRegion.unwrap())(env, array, 0, bytes.len() as jint, bytes.as_ptr() as *const i8);
+    if (f.ExceptionCheck.unwrap())(env) != 0 { null_mut() } else { array }
 }
 
 #[no_mangle]
@@ -117,17 +125,18 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Bod
     if (f.GetArrayLength.unwrap())(env, payloads) as usize != count { return null_mut(); }
     let mut id_data = vec![0i32; count];
     (f.GetIntArrayRegion.unwrap())(env, ids, 0, count as jint, id_data.as_mut_ptr());
-    if Env(env).clear_exception() { return null_mut(); }
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
     let mut parameters = Vec::with_capacity(count);
     for (index, id) in id_data.iter().enumerate() {
         if !(0..=0xffff).contains(id) { throw(env, "java/lang/IllegalArgumentException", "CSM parameter id must fit in u16"); return null_mut(); }
         let array = (f.GetObjectArrayElement.unwrap())(env, payloads, index as jint);
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
         let Some(payload) = read_bytes(env, array) else { (f.DeleteLocalRef.unwrap())(env, array); return null_mut(); };
         (f.DeleteLocalRef.unwrap())(env, array);
         parameters.push((*id as u16, payload));
     }
     match encode_parameter_list(&parameters) {
-        Ok(encoded) => Env(env).byte_array(&encoded),
+        Ok(encoded) => byte_array(env, &encoded),
         Err(message) => { throw(env, "java/lang/IllegalArgumentException", &message); null_mut() }
     }
 }
@@ -151,12 +160,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Bod
         let array = (f.NewObjectArray.unwrap())(env, parameters.len() as jint, class, null_mut());
         if array.is_null() { return None; }
         for (index, (id, payload)) in parameters.iter().enumerate() {
-            let bytes = Env(env).byte_array(payload);
+            let bytes = byte_array(env, payload);
             if bytes.is_null() { return None; }
             let args = [jvalue { i: *id as jint }, jvalue { l: bytes }];
             let parameter = (f.NewObjectA.unwrap())(env, class, init, args.as_ptr());
             (f.DeleteLocalRef.unwrap())(env, bytes);
-            if parameter.is_null() { return None; }
+            if (f.ExceptionCheck.unwrap())(env) != 0 || parameter.is_null() { return None; }
             (f.SetObjectArrayElement.unwrap())(env, array, index as jint, parameter);
             (f.DeleteLocalRef.unwrap())(env, parameter);
             if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
