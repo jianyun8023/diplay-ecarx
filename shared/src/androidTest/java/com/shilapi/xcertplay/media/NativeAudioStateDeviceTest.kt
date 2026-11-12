@@ -193,30 +193,33 @@ class NativeAudioStateDeviceTest {
 
     @Test fun nativeQueueBoundsOwnsAndReleasesPacketsAcrossCloseAndRecoversOnlySustainedLag() {
         val queue = requireNotNull(NativeAudioQueue.create(48_000, true))
-        val out = LongArray(2)
+        val reader = requireNotNull(queue.consumer())
+        val out = LongArray(3)
         try {
             repeat(151) { assertEquals(1, queue.push(HeapPacket(ByteArray(13)), it * 1024, 100_000_000)) }
             assertEquals(257, queue.push(HeapPacket(ByteArray(13)), 151 * 1024, 1_600_000_000))
             assertEquals(24, queue.size)
             assertTrue(queue.pendingFrames() <= 24_000)
-            val packet = requireNotNull(queue.poll(out))
+            val packet = requireNotNull(reader.poll(out, 0))
             queue.close()
             assertArrayEquals(ByteArray(13), packet.toByteArray())
             packet.release()
-            assertNull(queue.poll(out))
+            assertNull(reader.poll(out, 0))
             assertEquals(0, queue.push(HeapPacket(ByteArray(13)), 0, 0))
-        } finally { queue.close() }
+        } finally { queue.close(); reader.close() }
         requireNotNull(NativeAudioQueue.create(48_000, false)).use { voice ->
             repeat(192) { assertEquals(1, voice.push(HeapPacket(ByteArray(13)), it * 48_000, it * 1_000_000_000L)) }
             assertEquals(0, voice.push(HeapPacket(ByteArray(13)), 0, 200_000_000_000))
-            requireNotNull(voice.poll(out)).release()
+            requireNotNull(voice.consumer()).use { voiceReader -> requireNotNull(voiceReader.poll(out, 0)).release() }
             assertEquals(0L, out[0])
         }
         for (close in listOf(false, true)) {
             requireNotNull(NativeAudioQueue.create(48_000, false)).use { waiting ->
-                val polled = FutureTask { waiting.poll(LongArray(2), 5000) }
-                val worker = Thread(polled).apply { start() }
-                await { worker.state == Thread.State.TIMED_WAITING }
+                val waitingReader = requireNotNull(waiting.consumer())
+                val entered = java.util.concurrent.CountDownLatch(1)
+                val polled = FutureTask { waitingReader.use { entered.countDown(); it.poll(LongArray(3), 5000) } }
+                Thread(polled).start()
+                assertTrue(entered.await(1, TimeUnit.SECONDS))
                 if (close) waiting.close() else waiting.push(HeapPacket(ByteArray(13)), 0, 0)
                 val packet = polled.get(1, TimeUnit.SECONDS)
                 if (close) assertNull(packet) else requireNotNull(packet).release()

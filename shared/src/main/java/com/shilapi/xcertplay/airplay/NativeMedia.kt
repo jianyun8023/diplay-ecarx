@@ -67,7 +67,7 @@ internal object NativeMedia {
     @JvmStatic external fun videoTouchFrame(nowNanos: Long): Long
 
     /** As [startVideo], for one RTP audio stream on an `airplay-audio-rx` thread at audio priority. */
-    @JvmStatic external fun startAudio(fd: Int, key: ByteArray, streamType: Int, callbacks: NativeStreamCallbacks): Long
+    @JvmStatic external fun startAudio(fd: Int, key: ByteArray, streamType: Int, callbacks: NativeStreamCallbacks, route: Long): Long
 
     /** Stops a stream and gives up [handle]; also safe from the stream's own callbacks. */
     @JvmStatic external fun stop(handle: Long)
@@ -87,15 +87,24 @@ internal object NativeMedia {
     /** Wakes the bounded receiver, releases all queued packets; returns whether to stop the platform output. */
     @JvmStatic external fun bufferedDestroy(handle: Long): Boolean
 
+    @JvmStatic external fun audioFormatBits(bits: Long): IntArray
+    @JvmStatic external fun audioRouteCreate(clockRate: Int, direct: Boolean): Long
+    @JvmStatic external fun audioRouteSetQueue(handle: Long, retainedQueue: Long)
+    @JvmStatic external fun audioRouteFeedback(handle: Long, reported: Long, nowNs: Long): LongArray?
+    @JvmStatic external fun audioRouteDestroy(handle: Long)
+    @JvmStatic external fun audioQueueRetain(handle: Long): Long
+    @JvmStatic external fun audioQueueRelease(handle: Long)
+    @JvmStatic external fun audioQueueEvent(handle: Long, out: LongArray): Boolean
+    @JvmStatic external fun audioQueueStats(handle: Long, out: LongArray, reset: Boolean)
     @JvmStatic external fun audioQueueCreate(clockRate: Int, media: Boolean): Long
     /** Consumes packet. Result bit 0: accepted; remaining bits: stale packets released. */
     @JvmStatic external fun audioQueuePush(handle: Long, packet: Long, sample: Int, arrivedNanos: Long): Int
-    /** Transfers a packet; out: sample, arrival. */
-    @JvmStatic external fun audioQueuePoll(handle: Long, out: LongArray): Long
+    /** Transfers a packet; out: sample, arrival, optional size. Timeout/close waits are native. */
+    @JvmStatic external fun audioQueuePoll(handle: Long, out: LongArray, timeoutMillis: Long): Long
     @JvmStatic external fun audioQueueSize(handle: Long): Int
-    @JvmStatic external fun audioQueuePending(handle: Long): Long
+    @JvmStatic external fun audioQueuePending(handle: Long, droppedSnapshot: LongArray?): Long
     @JvmStatic external fun audioQueueArrivals(handle: Long, sinceNanos: Long, nowNanos: Long, sampleRate: Int): Double
-    @JvmStatic external fun audioQueueDestroy(handle: Long)
+    @JvmStatic external fun audioQueueDestroy(handle: Long, finalStats: LongArray?)
 
     @JvmStatic external fun clockCreate(sampleRate: Int, targetFrames: Long, integral: Double, measuresTarget: Boolean): Long
     @JvmStatic external fun clockSample(handle: Long, queuedFrames: Long, nowNanos: Long,
@@ -202,6 +211,10 @@ internal object NativeMedia {
  */
 internal abstract class NativeStreamCallbacks {
     abstract fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long)
+    open fun onAudioStarted(sample: Int) {}
+    open fun onAudioWire(wire: ByteArray, opened: ByteArray?, sample: Long, error: Int) {}
+    open fun onAudioClock(hz: Int) {}
+    open fun onAudioQueueEvent(kind: Int, value: Long, extra: Long) {}
     open fun onConfig(bytes: ByteArray) {}
     open fun onReceiving() {}
     /** Logcat: [level] 0 is info, 1 a warning. */

@@ -7,6 +7,7 @@ pub mod clock_trim;
 pub mod pcm;
 mod packetizer;
 pub mod queue;
+pub mod route;
 pub mod renderer;
 pub mod scheduler;
 pub mod uplink;

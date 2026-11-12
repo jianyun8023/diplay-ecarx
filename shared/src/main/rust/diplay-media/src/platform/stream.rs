@@ -58,6 +58,10 @@ impl Drop for Control {
 pub struct Callbacks {
     object: jobject,
     on_packet: jmethodID,
+    on_audio_started: jmethodID,
+    on_audio_wire: jmethodID,
+    on_audio_clock: jmethodID,
+    on_audio_queue: jmethodID,
     on_config: jmethodID,
     on_receiving: jmethodID,
     on_log: jmethodID,
@@ -75,6 +79,10 @@ impl Callbacks {
         let callbacks = Callbacks {
             object: env.new_global(object),
             on_packet: env.method(class, "onPacket", "(JIIJJ)V"),
+            on_audio_started: env.method(class, "onAudioStarted", "(I)V"),
+            on_audio_wire: env.method(class, "onAudioWire", "([B[BJI)V"),
+            on_audio_clock: env.method(class, "onAudioClock", "(I)V"),
+            on_audio_queue: env.method(class, "onAudioQueueEvent", "(IJJ)V"),
             on_config: env.method(class, "onConfig", "([B)V"),
             on_receiving: env.method(class, "onReceiving", "()V"),
             on_log: env.method(class, "onLog", "(ILjava/lang/String;)V"),
@@ -84,6 +92,8 @@ impl Callbacks {
         env.delete_local(class);
         let complete = !callbacks.object.is_null() && !callbacks.on_packet.is_null() && !callbacks.on_config.is_null() &&
             !callbacks.on_receiving.is_null() && !callbacks.on_log.is_null() && !callbacks.on_report.is_null() && !callbacks.on_ended.is_null();
+        let complete = complete && !callbacks.on_audio_started.is_null() && !callbacks.on_audio_wire.is_null()
+            && !callbacks.on_audio_clock.is_null() && !callbacks.on_audio_queue.is_null();
         if complete { Some(callbacks) } else { env.delete_global(callbacks.object); None }
     }
 
@@ -91,6 +101,29 @@ impl Callbacks {
     pub fn packet(&self, env: Env, handle: jlong, size: usize, flags: i32, a: i64, b: i64) {
         let args = [jvalue { j: handle }, jvalue { i: size as i32 }, jvalue { i: flags }, jvalue { j: a }, jvalue { j: b }];
         env.call_void(self.object, self.on_packet, &args);
+    }
+
+    pub fn audio_started(&self, env: Env, sample: i32) {
+        env.call_void(self.object, self.on_audio_started, &[jvalue { i: sample }]);
+    }
+
+    pub fn audio_clock(&self, env: Env, hz: i32) {
+        env.call_void(self.object, self.on_audio_clock, &[jvalue { i: hz }]);
+    }
+
+    pub fn audio_queue_event(&self, env: Env, event: [i64; 3]) {
+        env.call_void(self.object, self.on_audio_queue, &[
+            jvalue { i: event[0] as i32 }, jvalue { j: event[1] }, jvalue { j: event[2] }]);
+    }
+
+    /// Debug capture only: preserve the original datagram and opened RTP, including rejected wire.
+    pub fn audio_wire(&self, env: Env, wire: &[u8], opened: Option<&[u8]>, sample: u32, error: i32) {
+        let wire = env.byte_array(wire);
+        let opened = opened.map(|bytes| env.byte_array(bytes)).unwrap_or(std::ptr::null_mut());
+        env.call_void(self.object, self.on_audio_wire, &[
+            jvalue { l: wire }, jvalue { l: opened }, jvalue { j: sample as i64 }, jvalue { i: error }]);
+        env.delete_local(opened);
+        env.delete_local(wire);
     }
 
     pub fn config(&self, env: Env, bytes: &[u8]) {

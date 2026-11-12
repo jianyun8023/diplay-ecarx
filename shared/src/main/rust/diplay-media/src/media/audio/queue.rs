@@ -77,13 +77,121 @@ impl AudioQueue {
     }
 }
 
+/// One queue shared by its producer, route and worker. Closing wakes a blocked worker, while its
+/// retained reference keeps the allocation alive until that worker returns.
+pub struct QueueOwner {
+    state: Mutex<QueueState>,
+    ready: std::sync::Condvar,
+}
+
+struct QueueState {
+    queue: AudioQueue,
+    closed: bool,
+    received: i32,
+    dropped: i32,
+    dropped_total: i32,
+    last_arrival: i64,
+    max_gap_ms: i64,
+    recovery_reports: i32,
+    full_reports: i32,
+    full_logged: bool,
+    events: VecDeque<[i64; 3]>,
+}
+
+impl QueueOwner {
+    pub fn new(clock_rate: i64, media: bool) -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            state: Mutex::new(QueueState { queue: AudioQueue::new(clock_rate, media), closed: false,
+                received: 0, dropped: 0, dropped_total: 0, last_arrival: 0, max_gap_ms: 0,
+                recovery_reports: 0, full_reports: 0, full_logged: false, events: VecDeque::new() }),
+            ready: std::sync::Condvar::new(),
+        })
+    }
+
+    /// Consumes the packet, including after close and when the bounded queue is full.
+    pub fn push(&self, packet: AudioPacket) -> (bool, usize) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed { return (false, 0); }
+        state.received = state.received.wrapping_add(1);
+        if state.last_arrival != 0 {
+            state.max_gap_ms = state.max_gap_ms.max(packet.arrived_ns.wrapping_sub(state.last_arrival) / 1_000_000);
+        }
+        state.last_arrival = packet.arrived_ns;
+        let result = state.queue.push(packet);
+        let dropped = (result.1 as i32).wrapping_add((!result.0) as i32);
+        state.dropped = state.dropped.wrapping_add(dropped);
+        state.dropped_total = state.dropped_total.wrapping_add(dropped);
+        if result.1 != 0 && state.recovery_reports < 5 {
+            state.recovery_reports += 1;
+            let size = state.queue.packets.len() as i64;
+            state.events.push_back([1, result.1 as i64, size]);
+        }
+        if !result.0 {
+            let warn = !state.full_logged;
+            state.full_logged = true;
+            let count = if state.full_reports < 5 { state.full_reports += 1; state.full_reports } else { 0 };
+            if warn || count != 0 { state.events.push_back([2, count as i64, warn as i64]); }
+        }
+        drop(state);
+        if result.0 { self.ready.notify_one(); }
+        result
+    }
+
+    pub fn event(&self) -> Option<[i64; 3]> { self.state.lock().unwrap().events.pop_front() }
+
+    fn poll(&self, timeout_ms: i64) -> Option<AudioPacket> {
+        let state = self.state.lock().unwrap();
+        let mut state = if timeout_ms > 0 && !state.closed && state.queue.packets.is_empty() {
+            self.ready.wait_timeout_while(state, std::time::Duration::from_millis(timeout_ms as u64),
+                |state| !state.closed && state.queue.packets.is_empty()).unwrap().0
+        } else { state };
+        let packet = state.queue.packets.pop_front();
+        if packet.is_some() && state.queue.packets.is_empty() { state.full_logged = false; }
+        packet
+    }
+
+    pub fn close(&self) -> [i64; 5] {
+        let mut state = self.state.lock().unwrap();
+        state.closed = true;
+        let snapshot = [state.received as i64, state.dropped as i64, state.dropped_total as i64,
+            state.last_arrival, state.max_gap_ms];
+        state.queue.packets.clear();
+        drop(state);
+        self.ready.notify_all();
+        snapshot
+    }
+}
+
+/// The caller must own a queue reference for the duration of the borrow.
+pub unsafe fn owner<'a>(handle: jlong) -> Option<&'a QueueOwner> {
+    (handle != 0).then(|| &*(handle as *const QueueOwner))
+}
+
+/// A retained reference transferred by Kotlin's lifetime monitor (also consumed by a route).
+pub unsafe fn consume_reference(handle: jlong) -> Option<std::sync::Arc<QueueOwner>> {
+    (handle != 0).then(|| std::sync::Arc::from_raw(handle as *const QueueOwner))
+}
+
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueCreate(
     _env: *mut JNIEnv, _class: jclass, clock_rate: jint, media: jboolean,
 ) -> jlong {
     if clock_rate <= 0 { return 0; }
-    Box::into_raw(Box::new(Mutex::new(AudioQueue::new(clock_rate as i64, media != 0)))) as jlong
+    std::sync::Arc::into_raw(QueueOwner::new(clock_rate as i64, media != 0)) as jlong
 }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueRetain(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+) -> jlong {
+    if handle != 0 { std::sync::Arc::increment_strong_count(handle as *const QueueOwner); }
+    handle
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueRelease(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+) { drop(consume_reference(handle)); }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueuePush(
@@ -91,46 +199,88 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 ) -> jint {
     if packet == 0 { return 0; }
     let packet = AudioPacket { handle: packet, sample: sample as u32, arrived_ns };
-    if handle == 0 { return 0; }
-    let (accepted, removed) = (&*(handle as *const Mutex<AudioQueue>)).lock().unwrap().push(packet);
+    let Some(owner) = owner(handle) else { return 0 };
+    let (accepted, removed) = owner.push(packet);
     ((removed as i32) << 1) | accepted as i32
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueuePoll(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray,
+    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, timeout_ms: jlong,
 ) -> jlong {
-    if handle == 0 || Env(env).array_len(out) < 2 { return 0; }
-    let mut queue = (&*(handle as *const Mutex<AudioQueue>)).lock().unwrap();
-    let Some(packet) = queue.packets.pop_front() else { return 0 };
-    let values = [packet.sample as i64, packet.arrived_ns];
-    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 2, values.as_ptr());
-    if Env(env).clear_exception() { return 0; }
+    let len = Env(env).array_len(out);
+    if len < 2 { return 0; }
+    let Some(owner) = owner(handle) else { return 0 };
+    let Some(packet) = owner.poll(timeout_ms) else { return 0 };
+    let values = [packet.sample as i64, packet.arrived_ns, packet.size() as i64];
+    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, len.min(3) as i32, values.as_ptr());
+    if ((**env).ExceptionCheck.unwrap())(env) != 0 { return 0; }
     packet.into_handle()
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueEvent(
+    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray,
+) -> jboolean {
+    if Env(env).array_len(out) < 3 { return 0; }
+    let Some(event) = owner(handle).and_then(QueueOwner::event) else { return 0 };
+    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 3, event.as_ptr());
+    (((**env).ExceptionCheck.unwrap())(env) == 0) as jboolean
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueStats(
+    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, reset: jboolean,
+) {
+    if Env(env).array_len(out) < 5 { return; }
+    let Some(owner) = owner(handle) else { return };
+    let mut state = owner.state.lock().unwrap();
+    let values = [state.received as i64, state.dropped as i64, state.dropped_total as i64,
+        state.last_arrival, state.max_gap_ms];
+    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 5, values.as_ptr());
+    if ((**env).ExceptionCheck.unwrap())(env) == 0 && reset != 0 {
+        state.received = 0; state.dropped = 0; state.max_gap_ms = 0;
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueSize(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) -> jint { if handle == 0 { 0 } else { (&*(handle as *const Mutex<AudioQueue>)).lock().unwrap().packets.len() as jint } }
+) -> jint { owner(handle).map_or(0, |o| o.state.lock().unwrap().queue.packets.len() as jint) }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueuePending(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) -> jlong { if handle == 0 { 0 } else { (&*(handle as *const Mutex<AudioQueue>)).lock().unwrap().pending_frames() } }
+    env: *mut JNIEnv, _class: jclass, handle: jlong, dropped: jlongArray,
+) -> jlong {
+    let Some(owner) = owner(handle) else { return 0 };
+    let state = owner.state.lock().unwrap();
+    if !dropped.is_null() && Env(env).array_len(dropped) >= 1 {
+        let value = state.dropped_total as i64;
+        ((**env).SetLongArrayRegion.unwrap())(env, dropped, 0, 1, &value);
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return 0; }
+    }
+    state.queue.pending_frames()
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueArrivals(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, since_ns: jlong, now_ns: jlong, sample_rate: jint,
 ) -> f64 {
-    if handle == 0 || sample_rate <= 0 { return 0.0; }
-    (&*(handle as *const Mutex<AudioQueue>)).lock().unwrap().arrived_frame_ns(since_ns, now_ns, sample_rate as i64)
+    if sample_rate <= 0 { return 0.0; }
+    owner(handle).map_or(0.0, |o| o.state.lock().unwrap().queue.arrived_frame_ns(since_ns, now_ns, sample_rate as i64))
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueDestroy(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) { if handle != 0 { drop(Box::from_raw(handle as *mut Mutex<AudioQueue>)); } }
+    env: *mut JNIEnv, _class: jclass, handle: jlong, stats: jlongArray,
+) {
+    if let Some(owner) = consume_reference(handle) {
+        let row = owner.close();
+        if !stats.is_null() && Env(env).array_len(stats) >= 5 {
+            ((**env).SetLongArrayRegion.unwrap())(env, stats, 0, 5, row.as_ptr());
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -140,6 +290,39 @@ mod tests {
         let mut packet = pool.take(13);
         unsafe { std::ptr::write_bytes(packet.spare(), 0, 13); packet.set_len(13); }
         AudioPacket { handle: packet.into_handle(), sample, arrived_ns }
+    }
+
+    #[test]
+    fn closing_wakes_a_retained_poll_and_preserves_the_allocation_until_the_worker_returns() {
+        let owner = QueueOwner::new(48_000, true);
+        let weak = std::sync::Arc::downgrade(&owner);
+        let reader = owner.clone();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            ready_tx.send(()).unwrap();
+            done_tx.send(reader.poll(60_000).is_none()).unwrap();
+        });
+        ready_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert_eq!(owner.close(), [0; 5]);
+        drop(owner);
+        assert!(done_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        worker.join().unwrap();
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn input_statistics_close_cutoff_and_late_packet_release_have_one_rust_owner() {
+        let pool = packet::Pool::new();
+        let queue = QueueOwner::new(48_000, false);
+        for (sample, arrived) in [(1, 10_000_000), (2, 5_000_000), (3, 25_000_000)] {
+            assert_eq!(queue.push(frame(&pool, sample, arrived)), (true, 0));
+        }
+        assert_eq!(queue.close(), [3, 0, 0, 25_000_000, 20]);
+        assert_eq!(pool.outstanding(), 0);
+        assert_eq!(queue.push(frame(&pool, 4, 30_000_000)), (false, 0));
+        assert_eq!(pool.outstanding(), 0);
+        assert_eq!(queue.close(), [3, 0, 0, 25_000_000, 20]);
     }
 
     #[test]

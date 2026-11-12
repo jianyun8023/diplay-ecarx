@@ -11,6 +11,10 @@
 # libdiplay_media calls these from its receiver threads by name (see NativeMedia).
 -keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeStreamCallbacks {
     void onPacket(long, int, int, long, long);
+    void onAudioStarted(int);
+    void onAudioWire(byte[], byte[], long, int);
+    void onAudioClock(int);
+    void onAudioQueueEvent(int, long, long);
     void onConfig(byte[]);
     void onReceiving();
     void onLog(int, java.lang.String);

@@ -30,7 +30,7 @@ internal class NativePcm private constructor(private var handle: Long, val decod
         handle = 0L
     }
 
-    /** A Kotlin receiver's packet (packet capture) is copied into a pooled one for the call. */
+    /** Heap-backed SDK input is copied into a pooled packet at this boundary. */
     private inline fun withHandle(packet: MediaPacket, block: (Long) -> Int): Int {
         if (packet is NativePacket) return block(packet.nativeHandle())
         val copy = NativeMedia.packetWrap(packet.toByteArray(), packet.size)
@@ -43,14 +43,15 @@ internal class NativePcm private constructor(private var handle: Long, val decod
         const val ATTENUATE = 2
         const val FADE_IN = 4
 
-        /**
-         * Null without the library. If the requested [opus] decoder cannot be created, returns a renderer that
-         * does not decode Opus ([decodesOpus] false), and MediaCodec decodes instead.
-         */
-        fun create(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): NativePcm? {
-            if (!NativeMedia.available) return null
-            if (opus) NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, true).let { if (it != 0L) return NativePcm(it, true) }
-            return NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, false).takeIf { it != 0L }?.let { NativePcm(it, false) }
+        /** Core DSP is mandatory; an unavailable Opus decoder still uses the SDK MediaCodec. */
+        fun create(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): NativePcm {
+            NativeMedia.requireAvailable()
+            if (opus) NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, true).let {
+                if (it != 0L) return NativePcm(it, true)
+            }
+            val handle = NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, false)
+            check(handle != 0L) { "Native PCM processor could not be created" }
+            return NativePcm(handle, false)
         }
     }
 }

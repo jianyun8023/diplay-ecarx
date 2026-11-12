@@ -3,6 +3,8 @@
 //! the associated data. Datagrams arrive in batches through recvmmsg and are opened in place, so the
 //! packet Kotlin receives is the plain RTP packet.
 
+use super::{queue::AudioPacket, route::{self, AudioRoute, Delivery}};
+use std::sync::Arc;
 use crate::protocols::crypto::{StreamKey, TAG_LEN};
 use crate::platform::jvm::Env;
 use crate::media::packet::{Packet, Pool};
@@ -21,16 +23,18 @@ const THREAD_PRIORITY_AUDIO: jint = -16;
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_startAudio(
-    env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, stream_type: jint, callbacks: jobject,
+    env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, stream_type: jint, callbacks: jobject, route_handle: jlong,
 ) -> jlong {
     let e = Env(env);
     let mut key_bytes = [0u8; 32];
     if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
     let (Some(stream_key), Some(callbacks)) = (StreamKey::new(&key_bytes), Callbacks::new(e, callbacks)) else { return 0 };
+    let Some(route) = route::retain(route_handle) else { return 0 };
+    let capture_wire = route.capture_wire();
     let control = Control::new(fd);
     stream::spawn("airplay-audio-rx", control, callbacks, move |env, control, callbacks| {
         env.set_thread_priority(THREAD_PRIORITY_AUDIO);
-        receive(env, control, callbacks, stream_key, stream_type)
+        receive(env, control, callbacks, stream_key, stream_type, route, capture_wire)
     })
 }
 
@@ -92,7 +96,7 @@ fn wait(fd: i32, control: &Control) -> Wait {
     }
 }
 
-fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey, stream_type: i32) {
+fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey, stream_type: i32, route: Arc<AudioRoute>, capture_wire: bool) {
     let Some(fd) = control.socket() else { return };
     let pool = Pool::new();
     let mut stats = ReceiveStats::new(format!("audio type={stream_type}"), SESSION_REPORT_INTERVAL_NS, SystemClock);
@@ -126,6 +130,7 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey, s
             let mut packet = batch.packets[i].take().unwrap();
             unsafe { packet.set_len(length) };
             let wire = packet.bytes();
+            let captured = capture_wire.then(|| wire.to_vec());
             let has_header = length >= RTP_HEADER_LEN;
             stats.received(
                 length,
@@ -137,6 +142,7 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey, s
                 if received == 1 {
                     callbacks.log(env, 1, &format!("audio stream type={stream_type} short packet bytes={length}"));
                 }
+                if let Some(wire) = &captured { callbacks.audio_wire(env, wire, None, 0, 1); }
                 packet.recycle();
             } else {
                 let sample = u32::from_be_bytes([wire[4], wire[5], wire[6], wire[7]]);
@@ -156,8 +162,26 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey, s
                                 "audio stream type={stream_type} packet=1 sample={} wireBytes={length} payloadBytes={plain} impl=rust",
                                 sample as i32));
                         }
-                        let size = packet.len();
-                        callbacks.packet(env, packet.into_handle(), size, 0, sample as i64, arrival);
+                        if let Some(wire) = &captured { callbacks.audio_wire(env, wire, Some(packet.bytes()), sample, 0); }
+                        if route.closed() { packet.recycle(); }
+                        else {
+                            if decrypted == 1 { callbacks.audio_started(env, sample as i32); }
+                            if let Some(hz) = route.observe(sample, clock(libc::CLOCK_MONOTONIC)) {
+                                callbacks.audio_clock(env, hz);
+                            }
+                            let packet = AudioPacket { handle: packet.into_handle(), sample,
+                                arrived_ns: clock(libc::CLOCK_MONOTONIC) };
+                            match route.deliver(packet) {
+                                Delivery::Callback(packet) => {
+                                    let size = packet.size();
+                                    callbacks.packet(env, packet.into_handle(), size, 0, sample as i64, arrival);
+                                }
+                                Delivery::Queued(queue) => {
+                                    while let Some(event) = queue.event() { callbacks.audio_queue_event(env, event); }
+                                }
+                                Delivery::Closed => {}
+                            }
+                        }
                     }
                     None => {
                         failures += 1;
@@ -165,6 +189,7 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey, s
                             callbacks.log(env, 1, &format!(
                                 "audio stream type={stream_type} first decrypt failure bytes={length} (tag mismatch)"));
                         }
+                        if let Some(wire) = &captured { callbacks.audio_wire(env, wire, None, sample, 2); }
                         packet.recycle();
                     }
                 }

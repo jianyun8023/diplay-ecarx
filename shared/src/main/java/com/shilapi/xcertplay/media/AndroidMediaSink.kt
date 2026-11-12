@@ -14,6 +14,7 @@ import com.shilapi.xcertplay.airplay.MediaSink
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.NativeVideoRoute
+import com.shilapi.xcertplay.airplay.NativeAudioRoute
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -172,6 +173,7 @@ class AndroidMediaSink(
     internal var videoFanoutFactory: (Int, Int, (String) -> Unit) -> VideoFanout = { w, h, r -> GlVideoFanout(w, h, r) }
     internal var detachGraceNanos = 500_000_000L
     private val mediaAudioTypes = mutableSetOf<AudioStreamId>()
+    private val audioRoutes = ConcurrentHashMap<AudioStreamId, NativeAudioRoute>()
     private val audioRenderers = ConcurrentHashMap<AudioStreamId, AudioRenderer>()
     @Volatile private var navigationAttenuationDb = NavigationAudioGain.clamp(navigationAttenuationDb)
 
@@ -471,8 +473,21 @@ class AndroidMediaSink(
         }
     }
 
+    @Synchronized
+    override fun onNativeAudioRoute(id: AudioStreamId, format: AudioFormat, route: NativeAudioRoute) {
+        audioRoutes.put(id, route)?.takeIf { it !== route }?.disconnect()
+        route.setQueue { audioRenderers[id]?.retainNativeQueue() ?: 0L }
+    }
+
+    override fun onAudioQueueEvent(id: AudioStreamId, kind: Int, value: Long, extra: Long) {
+        audioRenderers[id]?.queueEvent(kind, value, extra)
+    }
+
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
-        audioRenderer(id, format).start()
+        audioRenderer(id, format).also { renderer ->
+            renderer.start()
+            audioRoutes[id]?.setQueue(renderer::retainNativeQueue)
+        }
         if (format.audioType == "media") updateMediaAudio(id, true)
     }
 
@@ -486,6 +501,7 @@ class AndroidMediaSink(
 
     override fun onAudioStopped(id: AudioStreamId) {
         synchronized(this) {
+            audioRoutes.remove(id)?.disconnect()
             audioRenderers.remove(id)?.also { if (followingNavigationRenderer === it) followingNavigationRenderer = null }?.close()
             callEchoReferences.remove(id)
         }
@@ -726,6 +742,8 @@ class AndroidMediaSink(
         // Audio workers close asynchronously; none may reacquire focus after their sink closes.
         audioFocusCoordinator.close()
         navigationPromptFocus.close()
+        audioRoutes.values.forEach(NativeAudioRoute::disconnect)
+        audioRoutes.clear()
         audioRenderers.values.forEach(AudioRenderer::close)
         audioRenderers.clear()
         followingNavigationRenderer = null
@@ -845,6 +863,7 @@ class AndroidMediaSink(
             it.setNavigationAttenuationDb(navigationAttenuationFor(route))
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
             audioRenderers[id] = it
+            audioRoutes[id]?.setQueue(it::retainNativeQueue)
             // Cover a Settings change made while this renderer was being prepared.
             it.setNavigationAttenuationDb(navigationAttenuationFor(route))
         }
