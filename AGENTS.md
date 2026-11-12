@@ -44,6 +44,8 @@ Rust sources live under `shared/src/main/rust/diplay-media/src/`: `protocols` (w
 - Rust `vehicle::route_guidance` owns navigation TLV parsing, maneuver cache, expiry, clearing and ETA state behind `RouteGuidanceState`. Its Glance and ECARX output owners are process singletons; temporary owners close their handles, serialized with queries. Kotlin supplies clocks and live-session state, and retains SDK providers, subscriptions, frame wrapping and platform outputs. Keep the maneuver DTO R8 constructor rules; Kotlin navigation state exists only when the library cannot load.
 - Rust `vehicle::hid` encodes reports/descriptors, `touch_slots` owns pointer-to-slot state, and `cluster_arrow`, `lane_icon`, `day_night` own pure OEM conversion tables. Kotlin retains Android input, display dimensions, HID UID/metadata and head-unit adapters. Serialize touch report/use/close at the facade; a late report on a closed owner returns no report and Session returns false. An unhighlighted lane may still derive its direction from the raw highlight angle when its angles are empty. Other vehicle conversions remain pending.
 
+Wired USB results belong to their diagnostic run. Reject and release stale Connected results, transfer a pipe exactly once to the mux factory, and order mux publication with close/run replacement under the existing resource monitor. Do not close resources or perform I/O under that monitor. A run's finally block terminates only its locally owned startup watchdog, never a replacement run's watchdog.
+
 ## Adding or moving a setting
 
 The Settings screen is grouped by driver goal, not by implementation.

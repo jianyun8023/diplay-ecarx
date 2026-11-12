@@ -234,3 +234,25 @@ LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`。实际复用 ts_v
 新测试APK SHA-256为`d9d6d1a98823825354105963fd032a32fed9baae83ff0e495d95b6784248ee11`，同包在小米8／API35 ARM64、ARMv7及API28 ARM64模拟器首轮各60项通过，分别11.160／12.551／16.196秒，手机恢复ARM64。仅重打包受新库／NOTICE影响的主应用及测试APK（2秒），没有重复未改Kotlin的3446项JVM／2跳过或R8；这些验证引用上一批完整来源及修复证据，不能记作本批重跑。
 
 编译源码`04dba8ee`与布局前库`3cfb0313`的SHA／导出、映射与新APK来源记录于`artifacts/issue96-rust-layout-20261112/verification.json`。Linux条件分支做静态复核，未执行Linux运行测试；设备包仍为Debug，缩减发布包运行、实车／真实iPhone、USB NCM、长测和新性能均待验收，PR保持Draft。
+
+## Issue #96：领域、iAP2 body 与有线资源交接
+
+用户交付四个独立本地输入，均保留其原分支：`1b0611b7`（parent链`6b0bb5a2`／`daad7149`，触摸槽／PASCD／音频记账与HUD纯表）、`6e2dd94b`（EV Identification20／21）、`b6940b81`（iAP2参数body）、`17be4ac1`（向量清单）。从已验收`4e39b1a1`另建`integrate/rust-core-batch9`审查集成，文档冲突保留第八批目录规则后按最终所有权合并，没有覆盖原分支。原`6b`的JNI包名和阈值断言已在`1b`修复，不把旧缺陷当最新结论。
+
+独立审查发现并在`6a3da28`修正四个真实差异：touch executor可在Session关闭后仍提交旧任务，新native report与destroy原先没有串行；status0、空angles、highlight=-90旧lane方向为1而新表为None；renderer构造即分配buffer owner但未start即close没有worker finally；PASCD相对时间1.005秒的旧production Formatter为1.01而自写浮点round为1.00，校验和也改变（桌面JDK25实证，Android仍以本平台oracle验证）。候选以同步Closeable facade／迟到返回false、保留原始lane方向、worker-only lazy owner修复；PASCD保留平台Formatter产出字段，Rust独占布局／gear／count／XOR／CRLF，不声称实现了跨平台Java Formatter。
+
+Identification使用原`Iap2WireCodec.string`提供已验证的NUL终止字节，Rust编排字段与重复connector，避免另写UTF-16替换算法。`groupEncoded`限internal，保持child body预算。iAP2 body保留param65531／encode body65529、standalone parse原宽输入、顺序／重复／复制；`48528da`修正ThrowNew与现有Kotlin异常(String,Throwable)构造器不匹配，显式构造并Throw，R8保留类名和原ctor。`58bcee9`仅在该同步协议边界保留pending Java异常，未修改共享receiver日志型Env。测试包含最大参数可parse但不能encode、0xffff、16k参数局部引用、空输入、坏tail、精确预算与防御复制。
+
+会话子任务`aa154292`集成为`ac8255ec`：复用现有resource monitor排序run／phase／close与mux发布，锁内不做I/O或close；本地USB pipe只交factory一次，finally仅清理本run的startup watchdog。两个真实旧行为先跑出红灯：NCM打开中close漏USB（实际仅[ncm]）、旧mux返回后取消替代watchdog（cancel=1）。最终新增API28用例10项，连相关controller／USB／watchdog7类44项通过；原factory握手有界阻塞及整体CSM／VPN资源代际未重写。
+
+独立旧合同`749ed17a`（集成`46da9798`）9项通过，覆盖touch duplicate／释放顺序／尺寸、audio gate／wrap／6144阈值和HUD宽容输入。PairSetup／SRP合同`a8981b33`（集成`ec1c43a0`）19项通过，独立SRP client驱动真实M1–M6并校验proof／签名／保存顺序；公开固定SRP数学fixture由独立Python标准库重算并对齐LIVI salt／B哈希，不是完整PairSetup TLV golden。生产PairSetup／SRP、BC依赖均未迁改，未添加大整数库。
+
+最终Rust源码`f0485b94`，host126通过、0警告，NDK API28双ABI已重建。`5f44155f`仅修新增lane用例漏index编译错误，Rust／库未变。真实host JNI首轮17项16通过、1项HUD用例把AMap图标4误写为最终箭头104；`dde3ec21`修断言并保留Identification超长name原参数错误消息后，仅补跑HUD及name拒绝两项，2/2通过，17个有效合同／23个新方法全部真实链接，两个worker的-Xcheck:jni无诊断。源snapshot／首轮XML／补跑XML／setup日志与编译错误均保留于`artifacts/issue96-ninth-host-20261112/verification.json`，SHA`269ebc537025a15e3146b24fd95f71f8781c6a9cd10177ea54d6394d7ecf99a0`，未执行JUnit的setup错误不计测试失败。
+
+完整CI首轮1分32秒在shared1900项中5项旧反射fixture失败：lazy owner不再暴露旧field。`e00dbe11`只让两类测试使用属性getter，保留原容量／诊断断言，定向5项5秒通过；265份首轮XML全保存，仅替换两类后shared1898通过／2跳过。剩余阶段common1573项中4项旧runStack二参反射失败；`0097db4c`（集成`f7ab6508`）只同步fixture的当前run／phase／三参，原phoneLocked关闭顺序、原因和次数断言完整保留，定向4项15秒通过，233份首轮XML仅替换该类后1573通过。该定向在独立sessions worktree执行，Controller及common生产代码逐字节与候选一致，来源如实记录，不声称单次候选全量绿。
+
+尚未执行的home／四应用lint／Debug／R8与新测试APK集中于最后一轮应用CI，3分7秒成功；完整任务覆盖后JVM聚合3486通过／2跳过（shared1898+common1573+home15），没有重复未受影响的shared／common全量，也不声称单次完整命令全绿。
+
+同一新测试APK SHA`4db02f7943098fcc0dcdedefbbc5037bae5f6463f6b63fef36533fbb867a81d2`，手机API35 ARM64／ARMv7及API28 ARM64模拟器首轮各77项通过（原60+新17），分别11.597／12.764／17.519秒，精确16类、无失败／跳过，手机恢复ARM64。双ABI完整动态导出138项，保留全部旧115并新增23，nm／readelf同集；ELF Android note实际API28／NDKr28c/build13676358。来源汇总、原失败XML与定向替换清单保留于`artifacts/issue96-domain-body-wired-20261112/verification.json`，不把当前仅定向5／4项的Gradle输出冒充全量。
+
+原始dump／APK／日志不上传。设备验收仍是Debug包；缩减发布包运行、ECARX／真实iPhone、USB NCM、长测和新性能未验收，完整协议／会话迁移仍有剩余范围，PR保持Draft。

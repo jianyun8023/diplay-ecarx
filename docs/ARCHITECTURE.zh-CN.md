@@ -145,6 +145,10 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 
 ### 6.3 协议、会话和领域首批
 
+协议样本、固定来源与独立合同的区别见[向量清单](PROTOCOL_VECTORS.zh-CN.md)；测试入口不等于该批已完成设备验收。
+
+- `protocols::iap2_body` 持有CSM body参数编码／解析、长度校验、顺序与重复项。encode保留65529字节body上限，standalone parse沿用更宽的旧输入合同；Java异常类型／消息、DTO复制和JNI局部引用有界性保持。R8保留DTO及协议异常类名／现有构造器；builder／reader及标量／字符串codec留Kotlin。
+- wired USB结果携带所属run，取消／换代后迟到的Connected在交接边界释放。mux发布与close用既有resource monitor排序，锁内不做I/O或关闭。USB pipe只交给factory一次，局部finally只关自己的startup watchdog，不能终止替代run；其余controller／CSM／VPN资源代际仍待迁移。
 - `RtspMessage` 的公开 DTO 与调用入口不变；Rust 解析合包／分片、限制头／体大小、生成响应，JNI 直接构造 Request／Parsed。边界保留 Kotlin US_ASCII 替换、trim／大小写、Content-Length、NUL、重复头和响应顺序语义；错误继续抛 ProtocolException。JNI 使用 UTF-16 并按消息释放局部引用，R8 保留 DTO 名称／构造器。
 - 对照 LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 rtsp.rs／ts_vectors：其 16 MiB body、leading-digit 长度解析、非 ASCII 等规则与本项目不同，因此移植本仓库行为，保留 16 KiB header／1 MiB body 上限；标准 RTSP／500 响应与其向量逐字节相同。没有复制 LIVI 文件或导入依赖。
 - `WirelessRunState` 的生命周期、handoff、tunnelReady 与首次失败由 Rust 查询／转移。Kotlin 只串行保存一个 opaque value token，不解释其编码，不分配 native 堆句柄。关闭后首次迟到失败沿用相同转移规则；原 controller 资源锁、代际、超时和恢复动作尚未迁移。
@@ -214,6 +218,3 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 - 尚未迁移的选型、回退、路由、焦点和设置接入继续沿用当前 Kotlin 实现；按 issue #96 将核心决策与状态成组迁入 Rust，平台调用和存储保留适配层，同步迁移调用方及测试。
 - 新的 JNI 入口跟随所属 owner 的边界；独立桥接放在 owner 的私有 `jni` 子模块，共享 JVM／NDK 设施留在 `platform`。每个入口检查参数边界后才触碰内存；Rust 侧不 `panic` 跨越 FFI（发布配置为 abort），错误以返回码或既有异常契约交给 Kotlin。
 - 新的车机接口或属性先登记到平台笔记，再使用。
-
-
-- Rust `protocols/iap2_body` 持有 CSM body 参数分帧的编码／解析（长度校验、顺序与重复参数）；`Iap2BodyBuilder`／`Iap2BodyReader` 与标量／字符串编解码保留 Kotlin。
