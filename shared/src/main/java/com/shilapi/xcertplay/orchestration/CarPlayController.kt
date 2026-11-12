@@ -973,7 +973,10 @@ class CarPlayController(
     private fun startMfi() {
         if (!hasRequiredUsbService()) return
         availabilityPollGeneration.incrementAndGet()
-        phase = Phase.MFI
+        synchronized(wirelessResourceLock) {
+            if (closed) return
+            phase = Phase.MFI
+        }
         onStatus(CarPlayStatus.DiscoveringMfi)
         val offlineDirectory = java.io.File(appContext.noBackupFilesDir, LocalMfiAuthenticationClient.DIRECTORY)
         when (config.mfiTarget) {
@@ -1368,12 +1371,15 @@ class CarPlayController(
     }
 
     private fun startIphone() {
-        diagnosticRun.incrementAndGet()
+        synchronized(wirelessResourceLock) {
+            if (closed) return
+            diagnosticRun.incrementAndGet()
+            phase = Phase.IPHONE
+        }
         availabilityPollGeneration.incrementAndGet()
         permissionPollGeneration++
         usbPlatformGrantAttempts.clear()
         pendingUsbPlatformGrants.clear()
-        phase = Phase.IPHONE
         reenumerationAttempts = 0
         iphoneWaitStartedAt = null
         onStatus(CarPlayStatus.DiscoveringIphone)
@@ -1640,24 +1646,41 @@ class CarPlayController(
     }
 
     private fun openDataPaths(device: UsbDevice) {
-        phase = Phase.DATAPATHS
+        val run = synchronized(wirelessResourceLock) {
+            if (closed) return
+            phase = Phase.DATAPATHS
+            diagnosticRun.get()
+        }
         wiredDeviceName = device.deviceName
         debugLog("wired opening iPhone USB data paths")
         onStatus(CarPlayStatus.SelectingConfiguration)
         onStatus(CarPlayStatus.OpeningDataPaths)
         iphoneHost.openIap2UsbSessionAsync(device, executor) { result ->
-            when (result) {
-                is IphoneUsbHost.Iap2SessionResult.Connected -> {
-                    try {
-                        val ncm = openNcm(device)
-                        runStack(result.session, ncm)
-                    } catch (error: Throwable) {
-                        result.session.close()
-                        fail(error)
-                    }
-                }
-                is IphoneUsbHost.Iap2SessionResult.Failed -> fail(result.error)
+            onDataPathsOpened(device, run, result)
+        }
+    }
+
+    private fun isWiredRunCurrent(run: Int): Boolean =
+        !closed && diagnosticRun.get() == run && (phase == Phase.DATAPATHS || phase == Phase.CONTROL)
+
+    private fun onDataPathsOpened(device: UsbDevice, run: Int, result: IphoneUsbHost.Iap2SessionResult) {
+        if (!isWiredRunCurrent(run)) {
+            if (result is IphoneUsbHost.Iap2SessionResult.Connected) {
+                closeBestEffort("USBMUX") { result.session.close() }
             }
+            return
+        }
+        when (result) {
+            is IphoneUsbHost.Iap2SessionResult.Connected -> {
+                try {
+                    val ncm = openNcm(device)
+                    runStack(result.session, ncm, run)
+                } catch (error: Throwable) {
+                    result.session.close()
+                    if (isWiredRunCurrent(run)) fail(error)
+                }
+            }
+            is IphoneUsbHost.Iap2SessionResult.Failed -> fail(result.error)
         }
     }
 
@@ -1679,13 +1702,28 @@ class CarPlayController(
         return NcmUsbBridge.open(connection, function, onDiagnostic = ::connectionDiagnostic)
     }
 
-    private fun runStack(usbSession: Iap2UsbSession, ncm: NcmUsbBridge) {
-        phase = Phase.CONTROL
+    private fun runStack(usbSession: Iap2UsbSession, ncm: NcmUsbBridge, run: Int) {
+        var usbOwnedLocally = true
         var ncmOwnedLocally = true
+        var ownedStartWatchdog: WiredStartWatchdog? = null
         try {
-            if (closed) return
+            synchronized(wirelessResourceLock) {
+                if (!isWiredRunCurrent(run)) return
+                phase = Phase.CONTROL
+            }
+            // The factory owns the pipe from here, including when its handshake throws.
+            usbOwnedLocally = false
             val mux = Iap2UsbMuxHost.open(usbSession, onDiagnostic = ::connectionDiagnostic)
-            this.mux = mux
+            val adopted = synchronized(wirelessResourceLock) {
+                if (!isWiredRunCurrent(run)) false else {
+                    this.mux = mux
+                    true
+                }
+            }
+            if (!adopted) {
+                closeBestEffort("USBMUX") { mux.close() }
+                return
+            }
             debugLog("wired USBMUX host opened")
             onStatus(CarPlayStatus.Pairing)
             val pairingClient = LockdownPairingClient(mux)
@@ -1831,6 +1869,7 @@ class CarPlayController(
                     )
                 },
             )
+            ownedStartWatchdog = startWatchdog
             wiredStartWatchdog = startWatchdog
             debugLog(
                 "wired iAP2 runtime control starting " +
@@ -1869,7 +1908,7 @@ class CarPlayController(
             // Stop control and USBMUX before releasing NCM back to the kernel driver.
             closeBestEffort("CSM") { csm?.close() }
             csm = null
-            closeBestEffort("USBMUX") { mux?.close() ?: usbSession.close() }
+            closeBestEffort("USBMUX") { mux?.close() }
             mux = null
             if (ncmOwnedLocally) {
                 closeBestEffort("NCM") { ncm.close() }
@@ -1877,9 +1916,10 @@ class CarPlayController(
             } else {
                 closeBestEffort("VPN/NCM") { vpnService?.detach() }
             }
-            fail(error)
+            if (isWiredRunCurrent(run)) fail(error)
         } finally {
-            wiredStartWatchdog?.terminate()
+            ownedStartWatchdog?.terminate()
+            if (usbOwnedLocally) closeBestEffort("USBMUX") { usbSession.close() }
             if (ncmOwnedLocally) ncm.close()
         }
     }
