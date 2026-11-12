@@ -17,17 +17,17 @@
 迁移顺序：
 
 1. 完成媒体闭环。AAudio 正确性与视频直连已完成；音频压缩队列、缓冲音乐锚点、SETRATE／FLUSH、音乐 PI 时钟与 TCP 背压现由 Rust 拥有。继续收敛平台输出调度与逐包交接，并完成实车验收。
-2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP 请求分帧／解析及响应编码首批已接入 Rust，bplist／配对／控制加密等仍待迁移。
+2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP 请求分帧／解析、响应编码与 bplist 已接入 Rust，配对／控制加密及 iAP2 等仍待迁移。
 3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState 的生命周期与 handoff 首批已迁移，controller 代际及资源动作仍保留。
-4. 迁移导航、车辆转换和输入协议；EV 0xA101 数据转换首批已迁移，导航状态与 HID 尚待完成。验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
+4. 迁移导航、车辆转换和输入协议；EV 0xA101 数据转换及导航状态已迁移，其余车辆转换与 HID 尚待完成。验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
 
-当前验证覆盖媒体基础、AAudio、视频直连和音频状态迁移；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
+验证覆盖范围与批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
 
 ### LIVI 参考与复用
 
 [LIVI](https://github.com/f-io/LIVI) 是协议迁移的优先参考：`native/crates/livi-cp` 包含 RTSP、bplist、SRP、配对、控制加密、时钟、HID、UI Sync 和车辆状态，iAP2 在 `iap2-csm/link/mfi/usbmux/wired` 等 crate；`livi-cp` 还保留 `ts_vectors` 测试。现有 `Srp6a.kt` 注明移植自其早期 `srp.ts`；本地 2026-11-11 的 Ultra 调研已核对 Rust 提交 `870d2644`。2026-11-12 重新核查了当前 Rust 模块结构。
 
-每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。LIVI 当前使用 Tokio／OpenSSL，Android 分发包为 Android 10+ ARM64；这些不能代替本项目 API 28 和 ARMv7 的验证。导入代码时保留其 [NOTICE](https://github.com/f-io/LIVI/blob/main/NOTICE) 要求的署名，同步许可证、About 与 README；本次只确定参考路线，尚未导入 LIVI 源码或依赖。
+每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。LIVI 当前使用 Tokio／OpenSSL，Android 分发包为 Android 10+ ARM64；这些不能代替本项目 API 28 和 ARMv7 的验证。本批复用 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 bplist 黄金向量数据，未导入实现或运行时；已将其 [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE) 要求的署名加入 README 和应用可查看的第三方许可声明。
 
 ## 1. 目标平台
 
@@ -78,7 +78,7 @@
 
 | 归属 | 内容 |
 | --- | --- |
-| 控制面及平台适配（Kotlin） | controller 连接编排与重试、bplist／配对／加密控制通道、设置与持久化、流的建立与拆除；解码器的选型、格式参数、私有参数回退、渲染目标（Surface、fanout、停放）与何时重建；音频的路由、焦点、车机 BUS 与旧式流类型选择，AAC / AudioTrack 平台调用及输出回调顺序；仪表与 HUD、车辆 SDK provider／订阅；诊断报告。RTSP 与无线 run 状态经适配器调用 Rust。 |
+| 控制面及平台适配（Kotlin） | controller 连接编排与重试、配对／加密控制通道、设置与持久化、流的建立与拆除；解码器的选型、格式参数、私有参数回退、渲染目标（Surface、fanout、停放）与何时重建；音频的路由、焦点、车机 BUS 与旧式流类型选择，AAC / AudioTrack 平台调用及输出回调顺序；仪表与 HUD 平台输出、车辆 SDK provider／订阅；诊断报告。RTSP、bplist、无线 run 与导航状态经适配器调用 Rust。 |
 | 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；RTP 打包；有线 NCM 与 tun 之间的转发。Speex 回声消除仍通过原有 C/JNI 库执行。 |
 
 Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、帧、PCM、音乐控制与时钟状态。两点说明：
@@ -110,10 +110,10 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 
 - 一个 crate：`shared/src/main/rust/diplay-media`，产物 `libdiplay_media.so`，取代 `libdiplay_chacha.so`。
 - 模块：`crypto`（ring 的 ChaCha20-Poly1305）、`packet`（池化包）、`video` / `audio` / `buffered`（接收）、`buffered_state`（音乐锚点、控制与发送节奏）、`audio_queue`（压缩队列与积压恢复）、`clock_trim`（音乐 PI 时钟）、`vpipe`（视频解码循环）、`pacing`、`renderer` / `pcm`（Opus 解码与 PCM 步骤）、`aaudio`（输出）、`uplink`（麦克风发送）、`ncm` / `ncm_engine`（有线数据通路）、`stats`、`jvm`（JNI 封装）。
-- 完整核心迁移首批新增 `rtsp`／`rtsp_jni`（控制通道分帧和响应）、`session_state`（无线 run 状态）、`vehicle_status`（EV 参数体转换），继续编入同一库，无额外运行时或依赖。
+- 完整核心迁移新增 `rtsp`／`rtsp_jni`（控制通道分帧和响应）、`bplist`／`bplist_jni`（二进制 plist）、`session_state`（无线 run 状态）、`vehicle_status`（EV 参数体转换）、`route_guidance`／`route_guidance_jni`（导航缓存、时效、终止与 ETA），继续编入同一库，无额外运行时或依赖。bplist 保留 32 层解码与工作／载荷预算，编码两路径统一限制为 128 层；Java 类型／畸形 UTF-16 替换留在 JNI 平台边界。导航两个进程级输出各持独立 owner，Kotlin 仅提供时钟、当前会话存活和 SDK 输出。
 - Opus 由 [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3) 编解码，编进同一 `.so`；不再携带预编译的 `libopus.so` 与其 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
-  2026-11-12 扩展设备回归发现小米 8 双 ABI 的原生 Opus 编码测试各 3 项失败，上一提交原生库同机复现；主机编码向量不能替代 Android 上行验收。API 28 模拟器的 AAudio 大块排空也出现基线可复现的超时，待定位项见 issue #96 与[实验记录](benchmarks/native-media-2026-11-12.md)。
-- 构建：NDK r28、`aarch64-linux-android` 与 `armv7-linux-androideabi`、最低 API 28，`build.sh` 生成后把 `.so` 检入 `shared/src/main/jniLibs/`，CI 不需要 Rust。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。
+  2026-11-12 扩展设备回归发现的 Opus 失败已定位为 JNI 误将 120 ms／7662 字节上限用于验证 Kotlin 的 20 ms／1275 字节缓冲；现统一为单帧上限，并保留原码率／VoIP 校准。AAudio 旧后端不遵守正超时值的时长，一次阻塞排空曾耗时 6.9 秒；旧测试提前启动 5 秒播放等待导致误报，现从首次阻塞提交完成后计时，仍严格验证全部帧播放，未改变生产缓冲或重采样。最终设备结果与旧库对照见 issue #96 和[实验记录](benchmarks/native-media-2026-11-12.md)；台架不能替代 iPhone 互通与实车听感验收。
+- 构建：NDK r28、`aarch64-linux-android` 与 `armv7-linux-androideabi`、最低 API 28，`build.sh` 从 `CARGO_TARGET_DIR`（缺省 `target`）复制本轮产物，再把 `.so` 检入 `shared/src/main/jniLibs/`，CI 不需要 Rust。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。
 - 第三方许可写进 `shared/src/main/jniLibs/NOTICE.md` 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ### 6.2 边界约定

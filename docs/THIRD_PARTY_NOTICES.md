@@ -10,6 +10,10 @@ apply to the combination. The AGPL portions must not be relabeled as GPL.
 
 Upstream credits [LIVI](https://github.com/f-io/LIVI) and [Showcase](https://github.com/amineross/showcase) for protocol research. Existing source comments and attribution are preserved.
 
+Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+
+The bplist tests reuse LIVI's protocol golden-vector data at revision `6ac88bab7351a39b0cffac20c5dcf92ca848319b`; the codec implementation is ported from this repository's Kotlin code. LIVI is GPL-3.0-or-later, with the attribution requirement in its [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE). This notice is also packaged in the app's open-source notices.
+
 ## Home and settings UI
 
 `common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt` adapts the palette, visual arrangement and interface copy of the [DiAuto project](https://github.com/shihabal3amri/DiAuto). DiAuto's source is licensed under AGPL version 3. The UI file is marked AGPL-3.0-only; its license text is included in `docs/licenses/DiAuto-AGPL-3.0.txt`.

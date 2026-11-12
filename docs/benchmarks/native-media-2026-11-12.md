@@ -155,3 +155,25 @@ LIVI 对照固定：RTSP 为 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`，标准
 - 来源校验、最终 CI 与 R8 结果随本批集成记录保存到 `artifacts/issue96-parallel-20261112/`。手机测试包最终恢复 ARM64，原始日志／测试 APK 不上传。
 
 这三个首批 owner 可独立实施；完整会话接入与 HID 编码仍须统一协议事件／存储／编码契约。三个大阶段均未整体完成，实车／iPhone、配对、有线／无线重连、导航／HID 和性能仍待验收。上一批已复现的双 ABI Opus 编码失败及 API 28 模拟器 AAudio 大块排空超时未在本批修复；NCM 仍默认关闭，PR 保持 Draft。
+
+## Issue #96：bplist、导航状态与音频遗留项
+
+本批继续沿完整迁移分支推进，集成 `577e39f2`（Opus）、`344de861`／`6b660273`（导航）、`57369165`／`40022c23`（bplist），以及 `4736174f` 的构建来源和 AAudio 测试计时修正。
+
+- `BplistCodec.encode/decode` 的线格式、类型与解码预算迁入 Rust；Java 集合／标量映射、畸形 UTF-16 的平台 charset 替换在 JNI 边界执行。保留无符号整数的 Long 位模式、负整数编码为 Double、Date／Float 类型、字典顺序和重复键行为。修复 BigInteger 65536／2^40 在选定 4／8 字节宽度时未补零的既有缺陷；编码两路径统一限制为 128 层，解码保持 32 层、reads／payload 预算。
+- `RouteGuidanceState` 保留 Glance／ECARX HUD 既有入口，Rust 唯一拥有 TLV、maneuver 缓存、距离已知标记、空列表宽限、stale／liveSession、NoRoute／Arrived／clear 与 ETA。两个生产 owner 为进程级 singleton，独立保留各自策略；临时测试 owner 显式释放。Kotlin 提供单调／墙钟和当前会话存活状态，保留 SDK 输出；没有第二份同时活动的导航核心。
+- Opus 设备失败根因为 JNI 使用 opus-pure 的 120 ms／7662 字节容量检查 Kotlin 的 20 ms／1275 字节输出，导致编码提前返回 -1。统一单帧上限，按既有契约拒绝非 1920 字节 PCM 与非正码率；VoIP、complexity 5、voice signal 和有效码率不变。新增主机回归直接调用真实 JNI 入口及相同 1275 字节缓冲，先失败后通过。
+- AAudio 临时计数确认 native pending=0、平台 written=generated=51327，但旧测试在一次 6894 ms 的阻塞排空后已耗尽其提前启动的 5 秒等待；100 ms 后播放头完整到达 51840 输入帧。Android 9 [legacy write](https://android.googlesource.com/platform/frameworks/av/+/refs/tags/android-9.0.0_r1/media/libaaudio/src/legacy/AudioStreamTrack.cpp) 将正超时视为 blocking，而非遵守其时长。修正测试从首次阻塞提交后计时，仍使用 5 秒和严格全部帧断言；不改生产缓冲、增益或重采样。最终源码已移除临时计数／控制实验代码；同一修正测试在当前库及 `4a6b077c` ARM64 旧库均 2/2 通过，旧库 SHA-256 为 `1f88638a7f579e7483cbd53e1637cf5b39692410d7c71cc4a0ef83ff376071bc`。
+- `build.sh` 复制路径现遵守 `CARGO_TARGET_DIR`，避免在外部 target 构建后复制本地旧库；默认、相对、绝对目录三种配置均用双 ABI 哨兵产物检查。
+
+LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`，bplist blob 为 `9d258cc0a7798ac68a0a5ea9f518b6bdb6652281`。复用 458 字节黄金向量数据（SHA-256 `b4e3e93557bb97d6207978c92e3a52f533a60cd3f0e9034a4253c080b83e872a`），实现按本项目 Kotlin 契约迁移；LIVI 的 Date／ASCII／字典与预算规则不能直接替换。没有导入其实现、运行时或新依赖；README 与应用可查看的第三方许可资产保留其要求的署名。
+
+设备验证使用同一 Debug 独立测试 APK：小米 8／API 35 的 ARM64、ARMv7，以及 API 28 ARM64 模拟器各 35 项通过。集合为 bplist 7、导航 6、Opus 4、AAudio 2、音频状态 7、RTSP 5、无线状态 2、EV 2，包含真实 AirPlaySession loopback、平台 charset／Date、20,000 键与 10,000 maneuver DTO 引用压力，以及加密 AAC 解码和播放头推进。
+
+首轮两个 ARM64 环境各发现一项导航畸形 UTF-8 差异：桌面 JDK 将 `ED A0 80` 合并为一个替换字符，Android 则替换为三个。删除桌面专用特判，使用 Rust 标准替换行为；保留 NUL 截断和 trim，补明确 Android 黄金向量。重新构建双 ABI 后三个环境的最终 35 项全部通过，未把最初的失败记作通过。
+
+最终 Rust 主机 73 项通过；bplist 另有 26 项真实 macOS JNI 回归，`-Xcheck:jni` 无诊断。JNI Java 回调后先检查异常，再清理局部引用；导航字段查询、DTO 构造与释放边界经独立只读复核。双 ABI 来源、APK 资产、最终完整 CI 与 R8 结果记录在 `artifacts/issue96-bplist-navigation-20261112/verification.json`，原始日志与测试包不上传。
+
+本批在设备收敛后运行一轮完整 CI，用时 5 分 50 秒：Android 单测 3416 通过、2 跳过、0 失败（shared 1830 总数／2 跳过，common 1573，home 15）；四应用 lint、Debug 与 R8 检查通过，未变化的任务复用缓存。主应用 R8 mapping 保留 NativeBplist／NativeRouteGuidance／NativeRtsp／AppleManeuver 类名，seeds 保留 maneuver 的八参数构造器。主应用和独立测试 APK 的 source／cargo／merged／stripped 来源与 NATIVE-NOTICE、LIVI 声明匹配；其余三个应用也检查了产物，按原依赖边界不包含该原生库。公共源码凭据及 diff 检查通过，手机测试包恢复 ARM64。
+
+配对／控制加密／iAP2／NTP、controller 代际与恢复、其余车辆转换与 HID、剩余媒体逐包交接仍待继续迁移。设备验证为 Debug 测试包；未运行缩减后的发布包实车互通、ECARX BUS／焦点、真实 iPhone 听感、USB NCM 主机拓扑、长测或物理延迟对照，PR 继续保持 Draft。
