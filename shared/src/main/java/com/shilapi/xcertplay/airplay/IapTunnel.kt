@@ -10,7 +10,6 @@ import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Receive-only iAP2-over-CarPlay DataStream tunnel (stream type 130).
@@ -31,11 +30,12 @@ class IapTunnel(
     }
 
     private val closed = AtomicBoolean(false)
-    private val readCounter = AtomicLong(0)
+    private val protocol = DataStreamProtocol(0)
+    private val resources = Any()
     private val bindAddress =
         if (bindAddress is Inet4Address) InetAddress.getByName("0.0.0.0") else bindAddress
     private val servers = mutableListOf<ServerSocket>()
-    private var socket: Socket? = null
+    private val sockets = mutableSetOf<Socket>()
     private val threads = mutableListOf<Thread>()
     private val peerConnected = CountDownLatch(1)
     @Volatile private var listener: Listener = object : Listener {}
@@ -43,7 +43,8 @@ class IapTunnel(
     fun listen(listener: Listener): Int {
         this.listener = listener
         val bound = bindAny()
-        servers += bound
+        val installed = synchronized(resources) { if (closed.get()) false else { servers += bound; true } }
+        if (!installed) { safeClose(bound); error("IapTunnel is closed") }
         listener.onDebug("AirPlay iAP tunnel listener bound=${bound.localSocketAddress}")
         val secondaryAddress = if (bindAddress is java.net.Inet6Address) {
             InetAddress.getByName("0.0.0.0")
@@ -57,7 +58,8 @@ class IapTunnel(
                 bind(InetSocketAddress(secondaryAddress, bound.localPort))
             }
         }.onSuccess { secondary ->
-            servers += secondary
+            val installed = synchronized(resources) { if (closed.get()) false else { servers += secondary; true } }
+            if (!installed) { safeClose(secondary); return@onSuccess }
             listener.onDebug(
                 "AirPlay iAP tunnel secondary listener bound=" +
                     "${secondary.localSocketAddress}",
@@ -69,11 +71,10 @@ class IapTunnel(
                     "$secondaryAddress port=${bound.localPort}: ${error.message}",
             )
         }
-        servers.forEach { server ->
-            threads += Thread({ accept(server) }, "airplay-iap-tunnel").apply {
-                isDaemon = true
-                start()
-            }
+        synchronized(resources) { servers.toList() }.forEach { server ->
+            val thread = Thread({ accept(server) }, "airplay-iap-tunnel").apply { isDaemon = true }
+            val start = synchronized(resources) { if (closed.get()) false else { threads += thread; true } }
+            if (start) thread.start()
         }
         return bound.localPort
     }
@@ -86,12 +87,16 @@ class IapTunnel(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        safeClose(socket)
-        servers.toList().forEach(::safeClose)
-        servers.clear()
-        threads.toList().forEach(Thread::interrupt)
-        threads.clear()
+        val owned = synchronized(resources) {
+            Triple(sockets.toList(), servers.toList(), threads.toList()).also {
+                sockets.clear(); servers.clear(); threads.clear()
+            }
+        }
+        owned.first.forEach(::safeClose)
+        owned.second.forEach(::safeClose)
+        owned.third.forEach(Thread::interrupt)
         peerConnected.countDown()
+        protocol.close()
     }
 
     /** Waits until the iPhone has connected to the advertised dataPort. */
@@ -126,17 +131,24 @@ class IapTunnel(
                 continue
             }
             accepted.setSoLinger(true, 0)
-            socket = accepted
-            readCounter.set(0)
-            peerConnected.countDown()
-            listener.onOpen(accepted.remoteSocketAddress?.toString())
-            run(accepted)
+            val installed = synchronized(resources) { if (closed.get()) false else { sockets += accepted; true } }
+            if (!installed) { safeClose(accepted); return }
+            var connection = 0L
+            try {
+                connection = protocol.begin()
+                if (connection == 0L) return
+                peerConnected.countDown()
+                listener.onOpen(accepted.remoteSocketAddress?.toString())
+                run(accepted, connection)
+            } finally {
+                protocol.end(connection)
+                synchronized(resources) { sockets.remove(accepted) }
+                safeClose(accepted)
+            }
         }
     }
 
-    private fun run(sock: Socket) {
-        var ciphertext = ByteArray(0)
-        var plaintext = ByteArray(0)
+    private fun run(sock: Socket, connection: Long) {
         var failure: Throwable? = null
         var announcedData = false
         try {
@@ -152,74 +164,21 @@ class IapTunnel(
                     announcedData = true
                     listener.onDebug("AirPlay iAP tunnel received data")
                 }
-                ciphertext += buffer.copyOf(read)
-                val decrypted = decryptFrames(ciphertext)
-                plaintext += decrypted.first
-                ciphertext = decrypted.second
-                plaintext = parsePackages(plaintext)
+                protocol.append(connection, buffer.copyOf(read))
+                while (true) {
+                    val event = protocol.next(connection, readKey) ?: break
+                    val body = event[1] as ByteArray
+                    listener.onDebug("AirPlay iAP tunnel package type=comm body=${body.size}")
+                    listener.onIap(body)
+                }
             }
         } catch (error: Exception) {
             failure = error
         } finally {
-            if (socket === sock) socket = null
             safeClose(sock)
             if (!closed.get() && failure != null) listener.onClosed(failure)
         }
     }
 
-    private fun decryptFrames(buffer: ByteArray): Pair<ByteArray, ByteArray> {
-        val output = ArrayList<ByteArray>()
-        var offset = 0
-        while (buffer.size - offset >= FRAME_HEADER_LEN) {
-            val length = readU16Le(buffer, offset)
-            val frameLength = FRAME_HEADER_LEN + length + TAG_SIZE
-            if (buffer.size - offset < frameLength) break
-            val aad = buffer.copyOfRange(offset, offset + FRAME_HEADER_LEN)
-            val sealed = buffer.copyOfRange(offset + FRAME_HEADER_LEN, offset + frameLength)
-            val plain = AirPlayCrypto.chachaOpen(
-                readKey, AirPlayCrypto.nonce64(readCounter.get()), sealed, aad,
-            )
-            readCounter.incrementAndGet()
-            output.add(plain)
-            offset += frameLength
-        }
-        return concatBytes(*output.toTypedArray()) to buffer.copyOfRange(offset, buffer.size)
-    }
-
-    private fun parsePackages(buffer: ByteArray): ByteArray {
-        var offset = 0
-        while (buffer.size - offset >= PACKAGE_HEADER_LEN) {
-            val size = readU32Be(buffer, offset)
-            if (size < PACKAGE_HEADER_LEN || size > MAX_PACKAGE) throw IllegalStateException("bad package size $size")
-            if (buffer.size - offset < size) break
-            val messageType = readU32Be(buffer, offset + MESSAGE_TYPE_OFFSET)
-            if (messageType == MSG_TYPE_COMM) {
-                listener.onDebug(
-                    "AirPlay iAP tunnel package type=comm body=${size - PACKAGE_HEADER_LEN}",
-                )
-                listener.onIap(buffer.copyOfRange(offset + PACKAGE_HEADER_LEN, offset + size))
-            }
-            offset += size
-        }
-        return buffer.copyOfRange(offset, buffer.size)
-    }
-
-    private fun readU16Le(source: ByteArray, offset: Int): Int =
-        (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
-
-    private fun readU32Be(source: ByteArray, offset: Int): Int =
-        ((source[offset].toInt() and 0xff) shl 24) or
-            ((source[offset + 1].toInt() and 0xff) shl 16) or
-            ((source[offset + 2].toInt() and 0xff) shl 8) or
-            (source[offset + 3].toInt() and 0xff)
-
-    private companion object {
-        const val FRAME_HEADER_LEN = 2
-        const val TAG_SIZE = 16
-        const val PACKAGE_HEADER_LEN = 32
-        const val MESSAGE_TYPE_OFFSET = 16
-        const val MSG_TYPE_COMM = 0x636f6d6d
-        const val MAX_PACKAGE = 4 * 1024 * 1024
-        const val READ_CHUNK_BYTES = 16 * 1024
-    }
+    private companion object { const val READ_CHUNK_BYTES = 16 * 1024 }
 }

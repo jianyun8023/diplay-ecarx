@@ -149,3 +149,4 @@
     public byte[] recv(int, long);
 }
 -keep class com.shilapi.xcertplay.transport.NativeIap2FileTransfer { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeDataStream { native <methods>; }
