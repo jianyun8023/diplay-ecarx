@@ -27,7 +27,9 @@ class NativeIap2BodyDeviceTest {
 
     @Test fun malformedInputThrowsTheSameExceptionAndMessage() {
         assertTrue(NativeMedia.available)
-        for (bytes in listOf(byteArrayOf(0, 4, 0), byteArrayOf(0, 3, 0, 1), byteArrayOf(0, 9, 0, 1, 0))) {
+        val malformed = listOf(byteArrayOf(0, 4, 0), byteArrayOf(0, 3, 0, 1), byteArrayOf(0, 9, 0, 1, 0)) +
+            (1..3).map { parameters().encodeKotlin() + ByteArray(it) }
+        for (bytes in malformed) {
             val kotlin = runCatching { Iap2ParameterList.parseKotlin(bytes) }.exceptionOrNull()
             val native = runCatching { Iap2ParameterList.parse(bytes) }.exceptionOrNull()
             assertEquals(kotlin?.javaClass, native?.javaClass)
@@ -55,6 +57,15 @@ class NativeIap2BodyDeviceTest {
         val parsed = Iap2ParameterList.parse(body)
         assertEquals(Iap2ParameterList.parseKotlin(body).asList(), parsed.asList())
         assertTrue(Iap2ParameterList.parse(byteArrayOf()).isEmpty())
+        val maxParameter = ByteArray(65535)
+        for (index in 0..3) maxParameter[index] = 0xff.toByte()
+        val maxParsed = Iap2ParameterList.parse(maxParameter)
+        assertEquals(65535, maxParsed[0].id)
+        assertArrayEquals(Iap2ParameterList.parseKotlin(maxParameter)[0].payload, maxParsed[0].payload)
+        val kotlinError = runCatching { maxParsed.encodeKotlin() }.exceptionOrNull()
+        val nativeError = runCatching { maxParsed.encode() }.exceptionOrNull()
+        assertEquals(IllegalArgumentException::class.java, nativeError?.javaClass)
+        assertEquals(kotlinError?.message, nativeError?.message)
         val encoded = parameters().encodeKotlin()
         val values = Iap2ParameterList.parse(encoded)
         encoded.fill(0)

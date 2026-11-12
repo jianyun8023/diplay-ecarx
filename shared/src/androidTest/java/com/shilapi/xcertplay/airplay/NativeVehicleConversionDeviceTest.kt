@@ -78,6 +78,7 @@ class NativeVehicleConversionDeviceTest {
         assertEquals(0, NativeDayNight.fromAdaptapi(1))
         assertEquals(1, NativeDayNight.fromAdaptapi(2))
         assertEquals(-1, NativeDayNight.fromAmap(31))
+        assertEquals(1, NativeDayNight.fromTwilight(0))
     }
 
     @Test fun touchNativeMatchesKotlinAcrossTheFullEventSequence() {

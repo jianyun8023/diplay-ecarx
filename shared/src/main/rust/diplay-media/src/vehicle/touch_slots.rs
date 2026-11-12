@@ -102,7 +102,7 @@ mod tests {
 // ---- JNI boundary: `com.shilapi.xcertplay.airplay.NativeTouchSlots` ----
 
 use crate::platform::jvm::Env;
-use jni_sys::{jbooleanArray, jbyteArray, jclass, jdouble, jdoubleArray, jint, jintArray, jlong, JNIEnv};
+use jni_sys::{jbooleanArray, jbyteArray, jclass, jdoubleArray, jint, jintArray, jlong, JNIEnv};
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeTouchSlots_create(
