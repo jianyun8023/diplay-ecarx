@@ -222,3 +222,15 @@ LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`。实际复用 ts_v
 同一最终 Debug 测试 APK 在小米8／API35 ARM64、ARMv7和API28 ARM64模拟器首轮各60项通过（前批51＋PairVerify6＋Deadline3），手机恢复ARM64；各环境分别11.135／12.423／16.304秒。冻结测试APK SHA-256为`e9ba9348538cd5889d99eea529509696e88ecd4118cb025b509512e7d23e49e2`。完整记录位于`artifacts/issue96-pairverify-deadline-20261112/verification.json`，运行时代码`4511430f`、测试夹具`ec3d503a`分开记录；原始证据保留本地。未验证缩减发布包运行、ECARX／真实iPhone、USB NCM、长测或新的性能收益，PR保持Draft。
 
 本批仍保留迁移期生产 fallback。后续按已验收模块退出该路径，把旧实现移至测试参考，原生核心加载失败明确报启动错误；BC仍被 PairSetup／SRP、身份密钥和 MFi ASN.1 实际消费，清完这些调用才删除依赖。硬件能力回退不随之机械删除。
+
+## Issue #96：Rust 职责目录整理
+
+按用户要求从已验收的 `3cfb0313` 整理源码，主线布局提交 `04dba8ee`。原37个源文件变为45个：36个owner文件按职责移动，新增8个正常目录模块声明，`lib.rs`只组装`protocols／session／media／vehicle／platform／transport`。音视频分组，独立JNI成为对应owner的私有子模块；stop JNI随共享stream移动，不保留根兼容导出或`#[path]`别名。
+
+一路单写、另一路逐文件独立审查：只移动文件、调整导入及必要文档／模块声明，算法、字段权限、JNI／C ABI均未改。原public owner仍可达，5个JNI子模块仍私有；Android／Linux接收／stream／NCM engine、Android-only NDK／vpipe和host纯算法／AAudio的cfg范围保持。保留NCM engine沿用media stats clock的依赖，不为分目录增加抽象。Cargo包名、库名、依赖和build入口未变。
+
+开发及测试代理在集成源码上各确认host104项通过、doctest0、无警告。115个原生声明名称和规范化签名逐项一致；统一API28重建双ABI后，测试代理以NDK llvm-nm和llvm-readelf独立比较新旧完整defined dynamic集合，两个ABI均115项（114 Java入口＋JNI_OnLoad）且集合diff为空。
+
+新测试APK SHA-256为`d9d6d1a98823825354105963fd032a32fed9baae83ff0e495d95b6784248ee11`，同包在小米8／API35 ARM64、ARMv7及API28 ARM64模拟器首轮各60项通过，分别11.160／12.551／16.196秒，手机恢复ARM64。仅重打包受新库／NOTICE影响的主应用及测试APK（2秒），没有重复未改Kotlin的3446项JVM／2跳过或R8；这些验证引用上一批完整来源及修复证据，不能记作本批重跑。
+
+编译源码`04dba8ee`与布局前库`3cfb0313`的SHA／导出、映射与新APK来源记录于`artifacts/issue96-rust-layout-20261112/verification.json`。Linux条件分支做静态复核，未执行Linux运行测试；设备包仍为Debug，缩减发布包运行、实车／真实iPhone、USB NCM、长测和新性能均待验收，PR保持Draft。

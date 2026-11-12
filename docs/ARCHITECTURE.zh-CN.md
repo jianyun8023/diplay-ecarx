@@ -109,8 +109,20 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 ### 6.1 库与构建
 
 - 一个 crate：`shared/src/main/rust/diplay-media`，产物 `libdiplay_media.so`，取代 `libdiplay_chacha.so`。
-- 模块：`crypto`（ring 的 ChaCha20-Poly1305）、`packet`（池化包）、`video` / `audio` / `buffered`（接收）、`buffered_state`（音乐锚点、控制与发送节奏）、`audio_queue`（压缩队列与积压恢复）、`clock_trim`（音乐 PI 时钟）、`vpipe`（视频解码循环）、`pacing`、`renderer` / `pcm`（Opus 解码与 PCM 步骤）、`aaudio`（输出）、`uplink`（麦克风发送）、`ncm` / `ncm_engine`（有线数据通路）、`stats`、`jvm`（JNI 封装）。
-- 完整核心迁移新增 `rtsp`／`rtsp_jni`（控制通道分帧和响应）、`bplist`／`bplist_jni`（二进制 plist）、`session_state`（无线 run 状态）、`vehicle_status`（EV 参数体转换）、`route_guidance`／`route_guidance_jni`（导航缓存、时效、终止与 ETA），继续编入同一库，无额外运行时或依赖。bplist 保留 32 层解码与工作／载荷预算，编码两路径统一限制为 128 层；Java 类型／畸形 UTF-16 替换留在 JNI 平台边界。导航两个进程级输出各持独立 owner，Kotlin 仅提供时钟、当前会话存活和 SDK 输出。
+- 源码按职责组织，[lib.rs](../shared/src/main/rust/diplay-media/src/lib.rs) 只组装六个正常 Rust namespace，不保留平铺兼容导出或 `#[path]` 别名：
+
+| 目录（相对 `diplay-media/src`） | 职责 |
+| --- | --- |
+| `protocols/` | RTSP、bplist、control cipher、PairVerify 与共享 crypto；前四个 owner 各携带私有 `jni` 子模块。 |
+| `session/` | wireless_state、wireless_recovery、wired control_deadline 的值状态与策略。 |
+| `media/audio/`、`media/video/` | 音频接收／队列／buffered／时钟／PCM／输出／上行；视频接收／Annex B／pacing／vpipe。`media/packet` 和 `media/stats` 为媒体共享设施。 |
+| `vehicle/` | HID、EV 参数体与导航状态；route_guidance 的 JNI 属于其私有子模块。 |
+| `platform/` | JVM／NDK 桥接、共享 stream 句柄与关闭生命周期，包含 stop JNI。 |
+| `transport/ncm/` | NCM 帧编解码及 USB／tun engine。 |
+
+原 public owner 保持可达，私有字段及 JNI 子模块不因搬迁扩大权限。Android／Linux receiver、stream、NCM engine 与 Android-only NDK／vpipe 保留各自 cfg；纯算法和 AAudio 状态仍可 host 编译。NCM engine 沿用媒体 stats 的 clock，不为目录整理新增通用时间层。
+
+全部 owner 继续编入同一库，无额外运行时或依赖。bplist 保留 32 层解码与工作／载荷预算，编码两路径统一限制为 128 层；Java 类型／畸形 UTF-16 替换留在 JNI 平台边界。导航两个进程级输出各持独立 owner，Kotlin 仅提供时钟、当前会话存活和 SDK 输出。
 - Opus 由 [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3) 编解码，编进同一 `.so`；不再携带预编译的 `libopus.so` 与其 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
   2026-11-12 扩展设备回归发现的 Opus 失败已定位为 JNI 误将 120 ms／7662 字节上限用于验证 Kotlin 的 20 ms／1275 字节缓冲；现统一为单帧上限，并保留原码率／VoIP 校准。AAudio 旧后端不遵守正超时值的时长，一次阻塞排空曾耗时 6.9 秒；旧测试提前启动 5 秒播放等待导致误报，现从首次阻塞提交完成后计时，仍严格验证全部帧播放，未改变生产缓冲或重采样。最终设备结果与旧库对照见 issue #96 和[实验记录](benchmarks/native-media-2026-11-12.md)；台架不能替代 iPhone 互通与实车听感验收。
 - 构建：NDK r28、`aarch64-linux-android` 与 `armv7-linux-androideabi`、最低 API 28，`build.sh` 从 `CARGO_TARGET_DIR`（缺省 `target`）复制本轮产物，再把 `.so` 检入 `shared/src/main/jniLibs/`，CI 不需要 Rust。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。
@@ -198,5 +210,5 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 
 - 按包、按帧执行的逻辑放进 `diplay-media`，在 Kotlin 侧只暴露句柄与配置；不要在接收或渲染循环里新建 `ByteArray`。
 - 尚未迁移的选型、回退、路由、焦点和设置接入继续沿用当前 Kotlin 实现；按 issue #96 将核心决策与状态成组迁入 Rust，平台调用和存储保留适配层，同步迁移调用方及测试。
-- 新的 JNI 入口集中在 `jni` 模块，每个入口检查参数边界后才触碰内存；Rust 侧不 `panic` 跨越 FFI（发布配置为 abort），错误以返回码交给 Kotlin 记录。
+- 新的 JNI 入口跟随所属 owner 的边界；独立桥接放在 owner 的私有 `jni` 子模块，共享 JVM／NDK 设施留在 `platform`。每个入口检查参数边界后才触碰内存；Rust 侧不 `panic` 跨越 FFI（发布配置为 abort），错误以返回码或既有异常契约交给 Kotlin。
 - 新的车机接口或属性先登记到平台笔记，再使用。
