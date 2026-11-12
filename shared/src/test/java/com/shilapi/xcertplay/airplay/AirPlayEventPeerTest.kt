@@ -3,7 +3,9 @@ package com.shilapi.xcertplay.airplay
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -21,6 +23,8 @@ class AirPlayEventPeerTest {
     }
 
     private val logs = CopyOnWriteArrayList<String>()
+    private val strangerRejected = CountDownLatch(1)
+    private val peerAccepted = CountDownLatch(1)
 
     private fun openEvent(session: AirPlaySession): Int {
         val method = AirPlaySession::class.java.getDeclaredMethod("openEvent")
@@ -46,7 +50,11 @@ class AirPlayEventPeerTest {
                 pairings = PairingStore(),
                 mfi = null,
                 listener = object : AirPlaySessionListener {
-                    override fun onDebugLog(message: String) { logs += message }
+                    override fun onDebugLog(message: String) {
+                        logs += message
+                        if (message.contains("event rejected sender outside the control session")) strangerRejected.countDown()
+                        if (message.contains("accepted from /127.0.0.1")) peerAccepted.countDown()
+                    }
                 },
                 media = object : AirPlayMediaHandler {},
             )
@@ -57,9 +65,13 @@ class AirPlayEventPeerTest {
     @Test
     fun aStrangerCannotTakeTheEventSlot() = withSession { session ->
         val port = openEvent(session)
-        Socket(InetAddress.getByName("::1"), port).use { Thread.sleep(500) }
+        Socket(InetAddress.getByName("::1"), port).use {
+            assertTrue("stranger was not rejected: $logs", strangerRejected.await(5, TimeUnit.SECONDS))
+        }
         try {
-            Socket(InetAddress.getByName("127.0.0.1"), port).use { Thread.sleep(500) }
+            Socket(InetAddress.getByName("127.0.0.1"), port).use {
+                assertTrue("control peer was not accepted: $logs", peerAccepted.await(5, TimeUnit.SECONDS))
+            }
         } catch (error: java.net.ConnectException) {
             fail("control peer could not connect after a stranger took the slot: $error")
         }
@@ -70,7 +82,9 @@ class AirPlayEventPeerTest {
     @Test
     fun theControlPeerIsAccepted() = withSession { session ->
         val port = openEvent(session)
-        Socket(InetAddress.getByName("127.0.0.1"), port).use { Thread.sleep(500) }
+        Socket(InetAddress.getByName("127.0.0.1"), port).use {
+            assertTrue("control peer was not accepted: $logs", peerAccepted.await(5, TimeUnit.SECONDS))
+        }
         assertTrue("control peer was not accepted: $logs", logs.any { it.contains("accepted from /127.0.0.1") })
     }
 }
