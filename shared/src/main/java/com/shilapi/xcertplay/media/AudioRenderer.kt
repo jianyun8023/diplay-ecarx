@@ -77,8 +77,10 @@ internal class AudioRenderer(
     private val navigationPlaybackToken = NavigationPlayback.open()
     private var actualLegacyStreamType: Int? = null
     private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
+    private val nativeQueue = NativeAudioQueue.create(format.rtpClockRate, format.audioType == "media")
+    private val queuedPacketCount: Int get() = nativeQueue?.size ?: queue.size
     /** Music with sustained decoder backpressure must not keep playing minutes-old packets. */
-    private val mediaLagGuard = if (format.audioType == "media") MediaPacketLagGuard(format.rtpClockRate) else null
+    private val mediaLagGuard = if (nativeQueue == null && format.audioType == "media") MediaPacketLagGuard(format.rtpClockRate) else null
     @Volatile private var newestRtpSample = 0
     private var lagRecoveryReports = 0
     @Volatile private var running = true
@@ -148,7 +150,7 @@ internal class AudioRenderer(
     private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
 
     fun start() {
-        if (started) return
+        if (started || !running) return
         started = true
         thread.start()
     }
@@ -158,26 +160,30 @@ internal class AudioRenderer(
     /** Takes ownership of [rtp]: it is released once decoded or dropped. */
     fun submit(rtp: MediaPacket, sample: Int) {
         val now = System.nanoTime()
+        val nativeResult = if (started) nativeQueue?.push(rtp, sample, now) else null
         if (started) {
             packetsReceived.incrementAndGet()
             val previous = lastArrivalNs.getAndSet(now)
             if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
-            newestRtpSample = sample
+            if (nativeQueue == null) newestRtpSample = sample
             // Hold short Wi-Fi bursts intact. If compressed audio remains >1.5s behind for
             // another 1.5s, skip only stale undecoded packets to catch up to the live song.
-            val removed = mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) { it.rtp.release() } ?: 0
+            val removed = nativeResult?.ushr(1) ?:
+                (mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) { it.rtp.release() } ?: 0)
             if (removed > 0) {
                 packetsDropped.addAndGet(removed)
                 packetsDroppedTotal.addAndGet(removed)
                 if (lagRecoveryReports < MAX_REBUFFER_REPORTS) {
                     lagRecoveryReports++
                     report("Audio: stale media packet backlog recovered audioType=${format.audioType} " +
-                        "packetsDiscarded=$removed remaining=${queue.size}")
+                        "packetsDiscarded=$removed remaining=$queuedPacketCount")
                 }
             }
         }
-        if (!started || !queue.offer(AudioPacket(rtp, sample, now))) {
-            rtp.release()
+        val accepted = if (!started) false else if (nativeResult != null) nativeResult and 1 != 0
+            else queue.offer(AudioPacket(rtp, sample, now))
+        if (!accepted) {
+            if (nativeResult == null) rtp.release()
             if (started) {
                 packetsDropped.incrementAndGet()
                 packetsDroppedTotal.incrementAndGet()
@@ -196,11 +202,13 @@ internal class AudioRenderer(
     }
 
     private fun releaseQueued() {
+        nativeQueue?.close()
         while (true) queue.poll()?.rtp?.release() ?: return
     }
 
     override fun close() {
         running = false
+        nativeQueue?.close()
         NavigationPlayback.close(navigationPlaybackToken)
         reportNavigationAudio(false, ended = true)
         thread.interrupt()
@@ -241,6 +249,7 @@ internal class AudioRenderer(
     }
 
     private fun run() {
+        val nativePacketInfo = LongArray(2)
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         try {
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
@@ -263,7 +272,10 @@ internal class AudioRenderer(
                 // Report Settings changes from this worker, never from the UI thread, also between prompts.
                 applyNavigationAttenuation()
                 diagnosticStage = "packet"
-                queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
+                if (nativeQueue != null) {
+                    val packet = nativeQueue.poll(nativePacketInfo, AUDIO_POLL_MILLIS)
+                    if (packet != null) handle(AudioPacket(packet, nativePacketInfo[0].toInt(), nativePacketInfo[1]))
+                } else queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 diagnosticStage = "decoder-output"
@@ -650,7 +662,7 @@ internal class AudioRenderer(
     }
 
     private fun handleRtp(packet: AudioPacket) {
-        if (queue.isEmpty()) {
+        if (queuedPacketCount == 0) {
             droppedPacketsLogged = false
         }
         val rtp = packet.rtp
@@ -983,7 +995,7 @@ internal class AudioRenderer(
     private fun trimClock(track: PcmOutput) {
         val trim = clockTrim ?: return
         val now = System.nanoTime()
-        val compressedRtpFrames = mediaLagGuard?.pendingFrames(queue, newestRtpSample, AudioPacket::sample)
+        val compressedRtpFrames = nativeQueue?.pendingFrames() ?: mediaLagGuard?.pendingFrames(queue, newestRtpSample, AudioPacket::sample)
             ?: 0L
         val compressedPcmFrames = compressedRtpFrames * format.sampleRate /
             format.rtpClockRate.coerceAtLeast(1)
@@ -999,6 +1011,7 @@ internal class AudioRenderer(
         val result = runCatching { track.setPlaybackRate(rate) }.getOrDefault(AudioTrack.ERROR)
         if (result != AudioTrack.SUCCESS) {
             // The track keeps its rate; music then plays as it did before the trim.
+            trim.close()
             clockTrim = null
             report("Audio: clock trim off audioType=${format.audioType} rate=$rate result=$result")
         }
@@ -1006,6 +1019,7 @@ internal class AudioRenderer(
 
     /** For the packets queued since [sinceNs], the frames each adds to the queue times how long it has waited. */
     private fun queuedFrameNsSince(sinceNs: Long, nowNs: Long): Double {
+        nativeQueue?.let { return it.arrivedFrameNs(sinceNs, nowNs, format.sampleRate) }
         val clockRate = format.rtpClockRate.coerceAtLeast(1)
         var frameNs = 0.0
         var previousSample: Int? = null
@@ -1029,7 +1043,7 @@ internal class AudioRenderer(
             check(result >= 0) { "AAudio drain failed: $result" }
         }
         if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
-                track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition,
+                track.underrunCount > underrunsAtPlaybackStart, queuedPacketCount == 0, track.playbackHeadPosition,
                 startThresholdBytes / 2L)) {
             // The hardware buffer has starved below the recovery floor. Pause without flushing
             // or discarding PCM, then use the configured start threshold again when music resumes.
@@ -1048,7 +1062,7 @@ internal class AudioRenderer(
             }
         }
         // A short final burst may never reach the start threshold. Play it after a bounded wait.
-        if (!playbackStarted && prebufferBytes > 0 && queue.isEmpty() &&
+        if (!playbackStarted && prebufferBytes > 0 && queuedPacketCount == 0 &&
             System.nanoTime() - lastPcmWriteNs >= BUFFER_TAIL_WAIT_NS) {
             startPlayback(track)
         }
@@ -1087,7 +1101,7 @@ internal class AudioRenderer(
                 "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
                 "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
                 "rx=${received} " +
-                "dropped=${dropped} underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
+                "dropped=${dropped} underruns=+${underruns - statsLastUnderruns} queue=$queuedPacketCount " +
                 "playing=$playbackStarted maxGapMs=${arrivalGapMs} " +
                 "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
                 "writtenFrames=$writtenFramesThisWindow totalWrittenFrames=$totalWrittenFrames " +
@@ -1172,6 +1186,8 @@ internal class AudioRenderer(
 
     @Synchronized
     private fun releaseTrack() {
+        clockTrim?.close()
+        clockTrim = null
         nativeOut?.let { native ->
             nativeOut = null
             runCatching { native.pause() }

@@ -57,6 +57,38 @@ internal object NativeMedia {
     /** Opens one buffered-audio frame into a pooled RTP packet; 0 when it is malformed or does not open. */
     @JvmStatic external fun openRtp(key: ByteArray, body: ByteArray, length: Int): Long
 
+    @JvmStatic external fun bufferedCreate(sampleRate: Int): Long
+    /** Receives into the core's queue. The returned receiver handle is stopped after destroying the owner. */
+    @JvmStatic external fun bufferedStart(handle: Long, fd: Int, key: ByteArray, callbacks: NativeStreamCallbacks): Long
+    /** Retained packet; out: sample, first frame, output generation. Commit after the platform start callback. */
+    @JvmStatic external fun bufferedNext(handle: Long, nowNanos: Long, out: LongArray): Long
+    @JvmStatic external fun bufferedCommit(handle: Long, generation: Long): Boolean
+    /** 0 anchor, 1 rate, 2 flush, 3 feedback. out: RTP (-1 absent), NTP seconds/fraction, rate, stop output. */
+    @JvmStatic external fun bufferedControl(handle: Long, op: Int, timestamp: Long, rate: Int,
+        ntpSeconds: Long, ntpFraction: Long, nowNanos: Long, out: LongArray)
+    /** Wakes the bounded receiver, releases all queued packets; returns whether to stop the platform output. */
+    @JvmStatic external fun bufferedDestroy(handle: Long): Boolean
+
+    @JvmStatic external fun audioQueueCreate(clockRate: Int, media: Boolean): Long
+    /** Consumes packet. Result bit 0: accepted; remaining bits: stale packets released. */
+    @JvmStatic external fun audioQueuePush(handle: Long, packet: Long, sample: Int, arrivedNanos: Long): Int
+    /** Transfers a packet; out: sample, arrival. */
+    @JvmStatic external fun audioQueuePoll(handle: Long, out: LongArray): Long
+    @JvmStatic external fun audioQueueSize(handle: Long): Int
+    @JvmStatic external fun audioQueuePending(handle: Long): Long
+    @JvmStatic external fun audioQueueArrivals(handle: Long, sinceNanos: Long, nowNanos: Long, sampleRate: Int): Double
+    @JvmStatic external fun audioQueueDestroy(handle: Long)
+
+    @JvmStatic external fun clockCreate(sampleRate: Int, targetFrames: Long, integral: Double, measuresTarget: Boolean): Long
+    @JvmStatic external fun clockSample(handle: Long, queuedFrames: Long, nowNanos: Long,
+        compressedFrames: Long, headMoving: Boolean, arrivedFrameNanos: Double)
+    /** Zero keeps the current rate. */
+    @JvmStatic external fun clockRateDue(handle: Long, nowNanos: Long): Int
+    /** 0 current rate, 1 last sample time, 2 measure again. */
+    @JvmStatic external fun clockQuery(handle: Long, what: Int): Long
+    @JvmStatic external fun clockLearned(set: Boolean, value: Double): Double
+    @JvmStatic external fun clockDestroy(handle: Long)
+
     @JvmStatic external fun packetSize(handle: Long): Int
     @JvmStatic external fun packetRetain(handle: Long)
     @JvmStatic external fun packetRelease(handle: Long)

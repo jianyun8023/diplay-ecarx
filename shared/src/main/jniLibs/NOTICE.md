@@ -53,7 +53,8 @@ Keep the applicable licenses and corresponding source when redistributing native
 ## Media data plane
 
 `libdiplay_media.so` is the media data plane (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
-screen and audio streams, runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio
+screen and audio streams, owns compressed audio queues, buffered-music anchors/controls/backpressure and music clock trim,
+runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio
 and seals the microphone uplink. It also contains the optional, default-off USB NCM/tun bridge. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
@@ -67,8 +68,8 @@ When the library cannot load, the Kotlin receivers and the platform cipher (Cons
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1111416 | `1f88638a7f579e7483cbd53e1637cf5b39692410d7c71cc4a0ef83ff376071bc` |
-| armeabi-v7a | libdiplay_media.so | 761804 | `ad2e3ca547ab3f6f861b2d5fd8a20fff30442c25982aec0724a53d2d8f8594dc` |
+| arm64-v8a | libdiplay_media.so | 1134856 | `78a0d4cc0c0c9e8d88098a81a9fba0d6f6be9ee868f79ca87a9ad89ec19b4bf7` |
+| armeabi-v7a | libdiplay_media.so | 779516 | `744532e69b026ea6fde2dd5348b33b9e61b1dc211e2f8b4ee46d3b20b4a2cbb2` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

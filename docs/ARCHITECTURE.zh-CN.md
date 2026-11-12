@@ -16,12 +16,12 @@
 
 迁移顺序：
 
-1. 完成媒体闭环。AAudio 增益并发访问和部分写入已修复；Rust 视频收包已直连解码队列，下一步迁移音频队列、缓冲音乐锚点、SETRATE／FLUSH、时钟与背压。
+1. 完成媒体闭环。AAudio 正确性与视频直连已完成；音频压缩队列、缓冲音乐锚点、SETRATE／FLUSH、音乐 PI 时钟与 TCP 背压现由 Rust 拥有。继续收敛平台输出调度与逐包交接，并完成实车验收。
 2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。
 3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。
 4. 迁移导航、车辆转换和输入协议；验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
 
-当前已验证范围仍限于媒体基础与 AAudio 修复；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
+当前验证覆盖媒体基础、AAudio、视频直连和音频状态迁移；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
 
 ### LIVI 参考与复用
 
@@ -74,14 +74,14 @@
 
 ## 4. 当前控制面与数据面
 
-划分原则：**按包、按帧、按采样周期发生的工作是数据面，由 Rust 负责；按会话、按配置、按用户操作发生的决策是控制面，留在 Kotlin。**
+以下为当前过渡边界：Rust 已持有媒体队列、缓冲音乐控制与时钟状态；尚未迁移的协议、会话和平台决策暂由 Kotlin 管理，最终目标见第 1 节。
 
 | 归属 | 内容 |
 | --- | --- |
-| 控制面（Kotlin） | 连接编排与重试、RTSP / 配对 / 加密控制通道、设置与持久化、流的建立与拆除；解码器的选型、格式参数、私有参数回退、渲染目标（Surface、fanout、停放）与何时重建；音频的路由、焦点、车机 BUS 与旧式流类型选择；缓冲音乐的锚点与 SETRATE / FLUSH；仪表与 HUD；诊断报告。 |
+| 控制面及平台适配（Kotlin） | 连接编排与重试、RTSP / 配对 / 加密控制通道、设置与持久化、流的建立与拆除；解码器的选型、格式参数、私有参数回退、渲染目标（Surface、fanout、停放）与何时重建；音频的路由、焦点、车机 BUS 与旧式流类型选择，AAC / AudioTrack 平台调用及输出回调顺序；仪表与 HUD；诊断报告。 |
 | 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；RTP 打包；有线 NCM 与 tun 之间的转发。Speex 回声消除仍通过原有 C/JNI 库执行。 |
 
-Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“每一帧、每一包、每一块 PCM”。两点说明：
+Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、帧、PCM、音乐控制与时钟状态。两点说明：
 
 - **视频**：解码由高通硬件完成，Java 与 NDK 走同一条 OMX/Codec2 路径，迁移省下的是轮询与线程交接。Java `MediaCodec` 以 `dequeueOutputBuffer` 超时轮询，台架上它的 `MediaCodec_loop` 线程单独占一个核的约 16%；API 28 起 NDK 提供 `AMediaCodec_setAsyncNotifyCallback`，输出到达时回调，不再轮询，接收线程也能直接喂帧。`VideoDecoder` 的选型与回退逻辑保留在 Kotlin，由它驱动 Rust 侧的解码循环。
 - **音频输出**：按 usage 路由的音乐与导航流尝试 AAudio，打开失败时回退到 `AudioTrack`。通话、Siri 和指定旧式流类型的流保留 `AudioTrack`。AAudio 路径用 Rust PCM 增益处理焦点衰减，用重采样处理原先由 `AudioTrack.setPlaybackRate` 执行的时钟微调。AAC 仍由系统 Google AAC 解码（实车上高通 AAC 解码器创建失败，见平台笔记）。
@@ -109,8 +109,9 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 ### 6.1 库与构建
 
 - 一个 crate：`shared/src/main/rust/diplay-media`，产物 `libdiplay_media.so`，取代 `libdiplay_chacha.so`。
-- 模块：`crypto`（ring 的 ChaCha20-Poly1305）、`packet`（池化包）、`video` / `audio` / `buffered`（接收）、`vpipe`（视频解码循环）、`pacing`、`renderer` / `pcm`（Opus 解码与 PCM 步骤）、`aaudio`（输出）、`uplink`（麦克风发送）、`ncm` / `ncm_engine`（有线数据通路）、`stats`、`jvm`（JNI 封装）。
+- 模块：`crypto`（ring 的 ChaCha20-Poly1305）、`packet`（池化包）、`video` / `audio` / `buffered`（接收）、`buffered_state`（音乐锚点、控制与发送节奏）、`audio_queue`（压缩队列与积压恢复）、`clock_trim`（音乐 PI 时钟）、`vpipe`（视频解码循环）、`pacing`、`renderer` / `pcm`（Opus 解码与 PCM 步骤）、`aaudio`（输出）、`uplink`（麦克风发送）、`ncm` / `ncm_engine`（有线数据通路）、`stats`、`jvm`（JNI 封装）。
 - Opus 由 [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3) 编解码，编进同一 `.so`；不再携带预编译的 `libopus.so` 与其 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
+  2026-11-12 扩展设备回归发现小米 8 双 ABI 的原生 Opus 编码测试各 3 项失败，上一提交原生库同机复现；主机编码向量不能替代 Android 上行验收。API 28 模拟器的 AAudio 大块排空也出现基线可复现的超时，待定位项见 issue #96 与[实验记录](benchmarks/native-media-2026-11-12.md)。
 - 构建：NDK r28、`aarch64-linux-android` 与 `armv7-linux-androideabi`、最低 API 28，`build.sh` 生成后把 `.so` 检入 `shared/src/main/jniLibs/`，CI 不需要 Rust。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。
 - 第三方许可写进 `shared/src/main/jniLibs/NOTICE.md` 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -120,7 +121,9 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 - **线程**：每条流一个 Rust 接收线程，名字沿用 `airplay-screen`、`airplay-audio-rx`、`airplay-buffered-rx`，诊断和 `/proc` 采样脚本不必改。音频线程设 `THREAD_PRIORITY_AUDIO` 对应的 nice 值。
 - **AAudio 输出**：`NativeAudioOut` 的原生句柄仅由音频 worker 访问；焦点回调只更新 Kotlin volatile 目标增益，由 worker 在写入／排空前应用。原生写入返回消费的输入字节；衰减／重采样后的未写完 PCM 留在 Rust，排空前不接受下一块输入，零长度写入只排空。输入／生成输出分别计数，部分写入不重算重采样、不重复消费；worker 空闲时继续排空，原生写入失败结束 renderer，关闭前取消焦点，FLUSH 丢弃待写 PCM 和插值历史。
 - **视频直连**：每条接收流持有 Rust route，直接把解密后的包送入一个或多个原生解码队列；镜像各持有包引用，逐帧不回调 Kotlin、不经 JNI 提交。Kotlin 在配置／拓扑变化时更新目的地；route 与解码器通过 Arc 保持内存所有权，已销毁的解码器只释放新到的包。换流、关闭先断开旧 route，接收线程即使尚未退出也不能向新流提交。
-- **向上回调**：视频仅回调配置、首次接收、诊断与结束，解码器事件走既有事件线程；任一目标没有原生 pipe 时整条流回退到原有句柄回调，再由 Kotlin 分发，避免镜像漏帧。音频目前仍逐包回调句柄与 RTP 时间等元数据，不传字节数组。
+- **向上回调**：视频仅回调配置、首次接收、诊断与结束，解码器事件走既有事件线程；任一目标没有原生 pipe 时整条流回退到原有句柄回调，再由 Kotlin 分发，避免镜像漏帧。UDP 音频仍逐包回调句柄；缓冲音乐接收器直接入 Rust 队列，Kotlin 输出 worker 按 Rust 返回的步骤执行开始／交付，保留平台调用边界，不传字节数组。
+- **音频状态**：缓冲音乐的 queue 与尚未听到的 fed 包、字节和帧数上限、15 秒后四倍速填充、400 ms 锚点、1 秒预填、RTP 回绕、SETRATE／FLUSH／GETANCHOR／feedback 均由 Rust 计算。平台回调外不持 Rust 锁；Kotlin 输出锁排序暂停／切歌／关闭与交付，开始回调后用 core generation 验证，重入控制使旧交付失效。关闭先销毁／唤醒 owner，再停止接收线程；Arc 保持接收器结束前的内存安全。
+- **音频队列与时钟**：渲染器压缩包在 Rust 持有，保持 192 包上限及持续拥塞恢复阈值，语音不执行音乐积压跳过。入队／关闭唤醒 Android worker；Rust 计算压缩积压与到达加权样本、PI 误差平均、目标测量和进程级 learned drift。Kotlin 只向输出设置请求的速率；系统拒绝时关闭该时钟控制。JNI 句柄销毁与生产者串行，已取出的包独立持引用；时钟随 output worker 释放。库不可用时才初始化／更新 Kotlin 算法状态。
 - **帧句柄**：`NativePacket` 持有引用计数的池化缓冲，Kotlin 通过 `MediaPacket` 传递所有权。镜像消费方各持有自己的引用；写入解码器、被队列丢弃或流关闭时释放。
 - **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin 保留配置、Surface 和恢复决策。Kotlin 回退路径通过 `MediaPacket.copyInto` 写入解码器输入缓冲。
 - **统计**：`StreamReceiveStats` 的字段与日志格式不变，计数在 Rust 内累计，按原有心跳与异常间隔回调一行文本。
@@ -133,7 +136,7 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 | --- | --- |
 | 视频 | Rust：`recv` 进池化缓冲 → 原地开封 → 原地 AVCC→Annex B、解析 NAL 类型 → route 直接分发至解码队列 → NDK `AMediaCodec` 异步循环。关键帧门控、输入背压恢复、按 iPhone 帧时间的节拍与统计在 Rust；`VideoDecoder` 的 worker 处理配置、Surface、镜像、停放与 Rust 发来的事件（要关键帧、要解码器、重建、出错）。无原生 pipe 的目标保留句柄回调路径。 |
 | UDP 音频 | Rust 接收、开封并回调池化包句柄。Opus 用 opus-pure 解码；AAC 保留系统 MediaCodec；LPCM 字节序、通话高通、有声检测、导航衰减与淡入在 Rust 处理。音乐和导航的 usage 路径尝试 AAudio；通话、Siri、旧式流类型及打开失败时使用 `AudioTrack`。 |
-| 缓冲音乐 | Rust 读长度前缀帧、开封、回调句柄；锚点、SETRATE、FLUSH、填充节奏与回压留在 Kotlin，队列保存句柄。 |
+| 缓冲音乐 | Rust 读长度前缀、开封并直接入有界队列，拥有锚点、SETRATE／FLUSH、暂停预填保留、填充节奏与 TCP 回压；Android worker 拉取核心发送步骤，串行执行平台开始／交付／停止。 |
 | 麦克风 | Kotlin 保留 `AudioRecord` 采集和原有 Speex C/JNI 回声处理。原生发送器用 opus-pure 编码、组 RTP、加密并发送；不可用时保留 Kotlin 发送路径。 |
 | 有线 | Kotlin 保留 USB 接口认领、VPN 与生命周期。默认使用原 Kotlin 通路；实验开关开启后尝试 Rust usbdevfs 同步 bulk、NTB16 重组、邻居通告修补与 tun 转发，启动失败时使用 Kotlin 通路。 |
 

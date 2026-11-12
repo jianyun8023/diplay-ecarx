@@ -7,6 +7,9 @@
 pub mod aaudio;
 pub mod annexb;
 pub mod buffered;
+pub mod buffered_state;
+pub mod audio_queue;
+pub mod clock_trim;
 pub mod crypto;
 pub mod jvm;
 pub mod ncm;

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
 import android.util.Log
+import android.os.ParcelFileDescriptor
 import java.io.Closeable
 import java.io.DataInputStream
 import java.math.BigInteger
@@ -21,8 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * streams. They are kept here and handed to the [MediaSink] about [LEAD_MILLIS] ahead of playback, so
  * the media renderer (focus, ducking, channel settings) treats them like any music stream.
  *
- * With [NativeMedia] each frame is opened into a pooled [MediaPacket]; the queue holds those, and every
- * frame that leaves it (played, flushed, dropped or closed) is released.
+ * With [NativeMedia], Rust owns receive, queues, anchors, pacing and backpressure; this adapter orders
+ * platform callbacks against control/close. The Kotlin state below is only the library-unavailable fallback.
  */
 internal class BufferedAudioStream(
     private val key: ByteArray,
@@ -49,6 +50,10 @@ internal class BufferedAudioStream(
     private val boundPort = server.localPort
     @Volatile private var client: Socket? = null
     private val lock = Object()
+    private val nativeEnabled = NativeMedia.available
+    private var nativeCore = if (nativeEnabled) NativeMedia.bufferedCreate(format.sampleRate).also { check(it != 0L) } else 0L
+    private var nativeReceiver = 0L
+    // The collections and timing fields below belong only to the library-unavailable fallback.
     private val queue = ArrayDeque<Frame>()
     // Retain the small renderer preload until its estimated audible position passes it. A pause
     // destroys that renderer, so these frames must be available when playback resumes.
@@ -81,6 +86,7 @@ internal class BufferedAudioStream(
     }
 
     private fun receive() {
+        if (nativeEnabled) return receiveNative()
         var accepted: Socket? = null
         try {
             val socket = acceptPeer() ?: return
@@ -154,6 +160,40 @@ internal class BufferedAudioStream(
         }
     }
 
+    private fun receiveNative() {
+        try {
+            val socket = acceptPeer() ?: return
+            synchronized(lock) {
+                if (closed.get()) return
+                server.close()
+                val fd = ParcelFileDescriptor.fromSocket(socket).detachFd()
+                nativeReceiver = NativeMedia.bufferedStart(nativeCore, fd, key, object : NativeStreamCallbacks() {
+                    override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) {
+                        NativeMedia.packetRelease(handle)
+                        error("buffered receiver must deliver into its core queue")
+                    }
+                    override fun onLog(level: Int, line: String) { log(line) }
+                    override fun onReport(line: String) { log(line) }
+                    override fun onEnded(error: String?) {
+                        synchronized(lock) {
+                            runCatching { client?.close() }
+                            client = null
+                        }
+                        if (!closed.get() && error != null) log("Buffered audio: connection ended ($error)")
+                        if (error?.startsWith("invalid frame length") == true) close()
+                    }
+                })
+                if (nativeReceiver == 0L) {
+                    ParcelFileDescriptor.adoptFd(fd).close()
+                    close()
+                } else log("Buffered audio: connected impl=rust")
+            }
+        } catch (error: Exception) {
+            if (!closed.get()) log("Buffered audio: connection ended (${error.javaClass.simpleName})")
+            close()
+        }
+    }
+
     private fun acceptPeer(): Socket? {
         while (!closed.get()) {
             val socket = server.accept()
@@ -178,6 +218,7 @@ internal class BufferedAudioStream(
 
     /** Hands frames to the sink while playing, keeping about [LEAD_MILLIS] of audio ahead of real time. */
     private fun feed() {
+        if (nativeEnabled) return feedNative()
         try {
             while (!closed.get()) {
                 synchronized(lock) {
@@ -214,6 +255,30 @@ internal class BufferedAudioStream(
         }
     }
 
+    private fun feedNative() {
+        val step = LongArray(3)
+        try {
+            while (!closed.get()) synchronized(lock) {
+                if (closed.get()) return
+                val handle = NativeMedia.bufferedNext(nativeCore, nanoTime(), step)
+                if (handle == 0L) lock.wait(FEED_POLL_MILLIS)
+                else {
+                    val packet = NativePacket(handle, NativeMedia.packetSize(handle))
+                    try {
+                        if (step[1] != 0L) sink.onAudioStarted(id, format, step[0].toInt())
+                        if (!closed.get() && NativeMedia.bufferedCommit(nativeCore, step[2])) {
+                            sink.onAudioPacket(id, format, packet.share(), step[0].toInt())
+                        }
+                    } finally { packet.release() }
+                }
+            }
+        } catch (_: InterruptedException) {
+        } catch (error: Exception) {
+            if (!closed.get()) Log.w(TAG, "buffered audio feed failed", error)
+            close()
+        }
+    }
+
     private fun leadMillisLocked(): Long {
         if (feedStartTimestamp == null) return 0
         val playedMillis = (nanoTime() - feedStartNs) / 1_000_000L
@@ -226,6 +291,7 @@ internal class BufferedAudioStream(
      */
     fun setRate(rtpTime: Long?, newRate: Int, nowNtp: BigInteger): Map<String, Any?>? = synchronized(lock) {
         if (closed.get()) return@synchronized null
+        if (nativeEnabled) return@synchronized nativeControl(1, rtpTime, newRate, nowNtp)
         if (newRate > 0) {
             val start = rtpTime ?: positionLocked() ?: queue.peekFirst()?.timestamp
             restoreFedLocked()
@@ -246,11 +312,14 @@ internal class BufferedAudioStream(
     }
 
     /** GETANCHOR: the current anchor, or null before the first SETRATE. */
-    fun anchor(): Map<String, Any?>? = synchronized(lock) { anchorLocked() }
+    fun anchor(): Map<String, Any?>? = synchronized(lock) {
+        if (nativeEnabled) { if (closed.get()) null else nativeControl(0) } else anchorLocked()
+    }
 
     /** FLUSHBUFFERED: drop what was sent before [untilTimestamp] and restart the output there. */
     fun flush(untilTimestamp: Long?) = synchronized(lock) {
         if (closed.get()) return@synchronized
+        if (nativeEnabled) { nativeControl(2, untilTimestamp); return@synchronized }
         restoreFedLocked()
         if (untilTimestamp != null) dropBeforeLocked(untilTimestamp)
         restartOutputLocked()
@@ -263,12 +332,33 @@ internal class BufferedAudioStream(
             "type" to format.payloadType,
             "sampleRate" to format.sampleRate,
         ).apply {
-            val position = positionLocked() ?: return@apply
+            val now = nanoTime()
+            val position = if (nativeEnabled) {
+                if (closed.get()) return@apply
+                val values = LongArray(5)
+                NativeMedia.bufferedControl(nativeCore, 3, -1, 0, 0, 0, now, values)
+                values[0].takeIf { it >= 0 }
+            } else positionLocked()
+            position ?: return@apply
             put("streamConnectionID", unsignedPlistInteger(connectionId ?: 0L))
             put("timestamp", nowNtp)
-            put("timestampRawNs", nanoTime())
+            put("timestampRawNs", now)
             put("sampleTime", position)
         }
+    }
+
+    // The protocol still uses plist maps; the core retains the anchor and returns a snapshot.
+    private fun nativeControl(op: Int, timestamp: Long? = null, newRate: Int = 0,
+        ntp: BigInteger = BigInteger.ZERO): Map<String, Any?>? {
+        val values = LongArray(5)
+        NativeMedia.bufferedControl(nativeCore, op, timestamp?.and(U32) ?: -1, newRate,
+            ntp.shiftRight(32).toLong(), ntp.and(BigInteger.valueOf(U32)).toLong(), nanoTime(), values)
+        if (values[4] != 0L) runCatching { sink.onAudioStopped(id) }
+            .onFailure { log("Buffered audio: output cleanup failed (${it.javaClass.simpleName})") }
+        lock.notifyAll()
+        if (values[0] < 0) return null
+        val anchor = BigInteger.valueOf(values[1]).shiftLeft(32).add(BigInteger.valueOf(values[2]))
+        return anchorPlist(values[0], anchor, values[3].toInt())
     }
 
     private fun positionLocked(): Long? {
@@ -329,6 +419,16 @@ internal class BufferedAudioStream(
             try {
                 runCatching { client?.close() }
                 client = null
+                if (nativeEnabled) {
+                    val handle = nativeCore
+                    nativeCore = 0L
+                    val stopOutput = NativeMedia.bufferedDestroy(handle)
+                    if (nativeReceiver != 0L) NativeMedia.stop(nativeReceiver)
+                    nativeReceiver = 0L
+                    if (stopOutput) runCatching { sink.onAudioStopped(id) }
+                        .onFailure { log("Buffered audio: output cleanup failed (${it.javaClass.simpleName})") }
+                    return
+                }
                 queue.forEach { it.packet.release() }
                 fed.forEach { it.packet.release() }
                 queue.clear()
