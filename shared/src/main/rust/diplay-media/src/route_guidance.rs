@@ -190,23 +190,7 @@ fn u64(data: &[u8]) -> i64 { i64::from_be_bytes(data[..8].try_into().unwrap()) }
 
 fn utf8(data: &[u8]) -> String {
     let data = &data[..data.iter().position(|&b| b == 0).unwrap_or(data.len())];
-    let mut result = String::new();
-    let mut offset = 0;
-    while offset < data.len() {
-        match std::str::from_utf8(&data[offset..]) {
-            Ok(value) => { result.push_str(value); break; }
-            Err(error) => {
-                // valid_up_to is guaranteed to end at a valid UTF-8 boundary.
-                result.push_str(unsafe { std::str::from_utf8_unchecked(&data[offset..offset + error.valid_up_to()]) });
-                offset += error.valid_up_to();
-                // Java consumes an encoded surrogate as one malformed sequence, including a truncated prefix.
-                let count = if data[offset] == 0xed && data.get(offset + 1).is_some_and(|b| (0xa0..=0xbf).contains(b)) {
-                    if data.get(offset + 2).is_some_and(|b| b & 0xc0 == 0x80) { 3 } else { 2 }
-                } else { error.error_len().unwrap_or(data.len() - offset) };
-                result.push('\u{fffd}'); offset += count;
-            }
-        }
-    }
+    let result = String::from_utf8_lossy(data);
     result.trim_matches(|c: char| c.is_whitespace() && c != '\u{0085}' || ('\u{001c}'..='\u{001f}').contains(&c)).to_string()
 }
 
@@ -340,10 +324,11 @@ mod tests {
     }
 
     #[test]
-    fn java_utf8_replacement_nul_and_whitespace_are_preserved() {
-        assert_eq!(utf8(b"a\xed\xa0\x80b"), "a\u{fffd}b");
-        assert_eq!(utf8(b"a\xed\xa0b"), "a\u{fffd}b");
-        assert_eq!(utf8(b"a\xed\xa0"), "a\u{fffd}");
+    fn android_utf8_replacement_nul_and_whitespace_are_preserved() {
+        // Android rejects each encoded-surrogate byte; desktop JDKs may merge the sequence.
+        assert_eq!(utf8(b"a\xed\xa0\x80b"), "a\u{fffd}\u{fffd}\u{fffd}b");
+        assert_eq!(utf8(b"a\xed\xa0b"), "a\u{fffd}\u{fffd}b");
+        assert_eq!(utf8(b"a\xed\xa0"), "a\u{fffd}\u{fffd}");
         assert_eq!(utf8(b"\xf0\x9f\x98"), "\u{fffd}");
         assert_eq!(utf8(b"\xe0\x80\x80"), "\u{fffd}\u{fffd}\u{fffd}");
         assert_eq!(utf8("\u{001c}\u{00a0}路😀\u{2007}\u{001f}\0ignored".as_bytes()), "路😀");

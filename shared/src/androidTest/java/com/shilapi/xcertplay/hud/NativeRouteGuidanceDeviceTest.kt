@@ -110,6 +110,7 @@ class NativeRouteGuidanceDeviceTest {
         assertTrue(NativeMedia.available)
         Trace().use { trace ->
             trace.start()
+            // Android replaces encoded-surrogate bytes individually; a desktop JDK can merge them.
             val malformed = listOf(byteArrayOf(0xed.toByte(), 0xa0.toByte(), 0x80.toByte()),
                 byteArrayOf(0xed.toByte(), 0xa0.toByte()), byteArrayOf(0xed.toByte(), 0xa0.toByte(), 65),
                 byteArrayOf(0xf0.toByte(), 0x9f.toByte(), 0x98.toByte()), byteArrayOf(0xe0.toByte(), 0x80.toByte(), 0x80.toByte()))
