@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertEquals
 import com.shilapi.xcertplay.iap2.wire.Iap2ParameterList
 import org.junit.Test
 
@@ -31,10 +32,14 @@ class NativeVehicleIdentificationDeviceTest {
     @Test fun invalidNamesAndOversizedGroupsKeepTheOriginalRejection() {
         assertTrue(NativeMedia.available)
         for (name in listOf("a\u0000b", "a".repeat(65532), "a".repeat(22000))) {
+            val expected = assertThrows(IllegalArgumentException::class.java) {
+                components(false, name, EvChargingConnectors.GB_T)
+            }
             for (native in listOf(false, true)) {
-                assertThrows(IllegalArgumentException::class.java) {
+                val error = assertThrows(IllegalArgumentException::class.java) {
                     components(native, name, EvChargingConnectors.GB_T)
                 }
+                assertEquals(expected.message, error.message)
             }
         }
     }

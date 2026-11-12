@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder
 import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.iap2.wire.Iap2WireCodec
+import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import kotlin.math.min
 import kotlin.math.roundToLong
 
@@ -62,7 +63,7 @@ object Iap2VehicleStatus {
         name: String, connectors: EvChargingConnectors, native: Boolean,
     ) {
         if (native) {
-            val namePayload = Iap2WireCodec.string(name)
+            val namePayload = Iap2Parameter(1, Iap2WireCodec.string(name)).payload
             groupEncoded(20, NativeVehicleIdentification.group20(namePayload, connectors.wireValues))
             groupEncoded(21, NativeVehicleIdentification.group21(namePayload))
             return
