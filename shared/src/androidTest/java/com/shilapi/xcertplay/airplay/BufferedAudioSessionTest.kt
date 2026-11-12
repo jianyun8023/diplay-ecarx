@@ -287,7 +287,8 @@ class BufferedAudioSessionTest {
 
     private fun session(disabled: Boolean = false, media: AirPlayMediaHandler): AirPlaySession = AirPlaySession(
         socket = object : Socket() {
-            override fun getRemoteSocketAddress(): SocketAddress = InetSocketAddress(InetAddress.getLoopbackAddress(), 1234)
+            // These tests connect their data sockets to 127.0.0.1, so the control peer must be IPv4 too.
+            override fun getRemoteSocketAddress(): SocketAddress = InetSocketAddress(InetAddress.getByName("127.0.0.1"), 1234)
         },
         config = AirPlayConfig(
             deviceName = "test", deviceId = "02:00:00:00:00:02", btMac = "02:00:00:00:00:01", sourceVersion = "1.0",
