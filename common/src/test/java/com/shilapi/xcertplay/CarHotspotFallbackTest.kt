@@ -107,7 +107,7 @@ class CarHotspotFallbackTest {
     private fun start(controller: CarPlayController): WirelessHotspotInfo {
         val method = controller.wirelessRunForTest().javaClass.getDeclaredMethod("startWirelessHotspot", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }
-        return try { method.invoke(controller.wirelessRunForTest(), 0) as WirelessHotspotInfo }
+        return try { method.invoke(controller.wirelessRunForTest(), controller.wirelessGenerationForTest()) as WirelessHotspotInfo }
         catch (error: InvocationTargetException) { throw error.targetException }
     }
 
@@ -122,8 +122,7 @@ class CarHotspotFallbackTest {
             sourceVersion = "1", main = AirPlayDisplayConfig(widthPixels = 1536, heightPixels = 792)),
         AirPlayIdentity.generate(), PairingStore(), object : AirPlaySessionListener {},
         object : AirPlayMediaHandler {}, {}).also { controller ->
-        val phase = controller.javaClass.getDeclaredField("phase").apply { isAccessible = true }
-        phase.set(controller, phase.type.enumConstants!!.first { it.toString() == "WIRELESS" })
+        controller.wirelessRunForTest()
     }
 
     @Implements(WifiManager::class)

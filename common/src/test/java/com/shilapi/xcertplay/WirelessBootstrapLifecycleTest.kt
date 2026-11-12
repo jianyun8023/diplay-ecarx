@@ -44,6 +44,7 @@ import org.robolectric.util.ReflectionHelpers
 @LooperMode(LooperMode.Mode.PAUSED)
 class WirelessBootstrapLifecycleTest {
     private lateinit var controller: CarPlayController
+    private val generation: Int get() = controller.wirelessGenerationForTest()
     private val statuses = mutableListOf<CarPlayStatus>()
     private val airPlayConfig = AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480))
     private val identity = AirPlayIdentity(ByteArray(32), ByteArray(32), "test")
@@ -84,7 +85,7 @@ class WirelessBootstrapLifecycleTest {
         val linkType = controller.javaClass.declaredClasses.single { it.simpleName == "InstantBluetoothLink" }
         val link = linkType.getDeclaredConstructor(Int::class.javaPrimitiveType, BluetoothDevice::class.java,
             BluetoothRfcommDuplexStream::class.java, Long::class.javaPrimitiveType, attempt.javaClass)
-            .apply { isAccessible = true }.newInstance(0, mock(BluetoothDevice::class.java), stream, 0L, attempt)
+            .apply { isAccessible = true }.newInstance(generation, mock(BluetoothDevice::class.java), stream, 0L, attempt)
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "instantBluetoothLink", link)
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "csm", csm)
@@ -154,7 +155,7 @@ class WirelessBootstrapLifecycleTest {
         val attempt = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
         bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, attempt)
-        controller.replaceWirelessRunForTest(1)
+        controller.replaceWirelessRunForTest()
         // The attempt token stays valid; retiring its run must still reject queued progress.
         assertTrue(attemptIsCurrent(attempt))
         shadowOf(Looper.getMainLooper()).idle()
@@ -297,7 +298,7 @@ class WirelessBootstrapLifecycleTest {
     }
 
     @Test fun watchdogTimeoutClosesOnlyItsAttemptAndPreservesTypedRetryCause() {
-        setWirelessPhase()
+        assertWirelessPhase()
         val attempt = newAttempt()
         val channel = mock(Iap2Session::class.java)
         val stream = mock(BluetoothRfcommDuplexStream::class.java)
@@ -327,7 +328,7 @@ class WirelessBootstrapLifecycleTest {
     }
 
     @Test fun staleWatchdogCannotCloseAReplacementAttemptInTheSameWirelessRun() {
-        setWirelessPhase()
+        assertWirelessPhase()
         val old = newAttempt()
         val replacement = newAttempt()
         val channel = mock(Iap2Session::class.java)
@@ -340,7 +341,7 @@ class WirelessBootstrapLifecycleTest {
     }
 
     @Test fun startSessionDispatchGuardsAgainstTimeoutBeforeSendCallback() {
-        setWirelessPhase()
+        assertWirelessPhase()
         val attempt = newAttempt()
         val stream = mock(BluetoothRfcommDuplexStream::class.java)
         val dispatched = AtomicBoolean(false)
@@ -351,7 +352,7 @@ class WirelessBootstrapLifecycleTest {
         controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
             Int::class.javaPrimitiveType, attempt.javaClass, AtomicBoolean::class.java,
             Function0::class.java).apply { isAccessible = true }
-            .invoke(controller.wirelessRunForTest(), 0, attempt, dispatched, { Unit })
+            .invoke(controller.wirelessRunForTest(), generation, attempt, dispatched, { Unit })
         assertTrue(dispatched.get())
         assertTrue(attemptIsCurrent(attempt))
 
@@ -362,7 +363,7 @@ class WirelessBootstrapLifecycleTest {
     }
 
     @Test fun staleAttemptCannotBeginStartSessionDispatch() {
-        setWirelessPhase()
+        assertWirelessPhase()
         val old = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", newAttempt())
         val dispatched = AtomicBoolean(false)
@@ -370,14 +371,14 @@ class WirelessBootstrapLifecycleTest {
             controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
                 Int::class.javaPrimitiveType, old.javaClass, AtomicBoolean::class.java,
                 Function0::class.java).apply { isAccessible = true }
-                .invoke(controller.wirelessRunForTest(), 0, old, dispatched, { Unit })
+                .invoke(controller.wirelessRunForTest(), generation, old, dispatched, { Unit })
         }
         assertTrue(error.cause is CancellationException)
         assertFalse(dispatched.get())
     }
 
     @Test fun watchdogCannotCloseAfterStartSessionOrHandoffOrGenerationReplacement() {
-        setWirelessPhase()
+        assertWirelessPhase()
         val attempt = newAttempt()
         val channel = mock(Iap2Session::class.java)
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
@@ -393,11 +394,8 @@ class WirelessBootstrapLifecycleTest {
         verifyNoInteractions(channel)
     }
 
-    private fun setWirelessPhase() {
-        val phase = ReflectionHelpers.getField<Any>(controller, "phase")
-        ReflectionHelpers.setField(controller, "phase", phase.javaClass.enumConstants!!.single {
-            (it as Enum<*>).name == "WIRELESS"
-        })
+    private fun assertWirelessPhase() {
+        assertEquals(2, controller.controllerCoreCallForTest<Int>("getPhase"))
     }
 
     private fun expireAttempt(attempt: Any, sent: Boolean = false,
@@ -409,12 +407,12 @@ class WirelessBootstrapLifecycleTest {
                 com.shilapi.xcertplay.transport.Iap2BootstrapPhase.WIRELESS_CARPLAY_AVAILABLE, 65_000L)
         controller.wirelessRunForTest().javaClass.getDeclaredMethod("expireBootstrapAttempt", Int::class.javaPrimitiveType,
             attempt.javaClass, stallType, AtomicBoolean::class.java).apply { isAccessible = true }
-            .invoke(controller.wirelessRunForTest(), 0, attempt, stall, dispatched)
+            .invoke(controller.wirelessRunForTest(), generation, attempt, stall, dispatched)
     }
 
     private fun reportedFailure(error: Throwable): CarPlayStatus.Failed {
         controller.javaClass.getDeclaredMethod("fail", Throwable::class.java, Int::class.javaObjectType)
-            .apply { isAccessible = true }.invoke(controller, error, 0)
+            .apply { isAccessible = true }.invoke(controller, error, generation)
         shadowOf(Looper.getMainLooper()).idle()
         return statuses.single() as CarPlayStatus.Failed
     }
@@ -422,8 +420,8 @@ class WirelessBootstrapLifecycleTest {
     @Test fun retainedWirelessAttachmentRequiresExactOwnerAndAnOpenListenerSocket() {
         val serviceController = Robolectric.buildService(CarPlayVpnService::class.java).create()
         val service = serviceController.get()
-        val owner = AirPlayListenerIdentity(0)
-        val anotherOwnerInSameGeneration = AirPlayListenerIdentity(0)
+        val owner = AirPlayListenerIdentity(generation)
+        val anotherOwnerInSameGeneration = AirPlayListenerIdentity(generation)
         try {
             assertFalse(service.isWirelessAttached(owner))
             assertEquals(CarPlayVpnService.AttachResult.Started, service.attachWireless(

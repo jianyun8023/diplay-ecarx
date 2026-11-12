@@ -123,9 +123,7 @@ class CarPlayControllerUsbServiceTest {
         val logs = mutableListOf<String>()
         val controller = controller(context, CarPlayTransport.WIRED, MfiTarget.LOCAL, logs)
         // Local MFi needs the private identity of a real build, so the attempt starts at the iPhone step.
-        ReflectionHelpers.setField(controller, "phase",
-            Class.forName("com.shilapi.xcertplay.orchestration.CarPlayController\$Phase").enumConstants!!
-                .single { (it as Enum<*>).name == "IPHONE" })
+        assertTrue(controller.controllerCoreCallForTest("beginIphone"))
         ReflectionHelpers.callInstanceMethod<Unit>(controller, "checkIphoneAvailability")
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
         assertTrue(statuses.contains(CarPlayStatus.WaitingForIphone))
@@ -226,8 +224,7 @@ class CarPlayControllerUsbServiceTest {
         // The iPhone came back on its own: its attach answered the request.
         ReflectionHelpers.callInstanceMethod<Unit>(controller, "watchReenumeration",
             ReflectionHelpers.ClassParameter.from(UsbDevice::class.java, iphone))
-        ReflectionHelpers.getField<java.util.concurrent.atomic.AtomicInteger>(controller, "availabilityPollGeneration")
-            .incrementAndGet()
+        controller.controllerCoreCallForTest<Int>("invalidateAvailability")
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(11))
         assertTrue(logs.none { it.contains("USB transition unanswered") })
 
@@ -241,10 +238,8 @@ class CarPlayControllerUsbServiceTest {
 
     private fun waitingForReenumeration(context: Context, logs: MutableList<String>): CarPlayController {
         val controller = controller(context, CarPlayTransport.WIRED, MfiTarget.LOCAL, logs)
-        ReflectionHelpers.setField(controller, "phase",
-            Class.forName("com.shilapi.xcertplay.orchestration.CarPlayController\$Phase").enumConstants!!
-                .single { (it as Enum<*>).name == "REENUMERATION" })
-        ReflectionHelpers.setField(controller, "reenumerationAttempts", 1)
+        controller.controllerCoreCallForTest<Any?>("beginReenumeration")
+        assertEquals(1, controller.controllerCoreCallForTest<Int>("getReenumerationAttempts"))
         return controller
     }
 
