@@ -17,6 +17,12 @@ class CoreShadowProvider : ShadowProvider {
     }
 
     private val bindings = listOf(
+        "com.shilapi.xcertplay.media.NativeAudioScheduler" to "com.shilapi.xcertplay.testcore.ShadowNativeAudioScheduler",
+        "com.shilapi.xcertplay.media.NativeVideoPolicy" to "com.shilapi.xcertplay.testcore.ShadowNativeVideoPolicy",
+        "com.shilapi.xcertplay.orchestration.NativeCarPlayController" to "com.shilapi.xcertplay.testcore.ShadowNativeCarPlayController",
+        "com.shilapi.xcertplay.orchestration.NativeStartupWatchdog" to "com.shilapi.xcertplay.testcore.ShadowNativeStartupWatchdog",
+        "com.shilapi.xcertplay.transport.NativeUsbMux" to "com.shilapi.xcertplay.testcore.ShadowNativeUsbMux",
+        "com.shilapi.xcertplay.transport.NativeIap2Handshake" to "com.shilapi.xcertplay.testcore.ShadowNativeIap2Handshake",
         "com.shilapi.xcertplay.airplay.NativeScreenCodec" to "com.shilapi.xcertplay.testcore.ShadowNativeScreenCodec",
         "com.shilapi.xcertplay.airplay.NativeAirPlayNegotiation" to "com.shilapi.xcertplay.testcore.ShadowNativeAirPlayNegotiation",
         "com.shilapi.xcertplay.airplay.NativeTouchSlots" to "com.shilapi.xcertplay.testcore.ShadowNativeTouchSlots",
