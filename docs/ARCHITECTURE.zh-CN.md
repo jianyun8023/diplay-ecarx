@@ -1,8 +1,33 @@
 # DiPlay 技术架构
 
-本文说明 DiPlay 领克 01 / ECARX 753 移植版的模块划分、一次 CarPlay 会话的组成、控制面与数据面的分工，以及媒体数据面迁到 Rust 的目标设计。代码归属的细则以根目录 [AGENTS.md](../AGENTS.md) 为准；厂商接口与实车结论见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。
+本文说明 DiPlay 领克 01 / ECARX 753 移植版的模块划分、会话组成、当前媒体实现，以及完整 Rust 核心的迁移目标。代码归属的细则以根目录 [AGENTS.md](../AGENTS.md) 为准；厂商接口与实车结论见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。
 
-本文描述阶段 1–6 的实现与边界：阶段 1 已由 PR #94 合入 `dev`，阶段 2–6 在本次 PR 中交付。实现完成不等于实车验收通过；台架结果、版本和未验证范围见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)。
+当前媒体部分描述原生媒体阶段 1–6：阶段 1 已由 PR #94 合入 `dev`，阶段 2–6 及 AAudio 正确性修复从原 PR #95 继承到完整迁移分支。实现完成不等于实车验收通过；台架结果、版本和未验证范围见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)。
+
+## 完整 Rust 核心迁移（进行中）
+
+工作分支为 `feat/rust-carplay-core`，任务与验收进展统一维护在 [issue #96](https://github.com/jianyun8023/diplay-ecarx/issues/96)。该分支承接原生媒体工作，目标是 Rust 核心与 Kotlin Android 薄宿主；下文的 Kotlin 控制面是当前实现，不是长期目标。
+
+| 目标归属 | 职责 |
+| --- | --- |
+| Rust 核心 | AirPlay／RTSP、bplist、配对／控制加密、iAP2；有线／无线会话代际、超时、重试、拆除与恢复；媒体队列、锚点、时钟、背压、编解码及路由决策；导航状态、车辆数据转换、触摸与按键协议。 |
+| Kotlin 宿主与适配 | UI、Activity／Service 生命周期、权限、平台对象和线程；蓝牙／热点、音频焦点、USB 认领／VPN、平台存储及车机 SDK 调用。向 Rust 报告能力、事件与动作结果，执行 Rust 请求。 |
+| 继续使用的平台／原生能力 | 硬件编解码器、Surface、AudioTrack／AAudio、AudioRecord、既有 Speex 库与车机接口，保留现有校准及兼容行为。 |
+
+迁移顺序：
+
+1. 完成媒体闭环。AAudio 增益并发访问和部分写入已修复；下一步接通 Rust 视频收包与解码，再迁移音频队列、缓冲音乐锚点、SETRATE／FLUSH、时钟与背压。
+2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。
+3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。
+4. 迁移导航、车辆转换和输入协议；验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
+
+当前已验证范围仍限于媒体基础与 AAudio 修复；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
+
+### LIVI 参考与复用
+
+[LIVI](https://github.com/f-io/LIVI) 是协议迁移的优先参考：`native/crates/livi-cp` 包含 RTSP、bplist、SRP、配对、控制加密、时钟、HID、UI Sync 和车辆状态，iAP2 在 `iap2-csm/link/mfi/usbmux/wired` 等 crate；`livi-cp` 还保留 `ts_vectors` 测试。现有 `Srp6a.kt` 注明移植自其早期 `srp.ts`；本地 2026-11-11 的 Ultra 调研已核对 Rust 提交 `870d2644`。2026-11-12 重新核查了当前 Rust 模块结构。
+
+每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。LIVI 当前使用 Tokio／OpenSSL，Android 分发包为 Android 10+ ARM64；这些不能代替本项目 API 28 和 ARMv7 的验证。导入代码时保留其 [NOTICE](https://github.com/f-io/LIVI/blob/main/NOTICE) 要求的署名，同步许可证、About 与 README；本次只确定参考路线，尚未导入 LIVI 源码或依赖。
 
 ## 1. 目标平台
 
@@ -47,7 +72,7 @@
 | 麦克风 | UDP RTP | Opus 编码、ChaCha20-Poly1305 加密上行 | `MicrophoneUplink` |
 | 130 数据流 | TCP | iAP2 隧道等 | `IapTunnel` |
 
-## 4. 控制面与数据面
+## 4. 当前控制面与数据面
 
 划分原则：**按包、按帧、按采样周期发生的工作是数据面，由 Rust 负责；按会话、按配置、按用户操作发生的决策是控制面，留在 Kotlin。**
 
