@@ -87,3 +87,11 @@
 -keep class com.shilapi.xcertplay.transport.NativeVehicleIdentification {
     native <methods>;
 }
+
+# iAP2 body parameter framing and the DTO its native parser constructs.
+-keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Body {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.iap2.wire.Iap2Parameter {
+    public <init>(int, byte[]);
+}

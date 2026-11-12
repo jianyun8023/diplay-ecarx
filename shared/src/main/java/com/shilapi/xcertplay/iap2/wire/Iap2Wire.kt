@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.iap2.wire
 
+import com.shilapi.xcertplay.airplay.NativeMedia
+
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 
@@ -61,7 +63,15 @@ class Iap2ParameterList private constructor(
 
     fun all(id: Int): List<Iap2Parameter> = parameters.filter { it.id == id }
 
-    fun encode(): ByteArray {
+    fun encode(): ByteArray = if (NativeMedia.available)
+        NativeIap2Body.encode(
+            parameters.map { it.id }.toIntArray(),
+            parameters.map { it.payloadView() }.toTypedArray(),
+        )
+    else encodeKotlin()
+
+    /** Library-unavailable fallback and native parity reference. */
+    internal fun encodeKotlin(): ByteArray {
         val encoded = ByteArrayOutputStream()
         for (parameter in parameters) {
             val next = Iap2CsmFramer.encodeParam(parameter.id, parameter.payloadView())
@@ -91,7 +101,12 @@ class Iap2ParameterList private constructor(
             of(parameters.asList())
 
         /** Parses a complete body and rejects truncated headers, invalid lengths, and trailing bytes. */
-        fun parse(encoded: ByteArray): Iap2ParameterList {
+        fun parse(encoded: ByteArray): Iap2ParameterList =
+            if (NativeMedia.available) Iap2ParameterList(NativeIap2Body.parse(encoded).toList())
+            else parseKotlin(encoded)
+
+        /** Library-unavailable fallback and native parity reference. */
+        internal fun parseKotlin(encoded: ByteArray): Iap2ParameterList {
             val parameters = ArrayList<Iap2Parameter>()
             var offset = 0
             while (offset < encoded.size) {
@@ -149,3 +164,9 @@ class Iap2Frame(messageId: Int, payload: ByteArray) {
 
 /** A malformed, incomplete, or otherwise invalid iAP2 CSM value. */
 open class Iap2ProtocolException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/** Native CSM body parameter framing; order and repeated ids are preserved. */
+internal object NativeIap2Body {
+    @JvmStatic external fun encode(ids: IntArray, payloads: Array<ByteArray>): ByteArray
+    @JvmStatic external fun parse(encoded: ByteArray): Array<Iap2Parameter>
+}

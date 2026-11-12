@@ -214,3 +214,6 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 - 尚未迁移的选型、回退、路由、焦点和设置接入继续沿用当前 Kotlin 实现；按 issue #96 将核心决策与状态成组迁入 Rust，平台调用和存储保留适配层，同步迁移调用方及测试。
 - 新的 JNI 入口跟随所属 owner 的边界；独立桥接放在 owner 的私有 `jni` 子模块，共享 JVM／NDK 设施留在 `platform`。每个入口检查参数边界后才触碰内存；Rust 侧不 `panic` 跨越 FFI（发布配置为 abort），错误以返回码或既有异常契约交给 Kotlin。
 - 新的车机接口或属性先登记到平台笔记，再使用。
+
+
+- Rust `protocols/iap2_body` 持有 CSM body 参数分帧的编码／解析（长度校验、顺序与重复参数）；`Iap2BodyBuilder`／`Iap2BodyReader` 与标量／字符串编解码保留 Kotlin。
