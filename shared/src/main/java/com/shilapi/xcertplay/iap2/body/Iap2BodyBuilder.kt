@@ -80,6 +80,10 @@ class Iap2BodyBuilder private constructor(
         return this
     }
 
+    /** Adds a group whose child TLV bytes were encoded elsewhere (Rust) without re-parsing them. */
+    fun groupEncoded(id: Int, payload: ByteArray): Iap2BodyBuilder =
+        add(id, payload.copyOf(), Iap2WireType.GROUP)
+
     fun optionalVoid(id: Int, present: Boolean): Iap2BodyBuilder =
         if (present) void(id) else this
 

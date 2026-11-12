@@ -53,7 +53,18 @@ object Iap2VehicleStatus {
     private const val ENGINE_TYPE_ELECTRIC = 2
 
     /** IdentificationInformation params 20 (VehicleInformation) and 21 (VehicleStatus). */
-    fun Iap2BodyBuilder.electricVehicleComponents(name: String, connectors: EvChargingConnectors) {
+    fun Iap2BodyBuilder.electricVehicleComponents(name: String, connectors: EvChargingConnectors) =
+        electricVehicleComponents(name, connectors, NativeMedia.available)
+
+    /** [native] is exposed for the device parity test; production picks it from the library load. */
+    internal fun Iap2BodyBuilder.electricVehicleComponents(
+        name: String, connectors: EvChargingConnectors, native: Boolean,
+    ) {
+        if (native) {
+            groupEncoded(20, NativeVehicleIdentification.group20(name, connectors.wireValues))
+            groupEncoded(21, NativeVehicleIdentification.group21(name))
+            return
+        }
         group(20) {
             u16(0, 3) // Identifier
             string(1, name) // Name
@@ -97,6 +108,12 @@ object Iap2VehicleStatus {
         bool(25, status.charging) // isCharging
         u16(30, status.maxRangeKm.coerceIn(0, 0xffff)) // MaxRangeElectric, km
     }
+}
+
+/** The native pure TLV encoder for IdentificationInformation vehicle components. */
+internal object NativeVehicleIdentification {
+    @JvmStatic external fun group20(name: String, connectors: IntArray): ByteArray
+    @JvmStatic external fun group21(name: String): ByteArray
 }
 
 /** Serves the phone's vehicle-status subscription inside an iAP2 control loop. */

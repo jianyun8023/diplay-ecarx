@@ -19,7 +19,7 @@
 1. 完成媒体闭环。AAudio 正确性与视频直连已完成；音频压缩队列、缓冲音乐锚点、SETRATE／FLUSH、音乐 PI 时钟与 TCP 背压现由 Rust 拥有。继续收敛平台输出调度与逐包交接，并完成实车验收。
 2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP、bplist、control／event 加密和 PairVerify 已接入 Rust，PairSetup／SRP、iAP2／NTP 等仍待迁移，平台存储与 MFi 接入继续保留。
 3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState、WirelessBootstrapRecovery 及 wired Iap2ControlDeadline 策略已迁移；wireless deadline、watchdog 调度、controller 代际与平台资源动作仍保留。
-4. 迁移导航、车辆转换和输入协议；EV 0xA101、导航状态及 HID 报告／描述符编码已迁移，其余车辆转换与触摸槽状态尚待迁移，Android 输入适配保留 Kotlin。验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
+4. 迁移导航、车辆转换和输入协议；EV 0xA101、导航状态、HID 报告／描述符及 IdentificationInformation 的 ElectricVehicleComponents 纯 TLV 已迁移，其余车辆转换与触摸槽状态尚待迁移，Android 输入适配保留 Kotlin。验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
 
 验证覆盖范围与批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
 

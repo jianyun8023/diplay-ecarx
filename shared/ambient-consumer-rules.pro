@@ -82,3 +82,8 @@
 -keep class com.shilapi.xcertplay.hud.NativeDayNight {
     native <methods>;
 }
+
+# IdentificationInformation vehicle components pure TLV encoder.
+-keep class com.shilapi.xcertplay.transport.NativeVehicleIdentification {
+    native <methods>;
+}
