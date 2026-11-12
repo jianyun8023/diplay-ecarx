@@ -6,6 +6,10 @@ import com.shilapi.xcertplay.media.AudioChannelMapper
 import com.shilapi.xcertplay.media.AudioFocusCoordinator
 import com.shilapi.xcertplay.media.MediaAudioBuffer
 import com.shilapi.xcertplay.media.MediaClockTrim
+import com.shilapi.xcertplay.media.AudioRenderer
+import com.shilapi.xcertplay.media.NativeAudioQueue
+import com.shilapi.xcertplay.media.RendererNativeFixture
+import java.nio.ByteBuffer
 import java.io.DataOutputStream
 import java.math.BigInteger
 import java.net.InetAddress
@@ -13,7 +17,6 @@ import java.net.Socket
 import java.time.Duration
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.abs
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -111,12 +114,16 @@ class BufferedMusicClockTrimTest {
     }
 
     private class RendererWithModelledDecoder(format: AudioFormat, startMs: Int, drift: Double, reports: MutableList<String>) {
-        private val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        private val renderer = type.declaredConstructors.single { it.parameterCount == 13 }.apply { isAccessible = true }
-            .newInstance(format, false, false, 0, 0, AudioFocusCoordinator(null, false), 0, startMs,
-                { line: String -> reports += line }, false, null, false, false)
+        private val renderer = AudioRenderer(format, false, false, 0, 0,
+            AudioFocusCoordinator(null, false), 0, startMs, { line: String -> reports += line })
+        private val type = renderer.javaClass
         private val createdMs = SystemClock.uptimeMillis()
-        private val packets: LinkedBlockingQueue<*>
+        private val native: RendererNativeFixture
+        private val packets: NativeAudioQueue
+        private val consumer: NativeAudioQueue.Consumer
+        private val packetInfo = LongArray(3)
+        private val pcm = ByteBuffer.allocateDirect(FRAME.toInt() * 4)
+        private val write = method("writePcm", ByteBuffer::class.java, Int::class.javaPrimitiveType!!)
         private val track: AudioTrack
         val output: HeadUnitTrack
         private var decodeCredit = 0.0
@@ -124,7 +131,10 @@ class BufferedMusicClockTrimTest {
         init {
             field("started").set(renderer, true)
             method("createTrack").invoke(renderer)
-            packets = field("queue").get(renderer) as LinkedBlockingQueue<*>
+            // Keep this head-unit SDK replay on AudioTrack, then install the real native PCM core.
+            native = RendererNativeFixture(renderer)
+            packets = native.queue
+            consumer = checkNotNull(packets.consumer())
             track = field("track").get(renderer) as AudioTrack
             output = Shadow.extract(track)
             output.drift = drift
@@ -140,11 +150,10 @@ class BufferedMusicClockTrimTest {
             output.advance(nowMs)
             if (nowMs >= createdMs + SETUP_MS) {
                 decodeCredit += DECODE_TIMES_REALTIME * 48.0 * STEP_MS
-                val write = method("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!)
-                while (decodeCredit >= FRAME && packets.isNotEmpty() && output.queuedFrames + FRAME <= HeadUnitTrack.capacityFrames) {
-                    packets.poll()
+                while (decodeCredit >= FRAME && packets.size > 0 && output.queuedFrames + FRAME <= HeadUnitTrack.capacityFrames) {
+                    (consumer.poll(packetInfo, 0) ?: break).release()
                     decodeCredit -= FRAME
-                    write.invoke(renderer, ByteArray(FRAME.toInt() * 4), 0, FRAME.toInt() * 4)
+                    write.invoke(renderer, pcm, FRAME.toInt() * 4)
                 }
                 decodeCredit = minOf(decodeCredit, FRAME.toDouble())
             }
@@ -152,8 +161,8 @@ class BufferedMusicClockTrimTest {
         }
 
         fun close() {
-            method("close").invoke(renderer)
-            track.release()
+            consumer.close()
+            native.close()
         }
 
         private fun field(name: String) = type.getDeclaredField(name).apply { isAccessible = true }
@@ -174,7 +183,7 @@ class BufferedMusicClockTrimTest {
 
         @Implementation fun play() { movesAtMs = SystemClock.uptimeMillis() + PLAY_LATENCY_MS }
         @Implementation fun pause() { movesAtMs = null }
-        @Implementation fun write(audioData: ByteArray, offsetInBytes: Int, sizeInBytes: Int, writeMode: Int): Int {
+        @Implementation fun write(audioData: ByteBuffer, sizeInBytes: Int, writeMode: Int): Int {
             writtenFrames += sizeInBytes / 4
             return sizeInBytes
         }
