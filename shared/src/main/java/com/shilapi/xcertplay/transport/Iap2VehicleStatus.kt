@@ -6,7 +6,6 @@ import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.iap2.wire.Iap2WireCodec
 import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
-import kotlin.math.min
 
 /** One reading of an electric vehicle's range and charge, as CarPlay's VehicleStatusUpdate carries it. */
 data class VehicleStatusSnapshot(
@@ -82,19 +81,18 @@ internal class Iap2VehicleStatusReporter(
     private val onProgress: (String) -> Unit,
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
-    private var active = false
-    private var lastSentNanos = 0L
+    private val subscription = NativeIap2ReportSubscription.create(vehicleStatus = true)
 
     /** Handles 0xA100/0xA102; returns false for any other message. */
     fun handle(frame: Iap2Frame, send: (Iap2Frame) -> Unit): Boolean = when (frame.messageId) {
         Iap2VehicleStatus.START_VEHICLE_STATUS_UPDATES -> {
-            active = provider != null
+            NativeIap2ReportSubscription.start(subscription, provider != null)
             onProgress("iap2 rx=0xa100 start-vehicle-status provider=${provider != null}")
-            if (active) sendNow(send)
+            if (NativeIap2ReportSubscription.active(subscription)) sendNow(send)
             true
         }
         Iap2VehicleStatus.STOP_VEHICLE_STATUS_UPDATES -> {
-            active = false
+            NativeIap2ReportSubscription.stop(subscription)
             onProgress("iap2 rx=0xa102 stop-vehicle-status")
             true
         }
@@ -103,16 +101,18 @@ internal class Iap2VehicleStatusReporter(
 
     /** Sends the periodic update when it is due. */
     fun tick(send: (Iap2Frame) -> Unit) {
-        if (active && nanoTime() - lastSentNanos >= Iap2VehicleStatus.UPDATE_INTERVAL_MILLIS * 1_000_000) sendNow(send)
+        if (NativeIap2ReportSubscription.active(subscription) &&
+            NativeIap2ReportSubscription.due(subscription, nanoTime())) sendNow(send)
     }
 
     fun pollTimeout(remainingMillis: Long): Long =
-        if (active) min(remainingMillis, Iap2VehicleStatus.UPDATE_INTERVAL_MILLIS) else remainingMillis
+        if (NativeIap2ReportSubscription.active(subscription))
+            NativeIap2ReportSubscription.timeout(subscription, remainingMillis, 0) else remainingMillis
 
     private fun sendNow(send: (Iap2Frame) -> Unit) {
         val status = provider?.snapshot() ?: return
         send(Iap2VehicleStatus.update(status))
-        lastSentNanos = nanoTime()
+        NativeIap2ReportSubscription.mark(subscription, nanoTime())
         onProgress("iap2 tx=0xa101 vehicle-status range=${status.rangeKm}km battery=${status.batteryPercent}% " +
             "warning=${status.rangeWarning}")
     }

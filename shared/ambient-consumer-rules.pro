@@ -164,3 +164,10 @@
     public byte[] sign(byte[]);
     public byte[][] baa();
 }
+
+-keep class com.shilapi.xcertplay.transport.NativeIap2ReportSubscription {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.transport.NativeNmeaLocation {
+    native <methods>;
+}
