@@ -1,6 +1,7 @@
 //! Buffered/live audio, renderer queues, clocks, output and microphone uplink.
 
 pub mod aaudio;
+pub mod aac;
 pub mod buffered;
 pub mod buffered_state;
 pub mod clock_trim;

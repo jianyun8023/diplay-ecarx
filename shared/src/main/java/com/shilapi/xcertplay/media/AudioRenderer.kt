@@ -555,13 +555,8 @@ internal class AudioRenderer(
         ).streamType
     }
 
-    private fun aacAudioSpecificConfig(): ByteArray {
-        val frequencyIndex = MediaCodecSupport.aacFrequencyIndex(format.sampleRate)
-        val value = (AAC_OBJECT_TYPE_LC shl 11) or
-            (frequencyIndex shl 7) or
-            (format.channels.coerceIn(1, 7) shl 3)
-        return byteArrayOf((value ushr 8).toByte(), value.toByte())
-    }
+    private fun aacAudioSpecificConfig(): ByteArray =
+        NativeAac.audioSpecificConfig(format.sampleRate, format.channels)
 
     private fun usageFor(channel: AudioChannel): Int = when (channel) {
         AudioChannel.MEDIA -> AudioAttributes.USAGE_MEDIA
@@ -1094,7 +1089,6 @@ internal class AudioRenderer(
 
     private companion object {
         const val TAG = "xcertplay-usb"
-        const val AAC_OBJECT_TYPE_LC = 2
         const val RTP_HEADER_BYTES = 12
         // Holds the largest decoder output seen in practice (1024 AAC frames, stereo, 16-bit is 4 KiB).
         const val PCM_BUFFER_BYTES = 64 * 1024
