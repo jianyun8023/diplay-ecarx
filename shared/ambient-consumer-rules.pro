@@ -131,6 +131,7 @@
 
 # USBMUX bridges return only bootstrap arrays/strings; protocol exception has a String-only ctor.
 -keep class com.shilapi.xcertplay.transport.NativeUsbMux { native <methods>; }
+-keep class com.shilapi.xcertplay.transport.NativeNcm { native <methods>; }
 -keep class com.shilapi.xcertplay.transport.IphoneUsbException$Protocol {
     public <init>(java.lang.String);
 }

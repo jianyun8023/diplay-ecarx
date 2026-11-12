@@ -7,6 +7,8 @@ import java.util.ArrayDeque
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -52,7 +54,31 @@ class NcmUsbBridgeWriteTimeoutTest {
         assertEquals(listOf(5), NcmWriteReplay.timeouts)
     }
 
-    private fun withBridge(block: (NcmUsbBridge) -> Unit): List<String> {
+    @Test fun firstPartialCompletionReportsReadinessBeforeFailingAndDoesNotCountASentFrame() {
+        NcmWriteReplay.results.addAll(listOf(1, NcmWriteReplay.ALL))
+        val reports = mutableListOf<String>()
+        val openedDuringReport = mutableListOf<Long?>()
+        withBridge(onDiagnostic = { bridge, line ->
+            reports += "$line ${bridge.trafficSummary(null)}"
+            openedDuringReport += bridge.linkOpenedAtNanos
+        }) { ncm ->
+            try { ncm.send(frame, 2_000); fail("partial bulk write was accepted") }
+            catch (error: IphoneUsbException.DeviceUnavailable) {
+                assertEquals("NCM write transferred 1 of ${Ntb16Codec.build(frame, 0).size} bytes", error.message)
+            }
+            assertEquals(1, reports.size)
+            assertNotNull(openedDuringReport.single())
+            assertTrue(reports.single().startsWith("NCM bulk-out ready after 0 dropped frames"))
+            assertTrue(reports.single().endsWith("toIphone=0"))
+            assertTrue(ncm.trafficSummary(null).endsWith("toIphone=0"))
+            ncm.send(frame, 2_000)
+            assertTrue(ncm.trafficSummary(null).endsWith("toIphone=1"))
+        }
+        assertEquals(listOf(NcmUsbBridge.NOT_READY_WRITE_TIMEOUT_MILLIS, 2_000), NcmWriteReplay.timeouts)
+    }
+
+    private fun withBridge(onDiagnostic: ((NcmUsbBridge, String) -> Unit)? = null,
+        block: (NcmUsbBridge) -> Unit): List<String> {
         val connection = ReflectionHelpers.callConstructor(UsbDeviceConnection::class.java,
             ClassParameter.from(UsbDevice::class.java, null))
         fun endpoint(address: Int): UsbEndpoint = ReflectionHelpers.callConstructor(UsbEndpoint::class.java,
@@ -61,7 +87,11 @@ class NcmUsbBridgeWriteTimeoutTest {
             ClassParameter.from(Int::class.javaPrimitiveType, 512),
             ClassParameter.from(Int::class.javaPrimitiveType, 0))
         val diagnostics = mutableListOf<String>()
-        val ncm = NcmUsbBridge(connection, endpoint(0x06), endpoint(0x88), null, emptyList(), null, diagnostics::add)
+        lateinit var ncm: NcmUsbBridge
+        ncm = NcmUsbBridge(connection, endpoint(0x06), endpoint(0x88), null, emptyList(), null) { line ->
+            diagnostics += line
+            onDiagnostic?.invoke(ncm, line)
+        }
         try { block(ncm) } finally { ncm.close() }
         return diagnostics
     }

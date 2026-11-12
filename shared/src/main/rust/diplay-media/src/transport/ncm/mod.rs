@@ -7,6 +7,9 @@
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub mod engine;
 
+mod jni;
+mod platform_core;
+
 use std::collections::{HashMap, VecDeque};
 
 pub const NTH16_SIG: u32 = 0x484d434e;
@@ -53,14 +56,19 @@ pub fn ntb16_build(frame: &[u8], sequence: u16, packet_size: usize) -> Option<Ve
 
 /// The frames of one NTB16 block (`Ntb16Codec.parse`): garbage yields none, bad entries are skipped,
 /// and a block with a repeated NDP, too many entries or overlapping entries is dropped whole.
-pub fn ntb16_parse(block: &[u8]) -> Vec<&[u8]> {
+pub fn ntb16_parse(block: &[u8]) -> Vec<&[u8]> { ntb16_parse_origin(block, false) }
+
+fn ntb16_parse_origin(block: &[u8], nonzero_origin: bool) -> Vec<&[u8]> {
     let end = block.len();
     if end < NTH_LENGTH || u32_le(block, 0) != NTH16_SIG { return Vec::new(); }
     let mut frames = Vec::with_capacity(1);
     let mut ndp = u16_le(block, 10);
     let mut visited = Vec::new();
     let (mut entries, mut total) = (0usize, 0usize);
-    while ndp != 0 {
+    // Preserve the old range decoder's initial offset+NDP behavior, including a zero NDP at nonzero origin.
+    let mut first = true;
+    while ndp != 0 || (first && nonzero_origin) {
+        first = false;
         if ndp + 12 > end { break; }
         if visited.contains(&ndp) { return Vec::new(); }
         visited.push(ndp);
@@ -95,21 +103,26 @@ pub struct Reassembler {
     optional_pad: bool,
     resync_times: VecDeque<i64>,
     resync_reason: Option<String>,
-    pub resync_count: u32,
-    resync_skipped: usize,
+    pub resync_count: i32,
+    resync_skipped: i32,
+    needs_time_reason: Option<String>,
+    pending_report: Option<String>,
 }
 
 const MAX_RESYNCS_PER_WINDOW: usize = 16;
 const RESYNC_WINDOW_NS: i64 = 10_000_000_000;
-const LOGGED_RESYNCS: u32 = 5;
+const LOGGED_RESYNCS: i32 = 5;
 
 pub enum Drained { Frames(Vec<Vec<u8>>), Failed(String) }
+
+// One boundary at a time lets the platform sample its clock and emit diagnostics in original order.
+enum ReassemblyStep { NeedTime, Progress, Block(Vec<Vec<u8>>), Report(String), Idle, Failed(String) }
 
 impl Reassembler {
     pub fn new(packet_size: usize) -> Reassembler {
         Reassembler {
             buffered: Vec::new(), packet_size: packet_size.max(1), optional_pad: false, resync_times: VecDeque::new(),
-            resync_reason: None, resync_count: 0, resync_skipped: 0,
+            resync_reason: None, resync_count: 0, resync_skipped: 0, needs_time_reason: None, pending_report: None,
         }
     }
 
@@ -117,44 +130,58 @@ impl Reassembler {
     pub fn push(&mut self, chunk: &[u8], now_ns: i64, reports: &mut Vec<String>) -> Drained {
         self.buffered.extend_from_slice(chunk);
         let mut frames = Vec::new();
-        loop {
-            if self.optional_pad && !self.buffered.is_empty() {
-                self.optional_pad = false;
-                match self.buffered[0] {
-                    0 => { self.buffered.drain(..1); }
-                    b if b == (NTH16_SIG & 0xff) as u8 => {}
-                    _ => match self.resynchronize("Invalid NTB16 short-packet pad", now_ns) {
-                        Err(failure) => return Drained::Failed(failure),
-                        Ok(false) => break,
-                        Ok(true) => {}
-                    },
-                }
-            }
-            if self.buffered.len() < NTH_LENGTH { break; }
-            let block_length = u16_le(&self.buffered, 8);
-            if u32_le(&self.buffered, 0) != NTH16_SIG || block_length < 28 {
-                let reason = if u32_le(&self.buffered, 0) != NTH16_SIG {
-                    "NCM read buffer does not begin with an NTB16 header".to_string()
-                } else {
-                    format!("Invalid NTB16 block length {block_length}")
-                };
-                match self.resynchronize(&reason, now_ns) {
-                    Err(failure) => return Drained::Failed(failure),
-                    Ok(false) => break,
-                    Ok(true) => continue,
-                }
-            }
-            if self.buffered.len() < block_length { break; }
-            frames.extend(ntb16_parse(&self.buffered[..block_length]).into_iter().map(<[u8]>::to_vec));
-            self.buffered.drain(..block_length);
-            self.optional_pad = block_length % self.packet_size == 0;
-            if let Some(reason) = self.resync_reason.take() {
-                if self.resync_count <= LOGGED_RESYNCS || self.resync_count % 50 == 0 {
-                    reports.push(format!("NCM resynchronized after {reason}; skipped={} resyncs={}", self.resync_skipped, self.resync_count));
-                }
+        loop { match self.step(Some(now_ns)) {
+            ReassemblyStep::Block(block) => frames.extend(block),
+            ReassemblyStep::Report(line) => reports.push(line),
+            ReassemblyStep::Progress => {},
+            ReassemblyStep::Idle => return Drained::Frames(frames),
+            ReassemblyStep::Failed(error) => return Drained::Failed(error),
+            ReassemblyStep::NeedTime => unreachable!(),
+        } }
+    }
+
+    fn step(&mut self, now_ns: Option<i64>) -> ReassemblyStep {
+        if let Some(line) = self.pending_report.take() { return ReassemblyStep::Report(line); }
+        if let Some(reason) = self.needs_time_reason.take() { return self.resync_step(&reason, now_ns); }
+        if self.optional_pad && !self.buffered.is_empty() {
+            self.optional_pad = false;
+            match self.buffered[0] {
+                0 => { self.buffered.drain(..1); }
+                b if b == (NTH16_SIG & 0xff) as u8 => {},
+                _ => return self.resync_step("Invalid NTB16 short-packet pad", now_ns),
             }
         }
-        Drained::Frames(frames)
+        if self.buffered.len() < NTH_LENGTH { return ReassemblyStep::Idle; }
+        let block_length = u16_le(&self.buffered, 8);
+        if u32_le(&self.buffered, 0) != NTH16_SIG {
+            return self.resync_step("NCM read buffer does not begin with an NTB16 header", now_ns);
+        }
+        if block_length < 28 {
+            return self.resync_step(&format!("Invalid NTB16 block length {block_length}"), now_ns);
+        }
+        if self.buffered.len() < block_length { return ReassemblyStep::Idle; }
+        let frames = ntb16_parse(&self.buffered[..block_length]).into_iter().map(<[u8]>::to_vec).collect();
+        self.buffered.drain(..block_length);
+        self.optional_pad = block_length % self.packet_size == 0;
+        if let Some(reason) = self.resync_reason.take() {
+            if self.resync_count <= LOGGED_RESYNCS || self.resync_count % 50 == 0 {
+                self.pending_report = Some(format!("NCM resynchronized after {reason}; skipped={} resyncs={}",
+                    self.resync_skipped, self.resync_count));
+            }
+        }
+        ReassemblyStep::Block(frames)
+    }
+
+    fn resync_step(&mut self, reason: &str, now_ns: Option<i64>) -> ReassemblyStep {
+        if self.resync_reason.is_none() && now_ns.is_none() {
+            self.needs_time_reason = Some(reason.to_string());
+            return ReassemblyStep::NeedTime;
+        }
+        match self.resynchronize(reason, now_ns.unwrap_or(0)) {
+            Ok(true) => ReassemblyStep::Progress,
+            Ok(false) => ReassemblyStep::Idle,
+            Err(error) => ReassemblyStep::Failed(error),
+        }
     }
 
     fn plausible_header_at(&self, at: usize) -> bool {
@@ -167,10 +194,10 @@ impl Reassembler {
     /// Ok(true) when a header is next, Ok(false) while none is buffered yet, Err when damage recurs.
     fn resynchronize(&mut self, reason: &str, now_ns: i64) -> Result<bool, String> {
         if self.resync_reason.is_none() {
-            while self.resync_times.front().is_some_and(|t| now_ns - t > RESYNC_WINDOW_NS) { self.resync_times.pop_front(); }
+            while self.resync_times.front().is_some_and(|t| now_ns.wrapping_sub(*t) > RESYNC_WINDOW_NS) { self.resync_times.pop_front(); }
             if self.resync_times.len() >= MAX_RESYNCS_PER_WINDOW { return Err(format!("{reason} (repeated)")); }
             self.resync_times.push_back(now_ns);
-            self.resync_count += 1;
+            self.resync_count = self.resync_count.wrapping_add(1);
             self.resync_reason = Some(reason.to_string());
             self.resync_skipped = 0;
         }
@@ -178,14 +205,19 @@ impl Reassembler {
         let next = (1..=limit).find(|&at| self.plausible_header_at(at));
         let skipped = next.unwrap_or_else(|| self.buffered.len().saturating_sub(NTH_LENGTH - 1));
         self.buffered.drain(..skipped);
-        self.resync_skipped += skipped;
+        self.resync_skipped = self.resync_skipped.wrapping_add(skipped as i32);
         Ok(next.is_some())
     }
 }
 
 /// The source MAC and the IPv6 payload of an untagged IPv6 Ethernet frame.
 pub fn ipv6_payload(frame: &[u8]) -> Option<([u8; 6], &[u8])> {
-    if frame.len() <= ETHERNET_HEADER || u16_be(frame, 12) != ETHERTYPE_IPV6 as usize { return None; }
+    ipv6_payload_with_empty(frame, false)
+}
+
+fn ipv6_payload_with_empty(frame: &[u8], allow_empty: bool) -> Option<([u8; 6], &[u8])> {
+    if frame.len() < ETHERNET_HEADER || (!allow_empty && frame.len() == ETHERNET_HEADER) ||
+        u16_be(frame, 12) != ETHERTYPE_IPV6 as usize { return None; }
     Some((frame[6..12].try_into().unwrap(), &frame[ETHERNET_HEADER..]))
 }
 
@@ -268,45 +300,51 @@ const MAX_PORTS: usize = 8;
 
 impl Traffic {
     pub fn received(&mut self, frame: &[u8], now_ns: i64) {
-        self.from_iphone += 1;
-        if frame.len() < 14 { return; }
+        if let Some(port) = self.receive_header(frame) { self.record_time(port, now_ns); }
+    }
+
+    fn receive_header(&mut self, frame: &[u8]) -> Option<u16> {
+        self.from_iphone = self.from_iphone.wrapping_add(1);
+        if frame.len() < 14 { return None; }
         let tcp = match u16_be(frame, 12) as u16 {
             ETHERTYPE_IPV6 => {
-                self.ipv6 += 1;
-                if frame.get(ETHERNET_HEADER + 6) == Some(&6) { ETHERNET_HEADER + IPV6_HEADER } else { return }
+                self.ipv6 = self.ipv6.wrapping_add(1);
+                if frame.get(ETHERNET_HEADER + 6) == Some(&6) { ETHERNET_HEADER + IPV6_HEADER } else { return None }
             }
             ETHERTYPE_IPV4 => {
-                self.ipv4 += 1;
-                let Some(&first) = frame.get(ETHERNET_HEADER) else { return };
-                if frame.get(ETHERNET_HEADER + 9) == Some(&6) { ETHERNET_HEADER + (first as usize & 0x0f) * 4 } else { return }
+                self.ipv4 = self.ipv4.wrapping_add(1);
+                let Some(&first) = frame.get(ETHERNET_HEADER) else { return None };
+                if frame.get(ETHERNET_HEADER + 9) == Some(&6) { ETHERNET_HEADER + (first as usize & 0x0f) * 4 } else { return None }
             }
-            _ => return,
+            _ => return None,
         };
-        let Some(&flags) = frame.get(tcp + 13) else { return };
-        if flags & 0x02 == 0 || flags & 0x10 != 0 || frame.len() < tcp + 4 { return; }
+        let Some(&flags) = frame.get(tcp + 13) else { return None };
+        if flags & 0x02 == 0 || flags & 0x10 != 0 || frame.len() < tcp + 4 { return None; }
         let port = u16_be(frame, tcp + 2) as u16;
         if let Some(entry) = self.syns_by_port.iter_mut().find(|(p, _)| *p == port) {
-            entry.1 += 1;
+            entry.1 = entry.1.wrapping_add(1);
         } else if self.syns_by_port.len() < MAX_PORTS {
             self.syns_by_port.push((port, 1));
         } else {
-            return;
+            return None;
         }
-        self.last_syn_ns.insert(port, now_ns);
+        Some(port)
     }
 
-    pub fn sent(&mut self) { self.to_iphone += 1; }
+    fn record_time(&mut self, port: u16, now_ns: i64) { self.last_syn_ns.insert(port, now_ns); }
+
+    pub fn sent(&mut self) { self.to_iphone = self.to_iphone.wrapping_add(1); }
 
     pub fn attempt_since(&self, port: u16, since_ns: i64) -> bool {
-        self.last_syn_ns.get(&port).is_some_and(|t| t - since_ns >= 0)
+        self.last_syn_ns.get(&port).is_some_and(|t| t.wrapping_sub(since_ns) >= 0)
     }
 
     pub fn summary(&self, airplay_port: Option<u16>) -> String {
-        let to_airplay = airplay_port.and_then(|p| self.syns_by_port.iter().find(|(q, _)| *q == p)).map(|e| e.1).unwrap_or(0);
+        let to_airplay = airplay_port.and_then(|p| self.syns_by_port.iter().find(|(q, _)| *q == p)).map(|e| e.1 as i32).unwrap_or(0);
         let others: Vec<String> = self.syns_by_port.iter().filter(|(p, _)| Some(*p) != airplay_port)
-            .map(|(p, n)| format!("{p}:{n}")).collect();
+            .map(|(p, n)| format!("{p}:{}", *n as i32)).collect();
         format!("fromIphone={} ipv6={} ipv4={} tcpConnectToAirPlay={to_airplay} tcpConnectOther={} toIphone={}",
-            self.from_iphone, self.ipv6, self.ipv4, if others.is_empty() { "none".into() } else { others.join(",") }, self.to_iphone)
+            self.from_iphone as i64, self.ipv6 as i64, self.ipv4 as i64, if others.is_empty() { "none".into() } else { others.join(",") }, self.to_iphone as i64)
     }
 }
 

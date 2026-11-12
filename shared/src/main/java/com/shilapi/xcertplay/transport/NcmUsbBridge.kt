@@ -13,7 +13,6 @@ import com.shilapi.xcertplay.airplay.NativeStreamCallbacks
 import java.io.Closeable
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.util.ArrayDeque
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -33,6 +32,7 @@ class NcmUsbBridge internal constructor(
     descriptorHostMac: ByteArray?,
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
+    init { NativeMedia.requireAvailable() }
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
     private val stateLock = Any()
@@ -40,29 +40,16 @@ class NcmUsbBridge internal constructor(
     private val writeLock = Any()
     private var closed = false
     private var failure: IphoneUsbException? = null
-    private var sequence = 0
-    private var loggedWriteTimeout = false
-    private var bulkOutAccepted = false
-    private var notReadyFrames = 0
+    private val transmit = NcmTransmitCore()
 
     /** [System.nanoTime] when the iPhone first took a frame on bulk OUT, or null while it still NAKs the pipe. */
-    @Volatile private var javaLinkOpenedAtNanos: Long? = null
     val linkOpenedAtNanos: Long?
         get() = nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmLinkOpened(it).takeIf { at -> at != 0L } }
-            ?: javaLinkOpenedAtNanos
+            ?: transmit.openedAt
     // The native data path ([startNative]) while it runs; it then owns every bulk transfer.
     @Volatile private var nativeEngine = 0L
-    private val frames = ArrayDeque<ByteArray>()
-    private var queuedBytes = 0
-    private var buffered = ByteArray(0)
-    private var bufferedSize = 0
-    private var optionalShortPacketPad = false
     // A full-speed link uses 64-byte packets; the short-packet pad follows the real packet size.
     private val usbPacketSize = inEndpoint.maxPacketSize.takeIf { it > 0 } ?: USB_PACKET_SIZE
-    private val resyncTimes = ArrayDeque<Long>()
-    private var resyncCount = 0
-    private var resyncReason: String? = null
-    private var resyncSkipped = 0
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
@@ -75,6 +62,7 @@ class NcmUsbBridge internal constructor(
     private val readRequests = UsbRequestQueue(connection, "ncm-read-reaper")
     private val traffic = NcmTrafficCounter()
     private val statusRunning = AtomicBoolean(statusEndpoint != null)
+    private val receiveCore = NcmReceiveCore(usbPacketSize)
     private val statusThread = statusEndpoint?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
             isDaemon = true
@@ -88,7 +76,7 @@ class NcmUsbBridge internal constructor(
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
         val sequence = synchronized(stateLock) {
             checkOpenLocked()
-            this.sequence.also { this.sequence = (this.sequence + 1) and 0xffff }
+            transmit.nextSequence()
         }
         val block = Ntb16Codec.build(frame, sequence)
         // bulkTransfer() pins `block` in a JNI critical section until it returns (see the read
@@ -100,33 +88,25 @@ class NcmUsbBridge internal constructor(
             outEndpoint,
             block,
             block.size,
-            if (bulkOutAccepted) timeoutMillis else minOf(timeoutMillis, NOT_READY_WRITE_TIMEOUT_MILLIS),
+            transmit.timeout(timeoutMillis),
         )
         // Before StartCarPlaySession the phone keeps the NCM data path NAKed. Android reports the
         // resulting timeout as -1; it is not a detach and later packets must be allowed to retry.
-        if (transferred <= 0) {
-            if (!bulkOutAccepted) notReadyFrames++
-            if (!loggedWriteTimeout) {
-                loggedWriteTimeout = true
-                Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out not ready; retaining bridge for retry")
-            }
+        val result = transmit.begin(transferred)
+        if (result[0] == 0L) {
+            if (result[1] != 0L) Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out not ready; retaining bridge for retry")
             return@synchronized
         }
-        if (!bulkOutAccepted) {
-            bulkOutAccepted = true
-            javaLinkOpenedAtNanos = System.nanoTime()
-            runCatching { onDiagnostic("NCM bulk-out ready after $notReadyFrames dropped frames") }
+        if (result[0] == 2L) {
+            transmit.opened(System.nanoTime())
+            runCatching { onDiagnostic("NCM bulk-out ready after ${result[2]} dropped frames") }
         }
-        if (transferred != block.size) {
-            throw IphoneUsbException.DeviceUnavailable(
-                "NCM write transferred $transferred of ${block.size} bytes",
-            )
+        val completion = transmit.finish(transferred, block.size)
+        if (completion < 0) {
+            throw IphoneUsbException.DeviceUnavailable("NCM write transferred $transferred of ${block.size} bytes")
         }
         traffic.sent()
-        if (loggedWriteTimeout) {
-            loggedWriteTimeout = false
-            Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out became ready")
-        }
+        if (completion != 0) Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out became ready")
     }
 
     /** Frames to and from the iPhone so far, for a report line; see [NcmTrafficCounter]. */
@@ -144,7 +124,8 @@ class NcmUsbBridge internal constructor(
      * the engine's data. False when the engine cannot start; the caller then bridges in Kotlin.
      */
     fun startNative(tun: ParcelFileDescriptor, hostMac: ByteArray, onDiagnosticLine: (String) -> Unit, onError: (Throwable) -> Unit): Boolean {
-        if (!NativeMedia.available || readQueued) return false
+        NativeMedia.requireAvailable()
+        if (readQueued) return false
         val usbFd = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor).detachFd() }.getOrNull() ?: return false
         val tunFd = runCatching { tun.dup().detachFd() }.getOrNull() ?: run {
             runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
@@ -176,12 +157,12 @@ class NcmUsbBridge internal constructor(
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
         synchronized(readLock) {
             checkOpen()
-            if (frames.isNotEmpty()) return pollFrame()
+            pollFrame()?.let { return it }
 
             val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
             while (true) {
                 drainFrames()
-                if (frames.isNotEmpty()) return pollFrame()
+                pollFrame()?.let { return it }
                 val remainingNanos = deadline - System.nanoTime()
                 if (remainingNanos <= 0) return null
                 val chunkLength =
@@ -202,6 +183,7 @@ class NcmUsbBridge internal constructor(
             closed = true
             readRequest
         }
+        receiveCore.close()
         // Wakes a reader blocked in requestWait(); it then observes the closed state.
         runCatching { requestToClose?.cancel() }
         statusThread?.let { thread ->
@@ -257,112 +239,24 @@ class NcmUsbBridge internal constructor(
         take(limit).joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun drainFrames() {
+        val detail = arrayOfNulls<String>(1)
+        var now: Long? = null
         while (true) {
-            // wBlockLength describes the complete NTB. A packet-aligned USB transfer may end
-            // with a ZLP (no byte in the buffer), or carry one zero byte to force a short packet.
-            // Do not wait for that optional byte or consume the next NTB's header as padding.
-            // Keep this state when the pad/header arrives in a later USB completion.
-            if (optionalShortPacketPad && bufferedSize > 0) {
-                optionalShortPacketPad = false
-                when (buffered[0].toInt() and 0xff) {
-                    0 -> discard(1)
-                    Ntb16Codec.NTH16_SIG and 0xff -> Unit // The next header is validated below.
-                    else -> if (!resynchronize("Invalid NTB16 short-packet pad")) return
-                }
+            val action = receiveCore.step(now, detail)
+            now = null
+            when (action) {
+                0 -> return
+                1 -> now = System.nanoTime()
+                2 -> runCatching { onDiagnostic(requireNotNull(detail[0])) }
+                -1 -> throw failSession(requireNotNull(detail[0]))
+                else -> error("Unknown NCM receive action $action")
             }
-            if (bufferedSize < NTH16_LENGTH) return
-            val blockLength = readU16(buffered, 8)
-            if (readU32(buffered, 0) != Ntb16Codec.NTH16_SIG) {
-                if (!resynchronize("NCM read buffer does not begin with an NTB16 header")) return
-                continue
-            }
-            if (blockLength < 28) {
-                if (!resynchronize("Invalid NTB16 block length $blockLength")) return
-                continue
-            }
-            if (bufferedSize < blockLength) return
-            for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
-            discard(blockLength)
-            optionalShortPacketPad = blockLength % usbPacketSize == 0
-            finishResync()
         }
     }
 
-    /**
-     * Android reaps a bulk transfer that failed part way (babble, CRC, a dropped packet) as a
-     * normal completion with whatever bytes arrived, so a damaged NTB can leave the stream
-     * misaligned. Like Linux cdc_ncm, drop the damaged bytes and continue at the next valid NTB16
-     * header; TCP resends what was lost. Returns false while no header is buffered yet. Damage
-     * that keeps recurring still fails the session, as before.
-     */
-    private fun resynchronize(reason: String): Boolean {
-        if (resyncReason == null) {
-            val now = System.nanoTime()
-            while (resyncTimes.isNotEmpty() && now - resyncTimes.first() > RESYNC_WINDOW_NANOS) resyncTimes.removeFirst()
-            if (resyncTimes.size >= MAX_RESYNCS_PER_WINDOW) throw failSession("$reason (repeated)")
-            resyncTimes.addLast(now)
-            resyncCount++
-            resyncReason = reason
-            resyncSkipped = 0
-        }
-        val next = (1..bufferedSize - NTH16_LENGTH).firstOrNull(::plausibleHeaderAt)
-        // Without a header, keep the bytes that could still be the start of one.
-        val skipped = next ?: (bufferedSize - (NTH16_LENGTH - 1)).coerceAtLeast(0)
-        discard(skipped)
-        resyncSkipped += skipped
-        return next != null
-    }
+    private fun appendBuffered(source: ByteArray, length: Int) = receiveCore.append(source, length)
 
-    private fun finishResync() {
-        val reason = resyncReason ?: return
-        resyncReason = null
-        if (resyncCount <= LOGGED_RESYNCS || resyncCount % 50 == 0) {
-            runCatching { onDiagnostic("NCM resynchronized after $reason; skipped=$resyncSkipped resyncs=$resyncCount") }
-        }
-    }
-
-    /** Stricter than the normal path, so payload bytes are unlikely to pass as a header. */
-    private fun plausibleHeaderAt(offset: Int): Boolean {
-        if (readU32(buffered, offset) != Ntb16Codec.NTH16_SIG) return false
-        val headerLength = readU16(buffered, offset + 4)
-        val blockLength = readU16(buffered, offset + 8)
-        val ndpIndex = readU16(buffered, offset + 10)
-        return headerLength == NTH16_LENGTH && blockLength >= 28 &&
-            ndpIndex >= NTH16_LENGTH && ndpIndex % 4 == 0 && ndpIndex + 8 <= blockLength
-    }
-
-    private fun discard(count: Int) {
-        if (count <= 0) return
-        buffered.copyInto(buffered, 0, count, bufferedSize)
-        bufferedSize -= count
-    }
-
-    private fun appendBuffered(source: ByteArray, length: Int) {
-        val required = bufferedSize + length
-        if (required > buffered.size) {
-            val capacity = maxOf(required, maxOf(READ_CHUNK_BYTES, buffered.size * 2))
-            val grown = ByteArray(capacity)
-            buffered.copyInto(grown, 0, 0, bufferedSize)
-            buffered = grown
-        }
-        source.copyInto(buffered, bufferedSize, 0, length)
-        bufferedSize += length
-    }
-
-    private fun enqueueFrame(frame: ByteArray) {
-        if (frames.size >= MAX_QUEUED_FRAMES || queuedBytes + frame.size > MAX_QUEUED_BYTES) {
-            throw failSession("NCM frame queue exceeded its bounds")
-        }
-        frames.addLast(frame)
-        queuedBytes += frame.size
-    }
-
-    private fun pollFrame(): ByteArray {
-        val frame = frames.removeFirst()
-        queuedBytes -= frame.size
-        traffic.received(frame)
-        return frame
-    }
+    private fun pollFrame(): ByteArray? = receiveCore.poll()?.also(traffic::received)
 
     private fun readChunk(timeoutMillis: Long): Int? {
         checkOpen()
@@ -443,15 +337,6 @@ class NcmUsbBridge internal constructor(
         if (closed) throw IphoneUsbException.DeviceUnavailable("NCM bridge is closed")
     }
 
-    private fun readU16(source: ByteArray, offset: Int): Int =
-        (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
-
-    private fun readU32(source: ByteArray, offset: Int): Int =
-        (source[offset].toInt() and 0xff) or
-            ((source[offset + 1].toInt() and 0xff) shl 8) or
-            ((source[offset + 2].toInt() and 0xff) shl 16) or
-            ((source[offset + 3].toInt() and 0xff) shl 24)
-
     companion object {
         /** The app's preferences file and the key of the experimental native wired data path (off by default). */
         const val NATIVE_DATA_PATH_PREFS = "xcertplay_airplay"
@@ -459,17 +344,11 @@ class NcmUsbBridge internal constructor(
 
         private const val READ_CHUNK_BYTES = 32 * 1024
         private const val USB_PACKET_SIZE = 512
-        private const val NTH16_LENGTH = 12
-        private const val MAX_RESYNCS_PER_WINDOW = 16
-        private const val RESYNC_WINDOW_NANOS = 10_000_000_000L
-        private const val LOGGED_RESYNCS = 5
         internal const val USB_SETUP_ATTEMPTS = 5
         private const val USB_SETUP_RETRY_MILLIS = 100L
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L
         internal const val NOT_READY_WRITE_TIMEOUT_MILLIS = 20
-        private const val MAX_QUEUED_FRAMES = 256
-        private const val MAX_QUEUED_BYTES = 1 shl 20
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /**
