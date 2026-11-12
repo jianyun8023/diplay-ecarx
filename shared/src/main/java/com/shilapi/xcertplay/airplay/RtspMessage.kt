@@ -48,6 +48,11 @@ object RtspMessage {
      * @throws ProtocolException when a header or body exceeds its cap, so a peer cannot make the caller buffer without limit.
      */
     fun parseMessages(buffer: ByteArray): Parsed {
+        if (NativeMedia.available) return NativeRtsp.parse(buffer)
+        return parseFallback(buffer)
+    }
+
+    internal fun parseFallback(buffer: ByteArray): Parsed {
         val messages = ArrayList<Request>()
         var offset = 0
         while (offset < buffer.size) {
@@ -91,6 +96,13 @@ object RtspMessage {
 
     /** Builds a response, echoing the request protocol and CSeq. */
     fun buildResponse(request: Request, response: Response): ByteArray {
+        if (NativeMedia.available) return NativeRtsp.response(response.protocol ?: request.protocol,
+            response.status ?: 200, response.statusText, request.headers["cseq"],
+            response.headers.flatMap { listOf(it.key, it.value) }.toTypedArray(), response.body)
+        return buildResponseFallback(request, response)
+    }
+
+    internal fun buildResponseFallback(request: Request, response: Response): ByteArray {
         val protocol = response.protocol ?: request.protocol
         val status = response.status ?: 200
         val statusLine = response.statusText ?: statusText[status] ?: "OK"

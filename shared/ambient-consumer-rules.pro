@@ -20,3 +20,11 @@
 -keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeVideoCallbacks {
     void onEvent(int, java.lang.String);
 }
+
+# The RTSP JNI codec constructs the existing request/result DTOs directly.
+-keep class com.shilapi.xcertplay.airplay.RtspMessage$Request {
+    public <init>(java.lang.String, java.lang.String, java.lang.String, java.util.Map, byte[]);
+}
+-keep class com.shilapi.xcertplay.airplay.RtspMessage$Parsed {
+    public <init>(java.util.List, byte[]);
+}
