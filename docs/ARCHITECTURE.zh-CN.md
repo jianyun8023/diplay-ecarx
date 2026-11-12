@@ -164,6 +164,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 - `Iap2ControlDeadline` 的有限认证窗口、认证后无限模式与30秒 poll 上限由 Rust 决定；Kotlin 保留时钟与原 Iap2WiredControlClient I/O。两 Long token 原样保留全部时间／预算位，认证无限态用独立空 token 表示；不分配 native 堆句柄。保留 Long wrapping、回拨、向上取整与时钟重入的单次查询快照，无限认证后不再读取时钟。
 - Rust `hid` 持有二指触摸、旋钮、媒体及电话报告和四类 descriptor 的编码，`touch_slots` 持有 pointer→slot 状态并合成报告。Kotlin 保留 UID／元数据、Android 输入及显示尺寸；facade 串行使用／关闭句柄，关闭后的迟到报告安全返回 false。保留按 slot id 首次匹配、Android Math.round 与低16位截断；这些与 LIVI 的列表顺序／饱和规则不同。
 - `media::audio::scheduler` 持有输出记账、unsigned head、playback／prebuffer、容量内启动门限、写入分块／结果动作、重缓冲／尾包期限、buffer校准和导航路由决策。worker惰性分配，同worker reset／释放；平台play／pause成功后才回报Rust，不在core锁内调用SDK。压缩包始终由Rust队列持有，旧Kotlin恢复算法只留testCore。`media::video::selection`持有软硬解选择、重试与probe计划，保留首个非alias、2000／30000ms、Long wrapping和callback后才推进重试的顺序；平台保留Char折叠、枚举／create／sleep。新实现尚待统一验证；RTP音频直连队列仍待后续接入。
+- `media::audio::packetizer`让无法共享FD的Java麦克风发送路径也使用Rust协议核心：RTP／ChaCha计数、PCM换序、Opus时钟／帧长及MTU计划均原生，复用`uplink::seal`，SDK只发完整datagram。保留成功生成包后、socket发送前才提交counter、Int／Long wrapping、48／24／16kHz优先顺序和20／10／5ms校准。计数是GC opaque token，旧完整算法与Concentus仅作testCore对照；SDK录音、焦点／效果及一次启动资源门闩留平台。新增合同源码只编译，未执行。
 - `vehicle::identification` 编组20／21的字段与重复连接器；名称经既有平台字符串 codec，保留畸形UTF-16替换、NUL拒绝及既有参数／body预算。`vehicle_speed` 持有PASCD布局与XOR／CRLF，平台 Formatter 保留舍入、负零及非有限数拼写。`cluster_arrow／lane_icon／day_night` 持有OEM纯转换，车机适配保留；status0且angles为空仍以原始highlight推断方向，不激活高亮。
 - 已迁协议、配对、导航／HUD、NTP、无线状态与恢复要求原生核心；旧实现只作为testCore对照。剩余媒体回退正在移出，所有权和设备验收详见issue #96。PASCD／VehicleSpeedLocationProvider仍无生产SDK装配点，此批仅接入已有编码入口，不新增车速来源。
 

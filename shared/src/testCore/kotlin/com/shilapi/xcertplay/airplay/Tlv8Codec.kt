@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.airplay
 
 /** HomeKit/AirPlay-style TLV8 codec used by the pairing messages. */

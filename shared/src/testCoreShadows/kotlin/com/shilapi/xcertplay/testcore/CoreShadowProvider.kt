@@ -1,12 +1,15 @@
 package com.shilapi.xcertplay.testcore
 
+import org.robolectric.annotation.internal.DoNotInstrument
 import org.robolectric.internal.ClassTracker
 import org.robolectric.internal.ShadowProvider
 import java.util.AbstractMap
 
 /** Registered only in unit-test resources; no shadow or Robolectric code enters Android APKs. */
+@DoNotInstrument
 class CoreShadowProvider : ShadowProvider {
-    override fun getProvidedPackageNames(): Array<String> = arrayOf("com.shilapi.xcertplay")
+    // Instrument only JNI facades; application clocks and providers must retain normal behavior.
+    override fun getProvidedPackageNames(): Array<String> = bindings.map { it.first }.toTypedArray()
 
     override fun getShadows(): Collection<Map.Entry<String, String>> = bindings.map {
         AbstractMap.SimpleImmutableEntry(it.first, it.second)
@@ -17,6 +20,8 @@ class CoreShadowProvider : ShadowProvider {
     }
 
     private val bindings = listOf(
+        "com.shilapi.xcertplay.airplay.NativeMicrophonePacketizer" to "com.shilapi.xcertplay.testcore.ShadowNativeMicrophonePacketizer",
+        "com.shilapi.xcertplay.transport.NativeIap2FileTransfer" to "com.shilapi.xcertplay.testcore.ShadowNativeIap2FileTransfer",
         "com.shilapi.xcertplay.transport.NativeLockdown" to "com.shilapi.xcertplay.testcore.ShadowNativeLockdown",
         "com.shilapi.xcertplay.media.NativeAudioScheduler" to "com.shilapi.xcertplay.testcore.ShadowNativeAudioScheduler",
         "com.shilapi.xcertplay.media.NativeVideoPolicy" to "com.shilapi.xcertplay.testcore.ShadowNativeVideoPolicy",
