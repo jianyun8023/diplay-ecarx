@@ -86,7 +86,7 @@ class WirelessHandoffWatchdogTest {
         // The handoff timeout fails the run outside runWireless; the metrics still see a failure.
         val events = RuntimeEnvironment.getApplication()
             .getSharedPreferences("diplay_wireless_startup_timeline", Context.MODE_PRIVATE).getString("events", "").orEmpty()
-        assertTrue(events, events.contains("stage=WIRELESS_FAILED mode=MANUAL generation=0"))
+        assertTrue(events, events.contains("stage=WIRELESS_FAILED mode=MANUAL generation=$generation"))
         assertEquals(1, events.lineSequence().count { it.contains("stage=WIRELESS_FAILED") })
     }
 
