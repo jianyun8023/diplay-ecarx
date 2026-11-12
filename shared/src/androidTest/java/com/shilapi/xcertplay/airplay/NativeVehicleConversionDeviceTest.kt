@@ -144,7 +144,7 @@ class NativeVehicleConversionDeviceTest {
         for (mask in 0 until (1 shl angles.size)) {
             val directions = angles.filterIndexed { index, _ -> mask and (1 shl index) != 0 }
             for (status in 0..2) for (highlight in listOf(null) + angles) {
-                val lane = LaneGuidanceLane(status, directions, highlight)
+                val lane = LaneGuidanceLane(0, status, directions, highlight)
                 assertEquals("$lane", KotlinLaneIcon.forLane(lane),
                     NativeLaneIcon.forLane(status, directions.toIntArray(), highlight ?: 0, highlight != null).takeIf { it >= 0 })
             }
