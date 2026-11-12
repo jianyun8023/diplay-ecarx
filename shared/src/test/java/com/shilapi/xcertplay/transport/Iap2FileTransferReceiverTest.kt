@@ -8,6 +8,51 @@ import org.junit.Test
 
 class Iap2FileTransferReceiverTest {
     @Test
+    fun interleavedReplacementEvictionAndFailuresMatchIndependentKotlinReference() {
+        val receiver = Iap2FileTransferReceiver(4)
+        val reference = KotlinIap2FileTransferReceiver(4)
+        val transcript = listOf(
+            setup(1, 4), setup(2, 4), setup(3, 4), setup(4, 4),
+            data(1, 0x80, byteArrayOf(9)), setup(5, 4), data(1, 0x40, byteArrayOf(1, 2, 3)),
+            setup(2, 4), setup(6, 4), data(3, 0x40, byteArrayOf(1, 2, 3, 4)),
+            data(4, 0, byteArrayOf(1, 2, 3, 4)), data(5, 0x40, byteArrayOf(1)),
+            data(2, 2, byteArrayOf()), data(2, 2, byteArrayOf()),
+            setup(6, 3, type = 7), data(6, 0x40, byteArrayOf(1, 2, 3)),
+            setup(7, 5), setup(8, -1), setup(9, 0), byteArrayOf(8, 4), byteArrayOf(4),
+            byteArrayOf(9, 15),
+        )
+        for ((index, frame) in transcript.withIndex()) {
+            val expected = reference.accept(frame)
+            val actual = receiver.accept(frame)
+            assertEquals("frame $index", expected.replies.size, actual.replies.size)
+            expected.replies.zip(actual.replies).forEach { (a, b) -> assertArrayEquals(a, b) }
+            assertEquals("frame $index", expected.completed?.id, actual.completed?.id)
+            assertArrayEquals(expected.completed?.bytes, actual.completed?.bytes)
+        }
+        receiver.clear()
+        reference.clear()
+        assertNull(receiver.accept(data(2, 0x40, byteArrayOf(1))).completed)
+        assertNull(reference.accept(data(2, 0x40, byteArrayOf(1))).completed)
+    }
+
+    @Test
+    fun inputAndCompletedBuffersDoNotAliasLaterTransfersAndClearAllowsReuse() {
+        val receiver = Iap2FileTransferReceiver(4)
+        receiver.accept(setup(1, 4))
+        val first = data(1, 0x80, byteArrayOf(1, 2))
+        receiver.accept(first)
+        first.fill(99)
+        val result = receiver.accept(data(1, 0x40, byteArrayOf(3, 4))).completed!!
+        assertArrayEquals(byteArrayOf(1, 2, 3, 4), result.bytes)
+        result.bytes.fill(88)
+        receiver.accept(setup(1, 4))
+        receiver.clear()
+        assertNull(receiver.accept(data(1, 0x40, byteArrayOf(1, 2, 3, 4))).completed)
+        receiver.accept(setup(1, 2))
+        assertArrayEquals(byteArrayOf(5, 6), receiver.accept(data(1, 0, byteArrayOf(5, 6))).completed!!.bytes)
+    }
+
+    @Test
     fun acceptsAndReassemblesNowPlayingArtwork() {
         val receiver = Iap2FileTransferReceiver()
 
