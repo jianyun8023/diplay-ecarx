@@ -41,7 +41,4 @@ object MediaCodecSupport {
     /** MPEG-4 sampling frequency index used by both ADTS and AudioSpecificConfig. */
     fun aacFrequencyIndex(sampleRate: Int): Int = NativeAac.frequencyIndex(sampleRate)
 
-    private fun readU16Be(source: ByteArray, offset: Int): Int =
-        ((source[offset].toInt() and 0xff) shl 8) or (source[offset + 1].toInt() and 0xff)
-
 }

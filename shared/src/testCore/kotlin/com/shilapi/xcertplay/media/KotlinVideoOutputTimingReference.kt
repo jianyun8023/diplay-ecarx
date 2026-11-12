@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.media
 
 /** The old Java decoder's slot/pause/render calculations, independent of the production Rust owner. */

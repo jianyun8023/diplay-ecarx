@@ -1,4 +1,4 @@
-@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "UNCHECKED_CAST")
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "UNCHECKED_CAST", "EXPOSED_PARAMETER_TYPE")
 
 package com.shilapi.xcertplay.testcore
 
@@ -6,6 +6,7 @@ import com.shilapi.xcertplay.airplay.*
 import com.shilapi.xcertplay.hud.AppleManeuver
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
+import java.nio.ByteBuffer
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 
@@ -165,6 +166,183 @@ class ShadowNativeMedia {
 
         @JvmStatic @Implementation fun vehicleStatusPayload(rangeKm: Int, rangeWarning: Boolean, batteryPercent: Double, currentChargeWh: Long, maxChargeWh: Long, energyMask: Int, maxRangeKm: Int, charging: Boolean): ByteArray? =
             HostNative.call("airplay.NativeMedia", "vehicleStatusPayload", rangeKm, rangeWarning, batteryPercent, currentChargeWh, maxChargeWh, energyMask, maxRangeKm, charging) as ByteArray?
+
+        @JvmStatic @Implementation fun openRtp(key: ByteArray, body: ByteArray, length: Int): Long =
+            HostNative.call("airplay.NativeMedia", "openRtp", key, body, length) as Long
+
+        @JvmStatic @Implementation fun bufferedCreate(sampleRate: Int): Long =
+            HostNative.call("airplay.NativeMedia", "bufferedCreate", sampleRate) as Long
+
+        @JvmStatic @Implementation fun bufferedNext(handle: Long, nowNanos: Long, out: LongArray): Long =
+            HostNative.call("airplay.NativeMedia", "bufferedNext", handle, nowNanos, out) as Long
+
+        @JvmStatic @Implementation fun bufferedCommit(handle: Long, generation: Long): Boolean =
+            HostNative.call("airplay.NativeMedia", "bufferedCommit", handle, generation) as Boolean
+
+        @JvmStatic @Implementation fun bufferedControl(handle: Long, op: Int, timestamp: Long, rate: Int, ntpSeconds: Long, ntpFraction: Long, nowNanos: Long, out: LongArray) {
+            HostNative.call("airplay.NativeMedia", "bufferedControl", handle, op, timestamp, rate, ntpSeconds, ntpFraction, nowNanos, out)
+        }
+
+        @JvmStatic @Implementation fun bufferedDestroy(handle: Long): Boolean =
+            HostNative.call("airplay.NativeMedia", "bufferedDestroy", handle) as Boolean
+
+        @JvmStatic @Implementation fun audioFormatBits(bits: Long): IntArray =
+            HostNative.call("airplay.NativeMedia", "audioFormatBits", bits) as IntArray
+
+        @JvmStatic @Implementation fun audioRouteCreate(clockRate: Int, direct: Boolean): Long =
+            HostNative.call("airplay.NativeMedia", "audioRouteCreate", clockRate, direct) as Long
+
+        @JvmStatic @Implementation fun audioRouteSetQueue(handle: Long, retainedQueue: Long) {
+            HostNative.call("airplay.NativeMedia", "audioRouteSetQueue", handle, retainedQueue)
+        }
+
+        @JvmStatic @Implementation fun audioRouteFeedback(handle: Long, reported: Long, nowNs: Long): LongArray? =
+            HostNative.call("airplay.NativeMedia", "audioRouteFeedback", handle, reported, nowNs) as LongArray?
+
+        @JvmStatic @Implementation fun audioRouteDestroy(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "audioRouteDestroy", handle)
+        }
+
+        @JvmStatic @Implementation fun audioQueueRetain(handle: Long): Long =
+            HostNative.call("airplay.NativeMedia", "audioQueueRetain", handle) as Long
+
+        @JvmStatic @Implementation fun audioQueueRelease(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "audioQueueRelease", handle)
+        }
+
+        @JvmStatic @Implementation fun audioQueueEvent(handle: Long, out: LongArray): Boolean =
+            HostNative.call("airplay.NativeMedia", "audioQueueEvent", handle, out) as Boolean
+
+        @JvmStatic @Implementation fun audioQueueStats(handle: Long, out: LongArray, reset: Boolean) {
+            HostNative.call("airplay.NativeMedia", "audioQueueStats", handle, out, reset)
+        }
+
+        @JvmStatic @Implementation fun audioQueueCreate(clockRate: Int, media: Boolean): Long =
+            HostNative.call("airplay.NativeMedia", "audioQueueCreate", clockRate, media) as Long
+
+        @JvmStatic @Implementation fun audioQueuePush(handle: Long, packet: Long, sample: Int, arrivedNanos: Long): Int =
+            HostNative.call("airplay.NativeMedia", "audioQueuePush", handle, packet, sample, arrivedNanos) as Int
+
+        @JvmStatic @Implementation fun audioQueuePoll(handle: Long, out: LongArray, timeoutMillis: Long): Long =
+            HostNative.call("airplay.NativeMedia", "audioQueuePoll", handle, out, timeoutMillis) as Long
+
+        @JvmStatic @Implementation fun audioQueueSize(handle: Long): Int =
+            HostNative.call("airplay.NativeMedia", "audioQueueSize", handle) as Int
+
+        @JvmStatic @Implementation fun audioQueuePending(handle: Long, droppedSnapshot: LongArray?): Long =
+            HostNative.call("airplay.NativeMedia", "audioQueuePending", handle, droppedSnapshot) as Long
+
+        @JvmStatic @Implementation fun audioQueueArrivals(handle: Long, sinceNanos: Long, nowNanos: Long, sampleRate: Int): Double =
+            HostNative.call("airplay.NativeMedia", "audioQueueArrivals", handle, sinceNanos, nowNanos, sampleRate) as Double
+
+        @JvmStatic @Implementation fun audioQueueDestroy(handle: Long, finalStats: LongArray?) {
+            HostNative.call("airplay.NativeMedia", "audioQueueDestroy", handle, finalStats)
+        }
+
+        @JvmStatic @Implementation fun clockCreate(sampleRate: Int, targetFrames: Long, integral: Double, measuresTarget: Boolean): Long =
+            HostNative.call("airplay.NativeMedia", "clockCreate", sampleRate, targetFrames, integral, measuresTarget) as Long
+
+        @JvmStatic @Implementation fun clockSample(handle: Long, queuedFrames: Long, nowNanos: Long, compressedFrames: Long, headMoving: Boolean, arrivedFrameNanos: Double) {
+            HostNative.call("airplay.NativeMedia", "clockSample", handle, queuedFrames, nowNanos, compressedFrames, headMoving, arrivedFrameNanos)
+        }
+
+        @JvmStatic @Implementation fun clockRateDue(handle: Long, nowNanos: Long): Int =
+            HostNative.call("airplay.NativeMedia", "clockRateDue", handle, nowNanos) as Int
+
+        @JvmStatic @Implementation fun clockQuery(handle: Long, what: Int): Long =
+            HostNative.call("airplay.NativeMedia", "clockQuery", handle, what) as Long
+
+        @JvmStatic @Implementation fun clockLearned(set: Boolean, value: Double): Double =
+            HostNative.call("airplay.NativeMedia", "clockLearned", set, value) as Double
+
+        @JvmStatic @Implementation fun clockDestroy(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "clockDestroy", handle)
+        }
+
+        @JvmStatic @Implementation fun packetSize(handle: Long): Int =
+            HostNative.call("airplay.NativeMedia", "packetSize", handle) as Int
+
+        @JvmStatic @Implementation fun packetRetain(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "packetRetain", handle)
+        }
+
+        @JvmStatic @Implementation fun packetRelease(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "packetRelease", handle)
+        }
+
+        @JvmStatic @Implementation fun packetCopyInto(handle: Long, offset: Int, length: Int, target: ByteBuffer, position: Int): Int =
+            HostNative.call("airplay.NativeMedia", "packetCopyInto", handle, offset, length, target, position) as Int
+
+        @JvmStatic @Implementation fun packetRead(handle: Long, offset: Int, length: Int, out: ByteArray, outOffset: Int): Boolean =
+            HostNative.call("airplay.NativeMedia", "packetRead", handle, offset, length, out, outOffset) as Boolean
+
+        @JvmStatic @Implementation fun packetWrap(bytes: ByteArray, length: Int): Long =
+            HostNative.call("airplay.NativeMedia", "packetWrap", bytes, length) as Long
+
+        @JvmStatic @Implementation fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): Long =
+            HostNative.call("airplay.NativeMedia", "pcmCreate", sampleRate, channels, voiceFilter, opus) as Long
+
+        @JvmStatic @Implementation fun pcmDestroy(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "pcmDestroy", handle)
+        }
+
+        @JvmStatic @Implementation fun pcmDecodeOpus(handle: Long, packet: Long, offset: Int, length: Int, out: ByteBuffer): Int =
+            HostNative.call("airplay.NativeMedia", "pcmDecodeOpus", handle, packet, offset, length, out) as Int
+
+        @JvmStatic @Implementation fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int =
+            HostNative.call("airplay.NativeMedia", "pcmCopySwapped", packet, offset, length, out) as Int
+
+        @JvmStatic @Implementation fun opusEncoderCreate(bitrate: Int): Long =
+            HostNative.call("airplay.NativeMedia", "opusEncoderCreate", bitrate) as Long
+
+        @JvmStatic @Implementation fun opusEncode(handle: Long, pcm: ByteArray, output: ByteArray): Int =
+            HostNative.call("airplay.NativeMedia", "opusEncode", handle, pcm, output) as Int
+
+        @JvmStatic @Implementation fun opusEncoderDestroy(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "opusEncoderDestroy", handle)
+        }
+
+        @JvmStatic @Implementation fun uplinkCreate(fd: Int, key: ByteArray, payloadType: Int, address: ByteArray, scopeId: Int, port: Int, opusBitrate: Int, rtpSamplesPerPacket: Int): Long =
+            HostNative.call("airplay.NativeMedia", "uplinkCreate", fd, key, payloadType, address, scopeId, port, opusBitrate, rtpSamplesPerPacket) as Long
+
+        @JvmStatic @Implementation fun uplinkSend(handle: Long, frame: ByteArray, length: Int): Int =
+            HostNative.call("airplay.NativeMedia", "uplinkSend", handle, frame, length) as Int
+
+        @JvmStatic @Implementation fun uplinkClose(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "uplinkClose", handle)
+        }
+
+        @JvmStatic @Implementation fun outOpen(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): Long =
+            HostNative.call("airplay.NativeMedia", "outOpen", sampleRate, channels, usage, contentType, capacityFrames) as Long
+
+        @JvmStatic @Implementation fun outWrite(handle: Long, buffer: ByteBuffer, offset: Int, length: Int): Int =
+            HostNative.call("airplay.NativeMedia", "outWrite", handle, buffer, offset, length) as Int
+
+        @JvmStatic @Implementation fun outFramesRead(handle: Long): Int =
+            HostNative.call("airplay.NativeMedia", "outFramesRead", handle) as Int
+
+        @JvmStatic @Implementation fun outQuery(handle: Long, what: Int): Int =
+            HostNative.call("airplay.NativeMedia", "outQuery", handle, what) as Int
+
+        @JvmStatic @Implementation fun outControl(handle: Long, what: Int): Int =
+            HostNative.call("airplay.NativeMedia", "outControl", handle, what) as Int
+
+        @JvmStatic @Implementation fun outSetGain(handle: Long, gain: Float) {
+            HostNative.call("airplay.NativeMedia", "outSetGain", handle, gain)
+        }
+
+        @JvmStatic @Implementation fun outSetRate(handle: Long, rate: Int): Int =
+            HostNative.call("airplay.NativeMedia", "outSetRate", handle, rate) as Int
+
+        @JvmStatic @Implementation fun outClose(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "outClose", handle)
+        }
+
+        @JvmStatic @Implementation fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int =
+            HostNative.call("airplay.NativeMedia", "pcmProcess", handle, buffer, length, flags, attenuationDb, peak) as Int
+        // The macOS host has no Android NDK decoder; SDK MediaCodec replay stays available.
+        @JvmStatic @Implementation fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long = 0L
+
     }
 }
 

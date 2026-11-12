@@ -126,6 +126,8 @@
 -keep class com.shilapi.xcertplay.airplay.NativeAirPlayNegotiation { native <methods>; }
 
 -keep class com.shilapi.xcertplay.media.NativeVideoPolicy { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeVideoTiming { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeVideoFlow { native <methods>; }
 -keep class com.shilapi.xcertplay.airplay.NativeScreenCodec { native <methods>; }
 -keep class com.shilapi.xcertplay.airplay.NativeMicrophonePacketizer { native <methods>; }
 

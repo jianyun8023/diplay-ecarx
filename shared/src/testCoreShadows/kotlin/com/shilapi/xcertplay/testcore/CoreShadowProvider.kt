@@ -20,6 +20,16 @@ class CoreShadowProvider : ShadowProvider {
     }
 
     private val bindings = listOf(
+        "com.shilapi.xcertplay.airplay.NativeDataStream" to "com.shilapi.xcertplay.testcore.ShadowNativeDataStream",
+        "com.shilapi.xcertplay.transport.NativeNcm" to "com.shilapi.xcertplay.testcore.ShadowNativeNcm",
+        "com.shilapi.xcertplay.airplay.NativeMfiSap" to "com.shilapi.xcertplay.testcore.ShadowNativeMfiSap",
+        "com.shilapi.xcertplay.airplay.NativeIapStreamQueue" to "com.shilapi.xcertplay.testcore.ShadowNativeIapStreamQueue",
+        "com.shilapi.xcertplay.media.NativeAac" to "com.shilapi.xcertplay.testcore.ShadowNativeAac",
+        "com.shilapi.xcertplay.media.NativeVideoTiming" to "com.shilapi.xcertplay.testcore.ShadowNativeVideoTiming",
+        "com.shilapi.xcertplay.media.NativeVideoFlow" to "com.shilapi.xcertplay.testcore.ShadowNativeVideoFlow",
+        "com.shilapi.xcertplay.airplay.AudioStream" to "com.shilapi.xcertplay.testcore.ShadowAudioStream",
+        "com.shilapi.xcertplay.transport.NativeIap2ReportSubscription" to "com.shilapi.xcertplay.testcore.ShadowNativeIap2ReportSubscription",
+        "com.shilapi.xcertplay.transport.NativeNmeaLocation" to "com.shilapi.xcertplay.testcore.ShadowNativeNmeaLocation",
         "com.shilapi.xcertplay.airplay.NativeMicrophonePacketizer" to "com.shilapi.xcertplay.testcore.ShadowNativeMicrophonePacketizer",
         "com.shilapi.xcertplay.transport.NativeIap2FileTransfer" to "com.shilapi.xcertplay.testcore.ShadowNativeIap2FileTransfer",
         "com.shilapi.xcertplay.transport.NativeLockdown" to "com.shilapi.xcertplay.testcore.ShadowNativeLockdown",
