@@ -979,7 +979,7 @@ internal class VideoDecoder(
         val probe = hardwareProbe ?: return
         if (!hasCodec()) { hardwareProbe = null; return }
         val now = System.nanoTime()
-        if (now < probe.dueNanos) return
+        if (!probe.isDue(now)) return
         val created = runCatching { MediaCodec.createByCodecName(probe.name) }.getOrNull()
         if (created == null) {
             hardwareProbe = probe.failed(now)

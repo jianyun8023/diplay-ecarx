@@ -124,6 +124,22 @@ pub fn validate_builder(ids: &[i32], kinds: &[i32], specs: &[[i32; 3]]) -> Optio
     None
 }
 
+#[cfg(test)]
+mod builder_contracts {
+    use super::validate_builder;
+
+    #[test]
+    fn schema_uses_last_descriptor_and_preserves_entry_before_required_error_order() {
+        let specs = [[1, 1, 1], [2, 13, 2]];
+        assert_eq!(validate_builder(&[2, 2, 1], &[11, 4, 1], &specs), None);
+        assert_eq!(validate_builder(&[9], &[1], &specs), Some([0, 0]));
+        assert_eq!(validate_builder(&[1], &[2], &specs), Some([1, 0]));
+        assert_eq!(validate_builder(&[1, 1], &[1, 2], &specs), Some([2, 0]));
+        assert_eq!(validate_builder(&[], &[], &specs), Some([3, 0]));
+        assert_eq!(validate_builder(&[1], &[3], &[[1, 1, 1], [1, 3, 2]]), None);
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Body_validateBuilder(
     env: *mut JNIEnv, _: jclass, ids: jintArray, kinds: jintArray, specs: jintArray,

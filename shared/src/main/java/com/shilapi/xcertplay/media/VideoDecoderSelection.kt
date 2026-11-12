@@ -1,13 +1,13 @@
 package com.shilapi.xcertplay.media
 
+import com.shilapi.xcertplay.airplay.NativeMedia
+
 /**
  * Android's own software decoders. API 28 has no MediaCodecInfo.isSoftwareOnly, so they are known by
  * name there; later releases also report the flag.
  */
 internal fun isSoftwareDecoderName(name: String): Boolean =
-    SOFTWARE_DECODER_PREFIXES.any { name.startsWith(it, ignoreCase = true) }
-
-private val SOFTWARE_DECODER_PREFIXES = listOf("OMX.google.", "c2.android.")
+    NativeVideoPolicy.softwareName(name.map { it.uppercaseChar().lowercaseChar() }.joinToString(""))
 
 /** One installed decoder of the stream's type, in MediaCodecList order. */
 internal data class InstalledDecoder(val name: String, val software: Boolean, val alias: Boolean = false)
@@ -19,11 +19,11 @@ internal data class InstalledDecoder(val name: String, val software: Boolean, va
  * createDecoderByType went on to OMX.google.hevc.decoder (car logs 2026-11-09 22:09:38, 2026-11-10 22:24:52).
  */
 internal fun defaultHardwareDecoder(decoders: List<InstalledDecoder>): String? =
-    decoders.firstOrNull { !it.software && !it.alias }?.name
+    decoders.getOrNull(NativeVideoPolicy.select(decoderFlags(decoders), false))?.name
 
 /** The software decoder to fall back to, explicitly and reported, once the hardware one stays unavailable. */
 internal fun softwareFallbackDecoder(decoders: List<InstalledDecoder>): String? =
-    decoders.firstOrNull { it.software && !it.alias }?.name
+    decoders.getOrNull(NativeVideoPolicy.select(decoderFlags(decoders), true))?.name
 
 /**
  * Creates with [create], retrying after each of [delaysMillis]: Qualcomm's driver frees a released decoder's
@@ -35,14 +35,16 @@ internal fun <T> createWithRetries(
     onRetry: (attempt: Int, failure: Exception) -> Unit = { _, _ -> },
     create: () -> T,
 ): T {
-    var attempt = 0
+    var retry: LongArray? = null
     while (true) {
         try {
             return create()
         } catch (failure: Exception) {
-            if (attempt >= delaysMillis.size) throw failure
-            onRetry(attempt + 1, failure)
-            sleep(delaysMillis[attempt++])
+            val state = retry ?: NativeVideoPolicy.retryCreate().also { retry = it }
+            val attempt = NativeVideoPolicy.retryAttempt(state, delaysMillis.size)
+            if (attempt == 0) throw failure
+            onRetry(attempt, failure)
+            sleep(delaysMillis[NativeVideoPolicy.retryCommit(state)])
         }
     }
 }
@@ -54,15 +56,33 @@ internal fun <T> createWithRetries(
  */
 internal data class HardwareDecoderProbe(val name: String, val dueNanos: Long, val intervalMillis: Long) {
     fun failed(nowNanos: Long): HardwareDecoderProbe {
-        val next = (intervalMillis * 2).coerceAtMost(MAX_INTERVAL_MILLIS)
-        return copy(dueNanos = nowNanos + next * 1_000_000L, intervalMillis = next)
+        val next = NativeVideoPolicy.probe(nowNanos, intervalMillis, true)
+        return copy(dueNanos = next[0], intervalMillis = next[1])
     }
+
+    fun isDue(nowNanos: Long): Boolean = NativeVideoPolicy.probeDue(dueNanos, nowNanos)
 
     companion object {
         const val FIRST_INTERVAL_MILLIS = 2_000L
         const val MAX_INTERVAL_MILLIS = 30_000L
 
-        fun start(name: String, nowNanos: Long, intervalMillis: Long = FIRST_INTERVAL_MILLIS) =
-            HardwareDecoderProbe(name, nowNanos + intervalMillis * 1_000_000L, intervalMillis)
+        fun start(name: String, nowNanos: Long, intervalMillis: Long = FIRST_INTERVAL_MILLIS): HardwareDecoderProbe {
+            val plan = NativeVideoPolicy.probe(nowNanos, intervalMillis, false)
+            return HardwareDecoderProbe(name, plan[0], plan[1])
+        }
     }
+}
+
+private fun decoderFlags(decoders: List<InstalledDecoder>): IntArray =
+    decoders.map { (if (it.software) 1 else 0) or (if (it.alias) 2 else 0) }.toIntArray()
+
+internal object NativeVideoPolicy {
+    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    @JvmStatic external fun softwareName(folded: String): Boolean
+    @JvmStatic external fun select(flags: IntArray, software: Boolean): Int
+    @JvmStatic external fun probe(nowNanos: Long, intervalMillis: Long, failed: Boolean): LongArray
+    @JvmStatic external fun probeDue(dueNanos: Long, nowNanos: Long): Boolean
+    @JvmStatic external fun retryCreate(): LongArray
+    @JvmStatic external fun retryAttempt(token: LongArray, delayCount: Int): Int
+    @JvmStatic external fun retryCommit(token: LongArray): Int
 }

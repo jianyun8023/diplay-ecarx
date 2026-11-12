@@ -3,72 +3,49 @@ package com.shilapi.xcertplay.media
 import com.shilapi.xcertplay.airplay.NativeMedia
 import java.io.Closeable
 
-/**
- * Tracks the unsigned AudioTrack/AAudio head across wrap without flushing already queued sound, and
- * decides the music rebuffer. Rust owns the accounting and the rebuffer rule; Kotlin still performs
- * the platform writes. The Kotlin copy below runs only when the native library cannot load.
- */
-internal class AudioBufferProgress(private val frameBytes: Int) : Closeable {
-    private val fallback = if (NativeMedia.available) null else KotlinAudioBufferProgress(frameBytes)
-    private var handle = if (fallback == null) NativeAudioScheduler.create(frameBytes).also { check(it != 0L) } else 0L
+/** The renderer worker owns this Rust output schedule; platform play/pause/writes stay in Kotlin. */
+internal class AudioBufferProgress(frameBytes: Int) : Closeable {
+    private var handle = NativeAudioScheduler.create(frameBytes).also { check(it != 0L) }
+    val playing: Boolean get() = NativeAudioScheduler.outputState(handle, 0) != 0L
+    val prebufferBytes: Int get() = NativeAudioScheduler.outputState(handle, 1).toInt()
+    val startBytes: Int get() = NativeAudioScheduler.outputState(handle, 2).toInt()
 
-    fun written(bytes: Int) {
-        val kotlin = fallback
-        if (kotlin != null) kotlin.written(bytes) else NativeAudioScheduler.written(handle, bytes)
-    }
-
-    fun queuedBytes(rawHead: Int): Long =
-        fallback?.queuedBytes(rawHead) ?: NativeAudioScheduler.queuedBytes(handle, rawHead)
-
-    fun shouldRebuffer(
-        isMedia: Boolean, playing: Boolean, underrunSinceStart: Boolean,
-        compressedQueueEmpty: Boolean, rawHead: Int, floorBytes: Long,
-    ): Boolean = fallback?.shouldRebuffer(isMedia, playing, underrunSinceStart, compressedQueueEmpty, rawHead, floorBytes)
-        ?: NativeAudioScheduler.shouldRebuffer(handle, isMedia, playing, underrunSinceStart, compressedQueueEmpty, rawHead, floorBytes)
-
-    /** A freshly built output starts from zero without releasing the native owner. */
-    fun reset() {
-        val kotlin = fallback
-        if (kotlin != null) kotlin.reset() else NativeAudioScheduler.reset(handle)
-    }
-
+    fun configure(planned: Int, capacity: Int, chunk: Int) = NativeAudioScheduler.configure(handle, planned, capacity, chunk)
+    fun writeLimit(remaining: Int, chunk: Int): Int = NativeAudioScheduler.writeLimit(handle, remaining, chunk)
+    fun completedWrite(bytes: Int, nowNanos: Long): Boolean = NativeAudioScheduler.completedWrite(handle, bytes, nowNanos)
+    fun playback(playing: Boolean) = NativeAudioScheduler.playback(handle, playing)
+    fun retainAfterPause(head: Int, nowNanos: Long) = NativeAudioScheduler.retainAfterPause(handle, head, nowNanos)
+    fun needsRebuffer(media: Boolean, underrun: Boolean, empty: Boolean, head: Int): Boolean =
+        NativeAudioScheduler.needsRebuffer(handle, media, underrun, empty, head)
+    fun waitingForTail(empty: Boolean): Boolean = NativeAudioScheduler.waitingForTail(handle, empty)
+    fun tailReady(nowNanos: Long, waitNanos: Long): Boolean = NativeAudioScheduler.tailReady(handle, nowNanos, waitNanos)
+    fun written(bytes: Int) = NativeAudioScheduler.written(handle, bytes)
+    fun queuedBytes(rawHead: Int): Long = NativeAudioScheduler.queuedBytes(handle, rawHead)
+    fun shouldRebuffer(isMedia: Boolean, playing: Boolean, underrunSinceStart: Boolean,
+        compressedQueueEmpty: Boolean, rawHead: Int, floorBytes: Long): Boolean =
+        NativeAudioScheduler.shouldRebuffer(handle, isMedia, playing, underrunSinceStart, compressedQueueEmpty, rawHead, floorBytes)
+    fun reset() = NativeAudioScheduler.reset(handle)
     override fun close() {
         if (handle != 0L) NativeAudioScheduler.destroy(handle)
         handle = 0L
     }
 }
 
-/** Library-unavailable fallback; the native path never creates this state. */
-internal class KotlinAudioBufferProgress(private val frameBytes: Int) {
-    private var writtenBytes = 0L
-    private var playedFrames = 0L
-    private var lastHead = 0L
-
-    fun written(bytes: Int) {
-        writtenBytes += bytes
-    }
-
-    fun queuedBytes(rawHead: Int): Long {
-        val head = rawHead.toLong() and 0xffff_ffffL
-        playedFrames += (head - lastHead) and 0xffff_ffffL
-        lastHead = head
-        return (writtenBytes - playedFrames * frameBytes).coerceAtLeast(0)
-    }
-
-    fun shouldRebuffer(
-        isMedia: Boolean, playing: Boolean, underrunSinceStart: Boolean,
-        compressedQueueEmpty: Boolean, rawHead: Int, floorBytes: Long,
-    ): Boolean = isMedia && playing && underrunSinceStart && compressedQueueEmpty &&
-        queuedBytes(rawHead) <= floorBytes
-
-    fun reset() {
-        writtenBytes = 0
-        playedFrames = 0
-        lastHead = 0
-    }
-}
-
 internal object NativeAudioScheduler {
+    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    @JvmStatic external fun configure(handle: Long, planned: Int, capacity: Int, chunk: Int)
+    @JvmStatic external fun outputState(handle: Long, field: Int): Long
+    @JvmStatic external fun writeLimit(handle: Long, remaining: Int, chunk: Int): Int
+    @JvmStatic external fun completedWrite(handle: Long, bytes: Int, nowNanos: Long): Boolean
+    @JvmStatic external fun playback(handle: Long, playing: Boolean)
+    @JvmStatic external fun retainAfterPause(handle: Long, head: Int, nowNanos: Long)
+    @JvmStatic external fun needsRebuffer(handle: Long, media: Boolean, underrun: Boolean, empty: Boolean, head: Int): Boolean
+    @JvmStatic external fun waitingForTail(handle: Long, empty: Boolean): Boolean
+    @JvmStatic external fun tailReady(handle: Long, nowNanos: Long, waitNanos: Long): Boolean
+    @JvmStatic external fun writeDisposition(count: Int, nativeOutput: Boolean): Int
+    @JvmStatic external fun sanitizeDelay(millis: Int, mode: Int): Int
+    @JvmStatic external fun bufferPlan(media: Boolean, rate: Int, channels: Int, minimum: Int, millis: Int): IntArray
+    @JvmStatic external fun navigationRoute(follows: Boolean, configured: Int, ducking: Boolean): Int
     @JvmStatic external fun create(frameBytes: Int): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun reset(handle: Long)

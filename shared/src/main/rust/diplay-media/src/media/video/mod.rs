@@ -2,6 +2,7 @@
 
 pub mod annexb;
 pub mod pacing;
+pub mod selection;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub mod receiver;

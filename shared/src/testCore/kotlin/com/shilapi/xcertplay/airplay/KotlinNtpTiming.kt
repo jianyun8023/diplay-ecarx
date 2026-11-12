@@ -2,7 +2,7 @@ package com.shilapi.xcertplay.airplay
 
 import java.math.BigInteger
 
-/** Original NtpClock policy, selected only when the native core cannot load. */
+/** Independent original NtpClock policy, compiled into test source sets only. */
 internal class KotlinNtpTiming(monoNanos: Long, wallMillis: Long) {
     private var clockOffsetNs = wallClockNtpOffsetNs(monoNanos, wallMillis)
     private val delays = DoubleArray(8) { Double.POSITIVE_INFINITY }

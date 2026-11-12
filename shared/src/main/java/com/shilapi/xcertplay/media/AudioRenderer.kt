@@ -18,10 +18,8 @@ import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
 import java.nio.ByteBuffer
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.TimeUnit
 
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
 internal class AudioRenderer(
@@ -76,12 +74,8 @@ internal class AudioRenderer(
     private var mappedChannel: AudioChannel? = null
     private val navigationPlaybackToken = NavigationPlayback.open()
     private var actualLegacyStreamType: Int? = null
-    private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
     private val nativeQueue = NativeAudioQueue.create(format.rtpClockRate, format.audioType == "media")
-    private val queuedPacketCount: Int get() = nativeQueue?.size ?: queue.size
-    /** Music with sustained decoder backpressure must not keep playing minutes-old packets. */
-    private val mediaLagGuard = if (nativeQueue == null && format.audioType == "media") MediaPacketLagGuard(format.rtpClockRate) else null
-    @Volatile private var newestRtpSample = 0
+    private val queuedPacketCount: Int get() = nativeQueue.size
     private var lagRecoveryReports = 0
     @Volatile private var running = true
     @Volatile private var started = false
@@ -100,9 +94,9 @@ internal class AudioRenderer(
     private var pcm = ByteArray(64 * 1024)
     private val adtsHeader = ByteArray(MediaCodecSupport.ADTS_HEADER_BYTES)
     private var packetKind = ""
-    private var playbackStarted = false
-    private var prebufferBytes = 0
-    private var startThresholdBytes = 0
+    private val playbackStarted: Boolean get() = bufferProgress.playing
+    private val prebufferBytes: Int get() = bufferProgress.prebufferBytes
+    private val startThresholdBytes: Int get() = bufferProgress.startBytes
     private var fadeApplied = false
     private var droppedPacketsLogged = false
     private var firstAacPayloadLogged = false
@@ -142,7 +136,6 @@ internal class AudioRenderer(
     /** Called when this call's track is routed to the earpiece; the sink moves the call to the loudspeaker. */
     @Volatile var onRoutedToEarpiece: (() -> Unit)? = null
     private var routingListener: AudioRouting.OnRoutingChangedListener? = null
-    private var lastPcmWriteNs = 0L
     private var rebufferCount = 0
     private var rebufferPauseReportCount = 0
     private var rebufferRecoverReportCount = 0
@@ -163,16 +156,14 @@ internal class AudioRenderer(
     /** Takes ownership of [rtp]: it is released once decoded or dropped. */
     fun submit(rtp: MediaPacket, sample: Int) {
         val now = System.nanoTime()
-        val nativeResult = if (started) nativeQueue?.push(rtp, sample, now) else null
+        val nativeResult = if (started) nativeQueue.push(rtp, sample, now) else null
         if (started) {
             packetsReceived.incrementAndGet()
             val previous = lastArrivalNs.getAndSet(now)
             if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
-            if (nativeQueue == null) newestRtpSample = sample
             // Hold short Wi-Fi bursts intact. If compressed audio remains >1.5s behind for
             // another 1.5s, skip only stale undecoded packets to catch up to the live song.
-            val removed = nativeResult?.ushr(1) ?:
-                (mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) { it.rtp.release() } ?: 0)
+            val removed = nativeResult?.ushr(1) ?: 0
             if (removed > 0) {
                 packetsDropped.addAndGet(removed)
                 packetsDroppedTotal.addAndGet(removed)
@@ -183,8 +174,7 @@ internal class AudioRenderer(
                 }
             }
         }
-        val accepted = if (!started) false else if (nativeResult != null) nativeResult and 1 != 0
-            else queue.offer(AudioPacket(rtp, sample, now))
+        val accepted = started && nativeResult != null && nativeResult and 1 != 0
         if (!accepted) {
             if (nativeResult == null) rtp.release()
             if (started) {
@@ -205,13 +195,12 @@ internal class AudioRenderer(
     }
 
     private fun releaseQueued() {
-        nativeQueue?.close()
-        while (true) queue.poll()?.rtp?.release() ?: return
+        nativeQueue.close()
     }
 
     override fun close() {
         running = false
-        nativeQueue?.close()
+        nativeQueue.close()
         NavigationPlayback.close(navigationPlaybackToken)
         reportNavigationAudio(false, ended = true)
         thread.interrupt()
@@ -275,10 +264,8 @@ internal class AudioRenderer(
                 // Report Settings changes from this worker, never from the UI thread, also between prompts.
                 applyNavigationAttenuation()
                 diagnosticStage = "packet"
-                if (nativeQueue != null) {
-                    val packet = nativeQueue.poll(nativePacketInfo, AUDIO_POLL_MILLIS)
-                    if (packet != null) handle(AudioPacket(packet, nativePacketInfo[0].toInt(), nativePacketInfo[1]))
-                } else queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
+                val packet = nativeQueue.poll(nativePacketInfo, AUDIO_POLL_MILLIS)
+                if (packet != null) handle(AudioPacket(packet, nativePacketInfo[0].toInt(), nativePacketInfo[1]))
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 diagnosticStage = "decoder-output"
@@ -318,11 +305,9 @@ internal class AudioRenderer(
         val from = navigationChannel
         releaseTrack()
         navigationChannel = wanted
-        playbackStarted = false
-        prebufferBytes = 0
+        bufferProgress.reset()
         fadeApplied = false
         appliedNavigationAttenuationDb = null
-        bufferProgress.reset()
         createTrack()
         runCatching {
             report("Audio: navigation route=${NavigationAudioRoute.label(wanted)} " +
@@ -471,7 +456,7 @@ internal class AudioRenderer(
         trackAttributes = attributes
         diagnosticStage = "track-capacity"
         val capacityBytes = built.bufferSizeInFrames * frameBytes
-        startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
+        bufferProgress.configure(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         // Only music plays long enough for the clocks to drift apart; calls keep their echo reference exact.
         clockTrim = if (mappedChannel == AudioChannel.MEDIA) MediaClockTrim(format.sampleRate, (startThresholdBytes / frameBytes).toLong(),
             measuresTarget = true) else null
@@ -915,44 +900,36 @@ internal class AudioRenderer(
     ) {
         var written = 0
         while (written < length && running) {
-            val writeLength = if (playbackStarted) {
-                length - written
-            } else {
-                minOf(length - written, PREBUFFER_WRITE_CHUNK_BYTES)
-            }
+            val writeLength = bufferProgress.writeLimit(length - written, PREBUFFER_WRITE_CHUNK_BYTES)
             val writeStarted = System.nanoTime()
             diagnosticStage = "track-write"
             val count = write(written, writeLength)
             maxWriteMs = maxOf(maxWriteMs, (System.nanoTime() - writeStarted) / 1_000_000L)
-            if (count < 0) {
-                writeErrorsThisWindow++
-                lastWriteErrorCode = count
-                check(track !is NativeAudioOut) { "AAudio write failed: $count" }
-                break
-            }
-            if (count == 0) {
-                zeroWritesThisWindow++
-                if (track is NativeAudioOut) {
+            when (val action = NativeAudioScheduler.writeDisposition(count, track is NativeAudioOut)) {
+                1, 4 -> {
+                    writeErrorsThisWindow++
+                    lastWriteErrorCode = count
+                    check(action != 4) { "AAudio write failed: $count" }
+                    break
+                }
+                2 -> {
+                    zeroWritesThisWindow++
                     Thread.sleep(AUDIO_POLL_MILLIS)
                     continue
                 }
-                break
+                3 -> { zeroWritesThisWindow++; break }
             }
             if (count < writeLength) partialWritesThisWindow++
             val framesWritten = count / frameBytes
             written += count
             totalWrittenFrames += framesWritten
             writtenFramesThisWindow += framesWritten
-            bufferProgress.written(count)
-            lastPcmWriteNs = System.nanoTime()
+            val startWanted = bufferProgress.completedWrite(count, System.nanoTime())
             if (playbackStarted) reportNavigationPlayback(track)
             if (playbackStarted) trimClock(track)
-            if (!playbackStarted) {
-                prebufferBytes += count
-                if (prebufferBytes >= startThresholdBytes) {
-                    startPlayback(track)
-                    Log.i(TAG, "audio playback started type=${format.payloadType}")
-                }
+            if (startWanted) {
+                startPlayback(track)
+                Log.i(TAG, "audio playback started type=${format.payloadType}")
             }
             echoReference?.let { reference ->
                 val pending = if (playbackStarted) {
@@ -971,7 +948,7 @@ internal class AudioRenderer(
         headAtPlaybackStart = track.playbackHeadPosition
         clockTrim?.measureAgain()
         track.play()
-        playbackStarted = true
+        bufferProgress.playback(true)
         reportNavigationPlayback(track)
         if (rebufferCount > 0 && rebufferRecoverReportCount < MAX_REBUFFER_REPORTS) {
             rebufferRecoverReportCount++
@@ -998,8 +975,7 @@ internal class AudioRenderer(
     private fun trimClock(track: PcmOutput) {
         val trim = clockTrim ?: return
         val now = System.nanoTime()
-        val compressedRtpFrames = nativeQueue?.pendingFrames() ?: mediaLagGuard?.pendingFrames(queue, newestRtpSample, AudioPacket::sample)
-            ?: 0L
+        val compressedRtpFrames = nativeQueue.pendingFrames()
         val compressedPcmFrames = compressedRtpFrames * format.sampleRate /
             format.rtpClockRate.coerceAtLeast(1)
         val dropped = packetsDroppedTotal.get() + inputDropped
@@ -1021,23 +997,8 @@ internal class AudioRenderer(
     }
 
     /** For the packets queued since [sinceNs], the frames each adds to the queue times how long it has waited. */
-    private fun queuedFrameNsSince(sinceNs: Long, nowNs: Long): Double {
-        nativeQueue?.let { return it.arrivedFrameNs(sinceNs, nowNs, format.sampleRate) }
-        val clockRate = format.rtpClockRate.coerceAtLeast(1)
-        var frameNs = 0.0
-        var previousSample: Int? = null
-        for (packet in queue) {
-            val previous = previousSample
-            previousSample = packet.sample
-            if (previous == null || packet.arrivedNs <= sinceNs) continue
-            // As in MediaPacketLagGuard.pendingFrames, a packet adds the RTP time since the one before it, and a
-            // jump of more than a second is the iPhone restarting its timestamps, not audio.
-            val rtpFrames = (packet.sample.toLong() - previous) and 0xffff_ffffL
-            if (rtpFrames > clockRate) continue
-            frameNs += rtpFrames.toDouble() * format.sampleRate / clockRate * (nowNs - packet.arrivedNs)
-        }
-        return frameNs
-    }
+    private fun queuedFrameNsSince(sinceNs: Long, nowNs: Long): Double =
+        nativeQueue.arrivedFrameNs(sinceNs, nowNs, format.sampleRate)
 
     private fun maintainPlaybackBuffer() {
         val track = output ?: return
@@ -1045,18 +1006,15 @@ internal class AudioRenderer(
             val result = track.drain()
             check(result >= 0) { "AAudio drain failed: $result" }
         }
-        if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
-                track.underrunCount > underrunsAtPlaybackStart, queuedPacketCount == 0, track.playbackHeadPosition,
-                startThresholdBytes / 2L)) {
+        if (bufferProgress.needsRebuffer(mappedChannel == AudioChannel.MEDIA,
+                track.underrunCount > underrunsAtPlaybackStart, queuedPacketCount == 0, track.playbackHeadPosition)) {
             // The hardware buffer has starved below the recovery floor. Pause without flushing
             // or discarding PCM, then use the configured start threshold again when music resumes.
             track.pause()
-            playbackStarted = false
+            bufferProgress.playback(false)
             // Pausing retains queued PCM. Count it toward the restart threshold so a
             // blocking write cannot fill the paused track before we call play().
-            prebufferBytes = bufferProgress.queuedBytes(track.playbackHeadPosition)
-                .coerceAtMost(startThresholdBytes.toLong()).toInt()
-            lastPcmWriteNs = System.nanoTime()
+            bufferProgress.retainAfterPause(track.playbackHeadPosition, System.nanoTime())
             rebufferCount++
             if (rebufferPauseReportCount < MAX_REBUFFER_REPORTS) {
                 rebufferPauseReportCount++
@@ -1065,8 +1023,8 @@ internal class AudioRenderer(
             }
         }
         // A short final burst may never reach the start threshold. Play it after a bounded wait.
-        if (!playbackStarted && prebufferBytes > 0 && queuedPacketCount == 0 &&
-            System.nanoTime() - lastPcmWriteNs >= BUFFER_TAIL_WAIT_NS) {
+        if (bufferProgress.waitingForTail(queuedPacketCount == 0) &&
+            bufferProgress.tailReady(System.nanoTime(), BUFFER_TAIL_WAIT_NS)) {
             startPlayback(track)
         }
     }

@@ -41,8 +41,8 @@ internal class NativeAudioQueue private constructor(private var handle: Long) : 
     }
 
     companion object {
-        fun create(clockRate: Int, media: Boolean): NativeAudioQueue? {
-            if (!NativeMedia.available) return null
+        fun create(clockRate: Int, media: Boolean): NativeAudioQueue {
+            check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" }
             return NativeAudioQueue(NativeMedia.audioQueueCreate(clockRate, media).also { check(it != 0L) })
         }
     }

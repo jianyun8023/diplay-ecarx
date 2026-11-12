@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.media
 
+// Independent pre-migration queue recovery reference, compiled only into tests.
+
 import java.util.concurrent.LinkedBlockingQueue
 
 /**

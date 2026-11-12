@@ -16,30 +16,16 @@ object MediaAudioBuffer {
     /** Every delay a session can use; [plan] accepts any of them. */
     val presets = (wiredPresets + wirelessPresets).distinct().sorted()
 
-    private const val HEADROOM_MILLIS = 200 // room above the start level so bursts after a gap fit
-    private const val MIN_TRACK_BUFFER_BYTES = 16 * 1024
-    private const val MIN_START_BUFFER_BYTES = 4 * 1024
-
-    fun sanitize(millis: Int): Int = millis.takeIf { it in presets } ?: DEFAULT_MILLIS
-    fun sanitizeWireless(millis: Int): Int = millis.takeIf { it in wirelessPresets } ?: DEFAULT_MILLIS
-    fun sanitizeWired(millis: Int): Int = millis.takeIf { it in wiredPresets } ?: DEFAULT_MILLIS
+    fun sanitize(millis: Int): Int = NativeAudioScheduler.sanitizeDelay(millis, 0)
+    fun sanitizeWireless(millis: Int): Int = NativeAudioScheduler.sanitizeDelay(millis, 1)
+    fun sanitizeWired(millis: Int): Int = NativeAudioScheduler.sanitizeDelay(millis, 2)
 
     data class Plan(val trackBufferBytes: Int, val startBytes: Int)
 
     /** AudioTrack capacity and the amount to queue before play() for one output stream. */
     fun plan(isMedia: Boolean, sampleRate: Int, channels: Int, minBufferBytes: Int, mediaMillis: Int): Plan {
-        val lowLatency = Plan(
-            trackBufferBytes = maxOf(minBufferBytes * 4, MIN_TRACK_BUFFER_BYTES),
-            startBytes = maxOf(minBufferBytes, MIN_START_BUFFER_BYTES),
-        )
-        if (!isMedia) return lowLatency
-        val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 2) * 2
-        val start = (bytesPerSecond * sanitize(mediaMillis) / 1000).toInt()
-        val capacity = (bytesPerSecond * (sanitize(mediaMillis) + HEADROOM_MILLIS) / 1000).toInt()
-        return Plan(
-            trackBufferBytes = maxOf(capacity, lowLatency.trackBufferBytes),
-            startBytes = maxOf(start, lowLatency.startBytes),
-        )
+        val plan = NativeAudioScheduler.bufferPlan(isMedia, sampleRate, channels, minBufferBytes, mediaMillis)
+        return Plan(plan[0], plan[1])
     }
 
     /**
@@ -47,13 +33,5 @@ object MediaAudioBuffer {
      * paused and full, so the start level must stay below the real capacity or play() never runs.
      */
     fun startBytesFor(plannedStartBytes: Int, actualCapacityBytes: Int, writeChunkBytes: Int): Int =
-        if (com.shilapi.xcertplay.airplay.NativeMedia.available) {
-            NativeAudioScheduler.startBytesFor(plannedStartBytes, actualCapacityBytes, writeChunkBytes)
-        } else kotlinStartBytesFor(plannedStartBytes, actualCapacityBytes, writeChunkBytes)
-
-    /** Library-unavailable fallback and native parity reference. */
-    internal fun kotlinStartBytesFor(plannedStartBytes: Int, actualCapacityBytes: Int, writeChunkBytes: Int): Int {
-        if (actualCapacityBytes <= 0) return plannedStartBytes
-        return minOf(plannedStartBytes, actualCapacityBytes - writeChunkBytes).coerceAtLeast(writeChunkBytes)
-    }
+        NativeAudioScheduler.startBytesFor(plannedStartBytes, actualCapacityBytes, writeChunkBytes)
 }

@@ -34,6 +34,24 @@ fn read_scalar(kind: i32, bytes: &[u8]) -> i64 {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scalar_signed_boundaries_unsigned_reads_and_boolean_modes_match_wire_contract() {
+        assert_eq!(encode_scalar(1, -128).unwrap(), [128]);
+        assert_eq!(encode_scalar(3, -32768).unwrap(), [128, 0]);
+        assert_eq!(encode_scalar(4, 0xffff_ffff).unwrap(), [255; 4]);
+        assert_eq!(encode_scalar(0, 256), Err("u8 value must be in 0..255"));
+        assert_eq!(encode_scalar(6, -1), Err("u64 value must be non-negative in this API"));
+        assert_eq!(read_scalar(3, &[128, 0]), -32768);
+        assert_eq!(read_scalar(6, &[255; 8]), -1);
+        assert_eq!(read_scalar(7, &[2]), 1);
+        assert_eq!(read_scalar(8, &[2]), 0);
+    }
+}
+
 unsafe fn int_array(env: *mut JNIEnv, values: &[i32]) -> jintArray {
     let f = &**env;
     let array = (f.NewIntArray.unwrap())(env, values.len() as jint);

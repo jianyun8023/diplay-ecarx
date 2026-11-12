@@ -117,3 +117,8 @@
 
 # Native stateless crypto/DER bridge. Byte-array results need no obfuscated DTO constructors.
 -keep class com.shilapi.xcertplay.airplay.NativeCrypto { native <methods>; }
+
+-keep class com.shilapi.xcertplay.airplay.NativeNtpTiming { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeAirPlayNegotiation { native <methods>; }
+
+-keep class com.shilapi.xcertplay.media.NativeVideoPolicy { native <methods>; }

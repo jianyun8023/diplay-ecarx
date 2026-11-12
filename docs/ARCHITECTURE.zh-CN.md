@@ -159,7 +159,7 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 - `WirelessBootstrapRecovery` 用 Rust value token 持有 run 预算与 attempt 状态，并决定 Java Throwable facts 的终止／重试／超时包装。保留一次 connect retry、一次 fallback、一次 bootstrap retry、400／800 ms 等待、验证及资源执行顺序；Kotlin 仅保留平台异常描述、100 ms 可取消等待、watchdog 调度与实际资源动作。
 - `Iap2ControlDeadline` 的有限认证窗口、认证后无限模式与30秒 poll 上限由 Rust 决定；Kotlin 保留时钟与原 Iap2WiredControlClient I/O。两 Long token 原样保留全部时间／预算位，认证无限态用独立空 token 表示；不分配 native 堆句柄。保留 Long wrapping、回拨、向上取整与时钟重入的单次查询快照，无限认证后不再读取时钟。
 - Rust `hid` 持有二指触摸、旋钮、媒体及电话报告和四类 descriptor 的编码，`touch_slots` 持有 pointer→slot 状态并合成报告。Kotlin 保留 UID／元数据、Android 输入及显示尺寸；facade 串行使用／关闭句柄，关闭后的迟到报告安全返回 false。保留按 slot id 首次匹配、Android Math.round 与低16位截断；这些与 LIVI 的列表顺序／饱和规则不同。
-- `media::audio::scheduler` 持有输出缓冲记账、unsigned head 回绕、重缓冲规则及安全启动阈值。owner 仅在 renderer worker 使用时分配，同 worker 原位 reset 并释放；未启动即关闭不分配句柄。Kotlin 仍执行平台写入、playback／prebuffer门限、焦点和路由。
+- `media::audio::scheduler` 持有输出记账、unsigned head、playback／prebuffer、容量内启动门限、写入分块／结果动作、重缓冲／尾包期限、buffer校准和导航路由决策。worker惰性分配，同worker reset／释放；平台play／pause成功后才回报Rust，不在core锁内调用SDK。压缩包始终由Rust队列持有，旧Kotlin恢复算法只留testCore。`media::video::selection`持有软硬解选择、重试与probe计划，保留首个非alias、2000／30000ms、Long wrapping和callback后才推进重试的顺序；平台保留Char折叠、枚举／create／sleep。新实现尚待统一验证；RTP音频直连队列仍待后续接入。
 - `vehicle::identification` 编组20／21的字段与重复连接器；名称经既有平台字符串 codec，保留畸形UTF-16替换、NUL拒绝及既有参数／body预算。`vehicle_speed` 持有PASCD布局与XOR／CRLF，平台 Formatter 保留舍入、负零及非有限数拼写。`cluster_arrow／lane_icon／day_night` 持有OEM纯转换，车机适配保留；status0且angles为空仍以原始highlight推断方向，不激活高亮。
 - Kotlin旧核心仅在库不可用时启用，所有权和设备验收详见issue #96。PASCD／VehicleSpeedLocationProvider仍无生产SDK装配点，此批仅接入已有编码入口，不新增车速来源。
 
