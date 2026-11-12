@@ -69,7 +69,6 @@ androidComponents {
 }
 dependencies {
     implementation libs.androidx.annotation
-    implementation libs.bouncycastle
     implementation libs.jmdns
     testImplementation libs.junit
     testImplementation 'org.robolectric:robolectric:4.17'

@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.iap2.wire
 
 import com.shilapi.xcertplay.iap2.wire.reference.KotlinIap2CsmFramer

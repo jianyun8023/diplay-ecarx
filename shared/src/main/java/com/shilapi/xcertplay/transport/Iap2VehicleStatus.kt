@@ -7,7 +7,6 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.iap2.wire.Iap2WireCodec
 import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import kotlin.math.min
-import kotlin.math.roundToLong
 
 /** One reading of an electric vehicle's range and charge, as CarPlay's VehicleStatusUpdate carries it. */
 data class VehicleStatusSnapshot(
@@ -47,49 +46,20 @@ fun Iap2IdentificationConfig.withVehicleStatusFrom(provider: VehicleStatusProvid
  * Parameter ids follow Apple's iAP2 message catalog.
  */
 object Iap2VehicleStatus {
+    init { NativeMedia.requireAvailable() }
     const val START_VEHICLE_STATUS_UPDATES = 0xA100
     const val VEHICLE_STATUS_UPDATE = 0xA101
     const val STOP_VEHICLE_STATUS_UPDATES = 0xA102
     const val UPDATE_INTERVAL_MILLIS = 30_000L
 
-    private const val ENGINE_TYPE_ELECTRIC = 2
-
     /** IdentificationInformation params 20 (VehicleInformation) and 21 (VehicleStatus). */
-    fun Iap2BodyBuilder.electricVehicleComponents(name: String, connectors: EvChargingConnectors) =
-        electricVehicleComponents(name, connectors, NativeMedia.available)
-
-    /** [native] is exposed for the device parity test; production picks it from the library load. */
-    internal fun Iap2BodyBuilder.electricVehicleComponents(
-        name: String, connectors: EvChargingConnectors, native: Boolean,
-    ) {
-        if (native) {
-            val namePayload = Iap2Parameter(1, Iap2WireCodec.string(name)).payload
-            groupEncoded(20, NativeVehicleIdentification.group20(namePayload, connectors.wireValues))
-            groupEncoded(21, NativeVehicleIdentification.group21(namePayload))
-            return
-        }
-        group(20) {
-            u16(0, 3) // Identifier
-            string(1, name) // Name
-            u8(2, ENGINE_TYPE_ELECTRIC) // EngineType
-            string(6, name) // DisplayName
-            string(8, name) // MapsDisplayName
-            for (connector in connectors.wireValues) u8(11, connector) // SupportedChargingConnectors
-        }
-        group(21) {
-            u16(0, 4) // Identifier
-            string(1, name) // Name
-            void(3) // Range
-            void(6) // RangeWarning
-            void(11) // RangeElectric
-            void(15) // RangeWarningElectric
-            void(21) // ElectricChargeInfo
-            void(30) // MaxRangeInfo
-        }
+    fun Iap2BodyBuilder.electricVehicleComponents(name: String, connectors: EvChargingConnectors) {
+        val namePayload = Iap2Parameter(1, Iap2WireCodec.string(name)).payload
+        groupEncoded(20, NativeVehicleIdentification.group20(namePayload, connectors.wireValues))
+        groupEncoded(21, NativeVehicleIdentification.group21(namePayload))
     }
 
     fun update(status: VehicleStatusSnapshot): Iap2Frame {
-        if (!NativeMedia.available) return kotlinUpdate(status)
         val energyMask = (if (status.currentChargeWh != null) 1 else 0) or (if (status.maxChargeWh != null) 2 else 0)
         val payload = requireNotNull(NativeMedia.vehicleStatusPayload(status.rangeKm, status.rangeWarning,
             status.batteryPercent, status.currentChargeWh ?: 0, status.maxChargeWh ?: 0, energyMask,
@@ -97,20 +67,7 @@ object Iap2VehicleStatus {
         return Iap2Frame(VEHICLE_STATUS_UPDATE, payload)
     }
 
-    /** Library-unavailable fallback and native parity reference. */
-    internal fun kotlinUpdate(status: VehicleStatusSnapshot): Iap2Frame = Iap2Messages.buildRaw(VEHICLE_STATUS_UPDATE) {
-        u16(3, status.rangeKm.coerceIn(0, 0xffff)) // Range, km
-        bool(6, status.rangeWarning) // RangeWarning
-        u16(11, status.rangeKm.coerceIn(0, 0xffff)) // RangeElectric, km
-        bool(15, status.rangeWarning) // RangeWarningElectric
-        // Unknown energy is omitted, never represented as an empty battery or a zero capacity.
-        if (status.currentChargeWh != null || status.maxChargeWh != null) u32(21, 0L) // MinBatteryCharge, Wh
-        status.currentChargeWh?.let { u32(22, it.coerceAtLeast(0)) } // CurrentBatteryCharge, Wh
-        status.maxChargeWh?.let { u32(23, it.coerceAtLeast(0)) } // MaxBatteryCharge, Wh
-        u32(24, (status.batteryPercent.coerceIn(0.0, 100.0) * 1000).roundToLong()) // DisplayedBatteryPercentage, % x 1000
-        bool(25, status.charging) // isCharging
-        u16(30, status.maxRangeKm.coerceIn(0, 0xffff)) // MaxRangeElectric, km
-    }
+
 }
 
 /** The native pure TLV encoder for IdentificationInformation vehicle components. */

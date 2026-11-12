@@ -13,7 +13,8 @@ import org.junit.Test
 class NativeVehicleIdentificationDeviceTest {
     private fun components(native: Boolean, name: String, connectors: EvChargingConnectors): ByteArray =
         Iap2BodyBuilder.opaque(0x1234).apply {
-            with(Iap2VehicleStatus) { electricVehicleComponents(name, connectors, native) }
+            if (native) with(Iap2VehicleStatus) { electricVehicleComponents(name, connectors) }
+            else with(KotlinVehicleStatus) { electricVehicleComponents(name, connectors) }
         }.build().payload
 
     @Test fun nativeMatchesKotlinFallbackForVehicleComponents() {

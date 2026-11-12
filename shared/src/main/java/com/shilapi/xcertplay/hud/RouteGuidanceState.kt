@@ -39,52 +39,43 @@ internal class RouteGuidanceState(
     private val liveSession: () -> Boolean = { false },
     private val wallClockSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
 ) : AutoCloseable {
-    private val fallback = if (com.shilapi.xcertplay.airplay.NativeMedia.available) null else
-        KotlinRouteGuidanceState({ nanoTime() }, { wallClockSeconds() }, staleRouteNs,
-            emptyListHideNs, keepAcrossNoRoute, { liveSession() })
+    init { com.shilapi.xcertplay.airplay.NativeMedia.requireAvailable() }
     // The two output singletons retain their owner for the process. Temporary owners call close().
-    private var handle = if (fallback == null)
-        NativeRouteGuidance.create(staleRouteNs, emptyListHideNs, keepAcrossNoRoute).also { check(it != 0L) }
-        else 0L
+    private var handle = NativeRouteGuidance.create(staleRouteNs, emptyListHideNs, keepAcrossNoRoute)
+        .also { check(it != 0L) }
     private var closed = false
 
-    val activeIndex: Int @Synchronized get() = fallback?.activeIndex ?: query(0).toInt()
-    val announced: Boolean @Synchronized get() = fallback?.announced ?: (query(1) != 0L)
-    val inputState: Int? @Synchronized get() = if (fallback != null) fallback.inputState else query(2).takeIf { it >= 0 }?.toInt()
-    val lastPhoneState: Int? @Synchronized get() = if (fallback != null) fallback.lastPhoneState else query(3).takeIf { it >= 0 }?.toInt()
-    val laneGuidanceIndex: Int? @Synchronized get() = if (fallback != null) fallback.laneGuidanceIndex else query(4).takeIf { it >= 0 }?.toInt()
-    val laneGuidanceShowing: Boolean? @Synchronized get() = if (fallback != null) fallback.laneGuidanceShowing else query(5).takeIf { it >= 0 }?.let { it != 0L }
-    val arrivalEpochSeconds: Long? @Synchronized get() = if (fallback != null) fallback.arrivalEpochSeconds else
-        if (query(8) != 0L) query(6) else null
-    val remainingMeters: Long? @Synchronized get() = if (fallback != null) fallback.remainingMeters else query(7).takeIf { it >= 0 }
-    val phoneStateAgeMs: Long? @Synchronized get() = if (fallback != null) fallback.phoneStateAgeMs else
-        if (lastPhoneState != null) NativeRouteGuidance.phoneStateAge(owner(), nanoTime()) else null
-    val expired: Boolean @Synchronized get() = fallback?.expired ?: NativeRouteGuidance.expired(owner(), nanoTime(), liveSession())
-    val destinationName: String @Synchronized get() = fallback?.destinationName ?: NativeRouteGuidance.text(owner(), 0, 0, false)
-    val diagnosticInput: String @Synchronized get() = fallback?.diagnosticInput ?: NativeRouteGuidance.text(owner(), 1, 0, false)
+    val activeIndex: Int @Synchronized get() = query(0).toInt()
+    val announced: Boolean @Synchronized get() = (query(1) != 0L)
+    val inputState: Int? @Synchronized get() = query(2).takeIf { it >= 0 }?.toInt()
+    val lastPhoneState: Int? @Synchronized get() = query(3).takeIf { it >= 0 }?.toInt()
+    val laneGuidanceIndex: Int? @Synchronized get() = query(4).takeIf { it >= 0 }?.toInt()
+    val laneGuidanceShowing: Boolean? @Synchronized get() = query(5).takeIf { it >= 0 }?.let { it != 0L }
+    val arrivalEpochSeconds: Long? @Synchronized get() = if (query(8) != 0L) query(6) else null
+    val remainingMeters: Long? @Synchronized get() = query(7).takeIf { it >= 0 }
+    val phoneStateAgeMs: Long? @Synchronized get() = if (lastPhoneState != null) NativeRouteGuidance.phoneStateAge(owner(), nanoTime()) else null
+    val expired: Boolean @Synchronized get() = NativeRouteGuidance.expired(owner(), nanoTime(), liveSession())
+    val destinationName: String @Synchronized get() = NativeRouteGuidance.text(owner(), 0, 0, false)
+    val diagnosticInput: String @Synchronized get() = NativeRouteGuidance.text(owner(), 1, 0, false)
 
     @Synchronized fun accept(messageId: Int, payload: ByteArray): RouteGuidanceChange =
-        fallback?.accept(messageId, payload) ?: RouteGuidanceChange.entries[
+        RouteGuidanceChange.entries[
             NativeRouteGuidance.accept(owner(), messageId, payload, nanoTime(), wallClockSeconds(), liveSession())]
 
-    @Synchronized fun current(): AppleManeuver? = if (fallback != null) fallback.current() else
-        NativeRouteGuidance.current(owner(), nanoTime(), liveSession(), false)
+    @Synchronized fun current(): AppleManeuver? = NativeRouteGuidance.current(owner(), nanoTime(), liveSession(), false)
 
-    @Synchronized fun currentForDim(): AppleManeuver? = if (fallback != null) fallback.currentForDim() else
-        NativeRouteGuidance.current(owner(), nanoTime(), liveSession(), true)
+    @Synchronized fun currentForDim(): AppleManeuver? = NativeRouteGuidance.current(owner(), nanoTime(), liveSession(), true)
 
-    @Synchronized fun clear(reason: String = "clear"): Boolean = fallback?.clear(reason) ?:
-        NativeRouteGuidance.clear(owner(), reason)
+    @Synchronized fun clear(reason: String = "clear"): Boolean = NativeRouteGuidance.clear(owner(), reason)
 
-    @Synchronized fun diagnosticState(): String = fallback?.diagnosticState() ?:
-        NativeRouteGuidance.text(owner(), 2, nanoTime(), liveSession())
+    @Synchronized fun diagnosticState(): String = NativeRouteGuidance.text(owner(), 2, nanoTime(), liveSession())
 
     private fun query(field: Int): Long = NativeRouteGuidance.query(owner(), field)
     private fun owner(): Long { check(!closed); return handle }
 
     @Synchronized override fun close() {
         if (closed) return
-        if (fallback != null) fallback.clear() else NativeRouteGuidance.destroy(handle)
+        NativeRouteGuidance.destroy(handle)
         handle = 0L
         closed = true
     }

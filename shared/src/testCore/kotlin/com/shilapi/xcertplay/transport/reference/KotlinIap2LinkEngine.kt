@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 // Independent pre-migration reference, captured from 6cd98d70; test sources only.
 package com.shilapi.xcertplay.transport.reference
 

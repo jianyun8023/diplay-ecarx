@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 // Independent scalar/string reference from 6cd98d70; test sources only.
 package com.shilapi.xcertplay.iap2.wire.reference
 

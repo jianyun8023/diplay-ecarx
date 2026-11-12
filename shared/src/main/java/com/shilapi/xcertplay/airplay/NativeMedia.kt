@@ -6,8 +6,8 @@ import java.nio.ByteBuffer
 /**
  * The media data plane in `libdiplay_media` (Rust; source in `shared/src/main/rust/diplay-media`, design
  * in docs/ARCHITECTURE.zh-CN.md). The screen and audio receivers hand it their socket and get pooled
- * [MediaPacket]s back; [chachaOpen] serves the Kotlin callers of ChaCha20-Poly1305. When the library
- * does not load (host unit tests, an unexpected ABI) every caller keeps its Kotlin path.
+ * [MediaPacket]s back; [chachaOpen] serves the Kotlin callers of ChaCha20-Poly1305. Mandatory core
+ * callers use [requireAvailable]; JVM references and binding shadows live only in test sources.
  */
 internal object NativeMedia {
     private val load: Result<Unit> by lazy {
@@ -16,6 +16,9 @@ internal object NativeMedia {
     }
 
     val available: Boolean get() = load.isSuccess
+
+    /** Mandatory core callers propagate the original load failure instead of selecting Kotlin code. */
+    fun requireAvailable() = load.getOrThrow()
 
     /** Why the library did not load, for callers that report it; null when it loaded. */
     val loadError: Throwable? get() = load.exceptionOrNull()

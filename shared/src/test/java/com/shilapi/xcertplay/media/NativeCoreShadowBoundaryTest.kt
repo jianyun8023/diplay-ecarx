@@ -36,6 +36,7 @@ class NativeCoreShadowBoundaryTest {
     @Implements(className = "com.shilapi.xcertplay.airplay.NativeMedia", isInAndroidSdk = false)
     class NativeLoaded {
         @Implementation fun getAvailable(): Boolean = true
+        @Implementation fun requireAvailable() {}
     }
 
     @Implements(className = "com.shilapi.xcertplay.media.NativeAudioScheduler", isInAndroidSdk = false)

@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.airplay
 import com.shilapi.xcertplay.media.AudioBufferProgress
 import com.shilapi.xcertplay.media.KotlinAudioBufferProgress
 import com.shilapi.xcertplay.transport.PascdEncoder
+import com.shilapi.xcertplay.transport.KotlinPascdEncoder
 import com.shilapi.xcertplay.transport.VehicleGear
 import com.shilapi.xcertplay.transport.VehicleSpeedReading
 import com.shilapi.xcertplay.transport.VehicleSpeedSample
@@ -124,7 +125,7 @@ class NativeVehicleConversionDeviceTest {
             VehicleSpeedReading(VehicleGear.NEUTRAL, emptyList()),
         )
         for (reading in cases) {
-            val expected = PascdEncoder.kotlinEncode(reading)
+            val expected = KotlinPascdEncoder.encode(reading)
             val actual = PascdEncoder.encode(reading)
             assertEquals(expected, actual)
         }

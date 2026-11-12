@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 // Independent builder/schema reference from 6cd98d70; test sources only.
 package com.shilapi.xcertplay.iap2.body.reference
 

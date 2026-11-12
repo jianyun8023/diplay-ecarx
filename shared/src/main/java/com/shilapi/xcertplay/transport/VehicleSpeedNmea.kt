@@ -31,37 +31,18 @@ interface VehicleSpeedSource {
  * the `0` mean is not public, so they are copied as seen.
  */
 object PascdEncoder {
+    init { NativeMedia.requireAvailable() }
     fun encode(reading: VehicleSpeedReading): String? {
         val samples = reading.samples.takeIf { it.isNotEmpty() } ?: return null
-        if (NativeMedia.available) {
-            // Keep this platform's Formatter rounding, signed zero and non-finite spelling.
-            val start = samples.first().elapsedMillis
-            val parts = Array(samples.size * 2 + 1) { "" }
-            parts[0] = format("%.3f", start / 1000.0)
-            samples.forEachIndexed { index, sample ->
-                parts[index * 2 + 1] = format("%.2f", (sample.elapsedMillis - start) / 1000.0)
-                parts[index * 2 + 2] = format("%.3f", sample.metersPerSecond.coerceAtLeast(0.0))
-            }
-            return NativeVehicleSpeed.pascdEncode(reading.gear.ordinal, parts)
-        }
-        return kotlinEncode(reading)
-    }
-
-    /** Library-unavailable fallback and native parity reference. */
-    internal fun kotlinEncode(reading: VehicleSpeedReading): String? {
-        val samples = reading.samples.takeIf { it.isNotEmpty() } ?: return null
+        // Keep this platform's Formatter rounding, signed zero and non-finite spelling.
         val start = samples.first().elapsedMillis
-        val body = buildString {
-            append("PASCD,").append(format("%.3f", start / 1000.0)).append(",C,")
-            append(reading.gear.letter).append(",0,").append(samples.size)
-            for (sample in samples) {
-                append(',').append(format("%.2f", (sample.elapsedMillis - start) / 1000.0))
-                append(',').append(format("%.3f", sample.metersPerSecond.coerceAtLeast(0.0)))
-            }
+        val parts = Array(samples.size * 2 + 1) { "" }
+        parts[0] = format("%.3f", start / 1000.0)
+        samples.forEachIndexed { index, sample ->
+            parts[index * 2 + 1] = format("%.2f", (sample.elapsedMillis - start) / 1000.0)
+            parts[index * 2 + 2] = format("%.3f", sample.metersPerSecond.coerceAtLeast(0.0))
         }
-        var checksum = 0
-        for (character in body) checksum = checksum xor character.code
-        return "$$body*${format("%02X", checksum)}\r\n"
+        return NativeVehicleSpeed.pascdEncode(reading.gear.ordinal, parts)
     }
 
     private fun format(format: String, vararg arguments: Any): String = String.format(Locale.US, format, *arguments)

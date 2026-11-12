@@ -7,7 +7,7 @@ class AirPlayTouchSlotsTest {
     // #444, as a pinch on a Galaxy Note20 sent it: the first finger lifts while the second stays.
     // main then pressed slot 0 again at the second finger and released slot 1 at (0,0).
     @Test fun theFingerThatStaysKeepsItsSlotAndTheOtherIsReleasedWhereItWas() {
-        val slots = AirPlayTouchSlots(2)
+        val slots = KotlinAirPlayTouchSlots(2)
         assertEquals(listOf(c(0, .6, .5)), slots.assign(listOf(c(0, .6, .5))))
         assertEquals(listOf(c(0, .6, .5), c(1, .4, .3)), slots.assign(listOf(c(0, .6, .5), c(1, .4, .3))))
         // ACTION_POINTER_UP for pointer 0.
@@ -21,20 +21,20 @@ class AirPlayTouchSlotsTest {
 
     // Opening the settings menu or DiPlay's home, and the settings swipe, send an empty list.
     @Test fun anEmptyListReleasesEveryFingerWhereItWas() {
-        val slots = AirPlayTouchSlots(2)
+        val slots = KotlinAirPlayTouchSlots(2)
         slots.assign(listOf(c(3, .1, .2), c(5, .7, .8)))
         assertEquals(listOf(c(0, .1, .2, down = false), c(1, .7, .8, down = false)), slots.assign(emptyList()))
         assertEquals(emptyList<AirPlayContact>(), slots.assign(emptyList()))
     }
 
     @Test fun aFingerMissingFromTheNextEventIsReleasedWhereItWas() {
-        val slots = AirPlayTouchSlots(2)
+        val slots = KotlinAirPlayTouchSlots(2)
         slots.assign(listOf(c(0, .1, .2), c(1, .7, .8)))
         assertEquals(listOf(c(0, .15, .25), c(1, .7, .8, down = false)), slots.assign(listOf(c(0, .15, .25))))
     }
 
     @Test fun aThirdFingerWaitsForAFreeSlot() {
-        val slots = AirPlayTouchSlots(2)
+        val slots = KotlinAirPlayTouchSlots(2)
         slots.assign(listOf(c(0, .1, .1), c(1, .2, .2)))
         assertEquals(listOf(c(0, .1, .1), c(1, .2, .2)),
             slots.assign(listOf(c(0, .1, .1), c(1, .2, .2), c(2, .3, .3))))
@@ -44,7 +44,7 @@ class AirPlayTouchSlotsTest {
     }
 
     @Test fun aReleaseOfAFingerThatWasNeverReportedIsLeftOut() {
-        assertEquals(emptyList<AirPlayContact>(), AirPlayTouchSlots(2).assign(listOf(c(4, .5, .5, down = false))))
+        assertEquals(emptyList<AirPlayContact>(), KotlinAirPlayTouchSlots(2).assign(listOf(c(4, .5, .5, down = false))))
     }
 
     @Test fun eachContactGoesInTheSlotItsIdNames() {

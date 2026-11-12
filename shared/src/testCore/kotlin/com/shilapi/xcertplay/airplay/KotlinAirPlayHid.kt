@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.airplay
 
 /** The existing wire encoder, instantiated only when libdiplay_media cannot load. */

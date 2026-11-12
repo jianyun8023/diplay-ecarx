@@ -1,7 +1,10 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 // Independent pre-migration framing reference, captured from 6cd98d70; test sources only.
 package com.shilapi.xcertplay.iap2.wire.reference
 
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException
 
 internal class KotlinIap2CsmFramer {

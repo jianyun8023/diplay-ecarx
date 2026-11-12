@@ -20,6 +20,7 @@ data class AirPlayKnobState(
 
 /** Rust owns HID wire bytes; Kotlin retains device registration and the Android input adapter. */
 object AirPlayHid {
+    init { NativeMedia.requireAvailable() }
     const val TOUCH_HID_UID = 0x2a2a2a2a
     const val KNOB_HID_UID = 0x2a2a2a2b
     const val MEDIA_HID_UID = 0x2a2a2a2c
@@ -41,7 +42,6 @@ object AirPlayHid {
 
     /** Selection by slot id, rounding and packing happen in one native call per report. */
     fun touchReport(contacts: List<AirPlayContact>): ByteArray {
-        if (!NativeMedia.available) return KotlinAirPlayHid.touchReport(contacts)
         val ids = IntArray(contacts.size)
         val xy = DoubleArray(contacts.size * 2)
         val down = BooleanArray(contacts.size)
@@ -54,18 +54,15 @@ object AirPlayHid {
         return NativeMedia.hidTouchReport(ids, xy, down)
     }
 
-    fun knobReport(state: AirPlayKnobState): ByteArray = if (NativeMedia.available)
+    fun knobReport(state: AirPlayKnobState): ByteArray =
         NativeMedia.hidKnobReport(state.select, state.home, state.back, state.x, state.y, state.wheel)
-        else KotlinAirPlayHid.knobReport(state)
 
-    fun mediaReport(index: Int): ByteArray = if (NativeMedia.available) NativeMedia.hidIndexReport(index)
-        else KotlinAirPlayHid.mediaReport(index)
+    fun mediaReport(index: Int): ByteArray = NativeMedia.hidIndexReport(index)
 
-    fun telephonyReport(index: Int): ByteArray = if (NativeMedia.available) NativeMedia.hidIndexReport(index)
-        else KotlinAirPlayHid.telephonyReport(index)
+    fun telephonyReport(index: Int): ByteArray = NativeMedia.hidIndexReport(index)
 
-    private fun descriptor(kind: Int, xMax: Int = 0, yMax: Int = 0): ByteArray = if (NativeMedia.available)
-        NativeMedia.hidDescriptor(kind, xMax, yMax) else KotlinAirPlayHid.descriptor(kind, xMax, yMax)
+    private fun descriptor(kind: Int, xMax: Int = 0, yMax: Int = 0): ByteArray =
+        NativeMedia.hidDescriptor(kind, xMax, yMax)
 
     private fun hidDeviceEntry(
         uid: Int,

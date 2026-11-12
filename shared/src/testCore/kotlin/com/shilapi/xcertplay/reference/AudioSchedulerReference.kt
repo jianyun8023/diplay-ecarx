@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.reference
 
 /** Test-only reference from the Kotlin owner at6cd98d70; never compiled into an app variant. */

@@ -2,6 +2,8 @@
 plugins {
     alias(libs.plugins.android.application) apply false
 }
+
+apply(from = "gradle/native-core-tests.gradle")
 // Vehicle packages support ARM only, including native libraries from dependencies.
 subprojects {
     plugins.withId("com.android.application") {
