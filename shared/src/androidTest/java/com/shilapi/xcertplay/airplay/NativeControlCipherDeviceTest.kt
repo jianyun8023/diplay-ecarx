@@ -52,7 +52,7 @@ class NativeControlCipherDeviceTest {
         } }
         val plain = ByteArray(65535) { it.toByte() }
         val header = byteArrayOf(-1, -1)
-        val sealed = AirPlayCrypto.chachaSealBouncyCastle(key, AirPlayCrypto.nonce64(0), plain, header)
+        val sealed = AirPlayCrypto.chachaSeal(key, AirPlayCrypto.nonce64(0), plain, header)
         ControlCipher(key, key).use { assertArrayEquals(plain, it.decrypt(header + sealed).data) }
     }
 

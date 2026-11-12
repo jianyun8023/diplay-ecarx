@@ -77,7 +77,7 @@ class ControlCipherTest {
     @Test fun decodingAcceptsLengthsAboveTheEncoderChunkSize() {
         val plain = ByteArray(65535) { it.toByte() }
         val header = byteArrayOf(-1, -1)
-        val sealed = AirPlayCrypto.chachaSealBouncyCastle(key, AirPlayCrypto.nonce64(0), plain, header)
+        val sealed = BouncyCryptoOracle.chachaSeal(key, AirPlayCrypto.nonce64(0), plain, header)
         assertArrayEquals(plain, owner().decrypt(header + sealed).data)
     }
 

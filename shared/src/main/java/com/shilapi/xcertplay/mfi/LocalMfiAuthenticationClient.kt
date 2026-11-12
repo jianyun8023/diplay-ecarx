@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay.mfi
 
-import org.bouncycastle.asn1.ASN1Integer
-import org.bouncycastle.asn1.ASN1Sequence
+import com.shilapi.xcertplay.airplay.NativeCrypto
 import java.io.File
 import java.security.KeyFactory
 import java.security.PrivateKey
@@ -87,19 +86,6 @@ class LocalMfiAuthenticationClient private constructor(
             output.toByteArray().also { require(it.isNotEmpty()) { "Local identity file is empty" } }
         }
 
-        internal fun derToRaw(der: ByteArray): ByteArray {
-            val sequence = ASN1Sequence.getInstance(der)
-            require(sequence.size() == 2) { "Invalid ECDSA signature" }
-            val result = ByteArray(64)
-            for (index in 0..1) {
-                val value = ASN1Integer.getInstance(sequence.getObjectAt(index)).value
-                require(value.signum() > 0 && value.bitLength() <= 256) { "Invalid ECDSA integer" }
-                val bytes = value.toByteArray()
-                val skip = if (bytes.size == 33 && bytes[0] == 0.toByte()) 1 else 0
-                val length = bytes.size - skip
-                bytes.copyInto(result, index * 32 + 32 - length, skip)
-            }
-            return result
-        }
+        internal fun derToRaw(der: ByteArray): ByteArray = NativeCrypto.ecdsaDerToRaw(der)
     }
 }

@@ -114,3 +114,6 @@
     native <methods>;
     public static void save(com.shilapi.xcertplay.airplay.PairingStore, byte[], byte[]);
 }
+
+# Native stateless crypto/DER bridge. Byte-array results need no obfuscated DTO constructors.
+-keep class com.shilapi.xcertplay.airplay.NativeCrypto { native <methods>; }

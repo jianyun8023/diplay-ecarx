@@ -1,8 +1,7 @@
 //! ChaCha20-Poly1305 through ring (BoringSSL's assembly). The receivers open each frame in place
-//! with a key built once per stream; `NativeMedia.chachaOpen` serves the Kotlin callers.
+//! with a key built once per stream. The same owner supplies the host primitive and MFi DER bridges.
 
-use crate::platform::jvm::Env;
-use jni_sys::{jbyteArray, jclass, jint, JNIEnv};
+mod jni;
 use ring::hkdf;
 use ring::aead::{Aad, LessSafeKey, Nonce, Tag, UnboundKey, CHACHA20_POLY1305};
 
@@ -41,30 +40,6 @@ pub fn counter_nonce(counter: u64) -> [u8; 12] {
     let mut nonce = [0u8; 12];
     nonce[4..].copy_from_slice(&counter.to_le_bytes());
     nonce
-}
-
-/// Returns the plaintext length written at `out[out_off..]`, -1 when the tag does not verify,
-/// -2 on bad arguments. Kotlin checks every bound before calling.
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_chachaOpen(
-    env: *mut JNIEnv, _class: jclass, key: jbyteArray, nonce: jbyteArray,
-    aad: jbyteArray, aad_off: jint, aad_len: jint,
-    input: jbyteArray, in_off: jint, len: jint,
-    out: jbyteArray, out_off: jint,
-) -> jint {
-    if len < TAG_LEN as jint { return -2; }
-    let e = Env(env);
-    let (mut key_bytes, mut nonce_bytes) = ([0u8; 32], [0u8; 12]);
-    if !e.read_array(key, 0, &mut key_bytes) || !e.read_array(nonce, 0, &mut nonce_bytes) { return -2; }
-    let Some(stream_key) = StreamKey::new(&key_bytes) else { return -2 };
-    let mut header = vec![0u8; aad_len.max(0) as usize];
-    if aad_len > 0 && !e.read_array(aad, aad_off as usize, &mut header) { return -2; }
-    let mut sealed = vec![0u8; len as usize];
-    if !e.read_array(input, in_off as usize, &mut sealed) { return -2; }
-    match stream_key.open(nonce_bytes, &header, &mut sealed) {
-        Some(plain) => if e.write_array(out, out_off as usize, &sealed[..plain]) { plain as jint } else { -2 },
-        None => -1,
-    }
 }
 
 #[cfg(test)]
@@ -131,4 +106,69 @@ pub(super) fn hkdf32(input: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
         .fill(&mut output)
         .unwrap();
     output
+}
+
+#[derive(Debug, PartialEq)]
+enum EcdsaError { Signature, Integer }
+
+// P-256 signature syntax only, not a certificate/ASN.1 object model. JCA signing stays on Android.
+fn ecdsa_der_to_raw(der: &[u8]) -> Result<[u8; 64], EcdsaError> {
+    fn length(der: &[u8], at: &mut usize) -> Option<Option<usize>> {
+        let first = *der.get(*at)?;
+        *at += 1;
+        if first == 0x80 { return Some(None); }
+        if first < 0x80 { return Some(Some(first as usize)); }
+        let count = (first & 0x7f) as usize;
+        if count == 0 || count > 4 { return None; }
+        let mut len = 0usize;
+        for _ in 0..count {
+            len = len.checked_mul(256)?.checked_add(*der.get(*at)? as usize)?;
+            *at += 1;
+        }
+        Some(Some(len))
+    }
+    if der.first() != Some(&0x30) { return Err(EcdsaError::Signature); }
+    let mut at = 1;
+    let size = length(der, &mut at).ok_or(EcdsaError::Signature)?;
+    let end = match size {
+        Some(size) => at.checked_add(size).filter(|&end| end == der.len()).ok_or(EcdsaError::Signature)?,
+        None => der.len().checked_sub(2).filter(|&end| der.get(end..) == Some(&[0, 0][..])).ok_or(EcdsaError::Signature)?,
+    };
+    let mut values: [&[u8]; 2] = [&[], &[]];
+    for value in &mut values {
+        if der.get(at) != Some(&2) { return Err(EcdsaError::Signature); }
+        at += 1;
+        let len = length(der, &mut at).flatten().ok_or(EcdsaError::Signature)?;
+        let next = at.checked_add(len).filter(|&next| next <= end).ok_or(EcdsaError::Signature)?;
+        *value = &der[at..next];
+        if value.is_empty() { return Err(EcdsaError::Signature); }
+        // Default BC ASN1Integer validation rejects redundant sign octets.
+        if value.len() > 1 && ((value[0] == 0 && value[1] & 0x80 == 0)
+            || (value[0] == 0xff && value[1] & 0x80 != 0)) { return Err(EcdsaError::Signature); }
+        at = next;
+    }
+    if at != end { return Err(EcdsaError::Signature); }
+    let mut raw = [0; 64];
+    for (component, value) in values.into_iter().enumerate() {
+        if value[0] & 0x80 != 0 { return Err(EcdsaError::Integer); }
+        let positive = if value[0] == 0 { &value[1..] } else { value };
+        if positive.is_empty() || positive.len() > 32 { return Err(EcdsaError::Integer); }
+        raw[component * 32 + 32 - positive.len()..(component + 1) * 32].copy_from_slice(positive);
+    }
+    Ok(raw)
+}
+
+fn ecdsa_raw_to_der(raw: &[u8; 64]) -> Vec<u8> {
+    let mut content = Vec::with_capacity(70);
+    for value in raw.chunks_exact(32) {
+        let first = value.iter().position(|&byte| byte != 0).unwrap_or(31);
+        let value = &value[first..];
+        let sign = value[0] & 0x80 != 0;
+        content.extend_from_slice(&[2, (value.len() + usize::from(sign)) as u8]);
+        if sign { content.push(0); }
+        content.extend_from_slice(value);
+    }
+    let mut der = vec![0x30, content.len() as u8];
+    der.extend_from_slice(&content);
+    der
 }

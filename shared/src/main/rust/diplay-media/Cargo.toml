@@ -13,6 +13,7 @@ jni-sys = "0.3"
 libc = "0.2"
 opus-pure = "=0.2.3"
 ring = "0.17"
+curve25519-dalek = { version = "=5.0.0", default-features = false }
 num-bigint = { version = "=0.5.1", default-features = false, features = ["std"] }
 
 [profile.release]
