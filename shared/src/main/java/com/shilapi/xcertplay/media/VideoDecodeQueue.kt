@@ -100,6 +100,8 @@ internal object NativeVideoFlow {
     @JvmStatic external fun referenceNeeds(owner: Long): Boolean
     @JvmStatic external fun referenceAccepts(owner: Long, randomAccess: Boolean): Boolean
     @JvmStatic external fun obsolete(now: Long, received: Long, pending: Int, newest: Long, hasNewest: Boolean): Boolean
+    @JvmStatic external fun touchSent(sent: Long)
+    @JvmStatic external fun touchFrame(now: Long): Long
 }
 
 /** Drain output while waiting for input: full output buffers can otherwise starve input forever. Video and audio decoders share it. */

@@ -1,6 +1,14 @@
 //! Decode-chain and queue policy shared with the Android SDK adapter. SDK job objects stay in a GC carrier.
 mod jni;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicI64, Ordering};
+
+static PENDING_TOUCH_NS: AtomicI64 = AtomicI64::new(0);
+pub fn touch_sent(sent_at: i64) { let _ = PENDING_TOUCH_NS.compare_exchange(0, sent_at, Ordering::Relaxed, Ordering::Relaxed); }
+pub fn touch_latency(now: i64) -> Option<i64> {
+    let sent = PENDING_TOUCH_NS.swap(0, Ordering::Relaxed);
+    (sent != 0).then_some(now.wrapping_sub(sent))
+}
 
 pub fn frame_overflow(frames: usize, bytes: i64, incoming: i64, max_frames: i32, max_bytes: i32) -> bool {
     frames as i64 >= max_frames as i64 || bytes.wrapping_add(incoming) > max_bytes as i64

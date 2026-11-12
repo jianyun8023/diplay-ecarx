@@ -136,3 +136,7 @@ pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_obsolete
 ) -> jboolean {
     crate::media::video::pacing::is_obsolete(now, received, pending.max(0) as usize, (has_newest != 0).then_some(newest)) as jboolean
 }
+#[no_mangle]
+pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_touchSent(_: *mut JNIEnv, _: jclass, sent: jlong) { super::touch_sent(sent); }
+#[no_mangle]
+pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_touchFrame(_: *mut JNIEnv, _: jclass, now: jlong) -> jlong { super::touch_latency(now).unwrap_or(-1) }

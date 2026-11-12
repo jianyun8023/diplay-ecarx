@@ -1,6 +1,7 @@
 //! Decoder choice and retry/probe policy. The host enumerates codecs and performs create/sleep.
 use jni_sys::{jboolean, jclass, jint, jintArray, jlong, jlongArray, jstring, JNIEnv};
 use std::ptr::null_mut;
+mod configuration;
 
 pub fn select_decoder(flags: &[i32], software: bool) -> i32 {
     flags.iter().position(|flags| flags & 2 == 0 && (flags & 1 != 0) == software).map_or(-1, |index| index as i32)

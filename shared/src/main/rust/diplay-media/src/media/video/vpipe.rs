@@ -14,7 +14,7 @@
 use crate::media::video::annexb::{FLAG_ANNEX_B, FLAG_RANDOM_ACCESS_H264, FLAG_RANDOM_ACCESS_H265};
 use crate::platform::jvm::{Attached, Env};
 use crate::platform::ndk::*;
-use crate::media::video::flow::{frame_overflow, ReferenceChain};
+use crate::media::video::flow::{frame_overflow, touch_latency, ReferenceChain};
 use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, PacingDelay};
 use crate::media::packet;
 use crate::media::stats::{clock, VideoInputStats};
@@ -396,22 +396,15 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jlong { Box::into_raw(Box::new(pipe(handle).clone())) as jlong }
 
-static PENDING_TOUCH_NS: AtomicI64 = AtomicI64::new(0);
-
 #[no_mangle]
 pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoTouchSent(
     _env: *mut JNIEnv, _class: jclass, sent_at: jlong,
-) { let _ = PENDING_TOUCH_NS.compare_exchange(0, sent_at, Ordering::Relaxed, Ordering::Relaxed); }
+) { crate::media::video::flow::touch_sent(sent_at); }
 
 #[no_mangle]
 pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoTouchFrame(
     _env: *mut JNIEnv, _class: jclass, now: jlong,
 ) -> jlong { touch_latency(now).unwrap_or(-1) }
-
-fn touch_latency(now: i64) -> Option<i64> {
-    let sent = PENDING_TOUCH_NS.swap(0, Ordering::Relaxed);
-    (sent != 0).then_some(now - sent)
-}
 
 unsafe extern "C" fn on_input(codec: *mut AMediaCodec, user: *mut c_void, index: i32) {
     let pipe = &*(user as *const Pipe);

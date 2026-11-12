@@ -76,8 +76,27 @@ internal data class HardwareDecoderProbe(val name: String, val dueNanos: Long, v
 private fun decoderFlags(decoders: List<InstalledDecoder>): IntArray =
     decoders.map { (if (it.software) 1 else 0) or (if (it.alias) 2 else 0) }.toIntArray()
 
+/** Java's per-Char case fold retains API 28 codec-name matching; Rust owns the name policies. */
+internal fun videoCodecNameFlags(name: String, advertised: Boolean = false): Int =
+    NativeVideoPolicy.nameFlags(name.map { it.uppercaseChar().lowercaseChar() }.joinToString(""), advertised)
+
 internal object NativeVideoPolicy {
-    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    init { NativeMedia.requireAvailable() }
+    @JvmStatic external fun decoderAttempts(rate: Int, software: Boolean, lowLatency: Boolean, mtkMode: Int): IntArray
+    @JvmStatic external fun nameFlags(folded: String, advertised: Boolean): Int
+    @JvmStatic external fun mtkMode(mode: Int, op: Int): IntArray
+    @JvmStatic external fun mtkSelect(flags: IntArray, mode: Int): Int
+    @JvmStatic external fun appliedMtkMode(mode: Int, legacy: Boolean): Int
+    @JvmStatic external fun operatingRate(type: Int, labelled: Boolean, frameRate: Int): Int
+    @JvmStatic external fun nextOperatingRate(requested: Int, used: Boolean, usedRate: Int): Int
+    @JvmStatic external fun keepLowLatency(requested: Boolean, used: Boolean, same: Boolean): Boolean
+    @JvmStatic external fun lowLatency(flags: IntArray): Int
+    @JvmStatic external fun workerWait(drains: Boolean, last: Long, now: Long): Long
+    @JvmStatic external fun configurationCreate(rate: Int, mtk: Boolean, vendorRefused: Boolean): LongArray
+    @JvmStatic external fun configurationQuery(owner: LongArray, field: Int, capability: Boolean): Long
+    @JvmStatic external fun configurationEvent(owner: LongArray, event: Int, a: Int, b: Int, c: Int, flags: Int): Int
+    @JvmStatic external fun attemptAllowed(owner: LongArray, defaultDecoder: Boolean, software: Boolean, sdk: Int): Boolean
+    @JvmStatic external fun formatFlags(owner: LongArray, tuned: Boolean, atOnce: Boolean, vendorRequested: Boolean, sdk: Int, advertised: Boolean, pictureListed: Boolean, nameFlags: Int): Int
     @JvmStatic external fun softwareName(folded: String): Boolean
     @JvmStatic external fun select(flags: IntArray, software: Boolean): Int
     @JvmStatic external fun probe(nowNanos: Long, intervalMillis: Long, failed: Boolean): LongArray

@@ -10,17 +10,9 @@ internal enum class MtkDecoderMode(val diagnosticName: String) {
     LOW_LATENCY_NO_REORDER("low-latency+no-reorder"),
     ;
 
-    fun fallback(): MtkDecoderMode = when (this) {
-        LOW_LATENCY_NO_REORDER -> LOW_LATENCY
-        LOW_LATENCY -> NONE
-        NONE -> NONE
-    }
+    fun fallback(): MtkDecoderMode = entries[NativeVideoPolicy.mtkMode(ordinal, 0)[0]]
+    fun attempts(): List<MtkDecoderMode> = NativeVideoPolicy.mtkMode(ordinal, 1).map { entries[it] }
 
-    fun attempts(): List<MtkDecoderMode> = when (this) {
-        LOW_LATENCY_NO_REORDER -> listOf(LOW_LATENCY_NO_REORDER, LOW_LATENCY, NONE)
-        LOW_LATENCY -> listOf(LOW_LATENCY, NONE)
-        NONE -> listOf(NONE)
-    }
 }
 
 /** Detection and tuning for legacy MTK OMX and dedicated Codec2 low-latency decoders. */
@@ -30,34 +22,22 @@ object MtkDecoderTuning {
     // This is the spelling used by MTK's ACodec even though it maps to NoReorderMode.
     const val NO_REORDER_KEY = "vdec-no-record"
 
-    fun isDecoderName(name: String): Boolean =
-        name.startsWith("OMX.MTK.", ignoreCase = true) ||
-            name.startsWith("c2.mtk.", ignoreCase = true)
-
-    /** The published vdec-* bridge is an ACodec/OMX extension, not a Codec2 vendor parameter. */
-    fun supportsLegacyAcodecKeys(name: String): Boolean =
-        name.startsWith("OMX.MTK.", ignoreCase = true)
-
+    fun isDecoderName(name: String): Boolean = videoCodecNameFlags(name) and 4 != 0
+    fun supportsLegacyAcodecKeys(name: String): Boolean = videoCodecNameFlags(name) and 8 != 0
     fun isCodec2LowLatencyDecoder(name: String, advertisesLowLatency: Boolean): Boolean =
-        name.startsWith("c2.mtk.", ignoreCase = true) &&
-            (advertisesLowLatency || name.endsWith(".lowlatency", ignoreCase = true) ||
-                name.endsWith(".low_latency", ignoreCase = true))
-
-    /** Prefer a dedicated MTK Codec2 low-latency component; otherwise use the default legacy OMX decoder. */
+        videoCodecNameFlags(name, advertisesLowLatency) and 16 != 0
     internal fun selectedDecoder(candidates: List<MtkDecoderCandidate>): MtkDecoderCandidate? =
-        candidates.firstOrNull { isCodec2LowLatencyDecoder(it.name, it.lowLatency) }
-            ?: candidates.firstOrNull()?.takeIf { supportsLegacyAcodecKeys(it.name) }
+        candidates.getOrNull(selectedIndex(candidates, 0))
+
+    private fun selectedIndex(candidates: List<MtkDecoderCandidate>, mode: Int): Int =
+        NativeVideoPolicy.mtkSelect(candidates.map { videoCodecNameFlags(it.name, it.lowLatency) }.toIntArray(), mode)
 
     /** The MTK decoder path to expose for [mime], or null when neither safe path is available. */
     fun selectedDecoderName(mime: String): String? = candidates(mime).let(::selectedDecoder)?.name
 
     /** A dedicated Codec2 low-latency component for [mime], selected explicitly instead of using ACodec keys. */
-    fun codec2LowLatencyDecoderName(mime: String): String? = candidates(mime)
-        .firstOrNull { isCodec2LowLatencyDecoder(it.name, it.lowLatency) }?.name
-
-    /** The default decoder for [mime] only when it can consume MTK's legacy ACodec keys. */
-    fun legacyAcodecDecoderName(mime: String): String? = candidates(mime)
-        .firstOrNull()?.name?.takeIf(::supportsLegacyAcodecKeys)
+    fun codec2LowLatencyDecoderName(mime: String): String? = candidates(mime).let { it.getOrNull(selectedIndex(it, 1))?.name }
+    fun legacyAcodecDecoderName(mime: String): String? = candidates(mime).let { it.getOrNull(selectedIndex(it, 2))?.name }
 
     // The codec list does not change while DiPlay runs, and Settings asks on every render.
     private val candidatesByMime = java.util.concurrent.ConcurrentHashMap<String, List<MtkDecoderCandidate>>()
@@ -80,11 +60,8 @@ object MtkDecoderTuning {
 internal data class MtkDecoderCandidate(val name: String, val lowLatency: Boolean = false)
 
 internal fun appliedMtkDecoderMode(requested: MtkDecoderMode, codecName: String): MtkDecoderMode =
-    requested.takeIf { MtkDecoderTuning.supportsLegacyAcodecKeys(codecName) } ?: MtkDecoderMode.NONE
+    MtkDecoderMode.entries[NativeVideoPolicy.appliedMtkMode(requested.ordinal, MtkDecoderTuning.supportsLegacyAcodecKeys(codecName))]
 
-internal fun MtkDecoderMode.formatKeys(): List<String> = when (this) {
-    MtkDecoderMode.NONE -> emptyList()
-    MtkDecoderMode.LOW_LATENCY -> listOf(MtkDecoderTuning.LOW_LATENCY_KEY)
-    MtkDecoderMode.LOW_LATENCY_NO_REORDER ->
-        listOf(MtkDecoderTuning.LOW_LATENCY_KEY, MtkDecoderTuning.NO_REORDER_KEY)
+internal fun MtkDecoderMode.formatKeys(): List<String> = NativeVideoPolicy.mtkMode(ordinal, 2).map {
+    when (it) { 0 -> MtkDecoderTuning.LOW_LATENCY_KEY; else -> MtkDecoderTuning.NO_REORDER_KEY }
 }

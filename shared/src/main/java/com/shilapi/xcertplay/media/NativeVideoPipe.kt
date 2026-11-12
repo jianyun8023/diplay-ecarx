@@ -79,9 +79,10 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         const val EVENT_FIRST_FRAME = 7
         const val EVENT_LOG = 8
 
-        /** Null without the library or before API 28 (no async NDK MediaCodec). */
+        /** Null before API 28 or when the platform cannot create an async NDK MediaCodec loop. */
         fun create(pacingDelayNanos: Long, trackTouches: Boolean, onEvent: (Int, String?) -> Unit): NativeVideoPipe? {
-            if (!NativeMedia.available || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
+            NativeMedia.requireAvailable()
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
             val callbacks = object : NativeVideoCallbacks() {
                 override fun onEvent(kind: Int, detail: String?) = onEvent(kind, detail)
             }
