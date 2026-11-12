@@ -62,10 +62,16 @@ class WiredUsbFailureCleanupTest {
             loadPairRecord = { throw LockdownPairingException.PasswordProtected })
         // Exercise cleanup of an existing control channel as well as failure before a new one opens.
         ReflectionHelpers.setField(controller, "csm", control)
+        controller.javaClass.getDeclaredField("phase").apply {
+            isAccessible = true
+            set(controller, type.enumConstants!!.single { (it as Enum<*>).name == "DATAPATHS" })
+        }
+        val run = ReflectionHelpers.getField<AtomicInteger>(controller, "diagnosticRun").get()
         try {
             ReflectionHelpers.callInstanceMethod<Unit>(controller, "runStack",
                 ClassParameter.from(Iap2UsbSession::class.java, pipe),
-                ClassParameter.from(NcmUsbBridge::class.java, ncm))
+                ClassParameter.from(NcmUsbBridge::class.java, ncm),
+                ClassParameter.from(Int::class.javaPrimitiveType, run))
             shadowOf(Looper.getMainLooper()).idle()
             assertEquals(listOf("control", "usbmux", "ncm", "failed"), events)
             assertEquals(UsbPairingFailure.PHONE_LOCKED, statuses.single().usbPairingFailure)
