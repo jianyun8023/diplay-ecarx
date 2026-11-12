@@ -13,20 +13,17 @@ import java.util.concurrent.CancellationException
 
 /** Tokens are values, never native allocations. Only the selected implementation interprets them. */
 internal object WirelessRecoveryCore {
-    private val native = NativeMedia.available
-    fun budgetCreate(): Long = if (native) NativeWirelessRecovery.budgetCreate() else 0L
-    fun budgetAdvance(token: Long, stage: Int): Long = (if (native)
-        NativeWirelessRecovery.budgetAdvance(token, stage) else KotlinWirelessRecoveryCore.budgetAdvance(token, stage)).also { check(it >= 0) }
-    fun budgetQuery(token: Long, field: Int): Int = if (native)
-        NativeWirelessRecovery.budgetQuery(token, field) else KotlinWirelessRecoveryCore.budgetQuery(token, field)
-    fun attemptCreate(): Long = if (native) NativeWirelessRecovery.attemptCreate() else 1L
-    fun attemptUpdate(token: Long, event: Int, phase: Int = 0): Long = (if (native)
-        NativeWirelessRecovery.attemptUpdate(token, event, phase) else KotlinWirelessRecoveryCore.attemptUpdate(token, event, phase)).also { check(it >= 0) }
-    fun attemptQuery(token: Long, field: Int): Int = if (native)
-        NativeWirelessRecovery.attemptQuery(token, field) else KotlinWirelessRecoveryCore.attemptQuery(token, field)
-    fun classify(facts: Int): Int = if (native) NativeWirelessRecovery.classify(facts) else KotlinWirelessRecoveryCore.classify(facts)
-    fun attemptFailure(token: Long, facts: Int): Int = if (native)
-        NativeWirelessRecovery.attemptFailure(token, facts) else KotlinWirelessRecoveryCore.attemptFailure(token, facts)
+    init { NativeMedia.requireAvailable() }
+    fun budgetCreate(): Long = NativeWirelessRecovery.budgetCreate()
+    fun budgetAdvance(token: Long, stage: Int): Long =
+        NativeWirelessRecovery.budgetAdvance(token, stage).also { check(it >= 0) }
+    fun budgetQuery(token: Long, field: Int): Int = NativeWirelessRecovery.budgetQuery(token, field)
+    fun attemptCreate(): Long = NativeWirelessRecovery.attemptCreate()
+    fun attemptUpdate(token: Long, event: Int, phase: Int = 0): Long =
+        NativeWirelessRecovery.attemptUpdate(token, event, phase).also { check(it >= 0) }
+    fun attemptQuery(token: Long, field: Int): Int = NativeWirelessRecovery.attemptQuery(token, field)
+    fun classify(facts: Int): Int = NativeWirelessRecovery.classify(facts)
+    fun attemptFailure(token: Long, facts: Int): Int = NativeWirelessRecovery.attemptFailure(token, facts)
 }
 
 internal object NativeWirelessRecovery {

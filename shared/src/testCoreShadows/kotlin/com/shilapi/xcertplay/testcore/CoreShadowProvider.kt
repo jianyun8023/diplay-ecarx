@@ -17,6 +17,7 @@ class CoreShadowProvider : ShadowProvider {
     }
 
     private val bindings = listOf(
+        "com.shilapi.xcertplay.airplay.NativeScreenCodec" to "com.shilapi.xcertplay.testcore.ShadowNativeScreenCodec",
         "com.shilapi.xcertplay.airplay.NativeAirPlayNegotiation" to "com.shilapi.xcertplay.testcore.ShadowNativeAirPlayNegotiation",
         "com.shilapi.xcertplay.airplay.NativeTouchSlots" to "com.shilapi.xcertplay.testcore.ShadowNativeTouchSlots",
         "com.shilapi.xcertplay.airplay.NativeBplist" to "com.shilapi.xcertplay.testcore.ShadowNativeBplist",

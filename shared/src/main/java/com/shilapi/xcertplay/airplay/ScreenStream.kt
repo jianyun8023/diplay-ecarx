@@ -3,7 +3,6 @@ package com.shilapi.xcertplay.airplay
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.Closeable
-import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -21,8 +20,7 @@ enum class VideoCodec { H264, H265 }
  * (avcC/hvcC) or a ChaCha20-Poly1305 sealed VideoFrame. The key is the DataStream output key
  * and the per-frame nonce is an 8-byte little-endian counter.
  *
- * With [NativeMedia] the accepted socket goes to the native receiver, which delivers each frame as a
- * pooled Annex B [MediaPacket]; otherwise this class reads and opens the frames itself.
+ * Rust owns framing, decryption and pooled Annex B packets; this adapter owns the Android socket.
  */
 class ScreenStream(
     private val key: ByteArray,
@@ -52,8 +50,6 @@ class ScreenStream(
     }
 
     private val closed = AtomicBoolean(false)
-    private val frameCounter = AtomicLong(0)
-    private val firstFrameLogged = AtomicBoolean(false)
     private var server: ServerSocket? = null
     private var socket: Socket? = null
     private var thread: Thread? = null
@@ -62,6 +58,7 @@ class ScreenStream(
     @Volatile private var listener: Listener = object : Listener {}
 
     fun listen(listener: Listener): Int {
+        NativeMedia.requireAvailable()
         this.listener = listener
         val bound = ServerSocket()
         bound.reuseAddress = true
@@ -89,45 +86,16 @@ class ScreenStream(
         try {
             val accepted = bound.acceptFrom(expectedPeer) { onDiagnostic("Video: rejected sender outside the control session") }
             socket = accepted
-            if (!NativeMedia.available || !runNative(accepted)) run(accepted)
+            runNative(accepted)
         } catch (error: Exception) {
+            safeClose(socket)
             if (!closed.get()) listener.onClosed(error)
         }
     }
 
-    private fun run(sock: Socket) {
-        var failure: Throwable? = null
-        val stats = StreamReceiveStats("video", onDiagnostic, reportIntervalNs = StreamReceiveStats.SESSION_REPORT_INTERVAL_NS)
-        try {
-            val input = sock.getInputStream()
-            // Listeners retain plaintext on decoder queues; only the wire buffers are reused.
-            val header = ByteArray(HEADER_LEN)
-            var body = ByteArray(0)
-            while (!closed.get()) {
-                stats.reading()
-                if (!readFully(input, header, HEADER_LEN)) break
-                val bodySize = readU32Le(header, 0)
-                if (bodySize !in 0..MAX_BODY) break
-                if (body.size < bodySize) body = ByteArray(bodySize)
-                if (!readFully(input, body, bodySize)) break
-                val arrivalNanos = System.nanoTime()
-                stats.received(HEADER_LEN + bodySize)
-                onMessage(header, body, bodySize, stats, arrivalNanos)
-                stats.processed()
-            }
-        } catch (error: Exception) {
-            failure = error
-        } finally {
-            stats.flush(ended = true)
-            if (socket === sock) socket = null
-            safeClose(sock)
-            if (!closed.get()) listener.onClosed(failure)
-        }
-    }
-
-    /** Hands [sock]'s reading to the native receiver; false when it could not start. */
-    private fun runNative(sock: Socket): Boolean {
-        val fd = runCatching { ParcelFileDescriptor.fromSocket(sock).detachFd() }.getOrNull() ?: return false
+    /** Transfers the duplicated descriptor only after native startup succeeds. */
+    private fun runNative(sock: Socket) {
+        val fd = ParcelFileDescriptor.fromSocket(sock).detachFd()
         val callbacks = object : NativeStreamCallbacks() {
             override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) {
                 val frame = NativePacket(handle, size, flags)
@@ -150,19 +118,23 @@ class ScreenStream(
                 if (!closed.get()) listener.onClosed(error?.let(::IOException))
             }
         }
-        val route = NativeVideoRoute.create()
-        nativeRoute = route
-        if (route != null) listener.onNativeVideoRoute(route)
-        val handle = if (route != null) route.start(fd, key, callbacks) else NativeMedia.startVideo(fd, key, callbacks)
-        if (handle == 0L) {
-            route?.close()
-            runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
-            return false
+        var route: NativeVideoRoute? = null
+        var transferred = false
+        try {
+            route = NativeVideoRoute.create()
+            nativeRoute = route
+            if (route != null) listener.onNativeVideoRoute(route)
+            val handle = if (route != null) route.start(fd, key, callbacks) else NativeMedia.startVideo(fd, key, callbacks)
+            if (handle == 0L) throw IOException("Native screen receiver could not start")
+            transferred = true
+            nativeHandle.set(handle)
+            if (closed.get()) stopNative()
+        } finally {
+            if (!transferred) {
+                route?.close()
+                ParcelFileDescriptor.adoptFd(fd).close()
+            }
         }
-        nativeHandle.set(handle)
-        // A close that ran before the handle was published stops the receiver here.
-        if (closed.get()) stopNative()
-        return true
     }
 
     private fun onConfigBody(bytes: ByteArray) {
@@ -172,139 +144,7 @@ class ScreenStream(
         listener.onConfig(codecData)
     }
 
-    private fun onMessage(header: ByteArray, body: ByteArray, bodySize: Int, stats: StreamReceiveStats, arrivalNanos: Long) {
-        when (header[OPCODE_OFFSET].toInt() and 0xff) {
-            OP_VIDEO_FRAME -> {
-                if (bodySize < ScreenCodec.TAG_SIZE) return
-                val start = System.nanoTime()
-                val payload = ScreenCodec.decryptFrame(key, frameCounter.get(), header, body, bodySize)
-                stats.decrypted(System.nanoTime() - start, bodySize)
-                frameCounter.incrementAndGet()
-                if (firstFrameLogged.compareAndSet(false, true)) {
-                    Log.i(
-                        TAG,
-                        "video first decrypted frame sealed=$bodySize plain=${payload.size} " +
-                        "head=${payload.hexPrefix(16)} chacha=${AirPlayCrypto.chachaImplementation}",
-                    )
-                }
-                listener.onFrame(ScreenCodec.lengthPrefixedToAnnexB(payload), ScreenCodec.senderNanos(header), arrivalNanos)
-            }
-            OP_VIDEO_CONFIG -> onConfigBody(body.copyOf(bodySize))
-        }
-    }
-
-    private fun readFully(input: InputStream, output: ByteArray, length: Int): Boolean {
-        var offset = 0
-        while (offset < length) {
-            val read = input.read(output, offset, length - offset)
-            if (read < 0) return false
-            offset += read
-        }
-        return true
-    }
-
     private companion object {
         const val TAG = "xcertplay-usb"
-        const val HEADER_LEN = 128
-        const val OPCODE_OFFSET = 4
-        const val OP_VIDEO_FRAME = 0
-        const val OP_VIDEO_CONFIG = 1
-        const val MAX_BODY = 8 * 1024 * 1024
     }
 }
-
-private fun ByteArray.hexPrefix(length: Int): String =
-    take(length).joinToString("") { "%02x".format(it.toInt() and 0xff) }
-
-/** Extracts the avcC/hvcC codec-data record from a VideoConfig payload. */
-object ScreenCodec {
-    /**
-     * The frame time in a screen header: bytes 8..15, a little-endian NTP 32.32 value, in nanoseconds.
-     * On this head unit with iOS 27 consecutive main-screen frames are exactly 1/60 s apart (1/30 s on the
-     * cluster stream), and skipped frames leave whole multiples.
-     */
-    fun senderNanos(header: ByteArray): Long {
-        if (header.size < SENDER_TIME_OFFSET + 8) return 0L
-        var raw = 0L
-        for (index in 7 downTo 0) raw = (raw shl 8) or (header[SENDER_TIME_OFFSET + index].toLong() and 0xff)
-        return (raw ushr 32) * 1_000_000_000L + ((raw and 0xffff_ffffL) * 1_000_000_000L ushr 32)
-    }
-
-    private const val SENDER_TIME_OFFSET = 8
-
-    fun decryptFrame(key: ByteArray, counter: Long, header: ByteArray, body: ByteArray, bodySize: Int = body.size): ByteArray =
-        AirPlayCrypto.chachaOpen(key, AirPlayCrypto.nonce64(counter), body, header, length = bodySize)
-
-    /**
-     * Replaces each four-byte NAL length with an Annex B start code in place.
-     *
-     * The payload is left untouched unless every length-prefixed NAL is valid, so malformed
-     * input keeps its original bytes for the normal decoder error path.
-     */
-    fun lengthPrefixedToAnnexB(payload: ByteArray): ByteArray {
-        if (payload.size < 4 || payload.startsWithStartCode()) return payload
-
-        var offset = 0
-        while (offset + 4 <= payload.size) {
-            val length = readU32Be(payload, offset)
-            offset += 4
-            if (length <= 0 || offset + length > payload.size) return payload
-            offset += length
-        }
-        if (offset != payload.size) return payload
-
-        offset = 0
-        while (offset + 4 <= payload.size) {
-            val length = readU32Be(payload, offset)
-            payload[offset] = 0
-            payload[offset + 1] = 0
-            payload[offset + 2] = 0
-            payload[offset + 3] = 1
-            offset += 4 + length
-        }
-        return payload
-    }
-
-    fun detectConfig(payload: ByteArray): Pair<VideoCodec, ByteArray> {
-        for (index in 4..payload.size - 4) {
-            val fourcc = String(payload, index, 4, Charsets.US_ASCII)
-            when (fourcc) {
-                "hvcC" -> return VideoCodec.H265 to payload.copyOfRange(index + 4, payload.size)
-                "avcC" -> return VideoCodec.H264 to payload.copyOfRange(index + 4, payload.size)
-            }
-        }
-        return if (looksLikeAvcC(payload)) VideoCodec.H264 to payload else VideoCodec.H265 to payload
-    }
-
-    private fun looksLikeAvcC(payload: ByteArray): Boolean {
-        if (payload.size < 9) return false
-        if ((payload[5].toInt() and 0x1f) < 1) return false
-        val spsLength = readU16Be(payload, 6)
-        if (8 + spsLength > payload.size) return false
-        return (payload[8].toInt() and 0x1f) == 7
-    }
-
-    private fun readU16Be(source: ByteArray, offset: Int): Int =
-        ((source[offset].toInt() and 0xff) shl 8) or (source[offset + 1].toInt() and 0xff)
-
-    const val TAG_SIZE = 16
-}
-
-private fun ByteArray.startsWithStartCode(): Boolean =
-    size >= 4 &&
-        this[0] == 0.toByte() &&
-        this[1] == 0.toByte() &&
-        this[2] == 0.toByte() &&
-        this[3] == 1.toByte()
-
-private fun readU32Be(source: ByteArray, offset: Int): Int =
-    ((source[offset].toInt() and 0xff) shl 24) or
-        ((source[offset + 1].toInt() and 0xff) shl 16) or
-        ((source[offset + 2].toInt() and 0xff) shl 8) or
-        (source[offset + 3].toInt() and 0xff)
-
-private fun readU32Le(source: ByteArray, offset: Int): Int =
-    (source[offset].toInt() and 0xff) or
-        ((source[offset + 1].toInt() and 0xff) shl 8) or
-        ((source[offset + 2].toInt() and 0xff) shl 16) or
-        ((source[offset + 3].toInt() and 0xff) shl 24)

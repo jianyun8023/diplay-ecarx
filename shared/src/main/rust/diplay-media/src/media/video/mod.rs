@@ -1,6 +1,7 @@
 //! Screen framing, Annex B, decode/reference ownership and frame pacing.
 
 pub mod annexb;
+mod codec;
 pub mod pacing;
 pub mod selection;
 

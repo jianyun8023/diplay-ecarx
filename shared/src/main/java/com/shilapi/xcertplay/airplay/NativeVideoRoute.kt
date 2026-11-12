@@ -21,9 +21,11 @@ class NativeVideoRoute internal constructor(private var handle: Long) {
     }
 
     internal companion object {
-        fun create(): NativeVideoRoute? =
-            if (NativeMedia.available && android.os.Build.VERSION.SDK_INT >= 28) {
+        fun create(): NativeVideoRoute? {
+            NativeMedia.requireAvailable()
+            return if (android.os.Build.VERSION.SDK_INT >= 28) {
                 NativeMedia.videoRouteCreate().takeIf { it != 0L }?.let(::NativeVideoRoute)
             } else null
+        }
     }
 }
