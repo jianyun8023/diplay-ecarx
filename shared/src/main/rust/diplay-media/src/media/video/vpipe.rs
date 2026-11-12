@@ -14,8 +14,8 @@
 use crate::media::video::annexb::{FLAG_ANNEX_B, FLAG_RANDOM_ACCESS_H264, FLAG_RANDOM_ACCESS_H265};
 use crate::platform::jvm::{Attached, Env};
 use crate::platform::ndk::*;
-use crate::media::video::flow::{frame_overflow, touch_latency, ReferenceChain};
-use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, PacingDelay};
+use crate::media::video::flow::{frame_overflow, keyframe_due, touch_latency, ReferenceChain};
+use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, OutputTiming};
 use crate::media::packet;
 use crate::media::stats::{clock, VideoInputStats};
 use jni_sys::{jboolean, jbyteArray, jclass, jint, jintArray, jlong, jlongArray, jmethodID, jobject, jobjectArray, jstring, jvalue, JNIEnv};
@@ -36,13 +36,7 @@ const EVENT_LOG: i32 = 8;
 
 const MAX_FRAMES: usize = 60;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
-const SLOTS: usize = 64;
-const PAUSE_HELD_FRAMES: usize = 3;
-const STILL_GAP_NS: i64 = 500_000_000;
-const SENDER_PAUSE_NS: i64 = 120_000_000;
-const MAX_PACING_AHEAD_NS: i64 = 1_000_000_000;
 const INPUT_STALL_NS: i64 = 500_000_000;
-const KEYFRAME_INTERVAL_NS: i64 = 1_000_000_000;
 const DECODE_SAMPLES: usize = 1024;
 
 struct Frame { handle: jlong, size: usize, flags: i32, received_ns: i64, local_ns: i64 }
@@ -53,9 +47,6 @@ enum Action {
     Render { index: usize, at_ns: Option<i64> },
     Drop { index: usize },
 }
-
-#[derive(Clone, Copy, Default)]
-struct Slot { presentation_us: i64, queued_ns: i64, paced: bool, before_pause: bool }
 
 #[derive(Default)]
 struct Stats {
@@ -88,14 +79,8 @@ struct Inner {
     busy: bool,
     destroyed: bool,
     waiting_since_ns: i64,
-    slots: [Slot; SLOTS],
-    slot_next: usize,
-    recent_paced: [Option<usize>; PAUSE_HELD_FRAMES],
-    last_queued_ns: i64,
-    resumed_at_ns: i64,
-    last_queued_local_ns: i64,
+    timing: OutputTiming,
     pacer: Option<FramePacer>,
-    delay: Option<PacingDelay>,
     backlog: BacklogRecovery,
     frames_since_configure: u32,
     last_keyframe_request_ns: i64,
@@ -142,7 +127,7 @@ type Events = Vec<(i32, Option<String>)>;
 
 impl Inner {
     fn request_keyframe(&mut self, now: i64, events: &mut Events) {
-        if self.last_keyframe_request_ns != 0 && now - self.last_keyframe_request_ns < KEYFRAME_INTERVAL_NS { return; }
+        if !keyframe_due(self.last_keyframe_request_ns, now) { return; }
         self.last_keyframe_request_ns = now;
         events.push((EVENT_REQUEST_KEYFRAME, None));
     }
@@ -204,19 +189,7 @@ impl Inner {
             let index = self.inputs.pop_front().unwrap() as usize;
             self.waiting_since_ns = if self.frames.is_empty() { 0 } else { now };
             let presentation_us = if frame.local_ns > 0 { frame.local_ns / 1000 } else { now / 1000 };
-            let slot = self.slot_next;
-            if self.last_queued_ns != 0 && now - self.last_queued_ns > STILL_GAP_NS { self.resumed_at_ns = now; }
-            self.last_queued_ns = now;
-            self.slots[slot] = Slot { presentation_us, queued_ns: now, paced: frame.local_ns > 0, before_pause: false };
-            if frame.local_ns > 0 {
-                if self.last_queued_local_ns != 0 && frame.local_ns - self.last_queued_local_ns > SENDER_PAUSE_NS {
-                    for held in self.recent_paced.iter().flatten() { self.slots[*held].before_pause = true; }
-                }
-                self.last_queued_local_ns = frame.local_ns;
-                self.recent_paced.rotate_right(1);
-                self.recent_paced[0] = Some(slot);
-            }
-            self.slot_next = (slot + 1) % SLOTS;
+            self.timing.queued(presentation_us, frame.local_ns, now);
             self.frames_since_configure += 1;
             self.reference.queued();
             if !self.first_input_logged {
@@ -242,12 +215,9 @@ impl Inner {
             let index = index as usize;
             if self.retired { actions.push(Action::Drop { index }); continue; }
             let shown = self.shown;
-            let slot = self.slots.iter().position(|s| s.presentation_us == info.presentation_time_us && s.queued_ns != 0);
-            let entry = slot.map(|s| self.slots[s]).unwrap_or_default();
-            let held_over_gap = entry.queued_ns > 0 && entry.queued_ns < self.resumed_at_ns;
-            if entry.queued_ns > 0 {
-                let latency = now - entry.queued_ns;
-                if held_over_gap {
+            let plan = self.timing.plan(info.presentation_time_us, now, shown);
+            if let Some(latency) = plan.latency {
+                if plan.held_over_gap {
                     self.stats.held_samples += 1;
                     self.stats.held_max_ns = self.stats.held_max_ns.max(latency);
                 } else {
@@ -258,23 +228,9 @@ impl Inner {
                     pipe.live_decode_samples.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            let paced = shown && self.delay.is_some() && entry.paced;
-            let local_ns = info.presentation_time_us * 1000;
-            let pause_held = paced && entry.before_pause;
-            let mut target = 0;
-            if paced {
-                let delay = self.delay.as_mut().unwrap();
-                if !held_over_gap && !pause_held { delay.on_frame(now - local_ns); }
-                let delay_ns = delay.nanos;
-                self.stats.pacing_delay_ns = delay_ns;
-                target = local_ns + delay_ns;
-            }
-            if (1..=MAX_PACING_AHEAD_NS).contains(&(target - now)) {
-                actions.push(Action::Render { index, at_ns: Some(target) });
-            } else {
-                if shown && self.delay.is_some() && !held_over_gap && !pause_held { self.stats.late += 1; }
-                actions.push(Action::Render { index, at_ns: None });
-            }
+            if let Some(delay) = plan.pacing_delay { self.stats.pacing_delay_ns = delay; }
+            if plan.late { self.stats.late += 1; }
+            actions.push(Action::Render { index, at_ns: plan.render_at });
             if shown {
                 self.stats.rendered += 1;
                 pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
@@ -499,10 +455,8 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
             // Held until Kotlin has a configuration: frames before it have nothing to decode with.
             codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, accepting: false, retired: true,
             shown: true, need_decoder_sent: false, reference: ReferenceChain::default(), frames: VecDeque::new(), frame_bytes: 0,
-            inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, slots: [Slot::default(); SLOTS], slot_next: 0,
-            recent_paced: [None; PAUSE_HELD_FRAMES], last_queued_ns: 0, resumed_at_ns: 0, last_queued_local_ns: 0,
+            inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, timing: OutputTiming::new(pacing_delay_nanos, true),
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),
-            delay: (pacing_delay_nanos > 0).then(|| PacingDelay::new(pacing_delay_nanos)),
             backlog: BacklogRecovery::default(), frames_since_configure: 0, last_keyframe_request_ns: 0,
             first_input_logged: false, first_frame_sent: false, report_vendor_format: false, requested_size: (0, 0),
             stats: Stats::default(),
@@ -615,7 +569,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
         inner.need_decoder_sent = false;
         inner.report_vendor_format = report_vendor_format != 0;
         inner.requested_size = (width, height);
-        inner.slots = [Slot::default(); SLOTS];
+        inner.timing.reset_slots();
         inner.backlog.decoder_started(clock(libc::CLOCK_MONOTONIC));
     }
     let configured = AMediaCodec_configure(codec, format, window, std::ptr::null_mut(), 0);
@@ -761,7 +715,7 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
             inner.request_keyframe(now, &mut events);
         } else {
             let local_ns = match inner.pacer.as_mut() {
-                Some(pacer) if sender_nanos > 0 && arrival_nanos > 0 => pacer.local_time(sender_nanos, arrival_nanos),
+                Some(pacer) => pacer.frame_time(true, sender_nanos, arrival_nanos),
                 _ => 0,
             };
             if frame_overflow(inner.frames.len(), inner.frame_bytes as i64, size as i64, MAX_FRAMES as i32, MAX_BYTES as i32) {

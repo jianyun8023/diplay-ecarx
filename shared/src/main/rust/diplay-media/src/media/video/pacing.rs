@@ -31,6 +31,9 @@ impl Default for FramePacer {
 }
 
 impl FramePacer {
+    pub fn frame_time(&mut self, enabled: bool, sender_nanos: i64, arrival_nanos: i64) -> i64 {
+        if enabled && sender_nanos > 0 && arrival_nanos > 0 { self.local_time(sender_nanos, arrival_nanos) } else { 0 }
+    }
     /// The frame's local time, or 0 when that is implausible (show it as soon as it is decoded).
     pub fn local_time(&mut self, sender_nanos: i64, arrival_nanos: i64) -> i64 {
         self.residuals.push_back(arrival_nanos.wrapping_sub(sender_nanos));
@@ -54,6 +57,70 @@ impl FramePacer {
         self.last_arrival_nanos = arrival_nanos;
         let local = sender_nanos.wrapping_add(offset);
         if (-ONE_SECOND..=self.max_early_nanos).contains(&local.wrapping_sub(arrival_nanos)) { local } else { 0 }
+    }
+}
+
+const OUTPUT_SLOTS: usize = 64;
+const PAUSE_HELD_FRAMES: usize = 3;
+#[derive(Clone, Copy, Default)]
+struct OutputSlot { presentation_us: i64, queued_ns: i64, paced: bool, before_pause: bool }
+
+pub struct OutputTiming {
+    slots: [OutputSlot; OUTPUT_SLOTS],
+    next: usize,
+    recent_paced: [Option<usize>; PAUSE_HELD_FRAMES],
+    last_queued_ns: i64,
+    resumed_at_ns: i64,
+    last_local_ns: i64,
+    queued_slots_only: bool,
+    delay: Option<PacingDelay>,
+}
+pub struct OutputPlan {
+    pub latency: Option<i64>,
+    pub held_over_gap: bool,
+    pub pacing_delay: Option<i64>,
+    pub render_at: Option<i64>,
+    pub late: bool,
+}
+impl OutputTiming {
+    pub fn reset_slots(&mut self) { self.slots = [OutputSlot::default(); OUTPUT_SLOTS]; }
+    pub fn new(initial_delay: i64, queued_slots_only: bool) -> Self {
+        Self { slots: [OutputSlot::default(); OUTPUT_SLOTS], next: 0, recent_paced: [None; PAUSE_HELD_FRAMES],
+            last_queued_ns: 0, resumed_at_ns: 0, last_local_ns: 0, queued_slots_only,
+            delay: (initial_delay > 0).then(|| PacingDelay::new(initial_delay)) }
+    }
+    pub fn queued(&mut self, presentation_us: i64, local_ns: i64, now: i64) {
+        if self.last_queued_ns != 0 && now.wrapping_sub(self.last_queued_ns) > 500_000_000 { self.resumed_at_ns = now; }
+        self.last_queued_ns = now;
+        self.slots[self.next] = OutputSlot { presentation_us, queued_ns: now, paced: local_ns > 0, before_pause: false };
+        if local_ns > 0 {
+            if self.last_local_ns != 0 && local_ns.wrapping_sub(self.last_local_ns) > 120_000_000 {
+                for held in self.recent_paced.iter().flatten() { self.slots[*held].before_pause = true; }
+            }
+            self.last_local_ns = local_ns;
+            self.recent_paced.rotate_right(1); self.recent_paced[0] = Some(self.next);
+        }
+        self.next = (self.next + 1) % OUTPUT_SLOTS;
+    }
+    pub fn plan(&mut self, presentation_us: i64, now: i64, shown: bool) -> OutputPlan {
+        // The Java SDK path historically selects the first matching zero timestamp, even in an empty slot.
+        let slot = self.slots.iter().find(|s| s.presentation_us == presentation_us && (!self.queued_slots_only || s.queued_ns != 0));
+        let entry = slot.copied().unwrap_or_default();
+        let held_over_gap = entry.queued_ns > 0 && entry.queued_ns < self.resumed_at_ns;
+        let latency = (entry.queued_ns > 0).then(|| now.wrapping_sub(entry.queued_ns));
+        let paced = shown && self.delay.is_some() && slot.is_some() && entry.paced;
+        let pause_held = paced && entry.before_pause;
+        let local = presentation_us.wrapping_mul(1000);
+        let mut target = 0;
+        let mut pacing_delay = None;
+        if paced {
+            let delay = self.delay.as_mut().unwrap();
+            if !held_over_gap && !pause_held { delay.on_frame(now.wrapping_sub(local)); }
+            pacing_delay = Some(delay.nanos); target = local.wrapping_add(delay.nanos);
+        }
+        let render_at = (1..=1_000_000_000).contains(&target.wrapping_sub(now)).then_some(target);
+        OutputPlan { latency, held_over_gap, pacing_delay, render_at,
+            late: render_at.is_none() && shown && self.delay.is_some() && !held_over_gap && !pause_held }
     }
 }
 

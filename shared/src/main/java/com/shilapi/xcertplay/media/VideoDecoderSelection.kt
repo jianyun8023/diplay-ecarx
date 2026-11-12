@@ -25,6 +25,9 @@ internal fun defaultHardwareDecoder(decoders: List<InstalledDecoder>): String? =
 internal fun softwareFallbackDecoder(decoders: List<InstalledDecoder>): String? =
     decoders.getOrNull(NativeVideoPolicy.select(decoderFlags(decoders), true))?.name
 
+internal fun preferredDefaultDecoder(decoders: List<InstalledDecoder>, software: Boolean, hardwareFailed: Boolean): String? =
+    decoders.getOrNull(NativeVideoPolicy.defaultDecoder(decoderFlags(decoders), software, hardwareFailed))?.name
+
 /**
  * Creates with [create], retrying after each of [delaysMillis]: Qualcomm's driver frees a released decoder's
  * session asynchronously, so a decoder created right after another was released can be refused for a moment.
@@ -92,6 +95,10 @@ internal object NativeVideoPolicy {
     @JvmStatic external fun keepLowLatency(requested: Boolean, used: Boolean, same: Boolean): Boolean
     @JvmStatic external fun lowLatency(flags: IntArray): Int
     @JvmStatic external fun workerWait(drains: Boolean, last: Long, now: Long): Long
+    @JvmStatic external fun prefersSoftware(sdk: Int, hevc: Boolean, requested: Boolean): Boolean
+    @JvmStatic external fun defaultDecoder(flags: IntArray, software: Boolean, hardwareFailed: Boolean): Int
+    @JvmStatic external fun firstSoftware(flags: IntArray): Int
+    @JvmStatic external fun softwareOutcome(owner: LongArray, hardware: Boolean, software: Boolean, preferred: Boolean, sameHardware: Boolean): Int
     @JvmStatic external fun configurationCreate(rate: Int, mtk: Boolean, vendorRefused: Boolean): LongArray
     @JvmStatic external fun configurationQuery(owner: LongArray, field: Int, capability: Boolean): Long
     @JvmStatic external fun configurationEvent(owner: LongArray, event: Int, a: Int, b: Int, c: Int, flags: Int): Int

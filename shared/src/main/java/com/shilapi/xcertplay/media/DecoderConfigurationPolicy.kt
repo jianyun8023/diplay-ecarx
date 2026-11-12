@@ -26,6 +26,10 @@ internal class DecoderConfigurationPolicy(rate: Int, mtk: Boolean, vendorRefused
     fun requestedMtkMode(legacyAvailable: Boolean): MtkDecoderMode = MtkDecoderMode.entries[value(102, legacyAvailable).toInt()]
     fun begin() { event(0) }
     fun released() { event(13) }
+    fun resetQueuedFrames() { event(14) }
+    fun inputQueued() { event(15) }
+    fun keepsUnusedDecoder(requested: Boolean, hasCodec: Boolean): Boolean =
+        event(16, flags = (if (requested) 1 else 0) or (if (hasCodec) 2 else 0)) != 0
     fun finish(rate: Int, mode: MtkDecoderMode, requested: MtkDecoderMode, configured: Boolean, codec2: Boolean, legacy: Boolean): Boolean =
         event(1, rate, mode.ordinal, requested.ordinal, (if (configured) 1 else 0) or (if (codec2) 2 else 0) or (if (legacy) 4 else 0)) != 0
     fun declineVendor(force: Boolean = false): Boolean = event(2, if (force) 1 else 0) != 0
@@ -45,6 +49,8 @@ internal class DecoderConfigurationPolicy(rate: Int, mtk: Boolean, vendorRefused
     }
     fun resetProbeInterval() { event(9) }
     fun advanceProbeInterval() { event(9, 1) }
+    fun probesHardware(hardware: Boolean, software: Boolean, preferred: Boolean, sameHardware: Boolean): Boolean =
+        NativeVideoPolicy.softwareOutcome(owner, hardware, software, preferred, sameHardware) != 0
     fun allows(attempt: DecoderAttempt, software: Boolean, sdk: Int): Boolean =
         NativeVideoPolicy.attemptAllowed(owner, attempt.codecName == null, software, sdk)
     fun formatFlags(tuned: Boolean, atOnce: Boolean, vendor: Boolean, sdk: Int, advertised: Boolean, pictureListed: Boolean, nameFlags: Int): Int =

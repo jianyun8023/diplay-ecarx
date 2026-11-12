@@ -140,3 +140,31 @@ pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_obsolete
 pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_touchSent(_: *mut JNIEnv, _: jclass, sent: jlong) { super::touch_sent(sent); }
 #[no_mangle]
 pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_touchFrame(_: *mut JNIEnv, _: jclass, now: jlong) -> jlong { super::touch_latency(now).unwrap_or(-1) }
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_keyframeCreate(env: *mut JNIEnv, _: jclass) -> jlongArray {
+    longs(env, &[0]).unwrap_or(null_mut())
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_keyframeRequest(env: *mut JNIEnv, _: jclass, state: jlongArray, now: jlong, force: jboolean) -> jboolean {
+    let mut previous = 0; ((**env).GetLongArrayRegion.unwrap())(env, state, 0, 1, &mut previous);
+    if ok(env).is_none() { return 0; }
+    if force != 0 || super::keyframe_due(previous, now) {
+        ((**env).SetLongArrayRegion.unwrap())(env, state, 0, 1, &now); 1
+    } else { 0 }
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_inputCreate(env: *mut JNIEnv, _: jclass, start: jlong, timeout: jlong) -> jlongArray {
+    longs(env, &[0, -1, start, timeout]).unwrap_or(null_mut())
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_inputStep(env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, value: jlong) -> jint {
+    if !(0..=4).contains(&event) { invalid(env); return 4; }
+    let mut v = [0; 4]; ((**env).GetLongArrayRegion.unwrap())(env, state, 0, 4, v.as_mut_ptr());
+    if ok(env).is_none() { return 4; }
+    let action = super::input_step(&mut v, event, value);
+    ((**env).SetLongArrayRegion.unwrap())(env, state, 0, 4, v.as_ptr()); action
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_inputResult(env: *mut JNIEnv, _: jclass, state: jlongArray) -> jint {
+    let mut result = -1; ((**env).GetLongArrayRegion.unwrap())(env, state, 1, 1, &mut result); result as jint
+}

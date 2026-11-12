@@ -9,6 +9,20 @@ pub fn touch_latency(now: i64) -> Option<i64> {
     let sent = PENDING_TOUCH_NS.swap(0, Ordering::Relaxed);
     (sent != 0).then_some(now.wrapping_sub(sent))
 }
+pub fn keyframe_due(last: i64, now: i64) -> bool { last == 0 || now.wrapping_sub(last) >= 1_000_000_000 }
+
+// The SDK adapter executes one running/drain/dequeue/clock action at a time; no I/O lives here.
+fn input_step(v: &mut [i64; 4], event: i32, value: i64) -> i32 {
+    match event {
+        0 => {},
+        1 => v[0] = if value != 0 { 1 } else { 4 },
+        2 => v[0] = 2,
+        3 => if value >= 0 { v[1] = value; v[0] = 4; } else { v[0] = 3; },
+        4 => v[0] = if value.wrapping_sub(v[2]) >= v[3] { 4 } else { 0 },
+        _ => unreachable!(),
+    }
+    v[0] as i32
+}
 
 pub fn frame_overflow(frames: usize, bytes: i64, incoming: i64, max_frames: i32, max_bytes: i32) -> bool {
     frames as i64 >= max_frames as i64 || bytes.wrapping_add(incoming) > max_bytes as i64
@@ -105,5 +119,19 @@ mod contracts {
         assert_eq!(q.remove(2).iter().map(|j| j.slot).collect::<Vec<_>>(), [0, 1]);
         assert_eq!(q.remove(0)[0].slot, 2);
         assert_eq!(q.backlog(), [1, 300, 1]);
+    }
+    #[test]
+    fn sdk_input_budget_keeps_drain_dequeue_clock_order_and_accepts_late_success() {
+        let mut v = [0, -1, 0, 100];
+        assert_eq!(input_step(&mut v, 1, 1), 1);
+        assert_eq!(input_step(&mut v, 2, 0), 2);
+        assert_eq!(input_step(&mut v, 3, -1), 3);
+        assert_eq!(input_step(&mut v, 4, 260), 4);
+        assert_eq!(v[1], -1);
+        let mut v = [0, -1, 0, 100];
+        input_step(&mut v, 1, 1); input_step(&mut v, 2, 0);
+        assert_eq!(input_step(&mut v, 3, 4), 4); assert_eq!(v[1], 4);
+        assert!(!keyframe_due(i64::MAX - 100, i64::MIN + 100));
+        assert!(keyframe_due(i64::MAX - 100, i64::MIN + 1_000_000_000));
     }
 }

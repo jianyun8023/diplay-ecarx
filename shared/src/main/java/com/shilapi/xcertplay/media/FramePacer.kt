@@ -24,6 +24,9 @@ internal class FramePacer(
 ) {
     private val owner = NativeVideoTiming.pacerCreate(window, percentile, refreshEvery, slewPerSecond, resetNanos, maxEarlyNanos)
 
+    fun frameTime(enabled: Boolean, senderNanos: Long, arrivalNanos: Long): Long =
+        NativeVideoTiming.pacerFrame(owner, enabled, senderNanos, arrivalNanos)
+
     fun localTime(senderNanos: Long, arrivalNanos: Long): Long =
         NativeVideoTiming.pacerLocal(owner, senderNanos, arrivalNanos)
 }
@@ -32,6 +35,11 @@ internal class FramePacer(
 internal object NativeVideoTiming {
     init { com.shilapi.xcertplay.airplay.NativeMedia.requireAvailable() }
     @JvmStatic external fun pacerCreate(window: Int, percentile: Int, refreshEvery: Int, slew: Double, resetNanos: Long, maxEarlyNanos: Long): LongArray
+    @JvmStatic external fun pacerFrame(owner: LongArray, enabled: Boolean, sender: Long, arrival: Long): Long
+    @JvmStatic external fun outputCreate(initialDelay: Long): LongArray
+    @JvmStatic external fun outputQueued(owner: LongArray, presentation: Long, local: Long, now: Long)
+    @JvmStatic external fun outputPlan(owner: LongArray, presentation: Long, now: Long, shown: Boolean): LongArray
+    @JvmStatic external fun outputValue(owner: LongArray, field: Int): Long
     @JvmStatic external fun pacerLocal(owner: LongArray, senderNanos: Long, arrivalNanos: Long): Long
     @JvmStatic external fun delayCreate(initial: Long, min: Long, max: Long, window: Int, percentile: Int, refreshEvery: Int, margin: Long, rise: Long, fall: Long): LongArray
     @JvmStatic external fun delayFrame(owner: LongArray, neededNanos: Long)

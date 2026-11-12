@@ -54,6 +54,9 @@ fn configure_event(v: &mut [i64], event: i32, a: i32, b: i32, c: i32, flags: i32
         11 => { v[2] = v[3]; 0 }, // commit only after the host's existing fallback diagnostic
         12 => (v[1] > 0 && flags & 3 == 1) as i32, // codec failure before first rendered frame
         13 => { for index in [1, 3, 4, 5, 6] { v[index] = 0; } 0 },
+        14 => { v[14] = 0; 0 },
+        15 => { v[14] = (v[14] as i32).wrapping_add(1) as i64; 0 },
+        16 => (flags & 3 == 3 && v[14] == 0) as i32,
         _ => unreachable!(),
     }
 }
@@ -74,13 +77,13 @@ unsafe fn read_ints(env: *mut JNIEnv, input: jintArray) -> Option<Vec<i32>> {
     if n > 0 { (f.GetIntArrayRegion.unwrap())(env, input, 0, n, v.as_mut_ptr()); }
     ((f.ExceptionCheck.unwrap())(env) == 0).then_some(v)
 }
-unsafe fn read_state(env: *mut JNIEnv, input: jlongArray) -> Option<[i64; 14]> {
-    if input.is_null() || ((**env).GetArrayLength.unwrap())(env, input) != 14 { invalid(env); return None; }
-    let mut v = [0; 14]; ((**env).GetLongArrayRegion.unwrap())(env, input, 0, 14, v.as_mut_ptr());
+unsafe fn read_state(env: *mut JNIEnv, input: jlongArray) -> Option<[i64; 15]> {
+    if input.is_null() || ((**env).GetArrayLength.unwrap())(env, input) != 15 { invalid(env); return None; }
+    let mut v = [0; 15]; ((**env).GetLongArrayRegion.unwrap())(env, input, 0, 15, v.as_mut_ptr());
     (((**env).ExceptionCheck.unwrap())(env) == 0).then_some(v)
 }
-unsafe fn write_state(env: *mut JNIEnv, input: jlongArray, v: &[i64; 14]) {
-    ((**env).SetLongArrayRegion.unwrap())(env, input, 0, 14, v.as_ptr());
+unsafe fn write_state(env: *mut JNIEnv, input: jlongArray, v: &[i64; 15]) {
+    ((**env).SetLongArrayRegion.unwrap())(env, input, 0, 15, v.as_ptr());
 }
 
 #[no_mangle]
@@ -134,16 +137,41 @@ pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_worker
     if drains != 0 && last != 0 && now.wrapping_sub(last) < 500_000_000 { 5 } else { 50 }
 }
 #[no_mangle]
+pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_prefersSoftware(_: *mut JNIEnv, _: jclass, sdk: jint, hevc: jboolean, requested: jboolean) -> jboolean {
+    (sdk >= 29 && hevc != 0 && requested != 0) as jboolean
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_defaultDecoder(env: *mut JNIEnv, _: jclass, flags: jintArray, software: jboolean, hardware_failed: jboolean) -> jint {
+    let Some(flags) = read_ints(env, flags) else { return -1; };
+    if software != 0 {
+        if let Some(index) = flags.iter().position(|f| f & 1 != 0) { return index as i32; }
+    }
+    if hardware_failed != 0 { -1 } else { super::select_decoder(&flags, false) }
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_firstSoftware(env: *mut JNIEnv, _: jclass, flags: jintArray) -> jint {
+    let Some(flags) = read_ints(env, flags) else { return -1; };
+    flags.iter().position(|f| f & 1 != 0).map_or(-1, |i| i as i32)
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_softwareOutcome(env: *mut JNIEnv, _: jclass, state: jlongArray, hardware: jboolean, software: jboolean, preferred: jboolean, same_hardware: jboolean) -> jint {
+    let Some(mut v) = read_state(env, state) else { return 0; };
+    if hardware == 0 || software == 0 || preferred != 0 {
+        if hardware != 0 && same_hardware != 0 { v[12] = 2_000; write_state(env, state, &v); }
+        0
+    } else { 1 }
+}
+#[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_configurationCreate(env: *mut JNIEnv, _: jclass, rate: jint, mtk: jboolean, vendor_refused: jboolean) -> jlongArray {
-    let mut v = [0; 14]; v[0] = rate as i64; v[2] = if mtk != 0 { 2 } else { 0 };
+    let mut v = [0; 15]; v[0] = rate as i64; v[2] = if mtk != 0 { 2 } else { 0 };
     v[7] = (vendor_refused != 0) as i64; v[12] = 2_000; v[13] = (mtk != 0) as i64;
-    let out = ((**env).NewLongArray.unwrap())(env, 14); if !out.is_null() { write_state(env, out, &v); } out
+    let out = ((**env).NewLongArray.unwrap())(env, 15); if !out.is_null() { write_state(env, out, &v); } out
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_configurationQuery(env: *mut JNIEnv, _: jclass, state: jlongArray, field: jint, capability: jboolean) -> jlong {
     let Some(v) = read_state(env, state) else { return 0; };
     match field {
-        0..=13 => v[field as usize],
+        0..=14 => v[field as usize],
         100 => (v[13] != 0 && v[8] == 0) as i64,
         101 => (v[8] == 0) as i64,
         102 => if v[13] != 0 && capability != 0 { v[2] } else { 0 },
@@ -153,7 +181,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_configurationEvent(env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, a: jint, b: jint, c: jint, flags: jint) -> jint {
     let Some(mut v) = read_state(env, state) else { return 0; };
-    if !(0..=13).contains(&event) { invalid(env); return 0; }
+    if !(0..=16).contains(&event) { invalid(env); return 0; }
     let result = configure_event(&mut v, event, a, b, c, flags); write_state(env, state, &v); result
 }
 #[no_mangle]
@@ -187,7 +215,7 @@ mod contracts {
     }
     #[test]
     fn active_degradation_is_one_owner_and_runtime_vendor_rejection_notifies_once() {
-        let mut v = [0; 14]; v[0] = 60; v[2] = 2; v[12] = 2_000;
+        let mut v = [0; 15]; v[0] = 60; v[2] = 2; v[12] = 2_000;
         configure_event(&mut v, 8, 0, 0, 0, 3);
         assert_eq!(configure_event(&mut v, 2, 0, 0, 0, 0), 1);
         assert_eq!(configure_event(&mut v, 2, 0, 0, 0, 0), 0);

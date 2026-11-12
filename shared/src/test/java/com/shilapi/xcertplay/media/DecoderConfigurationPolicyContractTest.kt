@@ -61,5 +61,12 @@ class DecoderConfigurationPolicyContractTest {
         assertFalse(policy.tryLowLatency)
         assertFalse(policy.tryMtkCodec2)
         assertFalse(policy.dropMtkCodec2())
+        assertTrue(policy.keepsUnusedDecoder(requested = true, hasCodec = true))
+        policy.inputQueued()
+        assertFalse(policy.keepsUnusedDecoder(requested = true, hasCodec = true))
+        policy.released()
+        assertFalse(policy.keepsUnusedDecoder(requested = true, hasCodec = true))
+        policy.resetQueuedFrames()
+        assertTrue(policy.keepsUnusedDecoder(requested = true, hasCodec = true))
     }
 }

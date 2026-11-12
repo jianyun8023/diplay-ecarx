@@ -100,6 +100,11 @@ internal object NativeVideoFlow {
     @JvmStatic external fun referenceNeeds(owner: Long): Boolean
     @JvmStatic external fun referenceAccepts(owner: Long, randomAccess: Boolean): Boolean
     @JvmStatic external fun obsolete(now: Long, received: Long, pending: Int, newest: Long, hasNewest: Boolean): Boolean
+    @JvmStatic external fun keyframeCreate(): LongArray
+    @JvmStatic external fun keyframeRequest(owner: LongArray, now: Long, force: Boolean): Boolean
+    @JvmStatic external fun inputCreate(start: Long, timeout: Long): LongArray
+    @JvmStatic external fun inputStep(owner: LongArray, event: Int, value: Long): Int
+    @JvmStatic external fun inputResult(owner: LongArray): Int
     @JvmStatic external fun touchSent(sent: Long)
     @JvmStatic external fun touchFrame(now: Long): Long
 }
@@ -113,14 +118,17 @@ internal object DecoderInputPump {
         nanoTime: () -> Long = System::nanoTime,
         timeoutNs: Long = TimeUnit.MILLISECONDS.toNanos(500),
     ): Int {
-        val start = nanoTime()
-        while (running()) {
-            drain()
-            val index = dequeue()
-            if (index >= 0) return index
-            if (nanoTime() - start >= timeoutNs) break
+        val owner = NativeVideoFlow.inputCreate(nanoTime(), timeoutNs)
+        var action = NativeVideoFlow.inputStep(owner, 0, 0)
+        while (true) {
+            action = when (action) {
+                0 -> NativeVideoFlow.inputStep(owner, 1, if (running()) 1 else 0)
+                1 -> { drain(); NativeVideoFlow.inputStep(owner, 2, 0) }
+                2 -> NativeVideoFlow.inputStep(owner, 3, dequeue().toLong())
+                3 -> NativeVideoFlow.inputStep(owner, 4, nanoTime())
+                else -> return NativeVideoFlow.inputResult(owner)
+            }
         }
-        return -1
     }
 }
 

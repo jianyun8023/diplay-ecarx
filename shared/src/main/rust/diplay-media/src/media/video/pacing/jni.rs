@@ -1,5 +1,5 @@
 //! GC-managed opaque timing values. No platform decoder, JNI global reference, or native heap lease.
-use super::{BacklogRecovery, FramePacer, PacingDelay};
+use super::{BacklogRecovery, FramePacer, OutputSlot, OutputTiming, PacingDelay, OUTPUT_SLOTS};
 use jni_sys::{jboolean, jclass, jdouble, jint, jlong, jlongArray, JNIEnv};
 use std::ptr::null_mut;
 
@@ -73,6 +73,28 @@ impl BacklogRecovery {
             initial_span_ns: v[3], initial_pending_frames: v[4] as i32, last_observed_ns: (v[0] & 4 != 0).then_some(v[5]) })
     }
 }
+impl OutputTiming {
+    fn values(&self) -> Vec<i64> {
+        let mut v = vec![self.next as i64, self.last_queued_ns, self.resumed_at_ns, self.last_local_ns,
+            self.queued_slots_only as i64];
+        v.extend(self.recent_paced.map(|s| s.map_or(-1, |n| n as i64)));
+        for s in self.slots { v.extend([s.presentation_us, s.queued_ns, s.paced as i64, s.before_pause as i64]); }
+        if let Some(delay) = &self.delay { v.extend(delay.values()); }
+        v
+    }
+    fn from_values(v: &[i64]) -> Option<Self> {
+        let base = 8 + OUTPUT_SLOTS * 4;
+        if v.len() < base || !(0..OUTPUT_SLOTS as i64).contains(&v[0]) ||
+            !v[5..8].iter().all(|n| (-1..OUTPUT_SLOTS as i64).contains(n)) { return None; }
+        let mut slots = [OutputSlot::default(); OUTPUT_SLOTS];
+        for (slot, values) in slots.iter_mut().zip(v[8..base].chunks_exact(4)) {
+            *slot = OutputSlot { presentation_us: values[0], queued_ns: values[1], paced: values[2] != 0, before_pause: values[3] != 0 };
+        }
+        Some(Self { next: v[0] as usize, last_queued_ns: v[1], resumed_at_ns: v[2], last_local_ns: v[3],
+            queued_slots_only: v[4] != 0, recent_paced: [v[5], v[6], v[7]].map(|n| (n >= 0).then_some(n as usize)),
+            slots, delay: if v.len() == base { None } else { Some(PacingDelay::from_values(&v[base..])?) } })
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_pacerCreate(
@@ -92,6 +114,48 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     let result = owner.local_time(sender, arrival);
     write(env, state, &owner.values());
     result
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_pacerFrame(
+    env: *mut JNIEnv, _: jclass, state: jlongArray, enabled: jboolean, sender: jlong, arrival: jlong,
+) -> jlong {
+    let Some(v) = read(env, state) else { return 0; };
+    let Some(mut owner) = FramePacer::from_values(&v) else { invalid(env); return 0; };
+    let result = owner.frame_time(enabled != 0, sender, arrival);
+    write(env, state, &owner.values()); result
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputCreate(env: *mut JNIEnv, _: jclass, delay: jlong) -> jlongArray {
+    array(env, &OutputTiming::new(delay, false).values())
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputQueued(
+    env: *mut JNIEnv, _: jclass, state: jlongArray, presentation: jlong, local: jlong, now: jlong,
+) {
+    let Some(v) = read(env, state) else { return; };
+    let Some(mut owner) = OutputTiming::from_values(&v) else { invalid(env); return; };
+    owner.queued(presentation, local, now); write(env, state, &owner.values());
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputPlan(
+    env: *mut JNIEnv, _: jclass, state: jlongArray, presentation: jlong, now: jlong, shown: jboolean,
+) -> jlongArray {
+    let Some(v) = read(env, state) else { return null_mut(); };
+    let Some(mut owner) = OutputTiming::from_values(&v) else { invalid(env); return null_mut(); };
+    let plan = owner.plan(presentation, now, shown != 0);
+    let flags = (plan.latency.is_some() as i64) | ((plan.held_over_gap as i64) << 1) |
+        ((plan.pacing_delay.is_some() as i64) << 2) | ((plan.render_at.is_some() as i64) << 3) | ((plan.late as i64) << 4);
+    let out = array(env, &[plan.latency.unwrap_or(0), flags, plan.pacing_delay.unwrap_or(0), plan.render_at.unwrap_or(0)]);
+    if !out.is_null() { write(env, state, &owner.values()); }
+    out
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputValue(
+    env: *mut JNIEnv, _: jclass, state: jlongArray, field: jint,
+) -> jlong {
+    let Some(v) = read(env, state) else { return 0; };
+    let Some(owner) = OutputTiming::from_values(&v) else { invalid(env); return 0; };
+    match field { 0 => owner.last_queued_ns, 1 => owner.delay.is_some() as jlong, _ => { invalid(env); 0 } }
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_delayCreate(
@@ -168,5 +232,19 @@ mod contracts {
         recovery.reset(); restored.reset();
         assert_eq!(recovery.values(), restored.values());
         assert_eq!(recovery.startup_ends_ns, Some(i64::MIN + 2_999_999_999));
+    }
+    #[test]
+    fn output_gc_value_preserves_all_slots_pause_history_and_adaptive_delay() {
+        let mut owner = OutputTiming::new(90_000_000, false);
+        for i in 0..200 {
+            let local = 1_000_000_000 + i * 16_666_667;
+            owner.queued(local / 1000, local, local + 1_000_000);
+            let mut restored = OutputTiming::from_values(&owner.values()).unwrap();
+            let actual = owner.plan(local / 1000, local + 50_000_000, i % 7 != 0);
+            let expected = restored.plan(local / 1000, local + 50_000_000, i % 7 != 0);
+            assert_eq!((actual.latency, actual.held_over_gap, actual.pacing_delay, actual.render_at, actual.late),
+                (expected.latency, expected.held_over_gap, expected.pacing_delay, expected.render_at, expected.late));
+            assert_eq!(owner.values(), restored.values());
+        }
     }
 }
