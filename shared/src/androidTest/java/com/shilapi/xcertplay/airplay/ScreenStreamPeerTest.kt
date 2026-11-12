@@ -9,11 +9,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
+import androidx.test.runner.AndroidJUnit4
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [29], manifest = Config.NONE)
+/** Exercises the actual native receiver through Android-owned socket descriptors. */
+@RunWith(AndroidJUnit4::class)
 class ScreenStreamPeerTest {
     @org.junit.Before fun needsIpv6Loopback() {
         org.junit.Assume.assumeTrue("no IPv6 loopback", runCatching {

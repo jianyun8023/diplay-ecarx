@@ -15,11 +15,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
+import androidx.test.runner.AndroidJUnit4
 
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+/** Native TCP reception requires real Android ParcelFileDescriptor sockets; no receiver fake. */
+@RunWith(AndroidJUnit4::class)
 class BufferedAudioSessionTest {
     @Test
     fun disabledOutputDeclinesType103BeforeCallingTheMediaHandler() {
