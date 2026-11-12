@@ -24,6 +24,7 @@ class AudioClockTrimTest {
     private val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
     private lateinit var renderer: Any
     private lateinit var track: AudioTrack
+    private lateinit var native: RendererNativeFixture
 
     @Before fun setUp() {
         MediaClockTrim.learnedTrim = 0.0
@@ -45,24 +46,23 @@ class AudioClockTrimTest {
         set("debugLogsEnabled", { true })
         set("track", track)
         set("mappedChannel", AudioChannel.MEDIA)
-        set("playbackStarted", true)
-        set("startThresholdBytes", 57_600)
+        native = RendererNativeFixture(renderer)
+        native.progress.configure(57_600, 96_000, 4096)
+        native.progress.playback(true)
         set("bytesPerSecond", 48_000 * 4)
         // 300 ms of music is the target; createTrack sets this up for music only.
         set("clockTrim", MediaClockTrim(48_000, 14_400))
     }
 
     @After fun tearDown() {
-        track.release()
+        native.close()
         MediaClockTrim.learnedTrim = 0.0
     }
 
     private fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
     private fun get(name: String): Any? = type.getDeclaredField(name).apply { isAccessible = true }.get(renderer)
 
-    private fun write(bytes: Int) = type.getDeclaredMethod("writePcm", ByteArray::class.java,
-        Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).apply { isAccessible = true }
-        .invoke(renderer, ByteArray(bytes), 0, bytes)
+    private fun write(bytes: Int) = native.write(bytes)
 
     @Test fun aLowLevelSlowsTheTrackAndTheStatsShowTheRate() {
         // 150 ms queued against a 300 ms target.
@@ -79,10 +79,14 @@ class AudioClockTrimTest {
         val logStats = type.getDeclaredMethod("logStatsIfDue", Boolean::class.javaPrimitiveType)
             .apply { isAccessible = true }
         write(28_800)
-        val received = get("packetsReceived") as java.util.concurrent.atomic.AtomicInteger
-        received.set(12)
+        repeat(12) { native.queue.push(com.shilapi.xcertplay.airplay.HeapPacket(ByteArray(112)), 0, System.nanoTime()) }
+        native.drain()
+        val received = LongArray(5)
+        native.queue.stats(received, reset = false)
+        assertEquals(12L, received[0])
         logStats.invoke(renderer, true)
-        assertEquals(0, received.get())
+        native.queue.stats(received, reset = false)
+        assertEquals(0L, received[0])
         assertTrue(reports.none { it.startsWith("audio stats") })
         assertEquals(listOf(47_280), RateTrack.rates)
         debug = true
@@ -104,7 +108,7 @@ class AudioClockTrimTest {
     }
 
     @Test fun nothingIsTrimmedBeforeMusicPlays() {
-        set("playbackStarted", false)
+        native.progress.playback(false)
         write(2_048)
         assertTrue(RateTrack.rates.isEmpty())
     }
@@ -115,7 +119,7 @@ class AudioClockTrimTest {
         @Implementation fun getUnderrunCount() = 0
         @Implementation fun play() = Unit
         @Implementation fun pause() = Unit
-        @Implementation fun write(bytes: ByteArray, offset: Int, size: Int, mode: Int): Int = size
+        @Implementation fun write(buffer: java.nio.ByteBuffer, size: Int, mode: Int): Int = size
         @Implementation fun setPlaybackRate(rate: Int): Int {
             rates += rate
             return result
