@@ -215,10 +215,8 @@ class CarPlayControllerWiredResultLifetimeTest {
 
     private fun restartDiscovery(controller: CarPlayController) {
         controller.javaClass.getDeclaredMethod("startIphone").apply { isAccessible = true }.invoke(controller)
-        controller.javaClass.getDeclaredField("phase").apply {
-            isAccessible = true
-            set(controller, type.enumConstants!!.single { (it as Enum<*>).name == "DATAPATHS" })
-        }
+        val lifecycle = ReflectionHelpers.getField<ControllerLifecycleCore>(controller, "lifecycle")
+        assertNotNull(lifecycle.beginDataPaths())
     }
 
     private fun device(): UsbDevice {

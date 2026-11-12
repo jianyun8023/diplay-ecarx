@@ -12,10 +12,10 @@ import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
+import com.shilapi.xcertplay.orchestration.VpnAttachmentCore
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -107,7 +107,8 @@ class CarPlayVpnScopeTest {
 
     private fun assertReleased(service: CarPlayVpnService) {
         assertFalse(service.isAttached())
-        assertFalse(ReflectionHelpers.getField<AtomicBoolean>(service, "active").get())
+        val transport = ReflectionHelpers.getField<Lazy<VpnAttachmentCore>>(service, "transportState")
+        assertFalse("Released transport must be inactive", transport.isInitialized() && transport.value.active)
         assertNull(service.boundPort())
         assertNull(ReflectionHelpers.getField<Any?>(service, "attachment"))
         assertNull(ReflectionHelpers.getField<Any?>(service, "serverSocket"))

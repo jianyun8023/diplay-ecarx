@@ -34,17 +34,16 @@ class CarPlayControllerFirstFrameTest {
             controller.attachUi(object : AirPlaySessionListener {}, {})
             controller.javaClass.getDeclaredField("activeSession").apply { isAccessible = true }.set(controller, active)
             val listener = if (wireless) {
-                controller.javaClass.getDeclaredField("phase").apply {
-                    isAccessible = true
-                    set(controller, type.enumConstants.single { (it as Enum<*>).name == "WIRELESS" })
-                }
-                val watchdog = FirstTcpWatchdog(AirPlayListenerIdentity(0), { _, _ -> {} }, {})
+                val lifecycle = controller.javaClass.getDeclaredField("lifecycle")
+                    .apply { isAccessible = true }.get(controller) as ControllerLifecycleCore
+                val generation = lifecycle.beginWireless()
+                val watchdog = FirstTcpWatchdog(AirPlayListenerIdentity(generation), { _, _ -> {} }, {})
                 val runType = controller.javaClass.declaredClasses.single { it.simpleName == "WirelessRun" }
                 val run = runType.getDeclaredConstructor(CarPlayController::class.java, Int::class.javaPrimitiveType)
-                    .apply { isAccessible = true }.newInstance(controller, 0)
+                    .apply { isAccessible = true }.newInstance(controller, generation)
                 controller.javaClass.getDeclaredField("wirelessRun").apply { isAccessible = true }.set(controller, run)
                 runType.getDeclaredMethod("wirelessSessionListener", Int::class.javaPrimitiveType, FirstTcpWatchdog::class.java)
-                    .apply { isAccessible = true }.invoke(run, 0, watchdog) as AirPlaySessionListener
+                    .apply { isAccessible = true }.invoke(run, generation, watchdog) as AirPlaySessionListener
             } else controller.javaClass.getDeclaredField("sessionListener")
                 .apply { isAccessible = true }.get(controller) as AirPlaySessionListener
             try {

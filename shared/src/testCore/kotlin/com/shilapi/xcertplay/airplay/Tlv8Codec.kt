@@ -23,7 +23,15 @@ object Tlv8Codec {
             } while (offset < item.value.size)
             previousType = item.type
         }
-        return concatBytes(*chunks.toTypedArray())
+        var size = 0
+        for (chunk in chunks) size += chunk.size
+        val out = ByteArray(size)
+        var offset = 0
+        for (chunk in chunks) {
+            chunk.copyInto(out, offset)
+            offset += chunk.size
+        }
+        return out
     }
 
     fun decode(buffer: ByteArray): Map<Int, ByteArray> {
