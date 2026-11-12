@@ -1,16 +1,18 @@
 //! The video pipe's timing rules, ported one to one from Kotlin: `FramePacer` (the iPhone's frame time
 //! on the local clock), `PacingDelay` (smooth video's display delay) and `VideoBacklogRecovery` (when a
-//! growing input backlog drops the reference chain). See the Kotlin classes for the reasoning.
+//! growing input backlog drops the reference chain). Both Android decoder adapters use these owners.
+
+mod jni;
 
 pub struct FramePacer {
     window: usize,
     percentile: usize,
-    refresh_every: u64,
+    refresh_every: i32,
     slew_per_second: f64,
     reset_nanos: i64,
     max_early_nanos: i64,
     residuals: std::collections::VecDeque<i64>,
-    frames: u64,
+    frames: i32,
     candidate: i64,
     offset: Option<i64>,
     last_arrival_nanos: i64,
@@ -31,7 +33,7 @@ impl Default for FramePacer {
 impl FramePacer {
     /// The frame's local time, or 0 when that is implausible (show it as soon as it is decoded).
     pub fn local_time(&mut self, sender_nanos: i64, arrival_nanos: i64) -> i64 {
-        self.residuals.push_back(arrival_nanos - sender_nanos);
+        self.residuals.push_back(arrival_nanos.wrapping_sub(sender_nanos));
         if self.residuals.len() > self.window { self.residuals.pop_front(); }
         let warming_up = self.frames < self.refresh_every;
         if warming_up || self.frames % self.refresh_every == 0 {
@@ -39,19 +41,19 @@ impl FramePacer {
             sorted.sort_unstable();
             self.candidate = sorted[(sorted.len() - 1) * self.percentile / 100];
         }
-        self.frames += 1;
+        self.frames = self.frames.wrapping_add(1);
         let offset = match self.offset {
-            Some(offset) if !warming_up && self.candidate - offset <= self.reset_nanos &&
-                offset - self.candidate <= self.max_early_nanos => {
-                let step = ((arrival_nanos - self.last_arrival_nanos).max(0) as f64 * self.slew_per_second) as i64;
-                offset + (self.candidate - offset).clamp(-step, step)
+            Some(offset) if !warming_up && self.candidate.wrapping_sub(offset) <= self.reset_nanos &&
+                offset.wrapping_sub(self.candidate) <= self.max_early_nanos => {
+                let step = (arrival_nanos.wrapping_sub(self.last_arrival_nanos).max(0) as f64 * self.slew_per_second) as i64;
+                offset.wrapping_add(self.candidate.wrapping_sub(offset).clamp(-step, step))
             }
             _ => self.candidate,
         };
         self.offset = Some(offset);
         self.last_arrival_nanos = arrival_nanos;
-        let local = sender_nanos + offset;
-        if (-ONE_SECOND..=self.max_early_nanos).contains(&(local - arrival_nanos)) { local } else { 0 }
+        let local = sender_nanos.wrapping_add(offset);
+        if (-ONE_SECOND..=self.max_early_nanos).contains(&local.wrapping_sub(arrival_nanos)) { local } else { 0 }
     }
 }
 
@@ -59,14 +61,14 @@ pub struct PacingDelay {
     min_nanos: i64,
     max_nanos: i64,
     percentile: usize,
-    refresh_every: u64,
+    refresh_every: i32,
     margin_nanos: i64,
     rise_per_frame: i64,
     fall_per_frame: i64,
     needs: Vec<i64>,
     count: usize,
     next: usize,
-    frames: u64,
+    frames: i32,
     pub nanos: i64,
     goal: i64,
 }
@@ -87,13 +89,13 @@ impl PacingDelay {
         self.needs[self.next] = needed_nanos.clamp(0, self.max_nanos);
         self.next = (self.next + 1) % window;
         if self.count < window { self.count += 1; }
-        self.frames += 1;
+        self.frames = self.frames.wrapping_add(1);
         if self.frames % self.refresh_every == 0 {
             let mut sorted = self.needs[..self.count].to_vec();
             sorted.sort_unstable();
-            self.goal = (sorted[(self.count - 1) * self.percentile / 100] + self.margin_nanos).clamp(self.min_nanos, self.max_nanos);
+            self.goal = sorted[(self.count - 1) * self.percentile / 100].wrapping_add(self.margin_nanos).clamp(self.min_nanos, self.max_nanos);
         }
-        self.nanos += (self.goal - self.nanos).clamp(-self.fall_per_frame, self.rise_per_frame);
+        self.nanos = self.nanos.wrapping_add(self.goal.wrapping_sub(self.nanos).clamp(-self.fall_per_frame, self.rise_per_frame));
     }
 }
 
@@ -102,7 +104,7 @@ pub struct BacklogRecovery {
     startup_ends_ns: Option<i64>,
     episode_start_ns: Option<i64>,
     initial_span_ns: i64,
-    initial_pending_frames: usize,
+    initial_pending_frames: i32,
     last_observed_ns: Option<i64>,
 }
 
@@ -113,7 +115,7 @@ const LOW_SPAN_NS: i64 = 50_000_000;
 const HARD_AGE_NS: i64 = 1_500_000_000;
 const GRACE_NS: i64 = 750_000_000;
 const SPAN_GROWTH_NS: i64 = 100_000_000;
-const FRAME_GROWTH: usize = 4;
+const FRAME_GROWTH: i32 = 4;
 const STARTUP_GRACE_NS: i64 = 3_000_000_000;
 
 impl BacklogRecovery {
@@ -126,7 +128,7 @@ impl BacklogRecovery {
 
     pub fn decoder_started(&mut self, now_ns: i64) {
         self.reset();
-        self.startup_ends_ns = Some(now_ns + STARTUP_GRACE_NS);
+        self.startup_ends_ns = Some(now_ns.wrapping_add(STARTUP_GRACE_NS));
     }
 
     /// True when the backlog behind the current frame calls for recovery.
@@ -142,20 +144,20 @@ impl BacklogRecovery {
             return false;
         }
         self.last_observed_ns = Some(now_ns);
-        let age = now_ns - current_received_ns;
-        let span = newest - current_received_ns;
+        let age = now_ns.wrapping_sub(current_received_ns);
+        let span = newest.wrapping_sub(current_received_ns);
         if age <= LOW_AGE_NS || span <= LOW_SPAN_NS { self.reset(); return false; }
         if age >= HARD_AGE_NS && span >= SOFT_SPAN_NS { self.reset(); return true; }
         if age <= SOFT_AGE_NS || span < SOFT_SPAN_NS { return false; }
         let Some(start) = self.episode_start_ns else {
             self.episode_start_ns = Some(now_ns);
             self.initial_span_ns = span;
-            self.initial_pending_frames = pending_frames;
+            self.initial_pending_frames = pending_frames as i32;
             return false;
         };
-        let growing = span - self.initial_span_ns >= SPAN_GROWTH_NS ||
-            pending_frames >= self.initial_pending_frames + FRAME_GROWTH;
-        if now_ns - start >= GRACE_NS && growing { self.reset(); return true; }
+        let growing = span.wrapping_sub(self.initial_span_ns) >= SPAN_GROWTH_NS ||
+            (pending_frames as i32).wrapping_sub(self.initial_pending_frames) >= FRAME_GROWTH;
+        if now_ns.wrapping_sub(start) >= GRACE_NS && growing { self.reset(); return true; }
         false
     }
 }
@@ -163,8 +165,8 @@ impl BacklogRecovery {
 /// `VideoRecoveryFrameAge.isObsolete`: a keyframe that waited 1.5 s with a newer frame 100 ms later
 /// behind it is not worth decoding.
 pub fn is_obsolete(now_ns: i64, received_ns: i64, pending_frames: usize, newest_pending_received_ns: Option<i64>) -> bool {
-    now_ns >= received_ns && now_ns - received_ns >= 1_500_000_000 && pending_frames > 0 &&
-        newest_pending_received_ns.is_some_and(|newest| newest <= now_ns && newest - received_ns >= 100_000_000)
+    now_ns >= received_ns && now_ns.wrapping_sub(received_ns) >= 1_500_000_000 && pending_frames > 0 &&
+        newest_pending_received_ns.is_some_and(|newest| newest <= now_ns && newest.wrapping_sub(received_ns) >= 100_000_000)
 }
 
 #[cfg(test)]
