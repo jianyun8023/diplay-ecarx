@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay.airplay
 
+import com.shilapi.xcertplay.hud.NativeClusterArrow
+import com.shilapi.xcertplay.hud.NativeDayNight
+import com.shilapi.xcertplay.hud.NativeLaneIcon
 import com.shilapi.xcertplay.media.NativeAudioScheduler
 import com.shilapi.xcertplay.transport.NativeVehicleSpeed
 import org.junit.Assert.assertEquals
@@ -51,5 +54,20 @@ class NativeVehicleConversionDeviceTest {
         } finally {
             NativeAudioScheduler.destroy(handle)
         }
+    }
+
+    @Test fun hudAndClusterConversionTablesMatchTheirKotlinContracts() {
+        assertTrue(NativeMedia.available)
+        assertEquals(109, NativeClusterArrow.arrowId(0, 0))
+        assertEquals(112, NativeClusterArrow.amapToEcarx(12, 0))
+        assertEquals(123, NativeClusterArrow.amapToEcarx(11, 3))
+        assertEquals(12, NativeClusterArrow.ecarxToAmap(112))
+        assertEquals(104, NativeClusterArrow.appleToAmap(8, 1))
+        assertEquals(1, NativeLaneIcon.forLane(0, intArrayOf(-90), 0, false))
+        assertEquals(33, NativeLaneIcon.forLane(2, intArrayOf(0), 90, true))
+        assertEquals(-1, NativeLaneIcon.forLane(0, intArrayOf(), 0, false))
+        assertEquals(0, NativeDayNight.fromAdaptapi(1))
+        assertEquals(1, NativeDayNight.fromAdaptapi(2))
+        assertEquals(-1, NativeDayNight.fromAmap(31))
     }
 }

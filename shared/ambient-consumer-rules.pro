@@ -71,3 +71,14 @@
 -keep class com.shilapi.xcertplay.media.NativeAudioScheduler {
     native <methods>;
 }
+
+# HUD/cluster pure conversion tables (adapters stay Kotlin).
+-keep class com.shilapi.xcertplay.hud.NativeClusterArrow {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.hud.NativeLaneIcon {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.hud.NativeDayNight {
+    native <methods>;
+}

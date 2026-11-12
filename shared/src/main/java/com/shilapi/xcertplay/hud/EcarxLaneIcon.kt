@@ -1,9 +1,24 @@
 package com.shilapi.xcertplay.hud
 
+import com.shilapi.xcertplay.airplay.NativeMedia
 import com.shilapi.xcertplay.iap2.message.LaneGuidanceLane
 
-/** IDs observed in the ECARX lane assets and the linked Geely lane mapping. */
+/**
+ * IDs observed in the ECARX lane assets and the linked Geely lane mapping. Rust owns the pure
+ * lookup; the HUD/cluster adapters stay Kotlin. The Kotlin copy below runs only when the native
+ * library cannot load.
+ */
 internal object EcarxLaneIcon {
+    fun forLane(lane: LaneGuidanceLane): Int? =
+        if (NativeMedia.available) {
+            NativeLaneIcon.forLane(
+                lane.status, lane.angles.toIntArray(), lane.highlightAngle ?: 0, lane.highlightAngle != null,
+            ).takeIf { it >= 0 }
+        } else KotlinLaneIcon.forLane(lane)
+}
+
+/** Library-unavailable fallback; the native path never creates this state. */
+internal object KotlinLaneIcon {
     fun forLane(lane: LaneGuidanceLane): Int? {
         if (lane.status !in 0..2) return null
         val highlight = lane.highlightAngle.takeIf { lane.status != 0 }
@@ -43,4 +58,9 @@ internal object EcarxLaneIcon {
         }
         return base + if (highlight != null || lane.recommended) 15 else 0
     }
+}
+
+internal object NativeLaneIcon {
+    /** -1 for no icon; [hasHighlight] false makes [highlightAngle] irrelevant. */
+    @JvmStatic external fun forLane(status: Int, angles: IntArray, highlightAngle: Int, hasHighlight: Boolean): Int
 }

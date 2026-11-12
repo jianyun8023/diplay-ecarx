@@ -22,6 +22,19 @@ package com.shilapi.xcertplay.hud
  * than resting on one person's reading.
  */
 internal object EcarxArrowCode {
+    private val native get() = com.shilapi.xcertplay.airplay.NativeMedia.available
+
+    fun amapToEcarx(iconId: Int, aroundNum: Int = 0): Int =
+        if (native) NativeClusterArrow.amapToEcarx(iconId, aroundNum) else kotlinAmapToEcarx(iconId, aroundNum)
+
+    fun ecarxToAmap(arrowId: Int): Int =
+        if (native) NativeClusterArrow.ecarxToAmap(arrowId) else kotlinEcarxToAmap(arrowId)
+
+    fun appleToAmap(type: Int, drivingSide: Int): Int =
+        if (native) NativeClusterArrow.appleToAmap(type, drivingSide) else kotlinAppleToAmap(type, drivingSide)
+
+    fun arrowId(appleType: Int, drivingSide: Int): Int =
+        if (native) NativeClusterArrow.arrowId(appleType, drivingSide) else kotlinArrowId(appleType, drivingSide)
 
     /** What `getNavigationTurnId()` reports while there is nothing to draw. */
     const val NO_ARROW = 0
@@ -44,7 +57,7 @@ internal object EcarxArrowCode {
      * Unknown ids answer [NO_ARROW], which is what the original `SparseIntArray` does for a missing
      * key (its default is 0) — not an invented fallback.
      */
-    fun amapToEcarx(iconId: Int, aroundNum: Int = 0): Int {
+    private fun kotlinAmapToEcarx(iconId: Int, aroundNum: Int = 0): Int {
         val id = when {
             aroundNum in 1..10 && (iconId == 11 || iconId == 12 || iconId == 22) -> aroundNum + 0x78
             aroundNum in 1..10 && (iconId == 17 || iconId == 18 || iconId == 25) -> aroundNum + 0x82
@@ -71,7 +84,7 @@ internal object EcarxArrowCode {
      * The table is **not injective** — Amap 12 and 23 both land on 112, 18 and 27 both on 118 — so
      * the lowest matching Amap id is returned and `-1` means "not a value this table produces".
      */
-    fun ecarxToAmap(arrowId: Int): Int {
+    private fun kotlinEcarxToAmap(arrowId: Int): Int {
         for (id in 1..28) {
             if (amapToEcarx(id) == arrowId) return id
         }
@@ -113,7 +126,7 @@ internal object EcarxArrowCode {
      * 110 (waypoint), 114 (toll gate) and 141/142 (roundabout left/right) are in the id space but
      * have nothing in Apple's table that reliably distinguishes them.
      */
-    fun appleToAmap(type: Int, drivingSide: Int): Int = when (type) {
+    private fun kotlinAppleToAmap(type: Int, drivingSide: Int): Int = when (type) {
         0, 3 -> 9
         1, 20, 47 -> 2
         2, 21, 48 -> 3
@@ -141,8 +154,16 @@ internal object EcarxArrowCode {
      * so a ramp of 1, 2, 3 … asks it to draw unrelated icons, while 0 is the exact value the stock
      * app reports when there is nothing to show.
      */
-    fun arrowId(appleType: Int, drivingSide: Int): Int {
+    private fun kotlinArrowId(appleType: Int, drivingSide: Int): Int {
         val amap = appleToAmap(appleType, drivingSide)
         return if (amap > 0) amapToEcarx(amap) else NO_ARROW
     }
+}
+
+/** The native cluster-arrow tables; the ECARX HUD/cluster adapters stay Kotlin. */
+internal object NativeClusterArrow {
+    @JvmStatic external fun amapToEcarx(iconId: Int, aroundNum: Int): Int
+    @JvmStatic external fun ecarxToAmap(arrowId: Int): Int
+    @JvmStatic external fun appleToAmap(type: Int, drivingSide: Int): Int
+    @JvmStatic external fun arrowId(appleType: Int, drivingSide: Int): Int
 }
