@@ -65,7 +65,7 @@ class AirPlayMediaCommandTest {
             }
             session.sendMedia(CarPlayMediaButton.PLAY)
             assertTrue(messages.last().contains("downWritten=true upWritten=true"))
-            val decrypted = ControlCipher(ByteArray(32) { 2 }, ByteArray(32) { 1 }).decrypt(wire.toByteArray())
+            val decrypted = ControlCipher(ByteArray(32) { 2 }, ByteArray(32) { 1 }).use { it.decrypt(wire.toByteArray()) }
             assertTrue(decrypted.rest.isEmpty())
             val requests = RtspMessage.parseMessages(decrypted.data)
             assertTrue(requests.rest.isEmpty())

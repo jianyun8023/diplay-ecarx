@@ -112,7 +112,7 @@ class CarPlayControllerFirstFrameTest {
             await()
             active.javaClass.getDeclaredField("eventSocket").apply { isAccessible = true }.set(active, socket)
             ready()
-            val plain = ControlCipher(ByteArray(32), ByteArray(32)).decrypt(bytes.toByteArray()).data
+            val plain = ControlCipher(ByteArray(32), ByteArray(32)).use { it.decrypt(bytes.toByteArray()).data }
             val commands = RtspMessage.parseMessages(plain).messages.map { (BplistCodec.decode(it.body) as Map<*, *>)["type"] }
             assertEquals(listOf("stopUI", "showUI", "forceKeyFrame"), commands)
         } finally {

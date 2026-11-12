@@ -105,8 +105,7 @@ class NativeHidDeviceTest {
             expected += AirPlayHid.MEDIA_HID_UID to byteArrayOf(0)
             expected += AirPlayHid.TELEPHONY_HID_UID to byteArrayOf(-1)
             expected += AirPlayHid.TELEPHONY_HID_UID to byteArrayOf(0)
-            val peerCipher = ControlCipher(ByteArray(32) { 2 }, ByteArray(32) { 1 })
-            val decrypted = peerCipher.decrypt(wire.toByteArray())
+            val decrypted = ControlCipher(ByteArray(32) { 2 }, ByteArray(32) { 1 }).use { it.decrypt(wire.toByteArray()) }
             assertTrue(decrypted.rest.isEmpty())
             val parsed = RtspMessage.parseMessages(decrypted.data)
             assertTrue(parsed.rest.isEmpty()); assertEquals(expected.size, parsed.messages.size)
