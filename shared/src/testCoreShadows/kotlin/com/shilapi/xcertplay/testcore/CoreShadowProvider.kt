@@ -17,6 +17,7 @@ class CoreShadowProvider : ShadowProvider {
     }
 
     private val bindings = listOf(
+        "com.shilapi.xcertplay.transport.NativeLockdown" to "com.shilapi.xcertplay.testcore.ShadowNativeLockdown",
         "com.shilapi.xcertplay.media.NativeAudioScheduler" to "com.shilapi.xcertplay.testcore.ShadowNativeAudioScheduler",
         "com.shilapi.xcertplay.media.NativeVideoPolicy" to "com.shilapi.xcertplay.testcore.ShadowNativeVideoPolicy",
         "com.shilapi.xcertplay.orchestration.NativeCarPlayController" to "com.shilapi.xcertplay.testcore.ShadowNativeCarPlayController",
