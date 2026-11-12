@@ -7,13 +7,36 @@ package com.shilapi.xcertplay.airplay
  * header is the AEAD associated data and each direction uses an 8-byte little-endian nonce
  * counter plus its own key.
  */
-class ControlCipher(private val readKey: ByteArray, private val writeKey: ByteArray) {
+class ControlCipher(readKey: ByteArray, writeKey: ByteArray) : java.io.Closeable {
     data class Decrypted(val data: ByteArray, val rest: ByteArray)
 
+    private val fallback = if (NativeMedia.available) null else KotlinControlCipher(readKey, writeKey)
+    private var handle = if (fallback == null) NativeControlCipher.create(readKey, writeKey).also { check(it != 0L) } else 0L
+    private var closed = false
+
+    @Synchronized fun decrypt(buffer: ByteArray): Decrypted {
+        check(!closed) { "ControlCipher is closed" }
+        return fallback?.decrypt(buffer) ?: NativeControlCipher.decrypt(handle, buffer)
+    }
+
+    @Synchronized fun encrypt(plaintext: ByteArray): ByteArray {
+        check(!closed) { "ControlCipher is closed" }
+        return fallback?.encrypt(plaintext) ?: NativeControlCipher.encrypt(handle, plaintext)
+    }
+
+    @Synchronized override fun close() {
+        if (closed) return
+        if (fallback == null) NativeControlCipher.destroy(handle)
+        handle = 0L
+        closed = true
+    }
+}
+
+internal class KotlinControlCipher(private val readKey: ByteArray, private val writeKey: ByteArray) {
     private var readCounter = 0L
     private var writeCounter = 0L
 
-    fun decrypt(buffer: ByteArray): Decrypted {
+    fun decrypt(buffer: ByteArray): ControlCipher.Decrypted {
         val output = ArrayList<ByteArray>()
         var offset = 0
         while (buffer.size - offset >= HEADER_SIZE) {
@@ -28,7 +51,7 @@ class ControlCipher(private val readKey: ByteArray, private val writeKey: ByteAr
             readCounter++
             offset = frameEnd
         }
-        return Decrypted(
+        return ControlCipher.Decrypted(
             if (output.size == 1) output[0] else concatBytes(*output.toTypedArray()),
             if (offset == 0) buffer else buffer.copyOfRange(offset, buffer.size),
         )

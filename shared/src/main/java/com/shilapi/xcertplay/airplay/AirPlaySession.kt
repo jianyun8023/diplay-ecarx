@@ -96,7 +96,8 @@ class AirPlaySession(
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
-    internal var cipher: ControlCipher? = null
+    private val controlCipherLock = Any()
+    @Volatile internal var cipher: ControlCipher? = null
     internal var encBuf = ByteArray(0)
     var deviceBtMac = ""
         private set
@@ -115,9 +116,9 @@ class AirPlaySession(
     internal val isClosed: Boolean get() = closed.get()
     private val notified = AtomicBoolean(false)
     private var connectingReported = false
-    private var eventServer: ServerSocket? = null
-    private var eventSocket: Socket? = null
-    private var eventCipher: ControlCipher? = null
+    @Volatile private var eventServer: ServerSocket? = null
+    @Volatile private var eventSocket: Socket? = null
+    @Volatile private var eventCipher: ControlCipher? = null
     private var eventCseq = 0
     private var pendingNightMode: Boolean? = null
     private val nightModeRequests = linkedMapOf<Int, Boolean>()
@@ -179,11 +180,17 @@ class AirPlaySession(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        // A sender may hold eventWriteLock while blocked in write; interrupt its socket first.
+        safeClose(eventSocket)
         releaseNavigationExit("session-closed")
         navigationExitTimer.shutdownNow()
         mainScreenToken = null
         clearClusterContent()
         safeClose(socket)
+        synchronized(controlCipherLock) {
+            cipher?.close()
+            cipher = null
+        }
         try {
             media.onSessionClosed(this)
         } catch (error: Exception) {
@@ -347,9 +354,10 @@ class AirPlaySession(
      * enabled video and the event channel is ready. An iPhone without the feature gets no command.
      */
     internal fun setVideoPlaybackAllowed(allowed: Boolean): VideoPlaybackDelivery =
-        videoPlaybackAvailability.setDesired(allowed)
+        if (closed.get()) VideoPlaybackDelivery.QUEUED else videoPlaybackAvailability.setDesired(allowed)
 
     private fun sendCommandLocked(command: Map<String, Any?>, extraHeaders: String = ""): Boolean {
+        if (closed.get()) return false
         val socket = eventSocket ?: return false
         val cipher = eventCipher ?: return false
         eventCseq++
@@ -600,7 +608,9 @@ class AirPlaySession(
                     output.write(cipher?.encrypt(wire) ?: wire)
                     if (cipher == null && pairVerify.controlKeys != null) {
                         val keys = pairVerify.controlKeys!!
-                        cipher = ControlCipher(keys.readKey, keys.writeKey)
+                        synchronized(controlCipherLock) {
+                            if (!closed.get() && cipher == null) cipher = ControlCipher(keys.readKey, keys.writeKey)
+                        }
                         debugLog("airplay control encryption enabled")
                     }
                 }
@@ -969,8 +979,12 @@ class AirPlaySession(
     }
 
     private fun teardown() {
-        videoPlaybackAvailability.setEventReady(false)
-        videoPlaybackAvailability.setFeatureEnabled(false)
+        safeClose(eventSocket)
+        // A failing sender may close while holding eventWriteLock; do not wait for a gear callback's monitor.
+        if (!closed.get()) {
+            videoPlaybackAvailability.setEventReady(false)
+            videoPlaybackAvailability.setFeatureEnabled(false)
+        }
         ntp.close()
         timingPort = null
         timingPeerStarted = false
@@ -980,9 +994,12 @@ class AirPlaySession(
         keepAliveThread = null
         safeClose(eventServer)
         eventServer = null
-        safeClose(eventSocket)
-        eventSocket = null
-        eventCipher = null
+        synchronized(eventWriteLock) {
+            safeClose(eventSocket)
+            eventSocket = null
+            eventCipher?.close()
+            eventCipher = null
+        }
         eventThreads.forEach { it.interrupt() }
         eventThreads.clear()
     }
@@ -996,7 +1013,10 @@ class AirPlaySession(
             // need not wait for earlier unacknowledged data.
             socket.tcpNoDelay = true
             debugLog("airplay event connection accepted from ${socket.remoteSocketAddress} noDelay=${socket.tcpNoDelay}")
-            eventSocket = socket
+            synchronized(eventWriteLock) {
+                if (closed.get() || eventServer !== server) { safeClose(socket); return }
+                eventSocket = socket
+            }
             val shared = pairVerify.shared
             if (shared == null) {
                 Log.e(TAG, "airplay event rejected: pair-verify shared secret unavailable")
@@ -1016,15 +1036,19 @@ class AirPlaySession(
                 "Events-Read-Encryption-Key".asciiBytes(),
                 32,
             )
-            eventCipher = ControlCipher(readKey, writeKey)
-            synchronized(eventWriteLock) {
+            val cipher = synchronized(eventWriteLock) {
+                if (closed.get() || eventServer !== server || eventSocket !== socket) { safeClose(socket); return }
+                eventCipher?.close()
+                val cipher = ControlCipher(readKey, writeKey)
+                eventCipher = cipher
                 sendPendingNightModeLocked()
+                cipher
             }
             val videoDelivery = videoPlaybackAvailability.setEventReady(true)
             debugLog("airplay video event ready availability=$videoDelivery")
             reapplyClusterContent()
             listener.onClusterControlReady(this)
-            runEventRead(socket)
+            runEventRead(socket, cipher)
         } catch (error: Exception) {
             if (!closed.get()) {
                 Log.e(TAG, "airplay event accept failed", error)
@@ -1033,7 +1057,7 @@ class AirPlaySession(
         }
     }
 
-    private fun runEventRead(socket: Socket) {
+    private fun runEventRead(socket: Socket, cipher: ControlCipher) {
         try {
             val input = BufferedInputStream(socket.getInputStream())
             val output = BufferedOutputStream(socket.getOutputStream())
@@ -1043,7 +1067,6 @@ class AirPlaySession(
             while (!closed.get()) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                val cipher = eventCipher ?: break
                 encrypted += buffer.copyOf(count)
                 val decrypted = try {
                     cipher.decrypt(encrypted)
@@ -1086,11 +1109,14 @@ class AirPlaySession(
         } catch (error: Exception) {
             if (!closed.get()) Log.e(TAG, "airplay event read failed", error)
         } finally {
-            debugLog("airplay event connection closed")
-            videoPlaybackAvailability.setEventReady(false)
-            if (eventSocket === socket) eventSocket = null
-            eventCipher = null
             safeClose(socket)
+            debugLog("airplay event connection closed")
+            if (!closed.get()) videoPlaybackAvailability.setEventReady(false)
+            synchronized(eventWriteLock) {
+                if (eventSocket === socket) eventSocket = null
+                if (eventCipher === cipher) eventCipher = null
+                cipher.close()
+            }
             if (!closed.get()) close()
         }
     }

@@ -14,6 +14,12 @@ impl StreamKey {
         UnboundKey::new(&CHACHA20_POLY1305, key).ok().map(|k| StreamKey(LessSafeKey::new(k)))
     }
 
+    pub fn seal(&self, nonce: [u8; 12], aad: &[u8], plaintext: &[u8]) -> Option<Vec<u8>> {
+        let mut sealed = plaintext.to_vec();
+        self.0.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::from(aad), &mut sealed).ok()?;
+        Some(sealed)
+    }
+
     /// Opens `sealed` (ciphertext followed by its tag) in place; the plaintext length on success.
     /// On failure the plaintext bytes are zeroed.
     pub fn open(&self, nonce: [u8; 12], aad: &[u8], sealed: &mut [u8]) -> Option<usize> {

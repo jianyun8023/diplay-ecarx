@@ -34,6 +34,10 @@
     public <init>(int, int, int, java.lang.String, java.lang.Long, java.lang.Long, java.lang.Long, java.lang.Long);
 }
 
+# The control cipher JNI returns the existing plaintext/rest DTO.
+-keep class com.shilapi.xcertplay.airplay.ControlCipher$Decrypted {
+    public <init>(byte[], byte[]);
+}
 # The RTSP JNI codec constructs the existing request/result DTOs directly.
 -keep class com.shilapi.xcertplay.airplay.RtspMessage$Request {
     public <init>(java.lang.String, java.lang.String, java.lang.String, java.util.Map, byte[]);
