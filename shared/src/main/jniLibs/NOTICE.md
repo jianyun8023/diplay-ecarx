@@ -55,11 +55,12 @@ Keep the applicable licenses and corresponding source when redistributing native
 `libdiplay_media.so` contains the migrated CarPlay core (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
 screen and audio streams, owns compressed audio queues, buffered-music anchors/controls/backpressure and music clock trim,
 runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio,
-frames/encodes RTSP and binary plists, owns pair verification, control/event encryption and route guidance state,
-applies wireless-run/recovery transitions and wired control deadlines, owns touch slots and output-buffer accounting,
-encodes HID reports/descriptors, EV status/identification components and PASCD layout/checksum, frames iAP2 body parameters,
-maps the existing HUD/cluster conversion tables and seals the microphone uplink. Platform string/numeric formatting remains Kotlin.
-It also contains the optional, default-off USB NCM/tun bridge. It is built from
+frames/encodes RTSP and binary plists, owns PairVerify/PairSetup/SRP/MFiSAP, control/event encryption, NTP and route guidance,
+controller/VPN/wireless generations, recovery, watchdogs, AirPlay negotiation and iAP2 handshake/reporting state,
+USBMUX/Lockdown, iAP2 framing/body/link/file transfer, type130/tunnel queues and the default NCM core.
+It owns audio receiver-to-renderer routing, AAC/PCM processing, output scheduling, video timing/queues/codec policy,
+HID/touch slots, EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
+Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path stays default-off. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
 There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
@@ -67,13 +68,15 @@ Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
 of Gradle or CI builds; `cargo test` in that directory runs the host tests. Both shipped ABIs were rebuilt from
-the current source on 2026-11-12 with NDK `28.2.13676358`; the hashes below identify that build.
-When the library cannot load, the Kotlin receivers and the platform cipher (Conscrypt) handle the same data.
+source `9fed8383a319c097a6d17033070671e02917467f` on 2026-11-12 with NDK `28.2.13676358` and API 28;
+the hashes below identify that build. Each ABI exports the same 434 Java JNI methods plus JNI_OnLoad.
+A required-core load failure is explicit. Real SDK capability fallback, such as AudioTrack when AAudio cannot open,
+remains platform behavior; there is no production Kotlin protocol/DSP substitute.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1355624 | `d57f2f959f9b9add19a01b7641435bb01ec7b3f66c5324e33c7fba7806d97a90` |
-| armeabi-v7a | libdiplay_media.so | 923412 | `27ac096a6377a7e05c1ee9a04cb97dd23bfd2dc136fc05b9070a2dad987e3fd4` |
+| arm64-v8a | libdiplay_media.so | 1830192 | `68f97f3851555268ff3611de8b1d621840b8348744344a0cd8ca4c9da59fe88a` |
+| armeabi-v7a | libdiplay_media.so | 1240956 | `9bdfee3e02bdd031ee4bb0f904fc0cdf45952d2890c3a35d036015a8ca926271` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).
