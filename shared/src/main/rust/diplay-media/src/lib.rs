@@ -12,6 +12,7 @@ pub mod bplist;
 mod bplist_jni;
 pub mod audio_queue;
 pub mod clock_trim;
+pub mod control_deadline;
 pub mod control_cipher;
 mod control_cipher_jni;
 pub mod crypto;

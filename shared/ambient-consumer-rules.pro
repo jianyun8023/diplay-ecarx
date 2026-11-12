@@ -21,6 +21,11 @@
     void onEvent(int, java.lang.String);
 }
 
+# The wired deadline passes opaque values through these JNI entry points.
+-keep class com.shilapi.xcertplay.transport.NativeControlDeadline {
+    native <methods>;
+}
+
 # Opaque recovery tokens use these primitive JNI entry points.
 -keep class com.shilapi.xcertplay.orchestration.NativeWirelessRecovery {
     native <methods>;
