@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
 BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$(uname -s | tr A-Z a-z)-x86_64/bin"
 OUT=../../jniLibs
+TARGET_DIR=${CARGO_TARGET_DIR:-target}
 # Keep build-machine paths (panic locations) out of the checked-in libraries.
 export RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}/registry/src=/crates --remap-path-prefix=$PWD=/diplay-media"
 build() { # rust target, clang prefix, ABI directory
@@ -15,7 +16,7 @@ build() { # rust target, clang prefix, ABI directory
         "CARGO_TARGET_${upper}_LINKER=$BIN/${2}28-clang" \
         cargo build --release --locked --lib --target "$1"
     mkdir -p "$OUT/$3"
-    cp "target/$1/release/libdiplay_media.so" "$OUT/$3/"
+    cp "$TARGET_DIR/$1/release/libdiplay_media.so" "$OUT/$3/"
 }
 build aarch64-linux-android aarch64-linux-android arm64-v8a
 # ring's ARM assembly needs ARMv7 with Thumb-2 spelled out.

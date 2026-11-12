@@ -22,12 +22,16 @@ class NativeAudioOutDeviceTest {
                 val pcm = ByteBuffer.allocateDirect(bytes)
                 assertEquals(bytes, out.write(pcm, 0, bytes))
                 out.play()
+                // API 28 legacy writes block without honoring the timeout; time playback after submission.
+                assertTrue(out.drain() >= 0)
                 val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
                 while (out.playbackHeadPosition < frames && System.nanoTime() < deadline) {
                     assertTrue(out.drain() >= 0)
                     Thread.sleep(10)
                 }
-                assertTrue("The final buffered block must play", out.playbackHeadPosition >= frames)
+                val played = out.playbackHeadPosition
+                assertTrue("The final buffered block must play: channels=$channels played=$played expected=$frames " +
+                    "buffer=${out.bufferSizeInFrames} underruns=${out.underrunCount}", played >= frames)
                 out.pause()
                 out.flush()
             } finally {

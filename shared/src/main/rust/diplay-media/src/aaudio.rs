@@ -84,7 +84,7 @@ const DIRECTION_OUTPUT: i32 = 0;
 const FORMAT_PCM_I16: i32 = 1;
 const SHARING_MODE_SHARED: i32 = 1;
 const PERFORMANCE_MODE_NONE: i32 = 10;
-/// AudioTrack.WRITE_BLOCKING has no end; a second is far beyond any healthy write.
+/// Requests a blocking write; API 28's legacy AudioTrack backend ignores the timeout duration.
 const WRITE_TIMEOUT_NS: i64 = 1_000_000_000;
 
 /// Resamples by `in_rate / out_rate` with linear interpolation; the position carries across blocks.
