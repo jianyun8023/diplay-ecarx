@@ -198,3 +198,27 @@ LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 livi-cp control
 设备收敛后完整 CI 仅一轮，5 分 54 秒：Android 单测 3429 通过、2 跳过、0 失败（shared 1843 总数／2 跳过，common 1573，home 15），四应用 lint、Debug 构建及 R8 均通过。测试子代理独立核对双 ABI ELF、source=cargo=merged、stripped=主应用／独立测试 APK、NATIVE-NOTICE／第三方许可资产和 Decrypted 构造器；其余三个应用沿原依赖边界不包含该核心库。公共源码凭据与 diff 检查通过，手机恢复 ARM64，未重复已通过设备集合。
 
 完整来源记录：`artifacts/issue96-control-recovery-hid-20261112/verification.json`，编译源码提交 `49f27b1d`，测试 APK SHA-256 `67d0fe9909e888a4598fa8f5ce2dae4f8c43858c2e30cc45788f6f67917e41e1`。原始日志、APK 和私有 dump 不上传。配对／iAP2／NTP、watchdog 调度与 controller 代际／平台资源、触摸槽状态及其余车辆转换、剩余媒体交接继续待迁移；Android／SDK 适配保留。设备为 Debug 测试包，缩减发布包运行、ECARX／真实 iPhone、USB NCM、长测和新性能对照仍未验收，NCM 默认关闭，PR 保持 Draft。
+
+## Issue #96：PairVerify 与有线控制 Deadline
+
+本批从 `71d2fea8` 开始。测试代理先提交旧 Kotlin 黑盒合同（主线 `1568c27a`），协议／会话代理分别实现，主线集成 `34afa4e0`（Deadline）与 `4511430f`（PairVerify）。测试代理独立复核 JNI、R8、状态／安全边界，并负责统一设备及最终 CI；原始源码、APK 和私有日志不上传。
+
+- Rust `pair_verify` 完整拥有 M1/M2/M3/M4、临时公钥、shared／加密 key、验证状态、controller raw ID 与 control keys；不连带 PairSetup／SRP／MFi／持久化。同步 Closeable facade 保护使用与释放，Session 在 teardown 后释放 owner，生产 getter 使用单次快照。旧反射 sharedSecret 夹具改成真实 M1，临时 owner 有明确清理。
+- 平台只执行实时 PairingStore 查询和 UTF-8 转换；JNI 显式保留 lookup、PairingStore 类名及 ControlKeys 构造器。保留 TLV 截断尾忽略、crypto 取 key 前32字节但完整 raw 参与签名、M2 时 shared／加密 key 已可用、M1 失败前部分字段先更新，以及新／失败握手不清旧 verified／controller／control keys。无额外运行时或依赖，旧核心仅在库加载失败时启用。
+- Rust `control_deadline` 拥有 wired Iap2ControlDeadline 的认证窗口、有限／无限模式、向上取整及30秒 poll 上限，原 Iap2WiredControlClient 实际消费。两 Long 不透明 token 原样保留全部 start／timeout 位；仅认证无限态变为空 token，无 native 堆句柄。保留全部 Long wrapping、负值／回拨／回绕及异常算术，有限认证不重置窗口；先快照 token 再采样，保持 clock 重入只影响下一次查询，无限认证后完全不读时钟。wireless deadline、watchdog 调度和 controller 资源不在本批。
+
+在未提交的迁移实现中发现 provider 安全差异：ring 0.17.14 会接受 identity-point 公钥的通用伪签名 R=B／S=1，而旧 BC1.79 先拒绝该公钥。独立构建完整 Rust owner、分别完成真实 M1／shared／AEAD M3 的对照显示，补边界前会返回成功并发布 control keys；补后返回 state4／error2 且不发布 keys，与旧 Kotlin 的 ed25519Verify 捕获异常并返回 false 一致。该弱化实现未推送。
+
+修正只在 stored Ed key 的前32字节边界匹配 BC1.79 checkPointFullVar 的数学编码条件：局部清 sign 检查 y，拒绝 y=0／1、p-1 至最大值及两组 order-8 y；通过后保留原始 sign。测试代理用实际 BC jar 私有方法与生产 Rust 筛选独立对照658组，含边界／邻值／符号／随机值／长后缀，全部一致；不增加完整素数子群限制、不复制其受版权实现或引入新依赖。已有 Bouncy Castle 许可继续随应用打包。
+
+LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`。实际复用 ts_vectors 的 `hkdf`、`edSig`、`chachaLabel`、`tlv8` 长度／SHA256 四字段，没有完整 PairVerify transcript 黄金向量；完整握手由本仓 Kotlin／BC 合同及独立客户端交叉验证。未导入 aws-lc-rs／OpenSSL／Tokio／num-bigint，应用许可资产同步扩展 primitive 数据来源说明。
+
+开发验证：旧 Kotlin 初始合同18项通过；补安全合同后 PairVerify 定向20项、真实 macOS JNI 合同9项，Deadline 定向17项、测试代理真实 JNI 11项均通过；11个 JNI 导出真实链接，`-Xcheck:jni` 无 JNI 诊断。Rust 定向分别10／3项，最终集成主机104项通过。两路 Android 测试源码均编译，统一双 ABI／测试包从 `4511430f` 构建。
+
+首轮完整 CI 在 shared 的1860项中出现一项旧夹具时序失败（1分21秒）：AirPlayEventPeerTest 固定等待500ms后，日志只有“陌生IPv6已拒绝”，合法IPv4 accepted尚未记录。`ec3d503a` 仅将该测试改为等待精确拒绝／接受事件的有界 latch，保留两条安全断言与连接失败断言；该类2项定向3秒通过。首次全部258份 shared XML／SHA清单已保存，只替换这一个修复类的结果，保留其余未改用例证据，不复制回 Gradle 输出伪装全量通过。生产源码、已验证双 ABI 与测试 APK 均未改，因此不重复设备集合或无关 shared 用例。
+
+其余尚未执行的 CI 任务一次完成，用时4分42秒：common／home单测、四应用 lint／Debug／R8均通过。全部任务覆盖后的 Android 聚合结果为3446通过、2跳过、0剩余失败（shared1858通过／2跳过，common1573，home15），不是单次完整命令全绿。测试代理核对12类／27个native方法、lookup回调／ControlKeys构造器，以及原JNI规则、双ABI ELF、source=cargo=merged、stripped=主应用／测试APK和许可资产；公共树扫描及diff通过。
+
+同一最终 Debug 测试 APK 在小米8／API35 ARM64、ARMv7和API28 ARM64模拟器首轮各60项通过（前批51＋PairVerify6＋Deadline3），手机恢复ARM64；各环境分别11.135／12.423／16.304秒。冻结测试APK SHA-256为`e9ba9348538cd5889d99eea529509696e88ecd4118cb025b509512e7d23e49e2`。完整记录位于`artifacts/issue96-pairverify-deadline-20261112/verification.json`，运行时代码`4511430f`、测试夹具`ec3d503a`分开记录；原始证据保留本地。未验证缩减发布包运行、ECARX／真实iPhone、USB NCM、长测或新的性能收益，PR保持Draft。
+
+本批仍保留迁移期生产 fallback。后续按已验收模块退出该路径，把旧实现移至测试参考，原生核心加载失败明确报启动错误；BC仍被 PairSetup／SRP、身份密钥和 MFi ASN.1 实际消费，清完这些调用才删除依赖。硬件能力回退不随之机械删除。

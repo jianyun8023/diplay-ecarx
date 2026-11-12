@@ -55,8 +55,8 @@ Keep the applicable licenses and corresponding source when redistributing native
 `libdiplay_media.so` contains the migrated CarPlay core (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
 screen and audio streams, owns compressed audio queues, buffered-music anchors/controls/backpressure and music clock trim,
 runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio,
-frames/encodes RTSP and binary plists, owns control/event encryption and route guidance state,
-applies wireless-run and recovery transitions, encodes HID reports/descriptors, converts EV status payloads
+frames/encodes RTSP and binary plists, owns pair verification, control/event encryption and route guidance state,
+applies wireless-run/recovery transitions and wired control deadlines, encodes HID reports/descriptors, converts EV status payloads
 and seals the microphone uplink. It also contains the optional, default-off USB NCM/tun bridge. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
@@ -70,8 +70,8 @@ When the library cannot load, the Kotlin receivers and the platform cipher (Cons
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1217664 | `336c5adc2ee2b60e33f94f22b79944c3d9e11ee65e78e06b1710fa3ffacda255` |
-| armeabi-v7a | libdiplay_media.so | 835956 | `7cd54390458e42fc84af8f2cc19a6c68d6f0254c52eee9051ec821e8b0d149b0` |
+| arm64-v8a | libdiplay_media.so | 1325720 | `50b7d3dfa975fc19bab85fdf4c12ecfd083cfae464f189b557a4275b5b7341b3` |
+| armeabi-v7a | libdiplay_media.so | 903988 | `6ac027da46445c6ca33a2c8de2a9cd914b57773d1b97a7e2d65e2ce0733f1f25` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).
