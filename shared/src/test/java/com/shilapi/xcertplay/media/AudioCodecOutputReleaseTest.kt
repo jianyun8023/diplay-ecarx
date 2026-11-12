@@ -51,36 +51,24 @@ class AudioCodecOutputReleaseTest {
                 .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
                 .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_STEREO).build())
             .setBufferSizeInBytes(4096).build()
-        val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val constructor = type.declaredConstructors.single { !it.isSynthetic }.apply { isAccessible = true }
-        val arguments = mutableListOf<Any?>(
+        val renderer = AudioRenderer(
             AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, 96, audioType), false, false, 0, 0,
-            AudioFocusCoordinator(null, false, false), 0, 500,
+            AudioFocusCoordinator(null, false, false), 0, 500, {},
         )
-        constructor.parameterTypes.drop(arguments.size).forEach { parameter ->
-            arguments.add(when (parameter) {
-                Long::class.javaPrimitiveType -> 0L
-                Boolean::class.javaPrimitiveType -> false
-                EchoReference::class.java -> null
-                else -> {
-                    check(parameter.name == "kotlin.jvm.functions.Function1") { "Unexpected renderer parameter: $parameter" }
-                    val report: (String) -> Unit = {}
-                    report
-                }
-            })
-        }
-        val renderer = constructor.newInstance(*arguments.toTypedArray())
+        val type = renderer.javaClass
         fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
         set("track", track)
         set("fadeApplied", true)
-        set("playbackStarted", true)
+        val native = RendererNativeFixture(renderer)
+        native.progress.configure(0, 4096, 4096)
+        native.progress.playback(true)
         try {
             type.getDeclaredMethod("drainCodec", MediaCodec::class.java).apply { isAccessible = true }.invoke(renderer, codec)
             assertFalse("expected injected failure", failCopy || failWrite)
         } catch (error: InvocationTargetException) {
             assertTrue(error.cause is IllegalStateException && (failCopy || failWrite))
         } finally {
-            track.release()
+            native.close()
             codec.release()
         }
     }
@@ -108,11 +96,11 @@ class AudioCodecOutputReleaseTest {
 
     @Implements(AudioTrack::class)
     class OutputTrack {
-        @Implementation fun write(bytes: ByteArray, offset: Int, size: Int, mode: Int): Int {
+        @Implementation fun write(bytes: ByteBuffer, size: Int, mode: Int): Int {
             assertEquals("release", OutputCodec.events.last())
             OutputCodec.events.add("write")
             check(!failWrite) { "injected write failure" }
-            written = bytes.copyOfRange(offset, offset + size)
+            written = ByteArray(size).also { bytes.duplicate().get(it) }
             return size
         }
         companion object {

@@ -6,8 +6,10 @@ import com.shilapi.xcertplay.media.AudioChannelMapper
 import com.shilapi.xcertplay.media.AudioFocusCoordinator
 import com.shilapi.xcertplay.media.MediaAudioBuffer
 import com.shilapi.xcertplay.media.MediaClockTrim
+import com.shilapi.xcertplay.media.AudioRenderer
+import com.shilapi.xcertplay.media.NativeAudioQueue
+import com.shilapi.xcertplay.media.RendererNativeFixture
 import java.time.Duration
-import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
@@ -107,7 +109,7 @@ class RealtimeMusicClockTrimTest {
         private var lowestFrames = Long.MAX_VALUE
         private val perSecond = mutableListOf<Second>()
         private lateinit var renderer: Any
-        private lateinit var queue: LinkedBlockingQueue<*>
+        private lateinit var queue: NativeAudioQueue
         private lateinit var track: HeadUnitTrack
         private val submit = method("submit", ByteArray::class.java, Int::class.javaPrimitiveType!!)
 
@@ -115,30 +117,35 @@ class RealtimeMusicClockTrimTest {
             MediaClockTrim.learnedTrim = learned
             HeadUnitTrack.capacityFrames = MediaAudioBuffer.plan(true, 48_000, 2, MIN_BUFFER_BYTES, startMs).trackBufferBytes / 4
             val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, AudioChannelMapper.STREAM_TYPE_MAIN_HIGH_AUDIO, "media")
-            renderer = type.declaredConstructors.single { it.parameterCount == 13 }.apply { isAccessible = true }
-                .newInstance(format, false, false, 0, 0, AudioFocusCoordinator(null, false), 0, startMs,
+            renderer = AudioRenderer(format, false, false, 0, 0, AudioFocusCoordinator(null, false), 0, startMs,
                     { line: String -> reports += line }, false, null, false, false)
             field("started").set(renderer, true)
             method("createTrack").invoke(renderer)
-            queue = field("queue").get(renderer) as LinkedBlockingQueue<*>
+            val native = RendererNativeFixture(renderer)
+            queue = native.queue
+            val consumer = checkNotNull(queue.consumer())
+            val packetInfo = LongArray(3)
             track = Shadow.extract(field("track").get(renderer) as AudioTrack)
             track.drift = drift
             track.passOneMs = ::passOneMs
             val packetType = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
+            val packetConstructor = packetType.getDeclaredConstructor(MediaPacket::class.java,
+                Int::class.javaPrimitiveType, Long::class.javaPrimitiveType).apply { isAccessible = true }
             val handle = method("handle", packetType)
             val maintain = method("maintainPlaybackBuffer")
             var busyMs = 0.0
             while (nowMs < seconds * 1000L) {
                 var waited = 0L
-                while (queue.isEmpty() && waited++ < AUDIO_POLL_MILLIS) passOneMs()
-                queue.poll()?.let { packet ->
-                    handle.invoke(renderer, packet)
+                while (queue.size == 0 && waited++ < AUDIO_POLL_MILLIS) passOneMs()
+                consumer.poll(packetInfo, 0)?.let { packet ->
+                    handle.invoke(renderer, packetConstructor.newInstance(packet, packetInfo[0].toInt(), packetInfo[1]))
                     busyMs += DECODE_MS
                     while (busyMs >= 1.0) { passOneMs(); busyMs -= 1.0 }
                 }
                 maintain.invoke(renderer)
             }
-            method("close").invoke(renderer)
+            consumer.close()
+            native.close()
             return Run(perSecond, reports.count { it.startsWith("Audio: rebuffer paused") })
         }
 
@@ -190,7 +197,7 @@ class RealtimeMusicClockTrimTest {
         @Implementation fun play() { playing = true }
         @Implementation fun pause() { playing = false }
 
-        @Implementation fun write(audioData: ByteArray, offsetInBytes: Int, sizeInBytes: Int, writeMode: Int): Int {
+        @Implementation fun write(audioData: java.nio.ByteBuffer, sizeInBytes: Int, writeMode: Int): Int {
             var remaining = sizeInBytes / 4L
             while (true) {
                 val now = minOf(remaining, capacityFrames - queuedFrames)

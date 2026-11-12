@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import com.shilapi.xcertplay.airplay.HeapPacket
+import com.shilapi.xcertplay.airplay.AudioFormat
 import java.io.Closeable
 import java.nio.ByteBuffer
 
@@ -13,13 +14,23 @@ internal class RendererNativeFixture(private val renderer: Any) : Closeable {
         .get(renderer) as NativeAudioQueue
 
     init {
+        val format = type.getDeclaredField("format").apply { isAccessible = true }.get(renderer) as AudioFormat
+        val channels = type.getDeclaredField("pcmChannels").apply { isAccessible = true }.getInt(renderer)
         type.getDeclaredField("nativePcm").apply { isAccessible = true }
-            .set(renderer, NativePcm.create(48_000, 2, voiceFilter = false, opus = false))
+            .set(renderer, NativePcm.create(format.sampleRate, channels, voiceFilter = false, opus = false))
     }
 
     fun write(bytes: Int) {
         type.getDeclaredMethod("writePcm", ByteBuffer::class.java, Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(renderer, ByteBuffer.allocateDirect(bytes), bytes)
+    }
+
+    fun write(bytes: ByteArray) {
+        val buffer = ByteBuffer.allocateDirect(bytes.size).put(bytes)
+        type.getDeclaredMethod("writePcm", ByteBuffer::class.java, Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(renderer, buffer, bytes.size)
+        buffer.rewind()
+        buffer.get(bytes)
     }
 
     fun drain() {
