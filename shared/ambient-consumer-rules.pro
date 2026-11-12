@@ -65,7 +65,7 @@
 -keep class com.shilapi.xcertplay.airplay.NativeTouchSlots {
     native <methods>;
 }
--keep class com.shilapi.xcertplay.airplay.NativeVehicleSpeed {
+-keep class com.shilapi.xcertplay.transport.NativeVehicleSpeed {
     native <methods>;
 }
 -keep class com.shilapi.xcertplay.media.NativeAudioScheduler {

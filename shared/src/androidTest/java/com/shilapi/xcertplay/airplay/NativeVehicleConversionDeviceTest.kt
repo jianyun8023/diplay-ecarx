@@ -1,10 +1,17 @@
 package com.shilapi.xcertplay.airplay
 
+import com.shilapi.xcertplay.media.AudioBufferProgress
+import com.shilapi.xcertplay.media.KotlinAudioBufferProgress
+import com.shilapi.xcertplay.transport.PascdEncoder
+import com.shilapi.xcertplay.transport.VehicleGear
+import com.shilapi.xcertplay.transport.VehicleSpeedReading
+import com.shilapi.xcertplay.transport.VehicleSpeedSample
 import com.shilapi.xcertplay.hud.NativeClusterArrow
 import com.shilapi.xcertplay.hud.NativeDayNight
 import com.shilapi.xcertplay.hud.NativeLaneIcon
 import com.shilapi.xcertplay.media.NativeAudioScheduler
 import com.shilapi.xcertplay.transport.NativeVehicleSpeed
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -50,7 +57,7 @@ class NativeVehicleConversionDeviceTest {
             assertEquals(3600L, NativeAudioScheduler.queuedBytes(handle, 100))
             assertFalse(NativeAudioScheduler.shouldRebuffer(handle, true, false, true, true, 100, 4000))
             assertTrue(NativeAudioScheduler.shouldRebuffer(handle, true, true, true, true, 200, 4000))
-            assertEquals(4096, NativeAudioScheduler.startBytesFor(8192, 8192, 2048))
+            assertEquals(6144, NativeAudioScheduler.startBytesFor(8192, 8192, 2048))
         } finally {
             NativeAudioScheduler.destroy(handle)
         }
@@ -69,5 +76,76 @@ class NativeVehicleConversionDeviceTest {
         assertEquals(0, NativeDayNight.fromAdaptapi(1))
         assertEquals(1, NativeDayNight.fromAdaptapi(2))
         assertEquals(-1, NativeDayNight.fromAmap(31))
+    }
+
+    @Test fun touchNativeMatchesKotlinAcrossTheFullEventSequence() {
+        assertTrue(NativeMedia.available)
+        val native = NativeTouchSlots.create(2)
+        val kotlin = KotlinAirPlayTouchSlots(2)
+        fun check(contacts: List<AirPlayContact>) {
+            val expected = KotlinAirPlayHid.touchReport(
+                kotlin.assign(contacts).map { it.copy(x = it.x * 1000.0, y = it.y * 500.0) },
+            )
+            val actual = NativeTouchSlots.assignReport(
+                native,
+                IntArray(contacts.size) { contacts[it].id },
+                DoubleArray(contacts.size) { contacts[it].x },
+                DoubleArray(contacts.size) { contacts[it].y },
+                BooleanArray(contacts.size) { contacts[it].down },
+                1000, 500,
+            )
+            assertArrayEquals(expected, actual)
+        }
+        try {
+            check(listOf(AirPlayContact(7, 0.1, 0.2, true), AirPlayContact(9, 0.3, 0.4, true)))
+            check(listOf(AirPlayContact(7, 0.15, 0.25, true), AirPlayContact(9, 0.35, 0.45, true)))
+            check(listOf(AirPlayContact(7, 0.15, 0.25, true)))
+            check(listOf(AirPlayContact(7, 0.2, 0.3, true), AirPlayContact(5, 0.5, 0.5, true)))
+            check(emptyList())
+        } finally {
+            NativeTouchSlots.destroy(native)
+        }
+    }
+
+    @Test fun pascdNativeMatchesKotlinFormattingAndFailureBehaviour() {
+        assertTrue(NativeMedia.available)
+        val cases = listOf(
+            VehicleSpeedReading(VehicleGear.PARK, listOf(VehicleSpeedSample(17_877_092, 0.0), VehicleSpeedSample(17_877_252, 0.0))),
+            VehicleSpeedReading(VehicleGear.DRIVE, listOf(VehicleSpeedSample(1_000, 1.2345), VehicleSpeedSample(1_250, -3.0))),
+            VehicleSpeedReading(VehicleGear.REVERSE, listOf(VehicleSpeedSample(0, 0.0005))),
+            VehicleSpeedReading(VehicleGear.NEUTRAL, emptyList()),
+        )
+        for (reading in cases) {
+            val expected = PascdEncoder.kotlinEncode(reading)
+            val actual = NativeVehicleSpeed.pascdEncode(
+                reading.gear.ordinal,
+                LongArray(reading.samples.size) { reading.samples[it].elapsedMillis },
+                DoubleArray(reading.samples.size) { reading.samples[it].metersPerSecond },
+            )
+            assertEquals(expected, actual)
+        }
+    }
+
+    @Test fun audioBufferAccountingNativeMatchesKotlinIncludingWrapAndReset() {
+        assertTrue(NativeMedia.available)
+        val native = AudioBufferProgress(4)
+        val kotlin = KotlinAudioBufferProgress(4)
+        try {
+            native.written(4000); kotlin.written(4000)
+            for (head in listOf(-100, 100, 200, -4)) {
+                assertEquals(kotlin.queuedBytes(head), native.queuedBytes(head))
+            }
+            for (media in listOf(true, false)) for (playing in listOf(true, false)) for (underrun in listOf(true, false))
+                for (empty in listOf(true, false)) for (head in listOf(-100, 100)) {
+                    assertEquals(
+                        kotlin.shouldRebuffer(media, playing, underrun, empty, head, 3000),
+                        native.shouldRebuffer(media, playing, underrun, empty, head, 3000),
+                    )
+                }
+            native.reset(); kotlin.reset()
+            assertEquals(kotlin.queuedBytes(100), native.queuedBytes(100))
+        } finally {
+            native.close()
+        }
     }
 }

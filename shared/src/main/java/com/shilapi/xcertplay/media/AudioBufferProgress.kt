@@ -29,12 +29,7 @@ internal class AudioBufferProgress(private val frameBytes: Int) : Closeable {
     /** A freshly built output starts from zero without releasing the native owner. */
     fun reset() {
         val kotlin = fallback
-        if (kotlin != null) {
-            kotlin.reset()
-        } else {
-            if (handle != 0L) NativeAudioScheduler.destroy(handle)
-            handle = NativeAudioScheduler.create(frameBytes).also { check(it != 0L) }
-        }
+        if (kotlin != null) kotlin.reset() else NativeAudioScheduler.reset(handle)
     }
 
     override fun close() {
@@ -76,6 +71,7 @@ internal class KotlinAudioBufferProgress(private val frameBytes: Int) {
 internal object NativeAudioScheduler {
     @JvmStatic external fun create(frameBytes: Int): Long
     @JvmStatic external fun destroy(handle: Long)
+    @JvmStatic external fun reset(handle: Long)
     @JvmStatic external fun written(handle: Long, bytes: Int)
     @JvmStatic external fun queuedBytes(handle: Long, rawHead: Int): Long
     @JvmStatic external fun shouldRebuffer(

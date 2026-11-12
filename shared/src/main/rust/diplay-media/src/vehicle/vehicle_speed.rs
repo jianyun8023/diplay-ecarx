@@ -82,7 +82,7 @@ use crate::platform::jvm::Env;
 use jni_sys::{jclass, jdoubleArray, jint, jlongArray, jstring, JNIEnv};
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeVehicleSpeed_pascdEncode(
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleSpeed_pascdEncode(
     env: *mut JNIEnv, _class: jclass, gear: jint, elapsed_ms: jlongArray, speeds: jdoubleArray,
 ) -> jstring {
     if elapsed_ms.is_null() || speeds.is_null() { return std::ptr::null_mut(); }

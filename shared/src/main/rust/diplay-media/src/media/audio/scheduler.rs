@@ -24,6 +24,13 @@ impl AudioBufferProgress {
         AudioBufferProgress { frame_bytes: frame_bytes.max(1) as i64, written_bytes: 0, played_frames: 0, last_head: 0 }
     }
 
+    /// A freshly built output starts from zero without releasing the native owner.
+    pub fn reset(&mut self) {
+        self.written_bytes = 0;
+        self.played_frames = 0;
+        self.last_head = 0;
+    }
+
     pub fn written(&mut self, bytes: i32) {
         self.written_bytes += bytes.max(0) as i64;
     }
@@ -79,6 +86,21 @@ mod tests {
     }
 
     #[test]
+    fn wrap_and_reset_rebase_the_playing_head() {
+        let mut progress = AudioBufferProgress::new(1);
+        for _ in 0..3 {
+            progress.written(2_000_000_000);
+        }
+        // Head near 0xffff_ff00, then wrapped forward to 256: 512 frames played across the wrap.
+        let near_top = progress.queued_bytes(-256);
+        let wrapped = progress.queued_bytes(256);
+        assert_eq!(wrapped, near_top - 512);
+        progress.reset();
+        assert_eq!(progress.queued_bytes(256), 0);
+        assert!(!progress.should_rebuffer(true, true, true, true, 256, -1));
+    }
+
+    #[test]
     fn start_level_is_kept_below_the_granted_capacity() {
         assert_eq!(start_bytes_for(8192, 0, 2048), 8192);
         assert_eq!(start_bytes_for(8192, 4096, 2048), 2048);
@@ -103,6 +125,13 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioSchedu
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle != 0 { drop(Box::from_raw(handle as *mut AudioBufferProgress)); }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_reset(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+) {
+    if handle != 0 { (&mut *(handle as *mut AudioBufferProgress)).reset(); }
 }
 
 #[no_mangle]
