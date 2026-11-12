@@ -10,15 +10,18 @@
 use crate::crypto::TAG_LEN;
 use crate::jvm::Env;
 use jni_sys::{jbyteArray, jclass, jint, jlong, JNIEnv};
-use opus_pure::{Application, OpusEncoder, Signal, MAX_PACKET_BYTES};
+use opus_pure::{Application, OpusEncoder, Signal};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 
 const RTP_HEADER_LEN: usize = 12;
 const NONCE_LEN: usize = 8;
 const OPUS_RATE: i32 = 48_000;
 const OPUS_FRAME_SAMPLES: usize = 960;
+// opus-pure's MAX_PACKET_BYTES covers 120 ms; CarPlay sends one 20 ms frame.
+const OPUS_PACKET_BYTES: usize = 1275;
 
 fn voice_encoder(bitrate: i32) -> Option<OpusEncoder> {
+    if bitrate <= 0 { return None; }
     let mut encoder = OpusEncoder::new(OPUS_RATE, 1, Application::Voip).ok()?;
     encoder.bitrate_bps = bitrate;
     encoder.complexity = 5;
@@ -126,7 +129,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
             up.pcm.clear();
             up.pcm.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
             if up.pcm.len() < OPUS_FRAME_SAMPLES { return -1; }
-            let mut out = [0u8; MAX_PACKET_BYTES];
+            let mut out = [0u8; OPUS_PACKET_BYTES];
             match encoder.encode_s16(&up.pcm, OPUS_FRAME_SAMPLES, &mut out) {
                 Ok(0) => return 0,
                 Ok(size) => up.packet.extend_from_slice(&out[..size]),
@@ -173,11 +176,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opu
 ) -> jint {
     let e = Env(env);
     let encoder = &mut *(handle as *mut OpusEncoder);
-    if e.array_len(pcm) < OPUS_FRAME_SAMPLES * 2 || e.array_len(output) < MAX_PACKET_BYTES { return -1; }
+    if e.array_len(pcm) != OPUS_FRAME_SAMPLES * 2 || e.array_len(output) < OPUS_PACKET_BYTES { return -1; }
     let mut bytes = vec![0u8; OPUS_FRAME_SAMPLES * 2];
     if !e.read_array(pcm, 0, &mut bytes) { return -1; }
     let samples: Vec<i16> = bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect();
-    let mut out = [0u8; MAX_PACKET_BYTES];
+    let mut out = [0u8; OPUS_PACKET_BYTES];
     match encoder.encode_s16(&samples, OPUS_FRAME_SAMPLES, &mut out) {
         Ok(size) => if e.write_array(output, 0, &out[..size]) { size as jint } else { -1 },
         Err(_) => { let _ = encoder.reset_state(); -1 }
@@ -195,6 +198,66 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opu
 mod tests {
     use super::*;
     use opus_pure::OpusDecoder;
+
+    #[test]
+    fn the_jni_encoder_uses_the_kotlin_twenty_ms_frame_and_packet_contract() {
+        // Exercise the real JNI entry point with the same arrays NativeOpusEncoder allocates.
+        unsafe extern "system" fn array_len(_env: *mut JNIEnv, array: jni_sys::jarray) -> jint {
+            (*(array as *const Vec<u8>)).len() as jint
+        }
+        unsafe extern "system" fn read_array(_env: *mut JNIEnv, array: jbyteArray, offset: jint, length: jint, out: *mut i8) {
+            let bytes = &*(array as *const Vec<u8>);
+            std::ptr::copy_nonoverlapping(bytes.as_ptr().add(offset as usize), out as *mut u8, length as usize);
+        }
+        unsafe extern "system" fn write_array(_env: *mut JNIEnv, array: jbyteArray, offset: jint, length: jint, input: *const i8) {
+            let bytes = &mut *(array as *mut Vec<u8>);
+            std::ptr::copy_nonoverlapping(input as *const u8, bytes.as_mut_ptr().add(offset as usize), length as usize);
+        }
+        unsafe extern "system" fn exception_check(_env: *mut JNIEnv) -> jni_sys::jboolean { 0 }
+
+        unsafe {
+            let mut functions: jni_sys::JNINativeInterface_ = std::mem::zeroed();
+            functions.GetArrayLength = Some(array_len);
+            functions.GetByteArrayRegion = Some(read_array);
+            functions.SetByteArrayRegion = Some(write_array);
+            functions.ExceptionCheck = Some(exception_check);
+            let mut env = &functions as JNIEnv;
+            let class = std::ptr::null_mut();
+            for bitrate in [24_000, 48_000, 64_000, 96_000] {
+                let handle = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderCreate(&mut env, class, bitrate);
+                assert_ne!(handle, 0);
+                let mut pcm: Vec<u8> = (0..960).flat_map(|n| {
+                    let sample = ((n as f64 * 2.0 * std::f64::consts::PI * 300.0 / 48_000.0).sin() * 8000.0) as i16;
+                    sample.to_le_bytes()
+                }).collect();
+                let mut output = vec![0u8; 1275];
+                let input = &mut pcm as *mut Vec<u8> as jbyteArray;
+                let out = &mut output as *mut Vec<u8> as jbyteArray;
+                let first = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(&mut env, class, handle, input, out);
+                let first_packet = output[..first.max(0) as usize].to_vec();
+                let invalid: Vec<_> = [0, 1918, 1922, 3840].into_iter().map(|length| {
+                    let mut bad = vec![0u8; length];
+                    Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(&mut env, class, handle,
+                        &mut bad as *mut Vec<u8> as jbyteArray, out)
+                }).collect();
+                let second = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(&mut env, class, handle, input, out);
+                Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderDestroy(&mut env, class, handle);
+                assert!((1..=1275).contains(&first), "20 ms / {bitrate} bps with Kotlin's 1275-byte output returned {first}");
+                assert_eq!(invalid, vec![-1; 4]);
+                assert!((1..=1275).contains(&second));
+                let mut decoder = OpusDecoder::new(OPUS_RATE, 1).unwrap();
+                let mut decoded = [0i16; 960];
+                assert_eq!(decoder.decode_s16(&first_packet, 960, &mut decoded).unwrap(), 960);
+                assert_eq!(decoder.decode_s16(&output[..second as usize], 960, &mut decoded).unwrap(), 960);
+                assert!(decoded.iter().any(|&sample| sample != 0));
+            }
+            for bitrate in [0, -1] {
+                let handle = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderCreate(&mut env, class, bitrate);
+                Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderDestroy(&mut env, class, handle);
+                assert_eq!(handle, 0);
+            }
+        }
+    }
 
     /// The same packet as Kotlin's `MicrophonePacketizerGoldenTest`, so both sealers send one layout.
     #[test]
@@ -215,7 +278,7 @@ mod tests {
     fn a_voice_frame_round_trips_through_opus_pure() {
         let mut encoder = voice_encoder(64_000).unwrap();
         let mut decoder = OpusDecoder::new(OPUS_RATE, 1).unwrap();
-        let mut out = [0u8; MAX_PACKET_BYTES];
+        let mut out = [0u8; OPUS_PACKET_BYTES];
         let mut pcm = vec![0i16; OPUS_FRAME_SAMPLES];
         let mut energy_in = 0f64;
         let mut energy_out = 0f64;
@@ -224,7 +287,7 @@ mod tests {
                 .map(|n| (((frame * OPUS_FRAME_SAMPLES + n) as f64 * 2.0 * std::f64::consts::PI * 300.0 / 48_000.0).sin() * 8000.0) as i16)
                 .collect();
             let size = encoder.encode_s16(&input, OPUS_FRAME_SAMPLES, &mut out).unwrap();
-            assert!(size > 0 && size <= MAX_PACKET_BYTES);
+            assert!(size > 0 && size <= OPUS_PACKET_BYTES);
             let decoded = decoder.decode_s16(&out[..size], OPUS_FRAME_SAMPLES, &mut pcm).unwrap();
             assert_eq!(decoded, OPUS_FRAME_SAMPLES);
             if frame >= 10 {
