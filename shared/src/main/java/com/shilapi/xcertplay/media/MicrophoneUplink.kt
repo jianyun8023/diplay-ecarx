@@ -47,6 +47,8 @@ internal class MicrophoneUplink(
             },
         )
     },
+    /** Creates the native send path; injectable so tests can prove the Kotlin encoder is not built for it. */
+    private val nativeSenderFactory: (DatagramSocket, MicrophoneConfig) -> NativeUplinkSender? = NativeUplinkSender::create,
     private val noAudioRestartMillis: Long = NO_AUDIO_RESTART_MILLIS,
     private val onCaptureState: () -> Unit = {},
     /** Read for a report window that recorded no sound; see [silenceDetail]. */
@@ -104,17 +106,6 @@ internal class MicrophoneUplink(
             else -> MediaRecorder.AudioSource.MIC
         }
         stats.selectedSource(source)
-        val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            opusEncoderFactory(config.bitrate ?: 48_000)
-        } else {
-            null
-        }
-        if (config.codec == AudioCodecKind.OPUS && nextEncoder == null) {
-            Log.w(TAG, "microphone Opus encoder is unavailable")
-            stats.failure(MicrophoneFailureStage.ENCODER)
-            running.set(false)
-            return false
-        }
         val bufferSize = maxOf(minBuffer * 2, config.frameBytes * 4)
         // Some head units throw on VOICE_RECOGNITION at build(); VOICE_COMMUNICATION works there.
         val nextRecorder = createRecorder(source, channelMask, bufferSize)
@@ -125,7 +116,6 @@ internal class MicrophoneUplink(
                 null
             }
         if (nextRecorder == null) {
-            nextEncoder?.close()
             running.set(false)
             return false
         }
@@ -139,16 +129,32 @@ internal class MicrophoneUplink(
             Log.e(TAG, "microphone socket creation failed", error)
             stats.failure(MicrophoneFailureStage.SOCKET_CREATION, error)
             nextRecorder.release()
-            nextEncoder?.close()
             running.set(false)
             return false
         }
 
         recorder = nextRecorder
         socket = nextSocket
-        nativeSender = NativeUplinkSender.create(nextSocket, config)
-        // The native sender encodes itself; the separate encoder serves an unshareable socket.
-        opusEncoder = if (nativeSender != null) null.also { nextEncoder?.close() } else nextEncoder
+        try {
+            nativeSender = nativeSenderFactory(nextSocket, config)
+            // The native sender encodes itself; a separate encoder is needed only for Java socket I/O.
+            opusEncoder = if (nativeSender == null && config.codec == AudioCodecKind.OPUS) {
+                val encoder = opusEncoderFactory(config.bitrate ?: 48_000)
+                if (encoder == null) {
+                    Log.w(TAG, "microphone Opus encoder is unavailable")
+                    stats.failure(MicrophoneFailureStage.ENCODER)
+                    release()
+                    return false
+                }
+                encoder
+            } else {
+                null
+            }
+        } catch (error: Throwable) {
+            // Encoder creation used to precede these SDK resources; delayed creation owns them now.
+            runCatching { release() }.onFailure { error.addSuppressed(it) }
+            throw error
+        }
         val implementation = when {
             nativeSender != null && config.codec == AudioCodecKind.OPUS -> "native encoder=opus-pure"
             nativeSender != null -> "native"
