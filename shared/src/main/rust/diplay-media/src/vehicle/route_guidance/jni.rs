@@ -17,6 +17,7 @@ unsafe fn boxed(env: *mut JNIEnv, value: Option<i64>) -> Option<jobject> {
     let method = (f.GetStaticMethodID.unwrap())(env, class, c"valueOf".as_ptr(), c"(J)Ljava/lang/Long;".as_ptr());
     if method.is_null() { return None; }
     let result = (f.CallStaticObjectMethodA.unwrap())(env, class, method, [jvalue { j: value }].as_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
     (!result.is_null()).then_some(result)
 }
 
