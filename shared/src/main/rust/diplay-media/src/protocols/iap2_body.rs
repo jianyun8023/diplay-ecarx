@@ -79,19 +79,23 @@ mod tests {
 // ---- JNI boundary: `com.shilapi.xcertplay.iap2.wire.NativeIap2Body` ----
 
 use crate::platform::jvm::Env;
-use jni_sys::{jbyteArray, jclass, jint, jintArray, jobject, jobjectArray, jvalue, JNIEnv};
-use std::ffi::CString;
+use jni_sys::{jbyteArray, jclass, jint, jintArray, jobjectArray, jvalue, JNIEnv};
 use std::ptr::null_mut;
 
 unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     let f = &**env;
     if (f.ExceptionCheck.unwrap())(env) != 0 { return; }
-    let class = CString::new(class).unwrap();
-    let message = CString::new(message.replace('\0', "")).unwrap();
+    let class = std::ffi::CString::new(class).unwrap();
     let target = (f.FindClass.unwrap())(env, class.as_ptr());
-    if !target.is_null() {
-        (f.ThrowNew.unwrap())(env, target, message.as_ptr());
-    }
+    if target.is_null() { return; }
+    // Kotlin's protocol exception has (String, Throwable), not ThrowNew's String-only constructor.
+    let init = (f.GetMethodID.unwrap())(env, target, c"<init>".as_ptr(), c"(Ljava/lang/String;Ljava/lang/Throwable;)V".as_ptr());
+    if init.is_null() { return; }
+    let text = Env(env).string(message);
+    if text.is_null() { return; }
+    let args = [jvalue { l: text }, jvalue { l: null_mut() }];
+    let error = (f.NewObjectA.unwrap())(env, target, init, args.as_ptr());
+    if (f.ExceptionCheck.unwrap())(env) == 0 && !error.is_null() { (f.Throw.unwrap())(env, error); }
 }
 
 unsafe fn read_bytes(env: *mut JNIEnv, array: jbyteArray) -> Option<Vec<u8>> {

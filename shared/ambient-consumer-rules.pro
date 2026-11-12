@@ -95,3 +95,6 @@
 -keep class com.shilapi.xcertplay.iap2.wire.Iap2Parameter {
     public <init>(int, byte[]);
 }
+-keep class com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException {
+    public <init>(java.lang.String, java.lang.Throwable);
+}
