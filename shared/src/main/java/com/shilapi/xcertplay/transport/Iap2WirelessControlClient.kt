@@ -6,7 +6,6 @@ import com.shilapi.xcertplay.iap2.message.Iap2WirelessSessionParameters
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
-import kotlin.math.min
 
 /**
  * The wireless LIVI control sequence after a CSM channel is ready:
@@ -71,35 +70,33 @@ class Iap2WirelessControlClient(
             onLinkReady = { onBootstrapPhase(Iap2BootstrapPhase.CSM_ESTABLISHED) },
         )
         onProgress("iap2 identification accepted")
-        var stage = Iap2WirelessControlStage.IDENTIFIED
-
-        mfi.run(session, handshakeRemaining(), onProgress)
-        onBootstrapPhase(Iap2BootstrapPhase.MFi_AUTHENTICATED)
-        stage = Iap2WirelessControlStage.AUTHENTICATED
-        onProgress("iap2 authentication accepted")
-
-        for (subscription in Iap2WiredControlClient.subscriptions()) {
-            session.send(subscription, handshakeRemaining())
+        val core = Iap2HandshakeCore(3)
+        setup@ while (true) when (core.setup) {
+            Iap2HandshakeCore.Setup.AUTHENTICATE -> {
+                mfi.run(session, handshakeRemaining(), onProgress)
+                onBootstrapPhase(Iap2BootstrapPhase.MFi_AUTHENTICATED)
+                core.authenticated()
+                onProgress("iap2 authentication accepted")
+            }
+            Iap2HandshakeCore.Setup.SUBSCRIBE -> {
+                for (subscription in Iap2WiredControlClient.subscriptions()) session.send(subscription, handshakeRemaining())
+                core.subscribed()
+                onProgress("iap2 subscriptions sent")
+                onReady()
+            }
+            Iap2HandshakeCore.Setup.COMPLETE -> break@setup
+            Iap2HandshakeCore.Setup.POWER -> error("Wireless iAP2 does not advertise wired power")
         }
-        stage = Iap2WirelessControlStage.SUBSCRIBED
-        onProgress("iap2 subscriptions sent")
-        onReady()
 
         fun sendControl(frame: Iap2Frame) {
             session.send(frame, deadline.requireRemaining(keepAliveAfterDeadline))
         }
 
-        var forwardedFrames = 0
         val rxLog = Iap2RxLog()
-        var wifiConfigurationsSent = 0
-        var carPlayStartSessionsSent = 0
-        var preTransportWiFiConfigurationsSent = 0
-        var postTransportWiFiConfigurationsSent = 0
-        var transportNotificationSeen = false
-        var wirelessCarPlayAvailableSeen = false
-        // The iPhone itself said wireless CarPlay is unavailable for this car (0x4E0D payload 0).
-        // That is an answer, not a delay: keep it for the report and to pick the failure message.
-        var wirelessUnavailableReported = false
+        fun result(terminal: Iap2WirelessControlTerminal) = Iap2WirelessControlResult(
+            terminal, Iap2WirelessControlStage.entries[core.stage], core.forwarded, core.wifi, core.starts,
+            core.transportSeen, core.postWifi, core.availableSeen, core.unavailableSeen,
+        )
         val transportWait = WirelessTransportWait(transportWaitMillis)
         val location = Iap2LocationReporter(locationProvider, onProgress)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
@@ -107,138 +104,72 @@ class Iap2WirelessControlClient(
             while (true) {
                 val remaining = deadline.remainingMillis(keepAliveAfterDeadline)
                 if (remaining == 0L) {
-                    return Iap2WirelessControlResult(
-                        Iap2WirelessControlTerminal.TIMED_OUT,
-                        stage,
-                        forwardedFrames,
-                        wifiConfigurationsSent,
-                        carPlayStartSessionsSent,
-                        transportNotificationSeen,
-                        postTransportWiFiConfigurationsSent,
-                        wirelessCarPlayAvailableSeen,
-                        wirelessUnavailableReported,
-                    )
+                    return result(Iap2WirelessControlTerminal.TIMED_OUT)
                 }
                 // The iPhone authenticated but never asked for the Wi-Fi transport. Polling longer
                 // cannot change its mind, so end the attempt and let the caller name the reason.
-                if (transportWait.expired(carPlayStartSessionsSent, transportNotificationSeen)) {
+                if (transportWait.expired(core.starts, core.transportSeen)) {
                     onProgress(
                         "iap2 no wireless transport after ${transportWaitMillis}ms: " +
-                            "stage=$stage wirelessCarPlayAvailable=$wirelessCarPlayAvailableSeen " +
-                            "reportedUnavailable=$wirelessUnavailableReported " +
-                            "wifiConfigs=$wifiConfigurationsSent",
+                            "stage=${Iap2WirelessControlStage.entries[core.stage]} wirelessCarPlayAvailable=${core.availableSeen} " +
+                            "reportedUnavailable=${core.unavailableSeen} " +
+                            "wifiConfigs=${core.wifi}",
                     )
-                    return Iap2WirelessControlResult(
-                        Iap2WirelessControlTerminal.NO_WIRELESS_TRANSPORT,
-                        stage,
-                        forwardedFrames,
-                        wifiConfigurationsSent,
-                        carPlayStartSessionsSent,
-                        transportNotificationSeen,
-                        postTransportWiFiConfigurationsSent,
-                        wirelessCarPlayAvailableSeen,
-                        wirelessUnavailableReported,
-                    )
+                    return result(Iap2WirelessControlTerminal.NO_WIRELESS_TRANSPORT)
                 }
                 location.tick(::sendControl)
                 vehicleStatus.tick(::sendControl)
                 val pollTimeout = transportWait.boundPollTimeout(
                     vehicleStatus.pollTimeout(location.pollTimeout(remaining)),
-                    carPlayStartSessionsSent,
-                    transportNotificationSeen,
+                    core.starts,
+                    core.transportSeen,
                 )
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
                     if (session.isClosed) {
-                        return Iap2WirelessControlResult(
-                            Iap2WirelessControlTerminal.CHANNEL_CLOSED,
-                            stage,
-                            forwardedFrames,
-                            wifiConfigurationsSent,
-                            carPlayStartSessionsSent,
-                            transportNotificationSeen,
-                            postTransportWiFiConfigurationsSent,
-                            wirelessCarPlayAvailableSeen,
-                            wirelessUnavailableReported,
-                        )
+                        return result(Iap2WirelessControlTerminal.CHANNEL_CLOSED)
                     }
                     if (deadline.remainingMillis(keepAliveAfterDeadline) == 0L) {
-                        return Iap2WirelessControlResult(
-                            Iap2WirelessControlTerminal.TIMED_OUT,
-                            stage,
-                            forwardedFrames,
-                            wifiConfigurationsSent,
-                            carPlayStartSessionsSent,
-                            transportNotificationSeen,
-                            postTransportWiFiConfigurationsSent,
-                            wirelessCarPlayAvailableSeen,
-                            wirelessUnavailableReported,
-                        )
+                        return result(Iap2WirelessControlTerminal.TIMED_OUT)
                     }
                     continue
                 }
 
-                when (incoming.messageId) {
-                    REQUEST_ACCESSORY_WIFI_CONFIGURATION -> {
+                when (core.message(incoming.messageId)) {
+                    Iap2HandshakeCore.Action.WIFI_REQUEST -> {
                         onProgress("iap2 rx=0x5702 request-wifi-configuration")
-                        val postTransport = transportNotificationSeen
-                        val sentCount = if (postTransport) {
-                            postTransportWiFiConfigurationsSent
-                        } else {
-                            preTransportWiFiConfigurationsSent
-                        }
-                        val limit = if (postTransport) {
-                            MAX_POST_TRANSPORT_WIFI_CONFIGURATION_SENDS
-                        } else {
-                            MAX_PRE_TRANSPORT_WIFI_CONFIGURATION_SENDS
-                        }
-                        if (sentCount >= limit) {
-                            onProgress(
-                                "iap2 0x5703 ignored: maximum Wi-Fi configuration sends reached",
-                            )
+                        val plan = core.wifiPlan()
+                        if (plan == 0) {
+                            onProgress("iap2 0x5703 ignored: maximum Wi-Fi configuration sends reached")
                         } else {
                             sendControl(accessoryWiFiConfiguration(endpoint))
-                            stage = later(
-                                stage,
-                                if (postTransport) {
-                                    Iap2WirelessControlStage.POST_TRANSPORT_WIFI_CONFIG_SENT
-                                } else {
-                                    Iap2WirelessControlStage.WIFI_CONFIG_SENT
-                                },
-                            )
-                            wifiConfigurationsSent++
-                            if (postTransport) {
-                                postTransportWiFiConfigurationsSent++
-                            } else {
-                                preTransportWiFiConfigurationsSent++
-                            }
+                            core.wifiSent(plan)
                             onProgress("iap2 tx=0x5703 accessory-wifi-configuration")
                         }
                     }
 
-                    CARPLAY_AVAILABILITY -> {
+                    Iap2HandshakeCore.Action.CARPLAY_AVAILABLE -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
                         onProgress(carPlayAvailabilityDiagnostic(incoming))
                         beforeStartSession()
                         sendStartSession(endpoint, ::sendControl, onStartSessionSent)
-                        stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
-                        carPlayStartSessionsSent++
+                        core.startSent()
                         onProgress("iap2 tx=0x4301 carplay-start-session")
                         onBootstrapPhase(Iap2BootstrapPhase.START_SESSION_SENT)
                     }
 
-                    WIRELESS_CARPLAY_UPDATE -> {
+                    Iap2HandshakeCore.Action.WIRELESS_AVAILABILITY -> {
                         val available = Iap2WirelessMessages.wirelessCarPlayAvailability(incoming)
-                        if (available) wirelessCarPlayAvailableSeen = true else wirelessUnavailableReported = true
+                        core.availability(available)
                         onProgress("iap2 rx=0x4e0d wireless-carplay-update available=$available")
                         // Only the positive availability is bootstrap progress; "unavailable" is an answer.
                         if (available) onBootstrapPhase(Iap2BootstrapPhase.WIRELESS_CARPLAY_AVAILABLE)
                     }
 
-                    DEVICE_TRANSPORT_IDENTIFIER_NOTIFICATION -> {
-                        transportNotificationSeen = true
+                    Iap2HandshakeCore.Action.TRANSPORT -> {
+                        core.transportReceived()
                         val identifiers = Iap2WirelessMessages.deviceTransportIdentifier(incoming)
-                        stage = later(stage, Iap2WirelessControlStage.TRANSPORT_NOTIFIED)
+                        core.transportParsed()
                         onBootstrapPhase(Iap2BootstrapPhase.TRANSPORT_IDENTIFIED)
                         onProgress(
                             "iap2 rx=0x4e0e device-transport-identifier " +
@@ -246,41 +177,28 @@ class Iap2WirelessControlClient(
                                 "usb=${identifiers.usbTransportIdentifier ?: "none"}; " +
                                 "resending 0x5703",
                         )
-                        if (
-                            postTransportWiFiConfigurationsSent >=
-                            MAX_POST_TRANSPORT_WIFI_CONFIGURATION_SENDS
-                        ) {
-                            onProgress(
-                                "iap2 post-transport 0x5703 ignored: " +
-                                    "maximum Wi-Fi configuration sends reached",
-                            )
+                        val plan = core.wifiPlan()
+                        if (plan == 0) {
+                            onProgress("iap2 post-transport 0x5703 ignored: maximum Wi-Fi configuration sends reached")
                         } else {
                             sendControl(accessoryWiFiConfiguration(endpoint))
-                            stage = later(
-                                stage,
-                                Iap2WirelessControlStage.POST_TRANSPORT_WIFI_CONFIG_SENT,
-                            )
-                            wifiConfigurationsSent++
-                            postTransportWiFiConfigurationsSent++
-                            onProgress(
-                                "iap2 tx=0x5703 post-transport accessory-wifi-configuration",
-                            )
+                            core.wifiSent(plan)
+                            onProgress("iap2 tx=0x5703 post-transport accessory-wifi-configuration")
                         }
                     }
 
-                    Iap2VehicleStatus.START_VEHICLE_STATUS_UPDATES, Iap2VehicleStatus.STOP_VEHICLE_STATUS_UPDATES -> {
+                    Iap2HandshakeCore.Action.VEHICLE -> {
                         vehicleStatus.handle(incoming, ::sendControl)
                     }
 
-                    Iap2LocationMessages.START_LOCATION_INFORMATION,
-                    Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
+                    Iap2HandshakeCore.Action.LOCATION -> {
                         location.handle(incoming, ::sendControl)
                     }
 
                     else -> {
                         rxLog.line(incoming.messageId)?.let(onProgress)
                         onIncoming(incoming)
-                        forwardedFrames++
+                        core.forwarded()
                     }
                 }
             }
@@ -290,18 +208,12 @@ class Iap2WirelessControlClient(
     }
 
     companion object {
-        private const val REQUEST_ACCESSORY_WIFI_CONFIGURATION = 0x5702
         private const val ACCESSORY_WIFI_CONFIGURATION = 0x5703
-        private const val CARPLAY_AVAILABILITY = 0x4300
         private const val CARPLAY_START_SESSION = 0x4301
-        private const val WIRELESS_CARPLAY_UPDATE = 0x4e0d
-        private const val DEVICE_TRANSPORT_IDENTIFIER_NOTIFICATION = 0x4e0e
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
         const val NO_TRANSPORT_WAIT_MILLIS = Long.MAX_VALUE
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val MAX_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
-        private const val MAX_PRE_TRANSPORT_WIFI_CONFIGURATION_SENDS = 5
-        private const val MAX_POST_TRANSPORT_WIFI_CONFIGURATION_SENDS = 2
 
         /** Malformed optional availability metadata must not change existing control behavior. */
         internal fun carPlayAvailabilityDiagnostic(frame: Iap2Frame): String = try {
@@ -339,10 +251,6 @@ class Iap2WirelessControlClient(
                 sourceVersion = endpoint.sourceVersion,
             )
 
-        private fun later(
-            current: Iap2WirelessControlStage,
-            next: Iap2WirelessControlStage,
-        ): Iap2WirelessControlStage = if (current.ordinal >= next.ordinal) current else next
     }
 }
 
@@ -446,65 +354,28 @@ internal fun sendStartSession(
  * budget only leaves the screen saying it is connecting.
  */
 internal class WirelessTransportWait(
-    private val waitMillis: Long,
+    waitMillis: Long,
     private val nowNanos: () -> Long = System::nanoTime,
 ) {
-    private val startedNanos = nowNanos()
-    private val enabled = waitMillis != Iap2WirelessControlClient.NO_TRANSPORT_WAIT_MILLIS
+    private val core = Iap2TransportWaitCore(waitMillis, nowNanos())
 
-    fun expired(startRequestsSent: Int, transportNotified: Boolean): Boolean {
-        if (!enabled) return false
-        // Either one is already progress past this wait, whatever happens next.
-        if (startRequestsSent > 0 || transportNotified) return false
-        return nowNanos() - startedNanos >= waitMillis * NANOS_PER_MILLISECOND
-    }
+    fun expired(startRequestsSent: Int, transportNotified: Boolean): Boolean = core.expired(
+        startRequestsSent, transportNotified,
+        if (core.needsClock(startRequestsSent, transportNotified)) nowNanos() else 0L,
+    )
 
-    /**
-     * The control loop blocks in `recv` for as long as the deadline allows — up to five minutes —
-     * so the wait has to shorten that poll or it is only noticed after the phone finally speaks.
-     */
-    fun boundPollTimeout(requestedMillis: Long, startRequestsSent: Int, transportNotified: Boolean): Long {
-        if (!enabled || startRequestsSent > 0 || transportNotified) return requestedMillis
-        val remainingNanos = waitMillis * NANOS_PER_MILLISECOND - (nowNanos() - startedNanos)
-        if (remainingNanos <= 0L) return 1L
-        val remainingMillis = (remainingNanos + NANOS_PER_MILLISECOND - 1L) / NANOS_PER_MILLISECOND
-        return minOf(requestedMillis, remainingMillis)
-    }
-
-    private companion object {
-        const val NANOS_PER_MILLISECOND = 1_000_000L
-    }
+    fun boundPollTimeout(requestedMillis: Long, startRequestsSent: Int, transportNotified: Boolean): Long = core.bound(
+        requestedMillis, startRequestsSent, transportNotified,
+        if (core.needsClock(startRequestsSent, transportNotified)) nowNanos() else 0L,
+    )
 }
 
 /** A bounded bring-up deadline that a proven live session can extend for ongoing control updates. */
-internal class WirelessControlDeadline(timeoutMillis: Long, private val nowNanos: () -> Long = System::nanoTime) {
-    private var extendedForLiveSession = false
-    private val deadlineNanos = if (timeoutMillis == Iap2WirelessControlClient.NO_TIMEOUT_MILLIS) {
-        Long.MAX_VALUE
-    } else {
-        val now = nowNanos()
-        val delta = timeoutMillis * NANOS_PER_MILLISECOND
-        if (now > Long.MAX_VALUE - delta) Long.MAX_VALUE else now + delta
-    }
-
-    fun remainingMillis(keepAlive: () -> Boolean = { false }): Long {
-        if (extendedForLiveSession) return if (keepAlive()) MAX_POLL_MILLIS else 0L
-        if (deadlineNanos == Long.MAX_VALUE) return MAX_POLL_MILLIS
-        val remaining = deadlineNanos - nowNanos()
-        if (remaining <= 0) {
-            if (!keepAlive()) return 0L
-            extendedForLiveSession = true
-            return MAX_POLL_MILLIS
-        }
-        return min(MAX_POLL_MILLIS, (remaining + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND)
-    }
+internal class WirelessControlDeadline(timeoutMillis: Long, nowNanos: () -> Long = System::nanoTime) {
+    private val core = Iap2HandshakeDeadline(2, timeoutMillis, nowNanos)
+    fun remainingMillis(keepAlive: () -> Boolean = { false }): Long = core.remaining(keepAlive)
 
     fun requireRemaining(keepAlive: () -> Boolean = { false }): Long = remainingMillis(keepAlive).also {
         if (it == 0L) throw IphoneUsbException.TimedOut("Timed out during wireless iAP2 control bring-up")
-    }
-
-    private companion object {
-        const val NANOS_PER_MILLISECOND = 1_000_000L
-        const val MAX_POLL_MILLIS = 5 * 60 * 1_000L
     }
 }
