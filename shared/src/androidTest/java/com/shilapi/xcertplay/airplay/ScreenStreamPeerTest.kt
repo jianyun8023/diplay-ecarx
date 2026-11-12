@@ -149,7 +149,9 @@ class ScreenStreamPeerTest {
         val stream = ScreenStream(key, mapped)
         try {
             val port = stream.listen(listener)
-            send(port, sealedFrame(0, byteArrayOf(0x65, 0x33)))
+            Socket(InetAddress.getByName("127.0.0.1"), port).use { socket ->
+                socket.getOutputStream().write(sealedFrame(0, byteArrayOf(0x65, 0x33)))
+            }
             assertArrayEquals(byteArrayOf(0, 0, 0, 1, 0x65, 0x33), frames.poll(3, TimeUnit.SECONDS))
         } finally { stream.close() }
     }
