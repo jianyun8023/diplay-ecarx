@@ -13,6 +13,7 @@ mod bplist_jni;
 pub mod audio_queue;
 pub mod clock_trim;
 pub mod crypto;
+pub mod hid;
 pub mod jvm;
 pub mod ncm;
 pub mod pacing;

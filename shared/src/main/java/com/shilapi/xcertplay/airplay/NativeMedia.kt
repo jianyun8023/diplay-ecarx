@@ -20,6 +20,14 @@ internal object NativeMedia {
     /** Why the library did not load, for callers that report it; null when it loaded. */
     val loadError: Throwable? get() = load.exceptionOrNull()
 
+    /** One report call owns slot selection and all wire conversion. xy is interleaved x/y. */
+    @JvmStatic external fun hidTouchReport(ids: IntArray, xy: DoubleArray, down: BooleanArray): ByteArray
+    @JvmStatic external fun hidKnobReport(select: Boolean, home: Boolean, back: Boolean, x: Int, y: Int, wheel: Int): ByteArray
+    /** Both media and telephony report the low byte of the index. */
+    @JvmStatic external fun hidIndexReport(index: Int): ByteArray
+    /** 0 touch, 1 knob, 2 media, 3 telephony; touch bounds retain their low 16 bits. */
+    @JvmStatic external fun hidDescriptor(kind: Int, xMax: Int, yMax: Int): ByteArray
+
     /** Opaque wireless lifecycle/handoff value, with no native allocation or resource handle. */
     @JvmStatic external fun wirelessRunCreate(): Long
     /** Lifecycle, handoff, tunnel-ready, failed, running, handoff-requested, active, last-event-accepted. */
