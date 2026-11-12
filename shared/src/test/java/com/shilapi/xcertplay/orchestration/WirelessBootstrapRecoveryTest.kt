@@ -453,6 +453,20 @@ class WirelessBootstrapRecoveryTest {
         assertStale(attempt)
     }
 
+    @Test fun currentPredicateRemainsOutsideTheAttemptMonitorAndShortCircuitsWhenInvalid() {
+        lateinit var attempt: Attempt
+        var calls = 0
+        attempt = Attempt({
+            assertFalse(Thread.holdsLock(attempt))
+            calls++
+            true
+        }, 1)
+        assertTrue(attempt.isCurrent)
+        attempt.invalidate()
+        assertFalse(attempt.isCurrent)
+        assertEquals(1, calls)
+    }
+
     @Test fun handoffBeginningDuringValidationPreventsSocketCreation() {
         val fixture = Fixture()
         fixture.onValidateTarget = { fixture.handoff = true }

@@ -21,6 +21,11 @@
     void onEvent(int, java.lang.String);
 }
 
+# Opaque recovery tokens use these primitive JNI entry points.
+-keep class com.shilapi.xcertplay.orchestration.NativeWirelessRecovery {
+    native <methods>;
+}
+
 # The route JNI boundary owns a handle and constructs the existing maneuver DTO.
 -keep class com.shilapi.xcertplay.hud.NativeRouteGuidance {
     native <methods>;
