@@ -15,3 +15,4 @@ pub mod timing;
 pub mod iap2_file_transfer;
 pub mod data_stream;
 pub mod auth_setup;
+pub mod iap_stream_queue;

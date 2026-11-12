@@ -2,8 +2,6 @@ package com.shilapi.xcertplay.airplay
 
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import java.io.IOException
-import java.util.ArrayDeque
-import kotlin.math.min
 
 /**
  * Full-duplex adapter for the CarPlay iAP2 DataStream.
@@ -19,10 +17,11 @@ internal class AirPlayIapTunnelStream(
     },
 ) : BlockingDuplexByteStream {
     private val lock = Object()
-    private val pending = ArrayDeque<ByteArray>()
-    private var pendingBytes = 0
-    private var closed = false
-    private var terminalFailure: Throwable? = null
+    // Rust owns layout, byte budget, splitting and termination. GC owns payload storage,
+    // allowing queued-before-close/error drain without a surviving native handle.
+    private val queue = NativeIapStreamQueue.create()
+    // Platform payloads; their presence is controlled by the Rust termination flags.
+    private lateinit var terminalFailure: Throwable
     private var closeLocation: String? = null
 
     fun listen(): Int = tunnel.listen(
@@ -53,15 +52,13 @@ internal class AirPlayIapTunnelStream(
 
     override fun send(data: ByteArray) {
         synchronized(lock) {
-            throwTerminalFailureLocked()
-            if (closed) throw closedFailureLocked()
+            checkSendLocked()
         }
         if (!tunnel.awaitPeerConnection(PEER_CONNECT_TIMEOUT_MILLIS)) {
             throw IOException("CarPlay iAP tunnel peer did not connect")
         }
         synchronized(lock) {
-            throwTerminalFailureLocked()
-            if (closed) throw closedFailureLocked()
+            checkSendLocked()
         }
         if (!sendCommand(data, EVENT_READY_TIMEOUT_MILLIS)) {
             throw IOException("AirPlay event channel rejected an iAP message")
@@ -75,9 +72,10 @@ internal class AirPlayIapTunnelStream(
         val deadlineNanos = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
         synchronized(lock) {
             while (true) {
-                takePendingLocked(maxBytes)?.let { return it }
-                throwTerminalFailureLocked()
-                if (closed) return EMPTY
+                NativeIapStreamQueue.take(queue, maxBytes)?.let { return it }
+                val status = NativeIapStreamQueue.status(queue)
+                throwTerminalFailureLocked(status)
+                if (status and CLOSED != 0) return EMPTY
                 val remainingNanos = deadlineNanos - System.nanoTime()
                 if (remainingNanos <= 0) return null
                 try {
@@ -95,8 +93,7 @@ internal class AirPlayIapTunnelStream(
 
     override fun close() {
         synchronized(lock) {
-            if (closed) return
-            closed = true
+            if (!NativeIapStreamQueue.close(queue)) return
             closeLocation = closeCaller()
             lock.notifyAll()
         }
@@ -104,32 +101,36 @@ internal class AirPlayIapTunnelStream(
     }
 
     private fun offer(bytes: ByteArray) {
-        if (bytes.isEmpty()) return
         synchronized(lock) {
-            if (closed || terminalFailure != null) return
-            if (pendingBytes + bytes.size > MAX_PENDING_BYTES) {
-                terminalFailure = IOException("AirPlay iAP tunnel pending-data limit exceeded")
-                lock.notifyAll()
-                tunnel.close()
-                return
+            when (NativeIapStreamQueue.offer(queue, bytes)) {
+                1 -> lock.notifyAll()
+                2 -> {
+                    terminalFailure = IOException("AirPlay iAP tunnel pending-data limit exceeded")
+                    lock.notifyAll()
+                    tunnel.close()
+                }
             }
-            pending.addLast(bytes.copyOf())
-            pendingBytes += bytes.size
-            lock.notifyAll()
         }
     }
 
     private fun markFailed(cause: Throwable?): Boolean {
         synchronized(lock) {
-            if (closed || terminalFailure != null) return false
+            if (!NativeIapStreamQueue.fail(queue)) return false
             terminalFailure = cause ?: IOException("AirPlay iAP tunnel terminated")
             lock.notifyAll()
             return true
         }
     }
 
-    private fun throwTerminalFailureLocked() {
-        val failure = terminalFailure ?: return
+    private fun checkSendLocked() {
+        val status = NativeIapStreamQueue.status(queue)
+        throwTerminalFailureLocked(status)
+        if (status and CLOSED != 0) throw closedFailureLocked()
+    }
+
+    private fun throwTerminalFailureLocked(status: Int) {
+        if (status and FAILED == 0) return
+        val failure = terminalFailure
         throw IOException(
             "AirPlay iAP tunnel failed: " +
                 "${failure.javaClass.simpleName}: ${failure.message ?: "unknown error"}",
@@ -152,23 +153,22 @@ internal class AirPlayIapTunnelStream(
                 "${frame.className.substringAfterLast('.')}.${frame.methodName}:${frame.lineNumber}"
             }
 
-    private fun takePendingLocked(maxBytes: Int): ByteArray? {
-        val chunk = pending.pollFirst() ?: return null
-        pendingBytes -= chunk.size
-        if (chunk.size <= maxBytes) return chunk
-
-        val head = chunk.copyOf(maxBytes)
-        val tail = chunk.copyOfRange(maxBytes, chunk.size)
-        pending.addFirst(tail)
-        pendingBytes += tail.size
-        return head
-    }
-
     private companion object {
-        const val MAX_PENDING_BYTES = 1_048_576
+        const val CLOSED = 1
+        const val FAILED = 2
         const val PEER_CONNECT_TIMEOUT_MILLIS = 15_000L
         const val EVENT_READY_TIMEOUT_MILLIS = 10_000L
         const val NANOS_PER_MILLISECOND = 1_000_000L
         val EMPTY = ByteArray(0)
     }
+}
+
+internal object NativeIapStreamQueue {
+    init { NativeMedia.requireAvailable() }
+    @JvmStatic external fun create(): Array<Any?>
+    @JvmStatic external fun offer(state: Array<Any?>, bytes: ByteArray): Int
+    @JvmStatic external fun take(state: Array<Any?>, maximum: Int): ByteArray?
+    @JvmStatic external fun status(state: Array<Any?>): Int
+    @JvmStatic external fun fail(state: Array<Any?>): Boolean
+    @JvmStatic external fun close(state: Array<Any?>): Boolean
 }
