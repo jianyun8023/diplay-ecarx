@@ -59,7 +59,8 @@ class AudioRebufferDiagnosticsTest {
             set("lastPcmWriteNs", System.nanoTime())
             set("bytesPerSecond", 48_000 * 4)
 
-            (get("bufferProgress") as AudioBufferProgress).written(TestTrack.queued)
+            (type.getDeclaredMethod("getBufferProgress").apply { isAccessible = true }
+                .invoke(renderer) as AudioBufferProgress).written(TestTrack.queued)
 
             // Trigger buffer maintenance rebuffering
             type.getDeclaredMethod("maintainPlaybackBuffer").apply { isAccessible = true }.invoke(renderer)
@@ -130,7 +131,8 @@ class AudioRebufferDiagnosticsTest {
             set("startThresholdBytes", threshold)
             set("bytesPerSecond", 48_000 * 4)
 
-            val bufferProgress = get("bufferProgress") as AudioBufferProgress
+            val bufferProgress = type.getDeclaredMethod("getBufferProgress").apply { isAccessible = true }
+                .invoke(renderer) as AudioBufferProgress
 
             // Trigger 10 rebuffer pause and recovery cycles
             repeat(10) {

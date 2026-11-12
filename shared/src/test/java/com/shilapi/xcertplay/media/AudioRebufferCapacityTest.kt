@@ -34,14 +34,14 @@ class AudioRebufferCapacityTest {
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"), false, false, 0, 0,
                     AudioFocusCoordinator(null, false, false), 0, millis, { _: String -> }, false, null, false, false)
             fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
-            fun get(name: String) = type.getDeclaredField(name).apply { isAccessible = true }.get(renderer)
             try {
                 set("track", track)
                 set("mappedChannel", AudioChannel.MEDIA)
                 set("playbackStarted", true)
                 set("startThresholdBytes", threshold)
                 set("lastPcmWriteNs", System.nanoTime())
-                (get("bufferProgress") as AudioBufferProgress).written(CapacityTrack.queued)
+                (type.getDeclaredMethod("getBufferProgress").apply { isAccessible = true }
+                    .invoke(renderer) as AudioBufferProgress).written(CapacityTrack.queued)
                 type.getDeclaredMethod("maintainPlaybackBuffer").apply { isAccessible = true }.invoke(renderer)
                 assertFalse(CapacityTrack.playing)
                 type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType,
