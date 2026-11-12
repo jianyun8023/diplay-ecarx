@@ -234,7 +234,9 @@ class BufferedMusicClockTrimTest {
             override fun onAudioStopped(id: AudioStreamId) { events += SinkEvent.Stopped }
         }
         val clock = VirtualClock()
-        val stream = KotlinBufferedAudioStream(key, format, sink, nanoTime = clock::nanoTime, pause = {})
+        val receiveLog = ConcurrentLinkedQueue<String>()
+        val stream = KotlinBufferedAudioStream(key, format, sink, log = { receiveLog += it },
+            nanoTime = clock::nanoTime, pause = {})
         val lock = privateField(stream, "lock") as Object
         val queue = privateField(stream, "queue") as ArrayDeque<*>
         val fed = privateField(stream, "fed") as ArrayDeque<*>
@@ -261,9 +263,19 @@ class BufferedMusicClockTrimTest {
                 out.flush()
                 val last = (BASE + (sent - 1) * FRAME) and 0xffff_ffffL
                 val deadline = System.nanoTime() + 5_000_000_000L
-                while (synchronized(lock) { ((queue.peekLast() ?: fed.peekLast()) as KotlinBufferedAudioStream.Frame?)?.timestamp } != last) {
-                    assertTrue("the stream did not receive frame $sent", System.nanoTime() < deadline)
-                    Thread.onSpinWait()
+                synchronized(lock) {
+                    while (((queue.peekLast() ?: fed.peekLast()) as KotlinBufferedAudioStream.Frame?)?.timestamp != last) {
+                        val remaining = deadline - System.nanoTime()
+                        assertTrue(
+                            "the stream did not receive frame $sent; queued=${queue.size}, fed=${fed.size}, " +
+                                "lastQueued=${(queue.peekLast() as KotlinBufferedAudioStream.Frame?)?.timestamp}, " +
+                                "lastFed=${(fed.peekLast() as KotlinBufferedAudioStream.Frame?)?.timestamp}, receiveLog=$receiveLog",
+                            remaining > 0,
+                        )
+                        // Reception already notifies this monitor after enqueue. Release it while
+                        // waiting rather than competing with the receiver in a hot polling loop.
+                        lock.wait(remaining / 1_000_000L, (remaining % 1_000_000L).toInt())
+                    }
                 }
             }
 
