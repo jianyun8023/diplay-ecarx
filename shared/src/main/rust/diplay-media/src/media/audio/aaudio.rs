@@ -38,6 +38,7 @@ struct Api {
     stream_getFramesRead: unsafe extern "C" fn(*mut Stream) -> i64,
     stream_getState: unsafe extern "C" fn(*mut Stream) -> i32,
     stream_getSampleRate: unsafe extern "C" fn(*mut Stream) -> i32,
+    stream_getDeviceId: unsafe extern "C" fn(*mut Stream) -> i32,
 }
 
 fn api() -> Option<&'static Api> {
@@ -76,6 +77,7 @@ fn api() -> Option<&'static Api> {
             stream_getFramesRead: load!("AAudioStream_getFramesRead"),
             stream_getState: load!("AAudioStream_getState"),
             stream_getSampleRate: load!("AAudioStream_getSampleRate"),
+            stream_getDeviceId: load!("AAudioStream_getDeviceId"),
         })
     }).as_ref()
 }
@@ -294,6 +296,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
         1 => (api.stream_getBufferSizeInFrames)(out.stream),
         2 => (api.stream_getState)(out.stream),
         3 => out.sample_rate,
+        4 => (api.stream_getDeviceId)(out.stream),
         _ => -1,
     }
 }

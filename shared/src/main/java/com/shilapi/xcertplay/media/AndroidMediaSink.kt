@@ -847,6 +847,11 @@ class AndroidMediaSink(
             echoReference = echoReference,
             voiceFilter = callVoiceFilter && format.audioType == TELEPHONY_AUDIO_TYPE,
             navigationOemContent = navigationOemContent,
+            outputDeviceResolver = { id ->
+                runCatching {
+                    audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull { it.id == id }
+                }.getOrNull()
+            },
         ).also {
             it.debugLogsEnabled = debugLogsEnabled
             it.navigationPromptState = ::navigationPromptState

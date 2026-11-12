@@ -35,6 +35,7 @@ internal class AudioRenderer(
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
     private val navigationOemContent: Boolean = false,
+    private val outputDeviceResolver: ((Int) -> android.media.AudioDeviceInfo?)? = null,
 ) : Closeable {
     /** The configured navigation channel, or the route chosen for the current prompt ([navigationRouteWanted]). */
     @Volatile private var navigationChannel = initialNavigationChannel
@@ -356,7 +357,7 @@ internal class AudioRenderer(
             (selection.channel == AudioChannel.MEDIA || selection.channel == AudioChannel.NAVIGATION)) {
             val nativeAttributes = audioAttributesFor(selection)
             NativeAudioOut.open(format.sampleRate, pcmChannels, nativeAttributes.usage, nativeAttributes.contentType,
-                plan.trackBufferBytes / frameBytes)?.also { attributes = nativeAttributes }
+                plan.trackBufferBytes / frameBytes, outputDeviceResolver)?.also { attributes = nativeAttributes }
         } else null
         if (native != null) {
             nativeOut = native

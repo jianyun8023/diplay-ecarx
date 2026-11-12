@@ -191,7 +191,7 @@ internal object NativeMedia {
     /** Input bytes consumed; transformed output may remain queued. Zero length drains it. Errors end the output. */
     @JvmStatic external fun outWrite(handle: Long, buffer: ByteBuffer, offset: Int, length: Int): Int
     @JvmStatic external fun outFramesRead(handle: Long): Int
-    /** 0 underruns, 1 buffer frames, 2 state, 3 sample rate. */
+    /** 0 underruns, 1 buffer frames, 2 state, 3 sample rate, 4 AAudio device id (0 when unspecified). */
     @JvmStatic external fun outQuery(handle: Long, what: Int): Int
     /** 0 start, 1 pause, 2 flush. */
     @JvmStatic external fun outControl(handle: Long, what: Int): Int

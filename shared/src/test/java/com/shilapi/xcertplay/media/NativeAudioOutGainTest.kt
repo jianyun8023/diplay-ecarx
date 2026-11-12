@@ -7,9 +7,11 @@ import org.junit.Test
 class NativeAudioOutGainTest {
     @Test fun focusGainNeverEntersJniOrTouchesTheNativeHandle() {
         // An invalid handle makes the old direct JNI call fail, even without an Android device.
-        val constructor = NativeAudioOut::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        val constructor = NativeAudioOut::class.java.getDeclaredConstructor(
+            Long::class.javaPrimitiveType, Int::class.javaPrimitiveType, kotlin.jvm.functions.Function1::class.java,
+        )
         constructor.isAccessible = true
-        val out = constructor.newInstance(123L, 4)
+        val out = constructor.newInstance(123L, 4, null)
         val gain = NativeAudioOut::class.java.getDeclaredField("requestedGain").apply { isAccessible = true }
         val handle = NativeAudioOut::class.java.getDeclaredField("handle").apply { isAccessible = true }
         val callback = java.util.concurrent.FutureTask {
