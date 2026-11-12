@@ -129,3 +129,29 @@ AAC MediaCodec、AudioTrack／AAudio 平台调用、焦点、路由与校准继�
 - 独立测试包最终恢复为本批构建，小米 8 选择 ARM64；双 ABI 校验值更新到原生库 NOTICE。日志、基线对照和构建元数据保存在本地 `artifacts/issue96-audio-20261112/`，原始日志／测试 APK 不上传。
 
 下一步先定位两项遗留设备失败，继续收敛逐包交接与平台输出调度；随后按 issue #96 对照 LIVI 推进协议／会话迁移。尚未做 ECARX 753 BUS／焦点、真实 iPhone 音乐／导航／Siri／通话听感、实车长测或性能对照，NCM 仍默认关闭，完整迁移 PR 保持 Draft。
+
+## Issue #96：协议、会话与领域并行首批
+
+用户授权新开子会话后，从 `e1bfde1c` 建立三个隔离 worktree。主会话集中审查、合并共享入口、构建与验证；子会话只运行定向回归。
+
+| 工作线 | 主分支提交 | 首批交付与边界 |
+| --- | --- | --- |
+| 领域 | `3f5d85b4` | EV 0xA101 参数体转换；SDK provider、订阅、有线／无线 reporter 和 Iap2Frame 包装保留 |
+| 会话 | `e0bf8e8a` | WirelessRunState 生命周期、handoff、tunnelReady、首次失败；controller 代际、资源顺序、超时／恢复动作保留 |
+| 协议 | `de448386`、修正 `b8ed2ccd` | RTSP 请求分帧／解析与响应编码；公开 DTO 不变，bplist／配对／控制加密／iAP2 后续迁移 |
+
+Rust 定义无线状态的 opaque value token，Kotlin 只串行保存该值，所有查询与转移交给 Rust；它不是 native 堆句柄，因此关闭后仍可报告首次迟到失败，无终态策略副本或句柄缓存。EV 转换保留字段顺序、未知能量省略、负值钳零、u32 溢出／NaN 拒绝、缩放／舍入和无穷值钳制。
+
+RTSP 保留本项目 16 KiB header／1 MiB body、重复头、trim／大小写、Content-Length、响应顺序及 ProtocolException。JNI 直接构造既有 Request／Parsed，UTF-16 字符串与按消息 local frame 保留 NUL 并限制局部引用；R8 规则保留 DTO 名称与构造器。两次只读审查后，真实设备对照仍抓到了桌面 JDK 与 Android 的补充字符 ASCII 替换差异：Rust 按 scalar 输出一个 `?`，Android 旧实现按两个 UTF-16 单元输出两个 `?`。改为按 UTF-16 单元转换，保持 Android 既有字节；保留桌面 fallback 的不同黄金预期。未因此修改协议规则或车机校准。
+
+LIVI 对照固定：RTSP 为 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`，标准 RTSP／500 响应与 ts_vectors 逐字节相同；其 16 MiB 上限、leading-digit 长度、非 ASCII 等语义不同，首批保留本仓库行为。EV 对照 `870d26441e073cdb802c427c5ae8833dba694951` 的 iap2-csm vehicle_status 字段／类型一致，livi-cp vehicle_state 是另一车辆特征协议。没有导入 LIVI 文件、宏、运行时或新依赖。
+
+验证：
+
+- 三路分别运行 Kotlin 定向 37／21／22 项，全部通过；Rust 新增 RTSP 4、无线状态 5、车辆转换 4 项，集成后主机共 51 项通过。
+- 新增设备测试 9 项：RTSP 分片／合包／边界／ASCII／NUL／异常，10,000 消息 DTO 引用压力及真实 AirPlaySession loopback；无线状态 32,000 步 Kotlin 对照与 50 轮关闭／失败／迟到回调并发；EV 1944 组快照黄金字节及非法值拒绝。
+- 最终同一独立测试 APK 在小米 8／API 35 的 ARM64、ARMv7 及 API 28 ARM64 模拟器各 16 项通过（新增 9 项 + 上一批音频 7 项）。初轮两个 ARM64 环境均有且仅有上述 ASCII 对照失败，修正后重新构建／运行，未以主机结果代替 Android 输出语义。
+- 本批只在集成后运行一轮完整 CI（6 分 14 秒）：Android 单测 3403 通过、2 跳过、0 失败，四应用 lint、Debug 构建、R8 通过。主应用 R8 保留 NativeRtsp 与 Request／Parsed 的 JNI 类名，构造器规则已核对；主应用／独立测试 APK 的双 ABI 来源／strip 产物和 NATIVE-NOTICE 与最终源码一致，公共源码凭据和 diff 检查通过。
+- 来源校验、最终 CI 与 R8 结果随本批集成记录保存到 `artifacts/issue96-parallel-20261112/`。手机测试包最终恢复 ARM64，原始日志／测试 APK 不上传。
+
+这三个首批 owner 可独立实施；完整会话接入与 HID 编码仍须统一协议事件／存储／编码契约。三个大阶段均未整体完成，实车／iPhone、配对、有线／无线重连、导航／HID 和性能仍待验收。上一批已复现的双 ABI Opus 编码失败及 API 28 模拟器 AAudio 大块排空超时未在本批修复；NCM 仍默认关闭，PR 保持 Draft。
