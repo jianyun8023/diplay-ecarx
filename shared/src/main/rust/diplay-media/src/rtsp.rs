@@ -69,7 +69,8 @@ pub fn response(protocol: &str, status: i32, reason: Option<&str>, cseq: Option<
     let mut head = format!("{protocol} {status} {reason}\r\n");
     for (key, value) in headers { head.push_str(&key); head.push_str(": "); head.push_str(&value); head.push_str("\r\n"); }
     head.push_str("\r\n");
-    let mut wire: Vec<u8> = head.chars().map(|c| if c.is_ascii() { c as u8 } else { b'?' }).collect();
+    // Android US_ASCII replaces UTF-16 units, so a supplementary pair becomes two question marks.
+    let mut wire: Vec<u8> = head.encode_utf16().map(|unit| if unit < 128 { unit as u8 } else { b'?' }).collect();
     wire.extend_from_slice(body);
     wire
 }
@@ -128,6 +129,6 @@ mod tests {
         assert_eq!(response("RTSP/1.0", 500, None, Some("5"), Vec::new(), b""),
             b"RTSP/1.0 500 Internal Server Error\r\nCSeq: 5\r\nContent-Length: 0\r\n\r\n");
         assert_eq!(response("HTTP/1.1", 470, Some("测试😀"), None, vec![("a".into(), "\0".into())], b"\xff"),
-            b"HTTP/1.1 470 ???\r\na: \0\r\nContent-Length: 1\r\n\r\n\xff");
+            b"HTTP/1.1 470 ????\r\na: \0\r\nContent-Length: 1\r\n\r\n\xff");
     }
 }

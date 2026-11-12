@@ -31,6 +31,7 @@ class RtspMessageWireTest {
             RtspMessage.buildResponse(request, response))
         assertArrayEquals("RTSP/1.0 500 Internal Server Error\r\nCSeq: 5\r\nContent-Length: 0\r\n\r\n".toByteArray(),
             RtspMessage.buildResponse(request, RtspMessage.Response(status = 500)))
+        // The host JDK replaces the pair once; device tests compare Android's own UTF-16-unit replacement.
         assertArrayEquals("HTTP/1.1 470 ???\r\nCSeq: 5\r\nContent-Length: 1\r\n\r\n".toByteArray() + byteArrayOf(-1),
             RtspMessage.buildResponse(request, RtspMessage.Response("HTTP/1.1", 470, "测试😀", body = byteArrayOf(-1))))
     }
