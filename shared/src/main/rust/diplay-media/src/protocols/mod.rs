@@ -14,3 +14,4 @@ mod tlv8;
 pub mod timing;
 pub mod iap2_file_transfer;
 pub mod data_stream;
+pub mod auth_setup;

@@ -1,12 +1,11 @@
 //! Array-only JNI bridge. Java exceptions remain pending; no logging helper clears them.
 use super::{
-    controller_public_key, ecdsa_der_to_raw, ecdsa_raw_to_der, EcdsaError, StreamKey, TAG_LEN,
+    controller_public_key, ecdsa_der_to_raw, ecdsa_raw_to_der, random32, x25519_pair,
+    x25519_shared, EcdsaError, StreamKey, TAG_LEN,
 };
-use curve25519_dalek::{constants::X25519_BASEPOINT, montgomery::MontgomeryPoint};
 use jni_sys::{jarray, jboolean, jbyteArray, jclass, jint, jobjectArray, JNIEnv};
 use ring::{
     digest, hkdf,
-    rand::{SecureRandom, SystemRandom},
     signature::{self, Ed25519KeyPair, KeyPair},
 };
 use std::{ffi::CStr, ptr::null_mut};
@@ -105,15 +104,14 @@ unsafe fn pair(env: *mut JNIEnv, seed: &[u8; 32], public: &[u8]) -> jobjectArray
     array
 }
 unsafe fn random(env: *mut JNIEnv) -> Option<[u8; 32]> {
-    let mut seed = [0; 32];
-    if SystemRandom::new().fill(&mut seed).is_err() {
+    let Some(seed) = random32() else {
         throw(
             env,
             c"java/lang/IllegalStateException",
             c"OS random source failed",
         );
         return None;
-    }
+    };
     Some(seed)
 }
 
@@ -122,14 +120,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x2
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jobjectArray {
-    let Some(mut seed) = random(env) else {
+    let Some(seed) = random(env) else {
         return null_mut();
     };
     // BC's generated encoded private key is clamped already; imported keys clamp at multiplication.
-    seed[0] &= 248;
-    seed[31] &= 127;
-    seed[31] |= 64;
-    pair(env, &seed, &X25519_BASEPOINT.mul_clamped(seed).to_bytes())
+    let(private,public)=x25519_pair(seed);
+    pair(env, &private, &public)
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x25519Shared(
@@ -144,17 +140,15 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x2
     let Some(peer) = prefix(env, peer) else {
         return null_mut();
     };
-    let shared = MontgomeryPoint(peer).mul_clamped(private);
-    // MontgomeryPoint's PartialEq delegates to its constant-time field comparison.
-    if shared == MontgomeryPoint([0; 32]) {
+    let Some(shared) = x25519_shared(private,peer) else {
         throw(
             env,
             c"java/lang/IllegalStateException",
             c"X25519 agreement failed",
         );
         return null_mut();
-    }
-    bytes(env, shared.as_bytes())
+    };
+    bytes(env, &shared)
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed25519Generate(

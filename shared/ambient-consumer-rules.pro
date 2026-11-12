@@ -151,3 +151,11 @@
 }
 -keep class com.shilapi.xcertplay.transport.NativeIap2FileTransfer { native <methods>; }
 -keep class com.shilapi.xcertplay.airplay.NativeDataStream { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeMfiSap { native <methods>; }
+-keepclassmembers class com.shilapi.xcertplay.airplay.MfiSapPlatform {
+    public int kind();
+    public byte[] certificate();
+    public int major();
+    public byte[] sign(byte[]);
+    public byte[][] baa();
+}

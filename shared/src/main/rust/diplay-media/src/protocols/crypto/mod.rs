@@ -3,9 +3,23 @@
 
 mod jni;
 use ring::hkdf;
+use curve25519_dalek::{constants::X25519_BASEPOINT, montgomery::MontgomeryPoint};
 use ring::aead::{Aad, LessSafeKey, Nonce, Tag, UnboundKey, CHACHA20_POLY1305};
 
 pub const TAG_LEN: usize = 16;
+
+pub(super) fn random32() -> Option<[u8;32]> {
+    use ring::rand::{SecureRandom,SystemRandom};
+    let mut seed=[0;32];SystemRandom::new().fill(&mut seed).ok()?;Some(seed)
+}
+pub(super) fn x25519_pair(mut seed:[u8;32]) -> ([u8;32],[u8;32]) {
+    seed[0]&=248;seed[31]&=127;seed[31]|=64;
+    (seed,X25519_BASEPOINT.mul_clamped(seed).to_bytes())
+}
+pub(super) fn x25519_shared(private:[u8;32],peer:[u8;32]) -> Option<[u8;32]> {
+    let shared=MontgomeryPoint(peer).mul_clamped(private);
+    (shared!=MontgomeryPoint([0;32])).then(||shared.to_bytes())
+}
 
 pub struct StreamKey(LessSafeKey);
 
