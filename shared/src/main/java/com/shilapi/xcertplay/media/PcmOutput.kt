@@ -26,7 +26,7 @@ internal interface PcmOutput {
     fun flush()
     fun release()
     fun setPlaybackRate(rate: Int): Int
-    /** The focus ducking gain on both channels; false when it was not applied. */
+    /** The focus ducking gain on both channels; native output applies accepted changes on its worker. */
     fun setVolume(volume: Float): Boolean
 }
 
@@ -58,6 +58,8 @@ internal class TrackOutput(val track: AudioTrack) : PcmOutput {
 internal class NativeAudioOut private constructor(private var handle: Long, private val frameBytes: Int) : PcmOutput {
     private var staging: ByteBuffer = ByteBuffer.allocateDirect(0)
     private var playing = false
+    @Volatile private var requestedGain = 1f
+    private var appliedGain = 1f
 
     override val bufferSizeInFrames get() = NativeMedia.outQuery(handle, 1)
     override val sampleRate get() = NativeMedia.outQuery(handle, 3)
@@ -75,8 +77,17 @@ internal class NativeAudioOut private constructor(private var handle: Long, priv
         return write(staging, 0, length)
     }
 
-    override fun write(buffer: ByteBuffer, offset: Int, length: Int): Int =
-        if (length == 0) 0 else NativeMedia.outWrite(handle, buffer, offset, length - length % frameBytes)
+    override fun write(buffer: ByteBuffer, offset: Int, length: Int): Int {
+        val gain = requestedGain
+        if (gain != appliedGain) {
+            NativeMedia.outSetGain(handle, gain)
+            appliedGain = gain
+        }
+        return NativeMedia.outWrite(handle, buffer, offset, length - length % frameBytes)
+    }
+
+    /** Drains a transformed block even when no more packets arrive. Called only by the worker. */
+    fun drain(): Int = write(staging, 0, 0)
 
     override fun play() { NativeMedia.outControl(handle, 0); playing = true }
     override fun pause() { NativeMedia.outControl(handle, 1); playing = false }
@@ -89,7 +100,8 @@ internal class NativeAudioOut private constructor(private var handle: Long, priv
     }
 
     override fun setPlaybackRate(rate: Int) = if (NativeMedia.outSetRate(handle, rate) == 0) AudioTrack.SUCCESS else AudioTrack.ERROR
-    override fun setVolume(volume: Float): Boolean { NativeMedia.outSetGain(handle, volume); return true }
+    // Focus callbacks never touch the worker's native handle, including after it has closed.
+    override fun setVolume(volume: Float): Boolean { requestedGain = volume; return true }
 
     companion object {
         /** Null when AAudio cannot open this format and these attributes; the renderer then builds an AudioTrack. */

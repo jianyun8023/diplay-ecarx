@@ -67,8 +67,8 @@ When the library cannot load, the Kotlin receivers and the platform cipher (Cons
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1105864 | `ca5e99d290dcd42c1476a262a7ade33185481a1773231fad1d2947b96f387123` |
-| armeabi-v7a | libdiplay_media.so | 757716 | `9b2960667a4a99f08a6348ad073d89c79dd2b20b629a13d885f8a0dfb8353841` |
+| arm64-v8a | libdiplay_media.so | 1105888 | `6f0423223b2f839e5dda7115d215149bd87779cd4ab64e0b1a9f4cc4e24bd361` |
+| armeabi-v7a | libdiplay_media.so | 757868 | `b89004174ded4d7d7e48cdc0340f0533e809bb31adc0f21326b34a669f55ba33` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

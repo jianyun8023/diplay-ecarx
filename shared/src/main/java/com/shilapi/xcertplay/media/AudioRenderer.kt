@@ -287,6 +287,7 @@ internal class AudioRenderer(
             if (running) reportFailure(error)
             throw error
         } finally {
+            running = false
             // A worker that stops on an error must still end its prompt focus.
             reportNavigationAudio(false, ended = true)
             runCatching { logStatsIfDue(force = true) }
@@ -911,10 +912,15 @@ internal class AudioRenderer(
             if (count < 0) {
                 writeErrorsThisWindow++
                 lastWriteErrorCode = count
+                check(track !is NativeAudioOut) { "AAudio write failed: $count" }
                 break
             }
             if (count == 0) {
                 zeroWritesThisWindow++
+                if (track is NativeAudioOut) {
+                    Thread.sleep(AUDIO_POLL_MILLIS)
+                    continue
+                }
                 break
             }
             if (count < writeLength) partialWritesThisWindow++
@@ -1018,6 +1024,10 @@ internal class AudioRenderer(
 
     private fun maintainPlaybackBuffer() {
         val track = output ?: return
+        if (track is NativeAudioOut) {
+            val result = track.drain()
+            check(result >= 0) { "AAudio drain failed: $result" }
+        }
         if (bufferProgress.shouldRebuffer(mappedChannel == AudioChannel.MEDIA, playbackStarted,
                 track.underrunCount > underrunsAtPlaybackStart, queue.isEmpty(), track.playbackHeadPosition,
                 startThresholdBytes / 2L)) {

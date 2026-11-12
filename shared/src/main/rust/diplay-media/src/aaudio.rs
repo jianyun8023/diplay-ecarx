@@ -143,11 +143,79 @@ pub struct Output {
     resampler: Resampler,
     scratch: Vec<i16>,
     resampled: Vec<i16>,
-    /// Input frames taken and output frames written, to report the head in input frames.
+    pending_offset: usize,
+    /// Input accepted and corresponding output generated, including the pending tail.
     input_frames: i64,
     output_frames: i64,
 }
 
+impl Output {
+    /// Returns false on backpressure; the pending PCM and resampler state belong to this worker.
+    fn drain(&mut self, write: &mut impl FnMut(*const c_void, i32) -> i32) -> Result<bool, i32> {
+        while self.pending_offset < self.resampled.len() {
+            let remaining = (self.resampled.len() - self.pending_offset) / self.channels;
+            let result = write(unsafe { self.resampled.as_ptr().add(self.pending_offset) } as *const c_void, remaining as i32);
+            if result < 0 { return Err(result); }
+            if result == 0 { return Ok(false); }
+            self.pending_offset += result as usize * self.channels;
+        }
+        self.resampled.clear();
+        self.pending_offset = 0;
+        Ok(true)
+    }
+
+    fn write(&mut self, bytes: &[u8], mut write: impl FnMut(*const c_void, i32) -> i32) -> Result<usize, i32> {
+        if !self.drain(&mut write)? || bytes.is_empty() { return Ok(0); }
+        let frame_bytes = 2 * self.channels;
+        let frames = bytes.len() / frame_bytes;
+        if self.gain >= 1.0 && self.resampler.is_identity() {
+            let mut written = 0;
+            while written < frames {
+                let result = write(unsafe { bytes.as_ptr().add(written * frame_bytes) } as *const c_void, (frames - written) as i32);
+                if result < 0 { return Err(result); }
+                if result == 0 { break; }
+                written += result as usize;
+            }
+            if written > 0 {
+                let mut tail = [0i16; 2];
+                for (channel, sample) in tail[..self.channels].iter_mut().enumerate() {
+                    let at = (written - 1) * frame_bytes + channel * 2;
+                    *sample = i16::from_le_bytes([bytes[at], bytes[at + 1]]);
+                }
+                self.resampler.remember(&tail[..self.channels]);
+            }
+            self.input_frames += written as i64;
+            self.output_frames += written as i64;
+            return Ok(written * frame_bytes);
+        }
+        self.scratch.clear();
+        self.scratch.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
+        if self.gain < 1.0 {
+            for sample in &mut self.scratch { *sample = (*sample as f32 * self.gain) as i16; }
+        }
+        if self.resampler.is_identity() {
+            self.resampler.remember(&self.scratch);
+            std::mem::swap(&mut self.scratch, &mut self.resampled);
+        } else {
+            self.resampler.process(&self.scratch, &mut self.resampled);
+        }
+        self.input_frames += frames as i64;
+        self.output_frames += (self.resampled.len() / self.channels) as i64;
+        // Consume the input once; a partial write retains output, never reprocesses input.
+        self.drain(&mut write)?;
+        Ok(bytes.len())
+    }
+
+    fn discard_pending(&mut self) {
+        self.resampled.clear();
+        self.pending_offset = 0;
+        let step = self.resampler.step;
+        self.resampler = Resampler::new(self.channels);
+        self.resampler.set_step(step);
+    }
+}
+
+// NativeAudioOut's worker is the sole caller; focus callbacks only publish a Kotlin volatile gain.
 unsafe fn output<'a>(handle: jlong) -> &'a mut Output { &mut *(handle as *mut Output) }
 
 /// An output stream for 16-bit PCM, or 0 when AAudio cannot open it (the renderer then uses AudioTrack).
@@ -180,12 +248,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
     (api.stream_setBufferSizeInFrames)(stream, capacity_frames);
     Box::into_raw(Box::new(Output {
         stream, channels: channels as usize, sample_rate, gain: 1.0, resampler: Resampler::new(channels as usize),
-        scratch: Vec::new(), resampled: Vec::new(), input_frames: 0, output_frames: 0,
+        scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, input_frames: 0, output_frames: 0,
     })) as jlong
 }
 
 /// Writes `length` bytes of the direct `buffer` from `offset`, blocking like AudioTrack's blocking
-/// write. Returns the bytes taken, or a negative AAudio error.
+/// write. Returns input bytes consumed (possibly buffered), or a terminal AAudio error.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outWrite(
     env: *mut JNIEnv, _class: jclass, handle: jlong, buffer: jobject, offset: jint, length: jint,
@@ -197,56 +265,9 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
     let length = (length.max(0) as usize / frame_bytes) * frame_bytes;
     if offset < 0 || offset as usize + length > capacity { return -1; }
     let bytes = std::slice::from_raw_parts(address.add(offset as usize), length);
-    let frames = (length / frame_bytes) as i32;
-    if out.gain >= 1.0 && out.resampler.is_identity() {
-        // The common case: the renderer's buffer is already 16-bit PCM, written as it is.
-        if frames > 0 {
-            let last = bytes.len() - frame_bytes;
-            let tail: Vec<i16> = bytes[last..].chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect();
-            out.resampler.remember(&tail);
-        }
-        let mut written = 0i32;
-        while written < frames {
-            let result = (api.stream_write)(out.stream, bytes.as_ptr().add(written as usize * frame_bytes) as *const c_void,
-                frames - written, WRITE_TIMEOUT_NS);
-            if result < 0 { return result; }
-            if result == 0 { break; }
-            written += result;
-        }
-        out.input_frames += written as i64;
-        out.output_frames += written as i64;
-        return (written as usize * frame_bytes) as jint;
-    }
-    out.scratch.clear();
-    out.scratch.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
-    if out.gain < 1.0 {
-        let gain = out.gain;
-        for s in out.scratch.iter_mut() { *s = (*s as f32 * gain) as i16; }
-    }
-    let samples: &[i16] = if out.resampler.is_identity() {
-        out.resampler.remember(&out.scratch);
-        &out.scratch
-    } else {
-        out.resampled.clear();
-        out.resampler.process(&out.scratch, &mut out.resampled);
-        &out.resampled
-    };
-    let total = (samples.len() / out.channels) as i32;
-    let mut written = 0i32;
-    while written < total {
-        let result = (api.stream_write)(out.stream, samples.as_ptr().add(written as usize * out.channels) as *const c_void,
-            total - written, WRITE_TIMEOUT_NS);
-        if result < 0 { return result; }
-        if result == 0 { break; }
-        written += result;
-    }
-    out.input_frames += (length / frame_bytes) as i64;
-    out.output_frames += written as i64;
-    if written < total {
-        // A timed-out write took only part of this block; report the input share it covered.
-        return ((length as i64 * written as i64 / total.max(1) as i64) as usize / frame_bytes * frame_bytes) as jint;
-    }
-    length as jint
+    let stream = out.stream;
+    out.write(bytes, |data, frames| (api.stream_write)(stream, data, frames, WRITE_TIMEOUT_NS))
+        .map(|count| count as jint).unwrap_or_else(|error| error)
 }
 
 /// Frames played, in the renderer's input frames (AudioTrack.getPlaybackHeadPosition), as an int.
@@ -287,7 +308,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
     match what {
         0 => (api.stream_requestStart)(out.stream),
         1 => (api.stream_requestPause)(out.stream),
-        2 => (api.stream_requestFlush)(out.stream),
+        2 => {
+            let result = (api.stream_requestFlush)(out.stream);
+            if result == 0 { out.discard_pending(); }
+            result
+        },
         _ => -1,
     }
 }
@@ -323,6 +348,86 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn renderer(channels: usize, gain: f32, step: f64) -> Output {
+        let mut resampler = Resampler::new(channels);
+        resampler.set_step(step);
+        Output {
+            stream: std::ptr::null_mut(), channels, sample_rate: 48000, gain, resampler,
+            scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, input_frames: 0, output_frames: 0,
+        }
+    }
+
+    #[test]
+    fn partial_and_zero_writes_keep_pcm_and_advance_input_only_once() {
+        for channels in [1, 2] {
+            for step in [1.0, 0.99, 1.01] {
+                let bytes: Vec<u8> = (0..100 * channels).flat_map(|n| (n as i16 * 50).to_le_bytes()).collect();
+                let mut reference = renderer(channels, 0.2, step);
+                let mut expected = Vec::new();
+                let all = |data: *const c_void, frames: i32| {
+                    expected.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, frames as usize * channels) });
+                    frames
+                };
+                assert_eq!(reference.write(&bytes, all), Ok(bytes.len()));
+                let mut out = renderer(channels, 0.2, step);
+                let mut actual = Vec::new();
+                let mut calls = 0;
+                assert_eq!(out.write(&bytes, |data, _frames| {
+                    calls += 1;
+                    if calls > 1 { return 0; }
+                    actual.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, 50 * channels) });
+                    50
+                }), Ok(bytes.len()));
+                assert_eq!(out.input_frames, 100);
+                assert_eq!(out.output_frames, reference.output_frames);
+                let position = out.resampler.position;
+                assert_eq!(out.write(&bytes, |_, _| 0), Ok(0));
+                assert_eq!(out.input_frames, 100);
+                assert_eq!(out.resampler.position, position);
+                assert_eq!(out.write(&[], |data, frames| {
+                    actual.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, frames as usize * channels) });
+                    frames
+                }), Ok(0));
+                assert_eq!(actual, expected);
+                assert_eq!(out.input_frames, 100);
+                assert!(out.resampled.is_empty());
+                assert_eq!(out.resampler.last, reference.resampler.last);
+            }
+        }
+    }
+
+    #[test]
+    fn fast_path_remembers_only_written_input_and_propagates_errors() {
+        let mut out = renderer(1, 1.0, 1.0);
+        let bytes: Vec<u8> = [10i16, 20, 30, 40].into_iter().flat_map(i16::to_le_bytes).collect();
+        let mut calls = 0;
+        assert_eq!(out.write(&bytes, |_, _| { calls += 1; if calls == 1 { 2 } else { 0 } }), Ok(4));
+        assert_eq!(out.resampler.last, [20]);
+        assert_eq!((out.input_frames, out.output_frames), (2, 2));
+        assert_eq!(out.write(&bytes[4..], |_, _| -899), Err(-899));
+        assert_eq!((out.input_frames, out.output_frames), (2, 2));
+        assert_eq!(out.write(&bytes[4..], |_, frames| frames), Ok(4));
+        assert_eq!(out.resampler.last, [40]);
+        assert_eq!((out.input_frames, out.output_frames), (4, 4));
+    }
+
+    #[test]
+    fn pending_error_is_reported_without_accepting_more_input_and_flush_discards_tail() {
+        let mut out = renderer(1, 0.2, 0.99);
+        let bytes = [1u8, 0, 2, 0, 3, 0, 4, 0];
+        assert_eq!(out.write(&bytes, |_, _| 0), Ok(bytes.len()));
+        let generated = out.output_frames;
+        assert_eq!(out.write(&bytes, |_, _| -899), Err(-899));
+        assert_eq!((out.input_frames, out.output_frames), (4, generated));
+        out.discard_pending();
+        assert!(out.resampled.is_empty());
+        assert_eq!(out.pending_offset, 0);
+        assert_eq!(out.resampler.position, 0.0);
+        assert_eq!(out.resampler.last, [0]);
+        assert_eq!(out.resampler.step, 0.99);
+        assert_eq!(out.write(&[], |_, _| panic!("flushed PCM must not be written")), Ok(0));
+    }
 
     #[test]
     fn unit_step_is_a_one_block_delay_free_copy_and_faster_play_takes_fewer_frames() {

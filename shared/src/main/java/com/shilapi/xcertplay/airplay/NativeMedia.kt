@@ -117,6 +117,7 @@ internal object NativeMedia {
 
     /** An AAudio output for 16-bit PCM routed by [usage]; 0 when AAudio cannot open it. */
     @JvmStatic external fun outOpen(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): Long
+    /** Input bytes consumed; transformed output may remain queued. Zero length drains it. Errors end the output. */
     @JvmStatic external fun outWrite(handle: Long, buffer: ByteBuffer, offset: Int, length: Int): Int
     @JvmStatic external fun outFramesRead(handle: Long): Int
     /** 0 underruns, 1 buffer frames, 2 state, 3 sample rate. */

@@ -93,6 +93,7 @@ Kotlin 仍决定“用什么、怎么回退、渲染到哪”，Rust 执行“�
 
 - **套接字移交**：Kotlin 照旧负责绑定、`accept`、对端校验（只接受控制会话的 iPhone），之后把 fd 交给 Rust（`ParcelFileDescriptor.detachFd`），Rust 拥有它直到关闭。关闭流时 Kotlin 调 `close(handle)`，Rust 用 `shutdown` 唤醒阻塞读并在线程退出时 `close(fd)`。
 - **线程**：每条流一个 Rust 接收线程，名字沿用 `airplay-screen`、`airplay-audio-rx`、`airplay-buffered-rx`，诊断和 `/proc` 采样脚本不必改。音频线程设 `THREAD_PRIORITY_AUDIO` 对应的 nice 值。
+- **AAudio 输出**：`NativeAudioOut` 的原生句柄仅由音频 worker 访问；焦点回调只更新 Kotlin volatile 目标增益，由 worker 在写入／排空前应用。原生写入返回消费的输入字节；衰减／重采样后的未写完 PCM 留在 Rust，排空前不接受下一块输入，零长度写入只排空。输入／生成输出分别计数，部分写入不重算重采样、不重复消费；worker 空闲时继续排空，原生写入失败结束 renderer，关闭前取消焦点，FLUSH 丢弃待写 PCM 和插值历史。
 - **向上回调**：Rust 线程附着到 JVM，每帧调用一次 Kotlin 监听器，只传句柄与元数据（长度、关键帧标志、发送端时间、到达时间、RTP 序号与时间戳），不传字节数组。
 - **帧句柄**：`NativePacket` 持有引用计数的池化缓冲，Kotlin 通过 `MediaPacket` 传递所有权。镜像消费方各持有自己的引用；写入解码器、被队列丢弃或流关闭时释放。
 - **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin 保留配置、Surface 和恢复决策。Kotlin 回退路径通过 `MediaPacket.copyInto` 写入解码器输入缓冲。
