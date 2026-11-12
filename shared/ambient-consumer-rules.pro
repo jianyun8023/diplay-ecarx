@@ -39,6 +39,16 @@
     public <init>(int, int, int, java.lang.String, java.lang.Long, java.lang.Long, java.lang.Long, java.lang.Long);
 }
 
+# Pair-verify calls the live platform store and returns its existing key DTO.
+-keep class com.shilapi.xcertplay.airplay.NativePairVerify {
+    native <methods>;
+    public static byte[] lookup(com.shilapi.xcertplay.airplay.PairingStore, byte[]);
+}
+-keepnames class com.shilapi.xcertplay.airplay.PairingStore
+-keep class com.shilapi.xcertplay.airplay.PairVerify$ControlKeys {
+    public <init>(byte[], byte[]);
+}
+
 # The control cipher JNI returns the existing plaintext/rest DTO.
 -keep class com.shilapi.xcertplay.airplay.ControlCipher$Decrypted {
     public <init>(byte[], byte[]);

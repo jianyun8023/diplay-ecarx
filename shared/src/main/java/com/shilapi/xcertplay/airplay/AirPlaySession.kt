@@ -197,6 +197,7 @@ class AirPlaySession(
             Log.w(TAG, "airplay media stream teardown failed", error)
         }
         teardown()
+        pairVerify.close()
         if (notified.compareAndSet(false, true)) listener.onSessionEnded(this)
     }
 
@@ -606,8 +607,8 @@ class AirPlaySession(
                     val wire = RtspMessage.buildResponse(request, response)
                     trace { "airplay control tx wireHex=${wire.toHex()}" }
                     output.write(cipher?.encrypt(wire) ?: wire)
-                    if (cipher == null && pairVerify.controlKeys != null) {
-                        val keys = pairVerify.controlKeys!!
+                    val keys = if (cipher == null) pairVerify.controlKeys else null
+                    if (keys != null) {
                         synchronized(controlCipherLock) {
                             if (!closed.get() && cipher == null) cipher = ControlCipher(keys.readKey, keys.writeKey)
                         }

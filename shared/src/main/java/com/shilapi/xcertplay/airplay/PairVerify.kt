@@ -1,28 +1,59 @@
 package com.shilapi.xcertplay.airplay
 
+/** The responder's sole state owner; Android retains the live pairing-store lookup. */
+class PairVerify(identity: AirPlayIdentity, private val pairings: PairingStore) : java.io.Closeable {
+    data class ControlKeys(val readKey: ByteArray, val writeKey: ByteArray)
+
+    private val fallback = if (NativeMedia.available) null else KotlinPairVerify(identity, pairings)
+    private var handle = if (fallback == null) NativePairVerify.create(
+        identity.privateKey, identity.pairingId.toByteArray(Charsets.UTF_8),
+    ).also { check(it != 0L) } else 0L
+    private var closed = false
+
+    val isVerified: Boolean
+        @Synchronized get() = !closed && (fallback?.isVerified ?: NativePairVerify.verified(handle))
+    val verifiedControllerId: String?
+        @Synchronized get() = if (closed) null else if (fallback != null) fallback.verifiedControllerId
+            else NativePairVerify.controllerId(handle)?.toString(Charsets.UTF_8)
+    val controlKeys: ControlKeys?
+        @Synchronized get() = if (closed) null else if (fallback != null) fallback.controlKeys else NativePairVerify.keys(handle)
+    val shared: ByteArray?
+        @Synchronized get() = if (closed) null else if (fallback != null) fallback.shared else NativePairVerify.shared(handle)
+
+    @Synchronized fun handle(body: ByteArray): ByteArray {
+        check(!closed) { "PairVerify is closed" }
+        return fallback?.handle(body) ?: NativePairVerify.handle(handle, body, pairings)
+    }
+
+    @Synchronized override fun close() {
+        if (closed) return
+        if (fallback == null) NativePairVerify.destroy(handle)
+        handle = 0L
+        closed = true
+    }
+}
+
 /**
  * CarPlay pair-verify responder (accessory/server side).
  *
  * Uses ephemeral X25519 plus Ed25519 signatures against the controller's stored long-term key,
  * then derives the ChaCha20-Poly1305 control-channel keys.
  */
-class PairVerify(
+internal class KotlinPairVerify(
     private val identity: AirPlayIdentity,
     private val pairings: PairingStore,
 ) {
-    data class ControlKeys(val readKey: ByteArray, val writeKey: ByteArray)
-
     private var ephemeralPublicKey: ByteArray? = null
     private var clientEphemeralPublicKey: ByteArray? = null
     private var sharedSecret: ByteArray? = null
     private var encryptionKey: ByteArray? = null
-    private var keys: ControlKeys? = null
+    private var keys: PairVerify.ControlKeys? = null
     private var verified = false
     private var controllerId: String? = null
 
     val isVerified: Boolean get() = verified
     val verifiedControllerId: String? get() = controllerId
-    val controlKeys: ControlKeys? get() = keys
+    val controlKeys: PairVerify.ControlKeys? get() = keys
     val shared: ByteArray? get() = sharedSecret
 
     fun handle(body: ByteArray): ByteArray {
@@ -95,7 +126,7 @@ class PairVerify(
 
         val readKey = AirPlayCrypto.hkdfSha512(shared, CONTROL_SALT.asciiBytes(), CONTROL_WRITE_KEY_INFO.asciiBytes())
         val writeKey = AirPlayCrypto.hkdfSha512(shared, CONTROL_SALT.asciiBytes(), CONTROL_READ_KEY_INFO.asciiBytes())
-        keys = ControlKeys(readKey, writeKey)
+        keys = PairVerify.ControlKeys(readKey, writeKey)
         verified = true
         this.controllerId = controllerId.toString(Charsets.UTF_8)
         return Tlv8Codec.encode(listOf(Tlv8Item(TYPE_STATE, byteArrayOf(4))))

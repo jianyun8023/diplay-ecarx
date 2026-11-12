@@ -20,6 +20,8 @@ pub mod hid;
 pub mod jvm;
 pub mod ncm;
 pub mod pacing;
+pub mod pair_verify;
+mod pair_verify_jni;
 pub mod packet;
 pub mod pcm;
 pub mod renderer;

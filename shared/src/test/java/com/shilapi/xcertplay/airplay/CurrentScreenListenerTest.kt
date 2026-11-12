@@ -163,9 +163,9 @@ class CurrentScreenListenerTest {
     }
 
     private fun withSharedSecret(session: AirPlaySession) {
-        // onScreen derives the stream key from the pair-verify secret; any 32 bytes will do for routing.
-        PairVerify::class.java.getDeclaredField("sharedSecret").apply { isAccessible = true }
-            .set(session.pairVerify, ByteArray(32) { it.toByte() })
+        session.pairVerify.handle(Tlv8Codec.encode(listOf(
+            Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, AirPlayCrypto.x25519Generate().publicKey),
+        )))
         assertTrue(session.sharedSecret != null)
     }
 

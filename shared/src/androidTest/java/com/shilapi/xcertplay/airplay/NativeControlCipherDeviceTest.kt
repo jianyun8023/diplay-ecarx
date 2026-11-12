@@ -105,6 +105,9 @@ class NativeControlCipherDeviceTest {
                         Tlv8Item(5, AirPlayCrypto.chachaSeal(encryptKey, AirPlayCrypto.nonceLabel("PV-Msg03"), sub))))
                     control.request("POST", "/pair-verify", m3)
                     assertArrayEquals(byteArrayOf(4), Tlv8Codec.decode(control.read().body)[6])
+                    assertTrue(session.pairVerify.isVerified)
+                    assertEquals("cipher-controller", session.controllerId)
+                    assertArrayEquals(shared, session.sharedSecret)
                     fun key(salt: String, info: String) = AirPlayCrypto.hkdfSha512(shared, salt.toByteArray(), info.toByteArray())
                     control.cipher = ControlCipher(key("Control-Salt", "Control-Read-Encryption-Key"), key("Control-Salt", "Control-Write-Encryption-Key"))
                     control.request("GET", "/info", ByteArray(0))
@@ -125,6 +128,9 @@ class NativeControlCipherDeviceTest {
                         session.close(); session.close()
                         assertClosed(controlOwner); assertClosed(eventOwner)
                         assertNull(session.cipher); assertNull(field(session, "eventCipher"))
+                        assertNull(session.pairVerify.shared); assertNull(session.pairVerify.controlKeys)
+                        assertNull(session.controllerId); assertFalse(session.pairVerify.isVerified)
+                        assertEquals(0L, PairVerify::class.java.getDeclaredField("handle").apply { isAccessible = true }.getLong(session.pairVerify))
                     }
                 } finally { session.close() }
             }
@@ -181,7 +187,9 @@ class NativeControlCipherDeviceTest {
         val session = session(control, listener = object : AirPlaySessionListener {
             override fun onClusterControlReady(session: AirPlaySession) { notifications.incrementAndGet() }
         })
-        PairVerify::class.java.getDeclaredField("sharedSecret").apply { isAccessible = true }.set(session.pairVerify, ByteArray(32))
+        session.pairVerify.handle(Tlv8Codec.encode(listOf(
+            Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, AirPlayCrypto.x25519Generate().publicKey),
+        )))
         field(session, "eventServer", server)
         val worker = Thread {
             AirPlaySession::class.java.getDeclaredMethod("acceptEvent", ServerSocket::class.java)

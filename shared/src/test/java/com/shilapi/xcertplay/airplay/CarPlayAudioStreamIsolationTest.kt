@@ -2,7 +2,6 @@ package com.shilapi.xcertplay.airplay
 
 import java.io.Closeable
 import java.net.Socket
-import java.security.SecureRandom
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -114,9 +113,9 @@ class CarPlayAudioStreamIsolationTest {
             identity = AirPlayIdentity.generate(), pairings = PairingStore(), mfi = null,
             listener = object : AirPlaySessionListener {}, media = object : AirPlayMediaHandler {},
         )
-        val secret = ByteArray(32).also(SecureRandom()::nextBytes)
-        session.pairVerify.javaClass.getDeclaredField("sharedSecret").apply { isAccessible = true }
-            .set(session.pairVerify, secret)
+        session.pairVerify.handle(Tlv8Codec.encode(listOf(
+            Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, AirPlayCrypto.x25519Generate().publicKey),
+        )))
         return session
     }
 }
