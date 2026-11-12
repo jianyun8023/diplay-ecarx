@@ -11,8 +11,11 @@ internal class KotlinVideoReferenceChain {
         private set
     fun reset() { needsKeyFrame = true }
     fun accepts(bytes: ByteArray, codec: VideoCodec): Boolean =
-        !needsKeyFrame || MediaCodecSupport.isRandomAccess(bytes, codec)
-    fun accepts(annexB: MediaPacket, codec: VideoCodec): Boolean = !needsKeyFrame || annexB.isRandomAccess(codec)
+        !needsKeyFrame || KotlinVideoCodecReference.isRandomAccess(bytes, codec)
+    fun accepts(annexB: MediaPacket, codec: VideoCodec): Boolean = !needsKeyFrame ||
+        if (annexB.flags and MediaPacket.FLAG_ANNEX_B != 0) {
+            annexB.flags and (if (codec == VideoCodec.H265) MediaPacket.FLAG_RANDOM_ACCESS_H265 else MediaPacket.FLAG_RANDOM_ACCESS_H264) != 0
+        } else KotlinVideoCodecReference.isRandomAccess(annexB.toByteArray(), codec)
     fun onQueued() { needsKeyFrame = false }
 }
 

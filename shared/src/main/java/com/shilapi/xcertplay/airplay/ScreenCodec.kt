@@ -27,4 +27,8 @@ internal object NativeScreenCodec {
     @JvmStatic external fun senderNanos(header: ByteArray): Long
     @JvmStatic external fun annexB(payload: ByteArray)
     @JvmStatic external fun config(payload: ByteArray): IntArray
+    @JvmStatic external fun avcParameterSets(payload: ByteArray): Array<ByteArray>
+    @JvmStatic external fun hevcCsd(payload: ByteArray): ByteArray
+    @JvmStatic external fun annexBCopy(payload: ByteArray): ByteArray
+    @JvmStatic external fun randomAccess(payload: ByteArray, hevc: Boolean): Boolean
 }

@@ -6,7 +6,7 @@ pub const FLAG_ANNEX_B: i32 = 1;
 pub const FLAG_RANDOM_ACCESS_H264: i32 = 2;
 pub const FLAG_RANDOM_ACCESS_H265: i32 = 4;
 
-fn starts_with_start_code(bytes: &[u8]) -> bool {
+pub fn starts_with_start_code(bytes: &[u8]) -> bool {
     bytes.len() >= 4 && bytes[..4] == [0, 0, 0, 1]
 }
 
