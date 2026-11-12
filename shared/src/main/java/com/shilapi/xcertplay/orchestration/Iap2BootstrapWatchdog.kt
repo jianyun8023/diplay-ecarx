@@ -26,94 +26,51 @@ internal class Iap2BootstrapWatchdog(
     private val schedule: (Long, () -> Unit) -> (() -> Unit),
     private val onTimeout: (Iap2BootstrapStall) -> Unit,
     private val nowNanos: () -> Long = System::nanoTime,
-    private val policy: Iap2BootstrapPolicy = Iap2BootstrapPolicy,
     private val log: (String) -> Unit = {},
 ) {
-    @Volatile var finished = false
-        private set
-
-    private var highest: Iap2BootstrapPhase? = null
-    private var lastProgressNanos = nowNanos()
-    // A replaced timer that still runs finds a newer generation and does nothing.
-    private var generation = 0
+    private val core = StartupWatchdogCore(2, now = nowNanos())
+    val finished: Boolean get() = core.finished
     private var cancelTimer: (() -> Unit)? = null
 
-    /**
-     * Records a checkpoint reached at [atNanos]. A later phase advances the limit and re-arms it; an
-     * earlier phase still counts as progress for the log but cannot move the limit backwards.
-     */
     @Synchronized fun mark(phase: Iap2BootstrapPhase, atNanos: Long = nowNanos()) {
-        if (finished) return
-        val current = highest
-        if (current != null && phase.ordinal <= current.ordinal) {
-            log("bootstrap phase=${phase.name} already at=${current.name} ignored")
+        val progress = core.event(6, phase.ordinal, atNanos)
+        if (progress.has(StartupWatchdogCore.DUPLICATE)) {
+            log("bootstrap phase=${phase.name} already at=${Iap2BootstrapPhase.entries[progress.reached].name} ignored")
             return
         }
-        val elapsedMillis = (atNanos - lastProgressNanos).coerceAtLeast(0) / NANOS_PER_MILLISECOND
-        highest = phase
-        lastProgressNanos = atNanos
-        log("bootstrap phase=${phase.name} sincePreviousMs=$elapsedMillis")
-        if (phase == Iap2BootstrapPhase.TUNNEL_ESTABLISHED) {
-            finished = true
-            cancel()
-            return
+        if (!progress.has(StartupWatchdogCore.PROGRESS)) return
+        log("bootstrap phase=${phase.name} sincePreviousMs=${progress.elapsed}")
+        // The log is a platform callback: decide the timer after it, matching the original order.
+        val timer = core.event(14, phase.ordinal)
+        if (timer.has(StartupWatchdogCore.CANCEL)) cancel()
+        if (timer.has(StartupWatchdogCore.ARM)) {
+            val generation = timer.generation
+            cancelTimer = schedule(timer.delay) { expire(generation) }
         }
-        if (phase == Iap2BootstrapPhase.START_SESSION_SENT) {
-            // Hand off to FirstTcpWatchdog + the handoff watchdog: they own tunnel readiness.
-            // Bump the generation so a timer already running for the previous stage cannot report a
-            // tunnel stall for a checkpoint this watchdog deliberately does not time.
-            generation++
-            cancel()
-            return
-        }
-        arm(phase)
     }
 
-    /** Stops the watchdog without a timeout, e.g. on success, failure or teardown. */
     @Synchronized fun terminate(): Boolean {
-        if (finished) return false
-        finished = true
-        cancel()
-        return true
-    }
-
-    private fun arm(reached: Iap2BootstrapPhase) {
-        val missing = nextPhase(reached) ?: return
-        val delay = policy.budgetToReach(missing)
-        if (delay <= 0L) return
-        val armedGeneration = ++generation
-        cancel()
-        cancelTimer = schedule(delay) { expire(armedGeneration) }
+        val result = core.event(3)
+        if (result.has(StartupWatchdogCore.CANCEL)) cancel()
+        return result.has(StartupWatchdogCore.ACCEPTED)
     }
 
     private fun expire(armedGeneration: Int) {
         val stall = synchronized(this) {
-            if (finished || armedGeneration != generation) return
-            val reached = highest ?: return
-            val missing = nextPhase(reached) ?: return
-            finished = true
+            val result = core.event(7, armedGeneration)
+            if (!result.has(StartupWatchdogCore.TIMEOUT)) return
             cancelTimer = null
+            // Rust committed finished before reading the injected clock, including reentrant clocks.
             Iap2BootstrapStall(
-                reached = reached,
-                missing = missing,
-                waitedMillis = (nowNanos() - lastProgressNanos).coerceAtLeast(0) / NANOS_PER_MILLISECOND,
+                Iap2BootstrapPhase.entries[result.reached], Iap2BootstrapPhase.entries[result.missing],
+                StartupWatchdogCore.elapsed(result.baseNanos, nowNanos()),
             )
         }
         onTimeout(stall)
     }
 
-    private fun cancel() {
-        cancelTimer?.invoke()
-        cancelTimer = null
-    }
+    private fun cancel() { cancelTimer?.invoke(); cancelTimer = null }
 
-    private fun nextPhase(phase: Iap2BootstrapPhase): Iap2BootstrapPhase? =
-        PHASES.getOrNull(phase.ordinal + 1)
-
-    private companion object {
-        const val NANOS_PER_MILLISECOND = 1_000_000L
-        val PHASES = Iap2BootstrapPhase.entries
-    }
 }
 
 /**
@@ -144,16 +101,7 @@ internal object Iap2BootstrapPolicy {
     /** Partial progress (availability / transport identifier) then silence before StartSession. */
     const val PARTIAL_PROGRESS_MILLIS = 45_000L
 
-    fun budgetToReach(missing: Iap2BootstrapPhase): Long = when (missing) {
-        Iap2BootstrapPhase.CSM_ESTABLISHED -> RFCOMM_TO_CSM_MILLIS
-        Iap2BootstrapPhase.MFi_AUTHENTICATED -> CSM_TO_MFI_MILLIS
-        Iap2BootstrapPhase.WIRELESS_CARPLAY_AVAILABLE -> MFI_TO_PROGRESS_MILLIS
-        Iap2BootstrapPhase.TRANSPORT_IDENTIFIED,
-        Iap2BootstrapPhase.START_SESSION_SENT -> PARTIAL_PROGRESS_MILLIS
-        // Tunnel readiness is watched by FirstTcpWatchdog and the handoff watchdog.
-        Iap2BootstrapPhase.RFCOMM_CONNECTED,
-        Iap2BootstrapPhase.TUNNEL_ESTABLISHED -> 0L
-    }
+    fun budgetToReach(missing: Iap2BootstrapPhase): Long = StartupWatchdogCore.budget(missing.ordinal)
 }
 
 /** The checkpoint the bootstrap stalled at, and what the driver-facing cause should be. */
@@ -163,10 +111,8 @@ internal data class Iap2BootstrapStall(
     val waitedMillis: Long,
 ) {
     val cause: ConnectionFailureCause
-        get() = when (reached) {
-            Iap2BootstrapPhase.RFCOMM_CONNECTED -> ConnectionFailureCause.WIRELESS_BLUETOOTH_LINK_FAILED
-            else -> ConnectionFailureCause.WIRELESS_PHONE_NOT_RESPONDING
-        }
+        get() = if (StartupWatchdogCore.bluetoothStall(reached.ordinal)) ConnectionFailureCause.WIRELESS_BLUETOOTH_LINK_FAILED
+            else ConnectionFailureCause.WIRELESS_PHONE_NOT_RESPONDING
 
     fun message(): String = when (reached) {
         Iap2BootstrapPhase.RFCOMM_CONNECTED ->

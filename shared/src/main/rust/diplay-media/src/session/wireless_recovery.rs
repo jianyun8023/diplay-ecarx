@@ -3,15 +3,17 @@
 use jni_sys::{jclass, jint, jlong, JNIEnv};
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
-struct Budget { flags: u8, number: u8, action: u8 }
+struct Budget { flags: u8, number: u8, action: u8, remaining: u16 }
 
 impl Budget {
     fn decode(token: i64) -> Option<Self> {
-        if token < 0 || token & !0x737 != 0 || token >> 8 > 4 { return None; }
-        Some(Self { flags: (token & 7) as u8, number: (token >> 8) as u8, action: ((token >> 4) & 3) as u8 })
+        if token < 0 || token & !0x3ff737 != 0 || ((token >> 8) & 7) > 4 || token >> 12 > 800 { return None; }
+        Some(Self { flags: (token & 7) as u8, number: ((token >> 8) & 7) as u8,
+            action: ((token >> 4) & 3) as u8, remaining: (token >> 12) as u16 })
     }
-    fn encode(self) -> i64 { self.flags as i64 | ((self.action as i64) << 4) | ((self.number as i64) << 8) }
+    fn encode(self) -> i64 { self.flags as i64 | ((self.action as i64) << 4) | ((self.number as i64) << 8) | ((self.remaining as i64) << 12) }
     fn advance(&mut self, stage: i32) -> bool {
+        if stage == -2 { self.remaining = self.remaining.saturating_sub(100); return true; }
         self.action = 0;
         match stage {
             -1 if self.number < 4 => self.number += 1,
@@ -21,12 +23,15 @@ impl Budget {
             0..=3 => {}
             _ => return false,
         }
+        self.remaining = match self.action { 1 => 400, 3 => 800, _ => 0 };
         true
     }
     fn query(self, field: i32) -> i32 {
         match field {
             0 => self.number as i32, 1 => self.action as i32, 2 => (self.flags & 4 != 0) as i32,
-            3 => match self.action { 1 => 400, 3 => 800, _ => 0 }, _ => -1,
+            3 => match self.action { 1 => 400, 3 => 800, _ => 0 },
+            4 => self.remaining.min(100) as i32,
+            _ => -1,
         }
     }
 }
@@ -240,7 +245,7 @@ mod tests {
             for token in [-1, 8, 64, 2048, i64::MAX] {
                 assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetAdvance(env, class, token, 0), -1);
             }
-            assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetQuery(env, class, 0, 4), -1);
+            assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetQuery(env, class, 0, 5), -1);
             assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptQuery(env, class, 1, 2), -1);
         }
     }

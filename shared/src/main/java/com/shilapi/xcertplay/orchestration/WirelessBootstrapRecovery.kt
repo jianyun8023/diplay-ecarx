@@ -103,12 +103,12 @@ internal class WirelessBootstrapRecovery(
                 log("local recovery stage=${attempt.stage} attempt=${attempt.number} delayMs=$delay " +
                     "fallback=${WirelessRecoveryCore.budgetQuery(budget, 2) != 0}")
                 // Short cancellable slices, including an infrastructure check after the backoff.
-                var remaining = delay
-                while (remaining > 0) {
+                while (true) {
+                    val slice = WirelessRecoveryCore.budgetQuery(budget, 4).toLong()
+                    if (slice <= 0) break
                     if (!isCurrent() || handoffStarted()) throw CancellationException("Wireless retry cancelled")
-                    val slice = minOf(remaining, 100L)
                     pause(slice)
-                    remaining -= slice
+                    budget = WirelessRecoveryCore.budgetAdvance(budget, -2)
                 }
             } finally {
                 attempt.invalidate()
