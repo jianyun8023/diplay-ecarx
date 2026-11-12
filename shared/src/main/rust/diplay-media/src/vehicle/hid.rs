@@ -3,6 +3,7 @@
 use jni_sys::{jboolean, jbooleanArray, jbyteArray, jclass, jdoubleArray, jint, jintArray, JNIEnv};
 use std::ptr::null_mut;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Contact { pub id: i32, pub x: f64, pub y: f64, pub down: bool }
 
 fn coordinate(value: f64) -> u16 {

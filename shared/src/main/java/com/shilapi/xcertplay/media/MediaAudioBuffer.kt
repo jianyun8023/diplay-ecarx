@@ -46,7 +46,13 @@ object MediaAudioBuffer {
      * The device may grant a smaller AudioTrack than requested. Writes block while the track is
      * paused and full, so the start level must stay below the real capacity or play() never runs.
      */
-    fun startBytesFor(plannedStartBytes: Int, actualCapacityBytes: Int, writeChunkBytes: Int): Int {
+    fun startBytesFor(plannedStartBytes: Int, actualCapacityBytes: Int, writeChunkBytes: Int): Int =
+        if (com.shilapi.xcertplay.airplay.NativeMedia.available) {
+            NativeAudioScheduler.startBytesFor(plannedStartBytes, actualCapacityBytes, writeChunkBytes)
+        } else kotlinStartBytesFor(plannedStartBytes, actualCapacityBytes, writeChunkBytes)
+
+    /** Library-unavailable fallback and native parity reference. */
+    internal fun kotlinStartBytesFor(plannedStartBytes: Int, actualCapacityBytes: Int, writeChunkBytes: Int): Int {
         if (actualCapacityBytes <= 0) return plannedStartBytes
         return minOf(plannedStartBytes, actualCapacityBytes - writeChunkBytes).coerceAtLeast(writeChunkBytes)
     }

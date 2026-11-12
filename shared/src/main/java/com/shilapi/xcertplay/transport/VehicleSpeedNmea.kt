@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.transport
 
+import com.shilapi.xcertplay.airplay.NativeMedia
 import java.util.Locale
 
 enum class VehicleGear(val letter: Char) { PARK('P'), REVERSE('R'), NEUTRAL('N'), DRIVE('D') }
@@ -32,6 +33,19 @@ interface VehicleSpeedSource {
 object PascdEncoder {
     fun encode(reading: VehicleSpeedReading): String? {
         val samples = reading.samples.takeIf { it.isNotEmpty() } ?: return null
+        if (NativeMedia.available) {
+            return NativeVehicleSpeed.pascdEncode(
+                reading.gear.ordinal,
+                LongArray(samples.size) { samples[it].elapsedMillis },
+                DoubleArray(samples.size) { samples[it].metersPerSecond },
+            )
+        }
+        return kotlinEncode(reading)
+    }
+
+    /** Library-unavailable fallback and native parity reference. */
+    internal fun kotlinEncode(reading: VehicleSpeedReading): String? {
+        val samples = reading.samples.takeIf { it.isNotEmpty() } ?: return null
         val start = samples.first().elapsedMillis
         val body = buildString {
             append("PASCD,").append(format("%.3f", start / 1000.0)).append(",C,")
@@ -47,6 +61,11 @@ object PascdEncoder {
     }
 
     private fun format(format: String, vararg arguments: Any): String = String.format(Locale.US, format, *arguments)
+}
+
+/** The native `$PASCD` encoder; [VehicleGear.ordinal] is the wire gear index (P/R/N/D). */
+internal object NativeVehicleSpeed {
+    @JvmStatic external fun pascdEncode(gear: Int, elapsedMillis: LongArray, metersPerSecond: DoubleArray): String?
 }
 
 /**

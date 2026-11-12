@@ -319,7 +319,7 @@ internal class AudioRenderer(
         prebufferBytes = 0
         fadeApplied = false
         appliedNavigationAttenuationDb = null
-        bufferProgress = AudioBufferProgress(frameBytes)
+        bufferProgress.reset()
         createTrack()
         runCatching {
             report("Audio: navigation route=${NavigationAudioRoute.label(wanted)} " +
@@ -1163,6 +1163,7 @@ internal class AudioRenderer(
     @Synchronized
     private fun release() {
         releaseQueued()
+        bufferProgress.close()
         nativePcm?.close()
         nativePcm = null
         NavigationPlayback.close(navigationPlaybackToken)

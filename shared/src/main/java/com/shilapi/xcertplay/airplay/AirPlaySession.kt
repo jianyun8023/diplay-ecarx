@@ -198,6 +198,7 @@ class AirPlaySession(
         }
         teardown()
         pairVerify.close()
+        touchSlots.close()
         if (notified.compareAndSet(false, true)) listener.onSessionEnded(this)
     }
 
@@ -383,18 +384,17 @@ class AirPlaySession(
 
     /** [contacts] carry Android pointer ids; an empty list releases every finger. */
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
-        val scaled = touchSlots.assign(contacts).map {
-            it.copy(x = it.x * config.main.widthPixels, y = it.y * config.main.heightPixels)
-        }
-        val report = AirPlayHid.touchReport(scaled)
+        val width = config.main.widthPixels
+        val height = config.main.heightPixels
+        val report = touchSlots.report(contacts, width, height)
         val sendStartNs = System.nanoTime()
         val sent = sendHidReport(AirPlayHid.TOUCH_HID_UID, report)
         if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(sendStartNs, System.nanoTime() - sendStartNs)
         if (sent && firstTouchSendLogged.compareAndSet(false, true)) {
-            val first = scaled.firstOrNull()
+            val first = contacts.firstOrNull()?.let { it.copy(x = it.x * width, y = it.y * height) }
             Log.i(
                 TAG,
-                "airplay touch report sent contacts=${scaled.size} first=" +
+                "airplay touch report sent contacts=${contacts.size} first=" +
                     "(${first?.x},${first?.y},down=${first?.down}) report=${report.toHexString()}",
             )
         } else if (!sent && touchSendFailureLogged.compareAndSet(false, true)) {

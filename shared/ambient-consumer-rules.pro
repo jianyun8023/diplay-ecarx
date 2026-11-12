@@ -60,3 +60,14 @@
 -keep class com.shilapi.xcertplay.airplay.RtspMessage$Parsed {
     public <init>(java.util.List, byte[]);
 }
+
+# Input/vehicle conversion and platform-output accounting use primitive JNI entry points.
+-keep class com.shilapi.xcertplay.airplay.NativeTouchSlots {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.airplay.NativeVehicleSpeed {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.media.NativeAudioScheduler {
+    native <methods>;
+}
