@@ -17,6 +17,7 @@ pub mod pacing;
 pub mod packet;
 pub mod pcm;
 pub mod renderer;
+pub mod session_state;
 pub mod stats;
 pub mod uplink;
 pub mod vehicle_status;

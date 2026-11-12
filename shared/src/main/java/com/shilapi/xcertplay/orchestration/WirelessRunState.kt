@@ -1,68 +1,43 @@
 package com.shilapi.xcertplay.orchestration
 
-/** State of one run. Resource operations remain ordered by the controller's owner lock. */
+import com.shilapi.xcertplay.airplay.NativeMedia
+
+/** Rust defines the opaque state token and transitions; the controller still orders platform resources. */
 internal class WirelessRunState {
     enum class Lifecycle { RUNNING, RETIRED, CLOSING, CLOSED }
     enum class Handoff { BOOTSTRAP, PENDING, BLUETOOTH_FALLBACK, TUNNEL_ACTIVE }
 
-    @Volatile var lifecycle = Lifecycle.RUNNING
-        private set
-    @Volatile var handoff = Handoff.BOOTSTRAP
-        private set
-    @Volatile var tunnelReady = false
-        private set
-    // Retirement during restart must not consume the first shared-service failure.
-    @Volatile var failedOnce = false
-        private set
+    private val fallback = if (NativeMedia.available) null else KotlinWirelessRunState()
+    private var token = if (fallback == null) NativeMedia.wirelessRunCreate() else 0L
 
-    val running: Boolean get() = lifecycle == Lifecycle.RUNNING
-    val handoffRequested: Boolean get() = handoff != Handoff.BOOTSTRAP
-    val activeReported: Boolean get() = handoff == Handoff.BLUETOOTH_FALLBACK || handoff == Handoff.TUNNEL_ACTIVE
+    val lifecycle: Lifecycle get() = fallback?.lifecycle ?: Lifecycle.entries[query(0)]
+    val handoff: Handoff get() = fallback?.handoff ?: Handoff.entries[query(1)]
+    val tunnelReady: Boolean get() = fallback?.tunnelReady ?: (query(2) != 0)
+    val failedOnce: Boolean get() = fallback?.failedOnce ?: (query(3) != 0)
+    val running: Boolean get() = fallback?.running ?: (query(4) != 0)
+    val handoffRequested: Boolean get() = fallback?.handoffRequested ?: (query(5) != 0)
+    val activeReported: Boolean get() = fallback?.activeReported ?: (query(6) != 0)
 
-    @Synchronized fun requestHandoff(): Boolean {
-        if (!running || handoff != Handoff.BOOTSTRAP) return false
-        handoff = Handoff.PENDING
-        return true
+    fun requestHandoff(): Boolean = fallback?.requestHandoff() ?: transition(1)
+    fun markTunnelReady(): Boolean = fallback?.markTunnelReady() ?: transition(2)
+    fun promoteTunnel(): Boolean = fallback?.promoteTunnel() ?: transition(3)
+    fun keepBluetoothFallback(): Boolean = fallback?.keepBluetoothFallback() ?: transition(4)
+    fun fail(): Boolean = fallback?.fail() ?: transition(5)
+
+    fun retire() {
+        if (fallback != null) fallback.retire() else transition(6)
     }
 
-    @Synchronized fun markTunnelReady(): Boolean {
-        if (!running) return false
-        tunnelReady = true
-        return true
+    fun beginClose(): Boolean = fallback?.beginClose() ?: transition(7)
+
+    fun finishClose() {
+        if (fallback != null) fallback.finishClose() else check(transition(8))
     }
 
-    @Synchronized fun promoteTunnel(): Boolean {
-        if (!running || !tunnelReady ||
-            (handoff != Handoff.PENDING && handoff != Handoff.BLUETOOTH_FALLBACK)) return false
-        handoff = Handoff.TUNNEL_ACTIVE
-        return true
-    }
+    @Synchronized private fun query(field: Int): Int = NativeMedia.wirelessRunQuery(token, field)
 
-    @Synchronized fun keepBluetoothFallback(): Boolean {
-        if (!running || handoff != Handoff.PENDING || tunnelReady) return false
-        handoff = Handoff.BLUETOOTH_FALLBACK
-        return true
-    }
-
-    @Synchronized fun fail(): Boolean {
-        if (failedOnce) return false
-        failedOnce = true
-        retire()
-        return true
-    }
-
-    @Synchronized fun retire() {
-        if (running) lifecycle = Lifecycle.RETIRED
-    }
-
-    @Synchronized fun beginClose(): Boolean {
-        if (lifecycle == Lifecycle.CLOSING || lifecycle == Lifecycle.CLOSED) return false
-        lifecycle = Lifecycle.CLOSING
-        return true
-    }
-
-    @Synchronized fun finishClose() {
-        check(lifecycle == Lifecycle.CLOSING)
-        lifecycle = Lifecycle.CLOSED
+    @Synchronized private fun transition(event: Int): Boolean {
+        token = NativeMedia.wirelessRunTransition(token, event).also { check(it >= 0L) }
+        return NativeMedia.wirelessRunQuery(token, 7) != 0
     }
 }
