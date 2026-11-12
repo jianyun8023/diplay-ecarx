@@ -21,6 +21,14 @@
     void onEvent(int, java.lang.String);
 }
 
+# The route JNI boundary owns a handle and constructs the existing maneuver DTO.
+-keep class com.shilapi.xcertplay.hud.NativeRouteGuidance {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.hud.AppleManeuver {
+    public <init>(int, int, int, java.lang.String, java.lang.Long, java.lang.Long, java.lang.Long, java.lang.Long);
+}
+
 # The RTSP JNI codec constructs the existing request/result DTOs directly.
 -keep class com.shilapi.xcertplay.airplay.RtspMessage$Request {
     public <init>(java.lang.String, java.lang.String, java.lang.String, java.util.Map, byte[]);

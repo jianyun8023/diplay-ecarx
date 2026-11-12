@@ -19,6 +19,8 @@ pub mod pcm;
 pub mod renderer;
 pub mod rtsp;
 mod rtsp_jni;
+pub mod route_guidance;
+mod route_guidance_jni;
 pub mod session_state;
 pub mod stats;
 pub mod uplink;

@@ -26,288 +26,71 @@ internal enum class RouteGuidanceChange {
 }
 
 /**
- * Decodes the iAP2 route-guidance subset (0x5201/0x5202) that every CarPlay output needs.
+ * Rust owns the iAP2 route-guidance state (0x5201/0x5202); Kotlin supplies clocks/session input.
  *
- * This is vendor-neutral: it only turns Apple's frames into [AppleManeuver], and it is shared by
+ * This is vendor-neutral: it turns Apple's frames into [AppleManeuver], and it is shared by
  * the ECARX cluster output and by the widget-facing glance so both agree on what the next turn is.
  */
 internal class RouteGuidanceState(
     private val nanoTime: () -> Long = System::nanoTime,
-    private val staleRouteNs: Long = STALE_ROUTE_NS,
-    private val emptyListHideNs: Long = EMPTY_LIST_HIDE_NS,
-    /**
-     * The dashboard overlay keeps the last instruction across a wireless session drop: the iPhone
-     * often sends NoRouteSet (0) while the tunnel is tearing down, which is not a real arrival.
-     * Arrived (2) still ends the route. The overlay's own stale window retires a truly ended one.
-     */
-    private val keepAcrossNoRoute: Boolean = false,
-    /** ECARX retains a quiet route only while its output owner confirms the current live session. */
+    staleRouteNs: Long = 30_000_000_000L,
+    emptyListHideNs: Long = 3_000_000_000L,
+    keepAcrossNoRoute: Boolean = false,
     private val liveSession: () -> Boolean = { false },
-) {
-    private data class Maneuver(val type: Int, val drivingSide: Int, val afterRoad: String)
+    private val wallClockSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
+) : AutoCloseable {
+    private val fallback = if (com.shilapi.xcertplay.airplay.NativeMedia.available) null else
+        KotlinRouteGuidanceState({ nanoTime() }, { wallClockSeconds() }, staleRouteNs,
+            emptyListHideNs, keepAcrossNoRoute, { liveSession() })
+    // The two output singletons retain their owner for the process. Temporary owners call close().
+    private var handle = if (fallback == null)
+        NativeRouteGuidance.create(staleRouteNs, emptyListHideNs, keepAcrossNoRoute).also { check(it != 0L) }
+        else 0L
+    private var closed = false
 
-    private val maneuvers = mutableMapOf<Int, Maneuver>()
-    private var routeActive = false
-    var activeIndex = -1
-        private set
-    var announced = false
-        private set
-    var inputState: Int? = null
-        private set
-    var lastPhoneState: Int? = null
-        private set
-    private var lastPhoneStateNs: Long? = null
-    val phoneStateAgeMs get() = lastPhoneStateNs?.let { (nanoTime() - it) / 1_000_000 }
-    val expired get() = lastRouteUpdateNs?.let { nanoTime() - it >= staleRouteNs && !liveSession() } == true
-    var destinationName = ""
-        private set
-    var laneGuidanceIndex: Int? = null
-        private set
-    var laneGuidanceShowing: Boolean? = null
-        private set
-    private var distanceKnown = false
-    private var distanceMeters = 0
-    private var currentRoad = ""
-    var arrivalEpochSeconds: Long? = null
-        private set
-    private var etaRawSeconds: Long? = null
-    private var remainingSeconds: Long? = null
-    var remainingMeters: Long? = null
-        private set
-    private var emptyListSinceNs: Long? = null
-    private var lastRouteUpdateNs: Long? = null
-    private var endReason = "not-started"
-    var diagnosticInput = "none"
-        private set
+    val activeIndex: Int @Synchronized get() = fallback?.activeIndex ?: query(0).toInt()
+    val announced: Boolean @Synchronized get() = fallback?.announced ?: (query(1) != 0L)
+    val inputState: Int? @Synchronized get() = if (fallback != null) fallback.inputState else query(2).takeIf { it >= 0 }?.toInt()
+    val lastPhoneState: Int? @Synchronized get() = if (fallback != null) fallback.lastPhoneState else query(3).takeIf { it >= 0 }?.toInt()
+    val laneGuidanceIndex: Int? @Synchronized get() = if (fallback != null) fallback.laneGuidanceIndex else query(4).takeIf { it >= 0 }?.toInt()
+    val laneGuidanceShowing: Boolean? @Synchronized get() = if (fallback != null) fallback.laneGuidanceShowing else query(5).takeIf { it >= 0 }?.let { it != 0L }
+    val arrivalEpochSeconds: Long? @Synchronized get() = if (fallback != null) fallback.arrivalEpochSeconds else
+        if (query(8) != 0L) query(6) else null
+    val remainingMeters: Long? @Synchronized get() = if (fallback != null) fallback.remainingMeters else query(7).takeIf { it >= 0 }
+    val phoneStateAgeMs: Long? @Synchronized get() = if (fallback != null) fallback.phoneStateAgeMs else
+        if (lastPhoneState != null) NativeRouteGuidance.phoneStateAge(owner(), nanoTime()) else null
+    val expired: Boolean @Synchronized get() = fallback?.expired ?: NativeRouteGuidance.expired(owner(), nanoTime(), liveSession())
+    val destinationName: String @Synchronized get() = fallback?.destinationName ?: NativeRouteGuidance.text(owner(), 0, 0, false)
+    val diagnosticInput: String @Synchronized get() = fallback?.diagnosticInput ?: NativeRouteGuidance.text(owner(), 1, 0, false)
 
-    fun accept(messageId: Int, payload: ByteArray): RouteGuidanceChange {
-        inputState = null
-        if (!validTlvs(payload)) {
-            diagnosticInput = "invalid-tlv bytes=${payload.size}"
-            return RouteGuidanceChange.NONE
-        }
-        return when (messageId) {
-            ROUTE_GUIDANCE_UPDATE -> parseRouteUpdate(payload)
-            ROUTE_GUIDANCE_MANEUVER_UPDATE -> parseManeuverUpdate(payload)
-            else -> RouteGuidanceChange.NONE
-        }
-    }
+    @Synchronized fun accept(messageId: Int, payload: ByteArray): RouteGuidanceChange =
+        fallback?.accept(messageId, payload) ?: RouteGuidanceChange.entries[
+            NativeRouteGuidance.accept(owner(), messageId, payload, nanoTime(), wallClockSeconds(), liveSession())]
 
-    /** Next maneuver as Apple sent it, or null when there is no live guidance. */
-    fun current(): AppleManeuver? {
-        val maneuver = activeManeuver() ?: return null
-        return AppleManeuver(
-            distanceMeters, maneuver.type, maneuver.drivingSide,
-            roadFor(maneuver), remainingSeconds, remainingMeters, arrivalEpochSeconds, etaRawSeconds,
-        )
-    }
+    @Synchronized fun current(): AppleManeuver? = if (fallback != null) fallback.current() else
+        NativeRouteGuidance.current(owner(), nanoTime(), liveSession(), false)
 
-    /** The DIM snapshot requires a real next-turn distance; other consumers retain their fallback. */
-    fun currentForDim(): AppleManeuver? = if (distanceKnown) current() else null
+    @Synchronized fun currentForDim(): AppleManeuver? = if (fallback != null) fallback.currentForDim() else
+        NativeRouteGuidance.current(owner(), nanoTime(), liveSession(), true)
 
-    fun clear(reason: String = "clear"): Boolean {
-        val wasActive = routeActive
-        endReason = reason
-        routeActive = false
-        announced = false
-        destinationName = ""
-        activeIndex = -1
-        laneGuidanceIndex = null
-        laneGuidanceShowing = null
-        distanceMeters = 0
-        distanceKnown = false
-        currentRoad = ""
-        arrivalEpochSeconds = null
-        etaRawSeconds = null
-        remainingSeconds = null
-        remainingMeters = null
-        emptyListSinceNs = null
-        lastRouteUpdateNs = null
-        maneuvers.clear()
-        return wasActive
-    }
+    @Synchronized fun clear(reason: String = "clear"): Boolean = fallback?.clear(reason) ?:
+        NativeRouteGuidance.clear(owner(), reason)
 
-    /** No road names or payloads; sampled only at guidance transitions and report export. */
-    fun diagnosticState(): String {
-        val now = nanoTime()
-        val routeAge = lastRouteUpdateNs?.let { now - it }
-        val emptyAge = emptyListSinceNs?.let { now - it }
-        val sessionActive = liveSession()
-        val reason = when {
-            !routeActive -> endReason
-            activeIndex < 0 -> "missing-index"
-            routeAge == null -> "missing-route-update"
-            routeAge >= staleRouteNs && !sessionActive -> "route-stale"
-            emptyAge != null && emptyAge >= emptyListHideNs -> "empty-list-timeout"
-            maneuvers[activeIndex] == null -> "missing-maneuver"
-            else -> "active"
-        }
-        return "reason=$reason routeAgeMs=${routeAge?.div(1_000_000) ?: -1} emptyAgeMs=${emptyAge?.div(1_000_000) ?: -1} sessionActive=$sessionActive"
-    }
+    @Synchronized fun diagnosticState(): String = fallback?.diagnosticState() ?:
+        NativeRouteGuidance.text(owner(), 2, nanoTime(), liveSession())
 
-    private fun activeManeuver(): Maneuver? {
-        if (!routeActive || activeIndex < 0) return null
-        val updated = lastRouteUpdateNs ?: return null
-        if (nanoTime() - updated >= staleRouteNs && !liveSession()) return null
-        val emptySince = emptyListSinceNs
-        if (emptySince != null && nanoTime() - emptySince >= emptyListHideNs) return null
-        return maneuvers[activeIndex]
-    }
+    private fun query(field: Int): Long = NativeRouteGuidance.query(owner(), field)
+    private fun owner(): Long { check(!closed); return handle }
 
-    // The road the driver turns onto is what the next instruction is about; fall back to the current one.
-    private fun roadFor(maneuver: Maneuver): String = maneuver.afterRoad.ifEmpty { currentRoad }
-
-    private fun parseRouteUpdate(data: ByteArray): RouteGuidanceChange {
-        // A teardown NoRouteSet is not fresh guidance. Do not let repeated teardown frames
-        // extend the retained instruction's lifetime or replace its road/arrival metadata.
-        if (keepAcrossNoRoute) {
-            var noRoute = false
-            forEachTlv(data) { type, value, valueLength ->
-                if (type == 0x01 && valueLength >= 1) noRoute = data[value] == 0.toByte()
-            }
-            if (noRoute) return RouteGuidanceChange.NONE
-        }
-        lastRouteUpdateNs = nanoTime()
-        var state: Int? = null
-        var distance: Int? = null
-        var firstManeuver: Int? = null
-        var listPresent = false
-        var etaPresent = false
-        var remainingPresent = false
-        forEachTlv(data) { type, value, valueLength ->
-            when {
-                type == 0x01 && valueLength >= 1 -> state = data[value].toInt() and 0xff
-                type == 0x03 -> currentRoad = utf8(data, value, valueLength)
-                type == 0x04 -> destinationName = utf8(data, value, valueLength).takeUnless { it == "未知位置" }.orEmpty()
-                // 0x05 can be an arrival epoch or seconds remaining. Anchor an arrival time once;
-                // widgets use the timestamp and the DIM output derives a countdown from it.
-                type == 0x05 && valueLength >= 8 -> {
-                    etaPresent = true
-                    val raw = u64(data, value).takeIf { it > 0 }
-                    etaRawSeconds = raw
-                    arrivalEpochSeconds = raw?.let {
-                        if (it >= EPOCH_FLOOR_SECONDS) it else System.currentTimeMillis() / 1000 + it
-                    }
-                }
-                type == 0x06 && valueLength >= 8 -> {
-                    remainingPresent = true
-                    remainingSeconds = u64(data, value).takeIf { it >= 0 }
-                }
-                type == 0x07 && valueLength >= 4 -> remainingMeters = u32(data, value)
-                type == 0x0a && valueLength >= 4 -> {
-                    distance = u32(data, value).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                }
-                type == 0x0d -> {
-                    listPresent = true
-                    if (valueLength >= 2) firstManeuver = u16(data, value)
-                }
-                type == 0x10 && valueLength == 2 -> laneGuidanceIndex = u16(data, value)
-                type == 0x12 && valueLength == 1 -> laneGuidanceShowing = data[value] != 0.toByte()
-            }
-        }
-
-        // Anchor duration-only updates once so keepalives do not move the arrival time forward.
-        if (remainingPresent && (!etaPresent || arrivalEpochSeconds == null)) {
-            arrivalEpochSeconds = remainingSeconds?.let { System.currentTimeMillis() / 1000 + it }
-        }
-        inputState = state
-        if (state != null) {
-            lastPhoneState = state
-            lastPhoneStateNs = lastRouteUpdateNs
-            if (state == 1) announced = true
-        }
-        diagnosticInput = "state=${state ?: "absent"} next=${distance ?: "absent"} " +
-            "list=${if (!listPresent) "absent" else firstManeuver?.toString() ?: "empty"}"
-
-        // Only NoRouteSet (0) and Arrived (2) end the route. A wireless handoff often sends
-        // NoRouteSet while the session is still coming back — keep the overlay instruction then.
-        if (state == 0 || state == 2) {
-            return if (clear(if (state == 0) "no-route" else "arrivedCandidate")) RouteGuidanceChange.CLEAR else RouteGuidanceChange.NONE
-        }
-        // The iPhone briefly sends an empty current list every few seconds and while rerouting. Keep the last
-        // maneuver (and the cached 0x5202 details, which are never resent) and hide it only if the list stays
-        // empty; the outputs' 1 s tick clears themselves once current() turns null.
-        if (listPresent && firstManeuver == null) {
-            if (emptyListSinceNs == null) emptyListSinceNs = nanoTime()
-            return RouteGuidanceChange.NONE
-        }
-        if (firstManeuver != null) emptyListSinceNs = null
-        if (state != null) routeActive = true
-        if (firstManeuver != null) {
-            if (activeIndex >= 0 && activeIndex != firstManeuver) distanceKnown = false
-            activeIndex = firstManeuver!!
-            routeActive = true
-        }
-        if (distance != null) {
-            distanceKnown = true
-            distanceMeters = distance!!.coerceAtLeast(0)
-        }
-        return if (current() != null) RouteGuidanceChange.GUIDANCE else RouteGuidanceChange.NONE
-    }
-
-    private fun parseManeuverUpdate(data: ByteArray): RouteGuidanceChange {
-        var index: Int? = null
-        var type: Int? = null
-        var drivingSide = 0
-        var afterRoad = ""
-        forEachTlv(data) { id, value, valueLength ->
-            when {
-                id == 0x01 && valueLength >= 2 -> index = u16(data, value)
-                id == 0x03 && valueLength >= 1 -> type = data[value].toInt() and 0xff
-                id == 0x04 -> afterRoad = utf8(data, value, valueLength)
-                id == 0x08 && valueLength >= 1 -> drivingSide = data[value].toInt() and 0xff
-            }
-        }
-        if (index != null && type != null) maneuvers[index!!] = Maneuver(type!!, drivingSide, afterRoad)
-        diagnosticInput = "index=${index ?: "absent"} type=${type ?: "absent"} side=$drivingSide"
-        return if (current() != null) RouteGuidanceChange.GUIDANCE else RouteGuidanceChange.NONE
-    }
-
-    private inline fun forEachTlv(data: ByteArray, block: (Int, Int, Int) -> Unit) {
-        var offset = 0
-        while (offset < data.size) {
-            val length = u16(data, offset)
-            block(u16(data, offset + 2), offset + TLV_HEADER_BYTES, length - TLV_HEADER_BYTES)
-            offset += length
-        }
-    }
-
-    private fun validTlvs(data: ByteArray): Boolean {
-        var offset = 0
-        while (offset < data.size) {
-            if (offset + TLV_HEADER_BYTES > data.size) return false
-            val length = u16(data, offset)
-            if (length < TLV_HEADER_BYTES || length > data.size - offset) return false
-            offset += length
-        }
-        return offset == data.size
-    }
-
-    private fun u16(data: ByteArray, offset: Int): Int =
-        ((data[offset].toInt() and 0xff) shl 8) or (data[offset + 1].toInt() and 0xff)
-
-    private fun u32(data: ByteArray, offset: Int): Long =
-        ((data[offset].toLong() and 0xff) shl 24) or
-            ((data[offset + 1].toLong() and 0xff) shl 16) or
-            ((data[offset + 2].toLong() and 0xff) shl 8) or
-            (data[offset + 3].toLong() and 0xff)
-
-    private fun u64(data: ByteArray, offset: Int): Long = (u32(data, offset) shl 32) or u32(data, offset + 4)
-
-    // iAP2 utf8 parameters are NUL-terminated.
-    private fun utf8(data: ByteArray, offset: Int, length: Int): String {
-        var end = offset
-        while (end < offset + length && data[end] != 0.toByte()) end++
-        return String(data, offset, end - offset, Charsets.UTF_8).trim()
+    @Synchronized override fun close() {
+        if (closed) return
+        if (fallback != null) fallback.clear() else NativeRouteGuidance.destroy(handle)
+        handle = 0L
+        closed = true
     }
 
     companion object {
         const val ROUTE_GUIDANCE_UPDATE = 0x5201
         const val ROUTE_GUIDANCE_MANEUVER_UPDATE = 0x5202
-        private const val TLV_HEADER_BYTES = 4
-        private const val STALE_ROUTE_NS = 30_000_000_000L
-        private const val EMPTY_LIST_HIDE_NS = 3_000_000_000L
-        /** 2001-09-09. Anything below this in the ETA field is a duration, not a timestamp. */
-        private const val EPOCH_FLOOR_SECONDS = 1_000_000_000L
     }
 }
