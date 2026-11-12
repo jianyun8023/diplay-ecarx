@@ -1,6 +1,8 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.orchestration
 
-/** Selected only when libdiplay_media cannot load; no fallback state accompanies a native token. */
+/** Independent pre-migration reference, excluded from production. */
 internal object KotlinWirelessRecoveryCore {
     fun budgetAdvance(token: Long, stage: Int): Long {
         var flags = token.toInt() and 7

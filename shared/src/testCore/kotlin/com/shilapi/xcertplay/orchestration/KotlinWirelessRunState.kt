@@ -1,9 +1,11 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.orchestration
 
 import com.shilapi.xcertplay.orchestration.WirelessRunState.Handoff
 import com.shilapi.xcertplay.orchestration.WirelessRunState.Lifecycle
 
-/** Library-unavailable fallback; the native path never creates this state. */
+/** Independent pre-migration reference, excluded from production. */
 internal class KotlinWirelessRunState {
     @Volatile var lifecycle = Lifecycle.RUNNING
         private set

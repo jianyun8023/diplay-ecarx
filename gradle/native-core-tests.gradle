@@ -16,10 +16,12 @@ def prepareHostCore = rootProject.tasks.register('prepareHostCoreForTests', Exec
 def configureCoreTests = { Project project ->
     def android = project.extensions.getByName('android')
     android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCore/kotlin'))
+    android.sourceSets.getByName('test').java.srcDir(rootProject.file('shared/src/testCore/java'))
     android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreShadows/kotlin'))
     android.sourceSets.getByName('test').resources.srcDir(rootProject.file('shared/src/testCoreShadows/resources'))
     if (project.path == ':shared') {
         android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCore/kotlin'))
+        android.sourceSets.getByName('androidTest').java.srcDir(rootProject.file('shared/src/testCore/java'))
     }
     // The old crypto algorithms are test oracles, never a production dependency.
     def libraries = rootProject.extensions.getByType(VersionCatalogsExtension).named('libs')

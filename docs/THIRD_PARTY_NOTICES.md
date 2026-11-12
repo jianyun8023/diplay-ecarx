@@ -72,9 +72,9 @@ Stephen Berry's pure-Rust port of the reference libopus (derived from rusty-opus
 Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla and
 Amazon; the full text is in [Opus-COPYING.txt](licenses/dependencies/Opus-COPYING.txt).
 
-DiPlay also vendors [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors. It remains the fallback when `libdiplay_media.so` cannot load.
+DiPlay retains [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors, only as an independent test oracle. It is excluded from production source sets; the production software Opus encoder uses Rust.
 
-Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/main/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/main/java/org/concentus/README.md) identify the source commit.
+Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/testCore/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/testCore/java/org/concentus/README.md) identify the source commit.
 
 ## Media data plane (ring)
 
