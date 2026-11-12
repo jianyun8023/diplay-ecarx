@@ -4,7 +4,6 @@ import android.view.Surface
 import com.shilapi.xcertplay.airplay.HeapPacket
 import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.VideoCodec
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 internal sealed interface VideoJob {
@@ -34,89 +33,73 @@ internal sealed interface VideoJob {
     data class NativeEvent(val kind: Int, val detail: String?) : VideoJob
 }
 
-/** Do not resume dependent pictures after losing a reference frame. */
+/** The reference-chain state is one Rust value; packet classification uses the shared wire codec. */
 internal class VideoReferenceChain {
-    var needsKeyFrame = true
-        private set
-    fun reset() { needsKeyFrame = true }
+    private var owner = NativeVideoFlow.reference(0, 0)
+    val needsKeyFrame: Boolean get() = NativeVideoFlow.referenceNeeds(owner)
+    fun reset() { owner = NativeVideoFlow.reference(owner, 1) }
     fun accepts(bytes: ByteArray, codec: VideoCodec): Boolean =
-        !needsKeyFrame || MediaCodecSupport.isRandomAccess(bytes, codec)
-    fun accepts(annexB: MediaPacket, codec: VideoCodec): Boolean = !needsKeyFrame || annexB.isRandomAccess(codec)
-    fun onQueued() { needsKeyFrame = false }
+        NativeVideoFlow.referenceAccepts(owner, needsKeyFrame && MediaCodecSupport.isRandomAccess(bytes, codec))
+    fun accepts(annexB: MediaPacket, codec: VideoCodec): Boolean =
+        NativeVideoFlow.referenceAccepts(owner, needsKeyFrame && annexB.isRandomAccess(codec))
+    fun onQueued() { owner = NativeVideoFlow.reference(owner, 2) }
 }
 
-/** Limit latency and memory without ever dropping a reference frame silently. */
-internal class VideoDecodeQueue(
-    // Recovery observes sustained backlog; short delayed bursts keep their reference chain.
-    private val maxFrames: Int = 60,
-    private val maxBytes: Int = 8 * 1024 * 1024,
-) {
-    private val jobs = LinkedBlockingQueue<VideoJob>()
-    // Set by [drain]: the worker is gone, so a frame offered later is released instead of kept forever.
-    private var drained = false
-
+/** Rust owns admission, order and recovery; the GC carrier holds the actual Android jobs. */
+internal class VideoDecodeQueue(maxFrames: Int = 60, maxBytes: Int = 8 * 1024 * 1024) {
+    private val lock = Object()
+    private val owner = NativeVideoFlow.queueCreate(maxFrames, maxBytes, VideoJob.Resync)
     data class Backlog(val pendingFrames: Int, val newestPendingReceivedNs: Long?)
 
-    /** Called by the sole consumer after taking its current frame. Control jobs end this chain. */
-    @Synchronized fun backlogAfterCurrent(): Backlog {
-        var frames = 0
-        var newest: Long? = null
-        for (job in jobs) {
-            if (job !is VideoJob.Frame) break
-            frames++
-            newest = newest?.let { maxOf(it, job.receivedNs) } ?: job.receivedNs
+    fun backlogAfterCurrent(): Backlog = synchronized(lock) {
+        val values = NativeVideoFlow.queueBacklog(owner)
+        Backlog(values[0].toInt(), if (values[2] != 0L) values[1] else null)
+    }
+    fun offer(job: VideoJob) = synchronized(lock) {
+        val kind = when (job) { is VideoJob.Frame -> 1; VideoJob.Resync -> 2; else -> 0 }
+        val dropped = NativeVideoFlow.queueOffer(owner, job, kind,
+            (job as? VideoJob.Frame)?.packet?.size ?: 0, (job as? VideoJob.Frame)?.receivedNs ?: 0)
+        releaseFrames(dropped)
+        lock.notifyAll()
+    }
+    fun resyncPending(): Boolean = synchronized(lock) { NativeVideoFlow.queueResync(owner) }
+    fun discardCurrentChain() = synchronized(lock) { releaseFrames(NativeVideoFlow.queueRemove(owner, 2)) }
+    fun discardFrames() = synchronized(lock) { releaseFrames(NativeVideoFlow.queueRemove(owner, 1)) }
+
+    @Throws(InterruptedException::class)
+    fun poll(timeoutMillis: Long): VideoJob? = synchronized(lock) {
+        // LinkedBlockingQueue.poll was interruptible even when a job was already available.
+        if (Thread.interrupted()) throw InterruptedException()
+        (NativeVideoFlow.queueRemove(owner, 0).firstOrNull() as? VideoJob)?.let { return@synchronized it }
+        var remaining = TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (remaining > 0) {
+            val start = System.nanoTime()
+            TimeUnit.NANOSECONDS.timedWait(lock, remaining)
+            (NativeVideoFlow.queueRemove(owner, 0).firstOrNull() as? VideoJob)?.let { return@synchronized it }
+            remaining -= System.nanoTime() - start
         }
-        return Backlog(frames, newest)
+        null
     }
-
-    @Synchronized fun offer(job: VideoJob) {
-        if (job is VideoJob.Frame) {
-            if (drained) { job.packet.release(); return }
-            val frames = jobs.filterIsInstance<VideoJob.Frame>()
-            if (frames.size >= maxFrames || frames.sumOf { it.packet.size.toLong() } + job.packet.size > maxBytes) {
-                discardFrames()
-                jobs.offer(VideoJob.Resync)
-            }
-            // A single oversized frame is also a lost reference chain.
-            if (job.packet.size > maxBytes) { job.packet.release(); return }
-        }
-        jobs.offer(job)
+    /** Worker releases frames and completes pending detach requests after taking the Rust drain. */
+    fun drain(): List<VideoJob> = synchronized(lock) {
+        NativeVideoFlow.queueRemove(owner, 3).map { it as VideoJob }
     }
-
-    /** True when an overflow already dropped the chain the consumer's current frame belongs to. */
-    @Synchronized fun resyncPending(): Boolean {
-        for (job in jobs) {
-            if (job === VideoJob.Resync) return true
-            if (job !is VideoJob.Frame) return false // a later config or surface starts another chain
-        }
-        return false
+    private fun releaseFrames(jobs: Array<Any?>) {
+        jobs.forEach { (it as? VideoJob.Frame)?.packet?.release() }
     }
+}
 
-    /** Drop only the invalidated chain; the next config/surface owns later frames. */
-    @Synchronized fun discardCurrentChain() {
-        val iterator = jobs.iterator()
-        while (iterator.hasNext()) {
-            when (val job = iterator.next()) {
-                is VideoJob.Frame -> { iterator.remove(); job.packet.release() }
-                VideoJob.Resync -> iterator.remove()
-                else -> return
-            }
-        }
-    }
-
-    @Synchronized fun discardFrames() {
-        jobs.removeIf { job ->
-            (job is VideoJob.Frame || job is VideoJob.Resync).also { if (it) (job as? VideoJob.Frame)?.packet?.release() }
-        }
-    }
-
-    fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
-
-    /** Removes and returns every queued job, for a worker that is shutting down; it releases their frames. */
-    @Synchronized fun drain(): List<VideoJob> {
-        drained = true
-        return ArrayList<VideoJob>().also { jobs.drainTo(it) }
-    }
+internal object NativeVideoFlow {
+    init { com.shilapi.xcertplay.airplay.NativeMedia.requireAvailable() }
+    @JvmStatic external fun queueCreate(maxFrames: Int, maxBytes: Int, resync: Any): Array<Any?>
+    @JvmStatic external fun queueOffer(owner: Array<Any?>, job: Any, kind: Int, size: Int, received: Long): Array<Any?>
+    @JvmStatic external fun queueRemove(owner: Array<Any?>, op: Int): Array<Any?>
+    @JvmStatic external fun queueBacklog(owner: Array<Any?>): LongArray
+    @JvmStatic external fun queueResync(owner: Array<Any?>): Boolean
+    @JvmStatic external fun reference(owner: Long, event: Int): Long
+    @JvmStatic external fun referenceNeeds(owner: Long): Boolean
+    @JvmStatic external fun referenceAccepts(owner: Long, randomAccess: Boolean): Boolean
+    @JvmStatic external fun obsolete(now: Long, received: Long, pending: Int, newest: Long, hasNewest: Boolean): Boolean
 }
 
 /** Drain output while waiting for input: full output buffers can otherwise starve input forever. Video and audio decoders share it. */

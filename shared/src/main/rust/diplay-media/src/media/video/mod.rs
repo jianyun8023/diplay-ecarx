@@ -3,6 +3,7 @@
 pub mod annexb;
 mod codec;
 pub mod pacing;
+pub mod flow;
 pub mod selection;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]

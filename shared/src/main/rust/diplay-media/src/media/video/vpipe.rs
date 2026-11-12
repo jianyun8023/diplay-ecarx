@@ -14,6 +14,7 @@
 use crate::media::video::annexb::{FLAG_ANNEX_B, FLAG_RANDOM_ACCESS_H264, FLAG_RANDOM_ACCESS_H265};
 use crate::platform::jvm::{Attached, Env};
 use crate::platform::ndk::*;
+use crate::media::video::flow::{frame_overflow, ReferenceChain};
 use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, PacingDelay};
 use crate::media::packet;
 use crate::media::stats::{clock, VideoInputStats};
@@ -78,7 +79,7 @@ struct Inner {
     retired: bool,
     shown: bool,
     need_decoder_sent: bool,
-    needs_keyframe: bool,
+    reference: ReferenceChain,
     frames: VecDeque<Frame>,
     frame_bytes: usize,
     inputs: VecDeque<i32>,
@@ -165,7 +166,7 @@ impl Inner {
             events.push((EVENT_RELEASE_DECODER, None));
         }
         self.drop_frames();
-        self.needs_keyframe = true;
+        self.reference.reset();
         self.backlog.reset();
         self.request_keyframe(now, events);
     }
@@ -181,18 +182,18 @@ impl Inner {
             let front = &self.frames[0];
             let pending = self.frames.len() - 1;
             let newest = (pending > 0).then(|| self.frames.back().unwrap().received_ns);
-            if self.needs_keyframe && !self.random_access(front) {
+            if !self.reference.accepts(self.random_access(front)) {
                 let frame = self.frames.pop_front().unwrap();
                 self.frame_bytes -= frame.size;
                 unsafe { packet::release(frame.handle) };
                 self.request_keyframe(now, events);
                 continue;
             }
-            if !self.needs_keyframe && self.backlog.observe(now, front.received_ns, pending, newest) {
+            if !self.reference.needs_keyframe() && self.backlog.observe(now, front.received_ns, pending, newest) {
                 self.recover("video backlog kept growing or exceeded hard limit", false, now, events);
                 return;
             }
-            if self.needs_keyframe && is_obsolete(now, front.received_ns, pending, newest) {
+            if self.reference.needs_keyframe() && is_obsolete(now, front.received_ns, pending, newest) {
                 self.drop_frames();
                 self.backlog.reset();
                 self.request_keyframe(now, events);
@@ -217,7 +218,7 @@ impl Inner {
             }
             self.slot_next = (slot + 1) % SLOTS;
             self.frames_since_configure += 1;
-            self.needs_keyframe = false;
+            self.reference.queued();
             if !self.first_input_logged {
                 self.first_input_logged = true;
                 events.push((EVENT_LOG, Some(format!("video decoder first input annexB={} packet=NativePacket decoder=native", frame.size))));
@@ -504,7 +505,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
         inner: Mutex::new(Inner {
             // Held until Kotlin has a configuration: frames before it have nothing to decode with.
             codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, accepting: false, retired: true,
-            shown: true, need_decoder_sent: false, needs_keyframe: true, frames: VecDeque::new(), frame_bytes: 0,
+            shown: true, need_decoder_sent: false, reference: ReferenceChain::default(), frames: VecDeque::new(), frame_bytes: 0,
             inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, slots: [Slot::default(); SLOTS], slot_next: 0,
             recent_paced: [None; PAUSE_HELD_FRAMES], last_queued_ns: 0, resumed_at_ns: 0, last_queued_local_ns: 0,
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),
@@ -654,7 +655,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
         inner.inputs.clear();
         inner.outputs.clear();
         inner.retired = false;
-        inner.needs_keyframe = true;
+        inner.reference.reset();
         inner.backlog.reset();
         // A keyframe that arrived while the old decoder was retiring asks for the next one.
         inner.need_decoder_sent = inner.accepting && !inner.frames.is_empty();
@@ -704,7 +705,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
     inner.accepting = accepting != 0;
     if reset_chain != 0 || !inner.accepting {
         inner.drop_frames();
-        inner.needs_keyframe = true;
+        inner.reference.reset();
     }
 }
 
@@ -722,7 +723,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
         if hold != 0 {
             inner.retired = true;
             inner.drop_frames();
-            inner.needs_keyframe = true;
+            inner.reference.reset();
         } else if inner.retired {
             inner.retired = false;
             inner.need_decoder_sent = false;
@@ -760,7 +761,7 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
         } else if flags & FLAG_ANNEX_B == 0 {
             packet::release(frame);
             inner.recover("invalid video access unit", false, now, &mut events);
-        } else if inner.needs_keyframe && inner.frames.is_empty() &&
+        } else if inner.reference.needs_keyframe() && inner.frames.is_empty() &&
             flags & (if inner.hevc { FLAG_RANDOM_ACCESS_H265 } else { FLAG_RANDOM_ACCESS_H264 }) == 0 {
             // VideoReferenceChain: nothing after a lost reference until a keyframe; no decoder for it either.
             packet::release(frame);
@@ -770,7 +771,7 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
                 Some(pacer) if sender_nanos > 0 && arrival_nanos > 0 => pacer.local_time(sender_nanos, arrival_nanos),
                 _ => 0,
             };
-            if inner.frames.len() >= MAX_FRAMES || inner.frame_bytes + size > MAX_BYTES {
+            if frame_overflow(inner.frames.len(), inner.frame_bytes as i64, size as i64, MAX_FRAMES as i32, MAX_BYTES as i32) {
                 // VideoDecodeQueue's overflow: the chain is gone; an unused decoder survives it.
                 inner.drop_frames();
                 inner.recover("video queue overflow", true, now, &mut events);
