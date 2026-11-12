@@ -68,15 +68,15 @@ Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
 of Gradle or CI builds; `cargo test` in that directory runs the host tests. Both shipped ABIs were rebuilt from
-source `9fed8383a319c097a6d17033070671e02917467f` on 2026-11-12 with NDK `28.2.13676358` and API 28;
+source `afa5a55` on 2026-11-12 with NDK `28.2.13676358` and API 28;
 the hashes below identify that build. Each ABI exports the same 434 Java JNI methods plus JNI_OnLoad.
 A required-core load failure is explicit. Real SDK capability fallback, such as AudioTrack when AAudio cannot open,
 remains platform behavior; there is no production Kotlin protocol/DSP substitute.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1830192 | `68f97f3851555268ff3611de8b1d621840b8348744344a0cd8ca4c9da59fe88a` |
-| armeabi-v7a | libdiplay_media.so | 1240956 | `9bdfee3e02bdd031ee4bb0f904fc0cdf45952d2890c3a35d036015a8ca926271` |
+| arm64-v8a | libdiplay_media.so | 1830152 | `5f4380737f9c3bfbd3d212218541f9d6e08ce0183aaa2a69b11cc87541a03ca3` |
+| armeabi-v7a | libdiplay_media.so | 1240812 | `0bd9c817b2448962476c3d8a7ee2f0a42338c08d7320686029d2adce85befd14` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).
