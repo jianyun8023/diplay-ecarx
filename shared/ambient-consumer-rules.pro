@@ -125,6 +125,7 @@
 -keep class com.shilapi.xcertplay.airplay.NativeScreenCodec { native <methods>; }
 
 -keep class com.shilapi.xcertplay.orchestration.NativeCarPlayController { native <methods>; }
+-keep class com.shilapi.xcertplay.transport.NativeIap2Handshake { native <methods>; }
 -keep class com.shilapi.xcertplay.orchestration.NativeStartupWatchdog { native <methods>; }
 
 # USBMUX bridges return only bootstrap arrays/strings; protocol exception has a String-only ctor.

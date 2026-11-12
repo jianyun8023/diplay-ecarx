@@ -50,10 +50,11 @@ Their provenance and rights should be evaluated as such, separately from firmwar
 
 - AndroidX — Android Open Source Project; Apache License 2.0.
 - Kotlin standard library — JetBrains; Apache License 2.0.
-- Bouncy Castle 1.79 — The Legion of the Bouncy Castle Inc.; Bouncy Castle license (MIT-style).
 - JmDNS 3.6.3 — JmDNS contributors; Apache License 2.0.
 - SLF4J — QOS.ch; MIT license.
 - ZXing Core 3.5.3 — ZXing authors; Apache License 2.0. See [the upstream project](https://github.com/zxing/zxing).
+
+Bouncy Castle 1.79 (The Legion of the Bouncy Castle Inc.; MIT-style license) is retained only for independent tests, not the production runtime.
 
 Gradle dependency declarations and version catalog accompany the source. License files available in the resolved artifacts are included under `docs/licenses/dependencies/`.
 
@@ -86,7 +87,17 @@ and getrandom, each dual-licensed MIT or Apache-2.0.
 ring's own code and `untrusted` use ISC-style licenses; code taken from BoringSSL keeps its Apache-2.0, ISC or
 OpenSSL notices. The full texts are in [the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt),
 and [native provenance](../shared/src/main/jniLibs/NOTICE.md) records the source, hashes and rebuild command.
-When the library cannot load, the Kotlin receivers and the platform cipher handle the same data.
+Migrated screen/protocol/crypto facades require the native core. Remaining audio fallback retirement is in progress; Android codec/output capability fallbacks are separate platform behavior.
+
+## Pairing and protocol cryptography
+
+`curve25519-dalek 5.0.0` supplies raw X25519 arithmetic under BSD-3-Clause; `subtle 2.6.1`
+uses BSD-3-Clause. SRP uses `num-bigint 0.5.1`, `num-integer 0.1.47` and `num-traits 0.2.19`
+under the MIT option of their dual licenses. The license bundle also retains MIT notices for
+build/target-specific dependencies `autocfg 1.5.1`, `cpufeatures 0.3.1`,
+`curve25519-dalek-derive 0.1.1`, `fiat-crypto 0.3.0`, `rustc_version 0.4.1` and `semver 1.0.28`.
+Verbatim notices from the locked crate versions are included in
+[the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt), packaged with the APK.
 
 ## Experimental authentication data
 

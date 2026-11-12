@@ -17,8 +17,8 @@
 迁移顺序：
 
 1. 完成媒体闭环。AAudio 正确性与视频直连已完成；音频压缩队列、缓冲音乐锚点、SETRATE／FLUSH、音乐 PI 时钟与 TCP 背压现由 Rust 拥有。继续收敛平台输出调度与逐包交接，并完成实车验收。
-2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP、bplist、control／event 加密和 PairVerify 已接入 Rust，PairSetup／SRP、iAP2／NTP 等仍待迁移，平台存储与 MFi 接入继续保留。
-3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState、WirelessBootstrapRecovery 及 wired Iap2ControlDeadline 策略已迁移；wireless deadline、watchdog 调度、controller 代际与平台资源动作仍保留。
+2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP、bplist、control／event 加密和 PairVerify 已接入 Rust，PairSetup／SRP、NTP、iAP2 body／link／握手和 USBMUX 也已接入，Lockdown 正在实施；平台存储、JCA 硬件密钥及真实 MFi I/O 保留适配层。
+3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState、WirelessBootstrapRecovery 及 wired Iap2ControlDeadline 策略已迁移；wireless deadline、watchdog 决策、controller／VPN 代际和 AirPlay 流协商状态也已迁入 Rust；Kotlin 执行平台资源动作和调度。
 4. 迁移导航、车辆转换和输入协议；EV 0xA101、导航状态、HID 报告／描述符、触摸槽状态、IdentificationInformation 车辆组件、PASCD 布局／校验及仪表／HUD 纯转换表已接入 Rust。Android／车机适配、平台数值与字符串格式化保留 Kotlin；其余转换继续迁移，验收后退出重复生产核心。
 
 验证覆盖范围与批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
@@ -78,10 +78,10 @@
 
 | 归属 | 内容 |
 | --- | --- |
-| 控制面及平台适配（Kotlin） | controller 连接编排与重试、配对／加密控制通道、设置与持久化、流的建立与拆除；解码器的选型、格式参数、私有参数回退、渲染目标（Surface、fanout、停放）与何时重建；音频的路由、焦点、车机 BUS 与旧式流类型选择，AAC / AudioTrack 平台调用及输出回调顺序；仪表与 HUD 平台输出、车辆 SDK provider／订阅；诊断报告。RTSP、bplist、无线 run 与导航状态经适配器调用 Rust。 |
+| 平台适配（Kotlin） | 连接与流的实际 I/O、SDK／watchdog 调度、取消执行、设置和持久化、证书／硬件密钥、格式参数、Surface／fanout／停放与实际 codec 创建恢复；音频焦点、BUS／旧式流类型、AAC／AudioTrack 平台调用与回调顺序；仪表／HUD 输出、车辆 SDK provider／订阅及诊断报告。协议、配对、协商、代际、重试、codec 选型和输出调度决策由 Rust 返回动作。 |
 | 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；RTP 打包；有线 NCM 与 tun 之间的转发。Speex 回声消除仍通过原有 C/JNI 库执行。 |
 
-Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、帧、PCM、音乐控制与时钟状态。两点说明：
+Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kotlin 执行平台动作并保留焦点、SDK能力检测与设备校准。两点说明：
 
 - **视频**：解码由高通硬件完成，Java 与 NDK 走同一条 OMX/Codec2 路径，迁移省下的是轮询与线程交接。Java `MediaCodec` 以 `dequeueOutputBuffer` 超时轮询，台架上它的 `MediaCodec_loop` 线程单独占一个核的约 16%；API 28 起 NDK 提供 `AMediaCodec_setAsyncNotifyCallback`，输出到达时回调，不再轮询，接收线程也能直接喂帧。`VideoDecoder` 的选型与回退逻辑保留在 Kotlin，由它驱动 Rust 侧的解码循环。
 - **音频输出**：按 usage 路由的音乐与导航流尝试 AAudio，打开失败时回退到 `AudioTrack`。通话、Siri 和指定旧式流类型的流保留 `AudioTrack`。AAudio 路径用 Rust PCM 增益处理焦点衰减，用重采样处理原先由 `AudioTrack.setPlaybackRate` 执行的时钟微调。AAC 仍由系统 Google AAC 解码（实车上高通 AAC 解码器创建失败，见平台笔记）。
@@ -141,7 +141,7 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 - **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin 保留配置、Surface 和恢复决策。Kotlin 回退路径通过 `MediaPacket.copyInto` 写入解码器输入缓冲。
 - **统计**：`StreamReceiveStats` 的字段与日志格式不变，计数在 Rust 内累计，按原有心跳与异常间隔回调一行文本。
 - **视频输入统计**：输入帧数、字节、活跃／静止间隔和触摸到下一帧由 Rust 累积，随解码统计定期拉取；主屏独占触摸样本。FPS 直接读取原生计数，保留原有日志字段，不为统计恢复逐帧回调。
-- **回退**：每条流在建立时选择实现。库加载失败或在 JVM 单测中，使用现有 Kotlin 实现；日志里记录 `impl=native|kotlin`。Kotlin 实现保留，供主机单测与运行时回退，不再做性能优化。
+- **核心加载与能力回退**：视频和已迁协议要求Rust核心；视频启动失败回收描述符并显式通知。JVM纯核心测试加载真实host JNI，旧算法留testCore独立对照；SDK socket／codec边界仍需Android fd验收。剩余音频回退正在清理，硬件／SDK能力分支保留。
 
 ### 6.3 协议、会话和领域首批
 
@@ -149,21 +149,25 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 
 - `protocols::iap2_body` 持有CSM参数编码／解析、长度校验、顺序与重复项，以及builder的未知／类型／重复／必选字段规则。`iap2_wire`持有标量、列表／NUL布局和reader字段长度校验；Kotlin只保留DTO、描述性schema、builder／reader接口及平台UTF-8转换，schema错误由Rust返回输入索引，保留UTF-16字段名。encode保留65529字节body上限，standalone parse沿用更宽的旧输入合同；独立旧算法移至pure testCore，不进入生产。R8保留DTO及协议异常类名／现有构造器。本轮尚未进行新增测试验收。
 - `protocols::iap2_csm` 持有65535字节有界的外层分帧、重同步与link分块；`iap2_link` 持有同步协商、序号／ACK／窗口、重传、有限队列和定时器。同步facade串行使用／销毁，worker用`use`持有link owner；旧完整算法只留测试源码，生产不回退。对照LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的`iap2-csm/src/lib.rs`与`iap2-link/src/lib.rs`：保留本仓库严格分块校验、peer长度校验、有界输入／输出／事件、Dead清空语义、原始非control session payload及Long wrapping时钟；没有导入LIVI crate或运行时。当前source阶段尚待统一双ABI／设备验收。
-- wired USB结果携带所属run，取消／换代后迟到的Connected在交接边界释放。mux发布与close用既有resource monitor排序，锁内不做I/O或关闭。USB pipe只交给factory一次，局部finally只关自己的startup watchdog，不能终止替代run；其余controller／CSM／VPN资源代际仍待迁移。
+- `protocols::timing`持有NTP request／peer／sample／filter状态，保留2次选择、8样本窗、128ms／1⁄8 slew和Java rounding／Long wrapping；socket和采钟留Kotlin。
+- `session::airplay`持有RTSP route、feature、stream／timing claim、TEARDOWN及night／navigation关联；平台socket、cipher安装、DTO和回调留Kotlin。
+- `session::iap2_handshake`唯一持有Identification／MFi／wired／wireless的实际下一动作、消息分派、一次安全省略重试、Wi-Fi前5后2预算、StartAgain、计数及deadline算术；Kotlin保留证书／签名、I/O、取消与回调，不再镜像stage或重试集合。
+- `transport::usbmux`持有可选1004B padding、mux／TCP序号、窗口、队列、16KiB分片和send-success commit；Kotlin保留真实I/O和等待。关闭后的尾队列是Rust解释的不透明GC值，native heap释放；Lockdown后续批次尚未集成。
+- wired USB结果携带所属run，取消／换代后迟到的Connected在交接边界释放。mux发布与close用既有resource monitor排序，锁内不做I/O或关闭。USB pipe只交给factory一次，局部finally只关自己的startup watchdog，不能终止替代run；controller／CSM／VPN代际和资源交接决策已由Rust token持有，SDK关闭与I/O保持在现有资源锁之外。
 - `RtspMessage` 的公开 DTO 与调用入口不变；Rust 解析合包／分片、限制头／体大小、生成响应，JNI 直接构造 Request／Parsed。边界保留 Kotlin US_ASCII 替换、trim／大小写、Content-Length、NUL、重复头和响应顺序语义；错误继续抛 ProtocolException。JNI 使用 UTF-16 并按消息释放局部引用，R8 保留 DTO 名称／构造器。
 - 对照 LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 rtsp.rs／ts_vectors：其 16 MiB body、leading-digit 长度解析、非 ASCII 等规则与本项目不同，因此移植本仓库行为，保留 16 KiB header／1 MiB body 上限；标准 RTSP／500 响应与其向量逐字节相同。没有复制 LIVI 文件或导入依赖。
-- `WirelessRunState` 的生命周期、handoff、tunnelReady 与首次失败由 Rust 查询／转移。Kotlin 只串行保存一个 opaque value token，不解释其编码，不分配 native 堆句柄。关闭后首次迟到失败沿用相同转移规则；原 controller 资源锁、代际、超时和恢复动作尚未迁移。
+- `WirelessRunState` 的生命周期、handoff、tunnelReady 与首次失败由 Rust 查询／转移。Kotlin 只串行保存一个 opaque value token，不解释其编码，不分配 native 堆句柄。关闭后首次迟到失败沿用相同转移规则；controller代际、关闭计划及超时决策已接入Rust，原资源锁和平台动作留Kotlin；无线state／recovery生产回退已移出，独立旧实现留testCore。
 - `Iap2VehicleStatus.update` 将 EV 快照的范围／电量／能量转换交给 Rust；保留未知能量省略、负值钳零、u32 溢出拒绝、缩放／舍入、NaN 拒绝和无穷钳制。对照 LIVI `870d26441e073cdb802c427c5ae8833dba694951` 的 iap2-csm vehicle_status 字段／类型一致；livi-cp vehicle_state 属于另一车辆特征协议，不能替代该参数体。SDK provider、订阅和 Iap2Frame 包装继续使用 Kotlin。
 - `ControlCipher` 的分帧、AEAD 与双向 wrapping nonce counter 由 Rust 持有。Kotlin 以同步的 Closeable owner 串行使用／释放句柄；AirPlaySession 关闭 control 和 event owner，拒绝关闭后的迟到安装，并在等待 event 写锁前关闭 socket 以唤醒阻塞写。保留空输入加密帧、u16 解密长度、部分帧 rest identity 及认证失败前已成功帧的计数进度。
-- `PairVerify` 的完整 M1/M2/M3/M4、临时／shared／加密 key、验证状态与 control keys 由 Rust 持有；同步 facade 和 Session 管理释放。Kotlin 只保留实时 PairingStore 查询及平台 UTF-8，JNI 显式保留回调／DTO 签名。保留 M2 阶段 shared 可读、M1 部分失败更新顺序、旧验证结果不被新／失败握手清空、长 key 前32字节计算而完整 raw 参与签名。原生边界保留 BC1.79 的 Ed25519 编码拒绝范围，拒绝低阶／非规范公钥。PairSetup／SRP、身份与配对存储、MFi 仍保留 Kotlin。
+- `PairVerify` 的完整 M1/M2/M3/M4、临时／shared／加密 key、验证状态与 control keys 由 Rust 持有；同步 facade 和 Session 管理释放。Kotlin 只保留实时 PairingStore 查询及平台 UTF-8，JNI 显式保留回调／DTO 签名。保留 M2 阶段 shared 可读、M1 部分失败更新顺序、旧验证结果不被新／失败握手清空、长 key 前32字节计算而完整 raw 参与签名。原生边界保留 BC1.79 的 Ed25519 编码拒绝范围，拒绝低阶／非规范公钥。PairSetup／SRP完整M1–M6、proof和签名状态也已迁入Rust；保留save-before-sign、close／重入顺序。身份与配对存储、JCA硬件密钥及MFi真实I/O留Kotlin，DER／raw转换已原生化。SRP模幂仍是与原BigInteger同类的variable-time实现，不作constant-time承诺。
 - `WirelessBootstrapRecovery` 用 Rust value token 持有 run 预算与 attempt 状态，并决定 Java Throwable facts 的终止／重试／超时包装。保留一次 connect retry、一次 fallback、一次 bootstrap retry、400／800 ms 等待、验证及资源执行顺序；Kotlin 仅保留平台异常描述、100 ms 可取消等待、watchdog 调度与实际资源动作。
 - `Iap2ControlDeadline` 的有限认证窗口、认证后无限模式与30秒 poll 上限由 Rust 决定；Kotlin 保留时钟与原 Iap2WiredControlClient I/O。两 Long token 原样保留全部时间／预算位，认证无限态用独立空 token 表示；不分配 native 堆句柄。保留 Long wrapping、回拨、向上取整与时钟重入的单次查询快照，无限认证后不再读取时钟。
 - Rust `hid` 持有二指触摸、旋钮、媒体及电话报告和四类 descriptor 的编码，`touch_slots` 持有 pointer→slot 状态并合成报告。Kotlin 保留 UID／元数据、Android 输入及显示尺寸；facade 串行使用／关闭句柄，关闭后的迟到报告安全返回 false。保留按 slot id 首次匹配、Android Math.round 与低16位截断；这些与 LIVI 的列表顺序／饱和规则不同。
 - `media::audio::scheduler` 持有输出记账、unsigned head、playback／prebuffer、容量内启动门限、写入分块／结果动作、重缓冲／尾包期限、buffer校准和导航路由决策。worker惰性分配，同worker reset／释放；平台play／pause成功后才回报Rust，不在core锁内调用SDK。压缩包始终由Rust队列持有，旧Kotlin恢复算法只留testCore。`media::video::selection`持有软硬解选择、重试与probe计划，保留首个非alias、2000／30000ms、Long wrapping和callback后才推进重试的顺序；平台保留Char折叠、枚举／create／sleep。新实现尚待统一验证；RTP音频直连队列仍待后续接入。
 - `vehicle::identification` 编组20／21的字段与重复连接器；名称经既有平台字符串 codec，保留畸形UTF-16替换、NUL拒绝及既有参数／body预算。`vehicle_speed` 持有PASCD布局与XOR／CRLF，平台 Formatter 保留舍入、负零及非有限数拼写。`cluster_arrow／lane_icon／day_night` 持有OEM纯转换，车机适配保留；status0且angles为空仍以原始highlight推断方向，不激活高亮。
-- Kotlin旧核心仅在库不可用时启用，所有权和设备验收详见issue #96。PASCD／VehicleSpeedLocationProvider仍无生产SDK装配点，此批仅接入已有编码入口，不新增车速来源。
+- 已迁协议、配对、导航／HUD、NTP、无线状态与恢复要求原生核心；旧实现只作为testCore对照。剩余媒体回退正在移出，所有权和设备验收详见issue #96。PASCD／VehicleSpeedLocationProvider仍无生产SDK装配点，此批仅接入已有编码入口，不新增车速来源。
 
-生产 Kotlin 回退属于迁移期机制，后续按已验收模块移出生产路径，仅保留独立测试对照，并为原生核心加载失败提供明确启动错误。这个退出方案尚未实施；Bouncy Castle 当前仍服务 PairSetup／SRP、身份密钥及 MFi ASN.1，不能仅因 PairVerify 迁移而删除。AudioTrack 等硬件能力回退另按平台需求保留。
+生产 Kotlin 核心回退正在逐模块移出；独立旧算法只供测试对照，库加载失败显式上报。Bouncy Castle 已从 shared 生产依赖移除，仅作测试 oracle。AudioTrack、MediaCodec、AAudio 等真实硬件／SDK能力回退保留。此次新增源码仅完成分批必要编译；首个c635候选已构建双ABI APK，后续提交未进入该包，尚未进行整批JNI／R8／设备验收。
 
 ### 6.4 各路径的实现
 
