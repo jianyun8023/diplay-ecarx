@@ -133,3 +133,17 @@
 -keep class com.shilapi.xcertplay.transport.IphoneUsbException$Protocol {
     public <init>(java.lang.String);
 }
+-keep class com.shilapi.xcertplay.transport.NativeLockdown { native <methods>; }
+-keepclassmembers class com.shilapi.xcertplay.transport.LockdownXmlTokens {
+    public java.lang.Object[] next(int);
+    public long[] integer(java.lang.String);
+    public java.lang.String data(java.lang.String);
+}
+-keepclassmembers class com.shilapi.xcertplay.transport.LockdownXmlInput {
+    public java.lang.Object[] next();
+}
+-keepclassmembers class com.shilapi.xcertplay.transport.LockdownIo {
+    public long now();
+    public void verify();
+    public byte[] recv(int, long);
+}
