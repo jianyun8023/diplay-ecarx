@@ -126,7 +126,7 @@ class WirelessBootstrapLifecycleTest {
     @Test fun queuedOldBootstrapStatusCannotEscapeAnInvalidatedAttempt() {
         val oldAttempt = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", oldAttempt)
-        bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, oldAttempt)
+        bootstrapStatus(CarPlayStatus.ConnectingBluetooth, generation, oldAttempt)
         assertTrue("Bootstrap status must be queued until the main looper runs", statuses.isEmpty())
 
         oldAttempt.javaClass.getDeclaredMethod("invalidate").apply { isAccessible = true }.invoke(oldAttempt)
@@ -137,7 +137,7 @@ class WirelessBootstrapLifecycleTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("An old attempt's queued status reached the UI", statuses.isEmpty())
 
-        bootstrapStatus(CarPlayStatus.RunningWireless, 0, replacement)
+        bootstrapStatus(CarPlayStatus.RunningWireless, generation, replacement)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(CarPlayStatus.RunningWireless), statuses)
     }
@@ -145,7 +145,7 @@ class WirelessBootstrapLifecycleTest {
     @Test fun queuedCurrentBootstrapStatusIsDeliveredOnTheMainLooper() {
         val attempt = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
-        bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, attempt)
+        bootstrapStatus(CarPlayStatus.ConnectingBluetooth, generation, attempt)
         assertTrue(statuses.isEmpty())
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(CarPlayStatus.ConnectingBluetooth), statuses)
@@ -154,14 +154,14 @@ class WirelessBootstrapLifecycleTest {
     @Test fun queuedBootstrapStatusCannotEscapeAnOldWirelessGeneration() {
         val attempt = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
-        bootstrapStatus(CarPlayStatus.ConnectingBluetooth, 0, attempt)
+        bootstrapStatus(CarPlayStatus.ConnectingBluetooth, generation, attempt)
         controller.replaceWirelessRunForTest()
         // The attempt token stays valid; retiring its run must still reject queued progress.
         assertTrue(attemptIsCurrent(attempt))
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("An old generation's queued bootstrap status reached the UI", statuses.isEmpty())
 
-        bootstrapStatus(CarPlayStatus.RunningWireless, 1, attempt)
+        bootstrapStatus(CarPlayStatus.RunningWireless, generation, attempt)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(listOf(CarPlayStatus.RunningWireless), statuses)
     }
@@ -344,19 +344,15 @@ class WirelessBootstrapLifecycleTest {
         assertWirelessPhase()
         val attempt = newAttempt()
         val stream = mock(BluetoothRfcommDuplexStream::class.java)
-        val dispatched = AtomicBoolean(false)
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", attempt)
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bluetoothStream", stream)
 
         // This hook runs before 0x4301 is written; onStartSessionSent has not run yet.
-        controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
-            Int::class.javaPrimitiveType, attempt.javaClass, AtomicBoolean::class.java,
-            Function0::class.java).apply { isAccessible = true }
-            .invoke(controller.wirelessRunForTest(), generation, attempt, dispatched, { Unit })
-        assertTrue(dispatched.get())
+        beginDispatch(attempt)
+        assertTrue(controller.wirelessStateCallForTest("getBootstrapDispatched") as Boolean)
         assertTrue(attemptIsCurrent(attempt))
 
-        expireAttempt(attempt, dispatched = dispatched)
+        expireAttempt(attempt)
         assertSame(attempt, ReflectionHelpers.getField(controller.wirelessRunForTest(), "bootstrapAttempt"))
         assertTrue(attemptIsCurrent(attempt))
         verifyNoInteractions(stream)
@@ -366,15 +362,11 @@ class WirelessBootstrapLifecycleTest {
         assertWirelessPhase()
         val old = newAttempt()
         ReflectionHelpers.setField(controller.wirelessRunForTest(), "bootstrapAttempt", newAttempt())
-        val dispatched = AtomicBoolean(false)
         val error = assertThrows(InvocationTargetException::class.java) {
-            controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
-                Int::class.javaPrimitiveType, old.javaClass, AtomicBoolean::class.java,
-                Function0::class.java).apply { isAccessible = true }
-                .invoke(controller.wirelessRunForTest(), generation, old, dispatched, { Unit })
+            beginDispatch(old)
         }
         assertTrue(error.cause is CancellationException)
-        assertFalse(dispatched.get())
+        assertFalse(controller.wirelessStateCallForTest("getBootstrapDispatched") as Boolean)
     }
 
     @Test fun watchdogCannotCloseAfterStartSessionOrHandoffOrGenerationReplacement() {
@@ -398,16 +390,22 @@ class WirelessBootstrapLifecycleTest {
         assertEquals(2, controller.controllerCoreCallForTest<Int>("getPhase"))
     }
 
-    private fun expireAttempt(attempt: Any, sent: Boolean = false,
-        dispatched: AtomicBoolean = AtomicBoolean(sent)) {
+    private fun beginDispatch(attempt: Any) {
+        controller.wirelessRunForTest().javaClass.getDeclaredMethod("beginStartSessionDispatch",
+            Int::class.javaPrimitiveType, attempt.javaClass, Function0::class.java)
+            .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation, attempt, { Unit })
+    }
+
+    private fun expireAttempt(attempt: Any, sent: Boolean = false) {
+        if (sent) beginDispatch(attempt)
         val phaseType = com.shilapi.xcertplay.transport.Iap2BootstrapPhase::class.java
         val stallType = Class.forName("com.shilapi.xcertplay.orchestration.Iap2BootstrapStall")
         val stall = stallType.getDeclaredConstructor(phaseType, phaseType, Long::class.javaPrimitiveType)
             .newInstance(com.shilapi.xcertplay.transport.Iap2BootstrapPhase.MFi_AUTHENTICATED,
                 com.shilapi.xcertplay.transport.Iap2BootstrapPhase.WIRELESS_CARPLAY_AVAILABLE, 65_000L)
         controller.wirelessRunForTest().javaClass.getDeclaredMethod("expireBootstrapAttempt", Int::class.javaPrimitiveType,
-            attempt.javaClass, stallType, AtomicBoolean::class.java).apply { isAccessible = true }
-            .invoke(controller.wirelessRunForTest(), generation, attempt, stall, dispatched)
+            attempt.javaClass, stallType).apply { isAccessible = true }
+            .invoke(controller.wirelessRunForTest(), generation, attempt, stall)
     }
 
     private fun reportedFailure(error: Throwable): CarPlayStatus.Failed {
