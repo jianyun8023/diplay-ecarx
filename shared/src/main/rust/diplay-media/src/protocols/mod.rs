@@ -11,3 +11,4 @@ pub mod pair_verify;
 pub mod rtsp;
 pub mod pair_setup;
 mod tlv8;
+pub mod timing;
