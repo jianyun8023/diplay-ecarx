@@ -62,11 +62,8 @@ class WiredUsbFailureCleanupTest {
             loadPairRecord = { throw LockdownPairingException.PasswordProtected })
         // Exercise cleanup of an existing control channel as well as failure before a new one opens.
         ReflectionHelpers.setField(controller, "csm", control)
-        controller.javaClass.getDeclaredField("phase").apply {
-            isAccessible = true
-            set(controller, type.enumConstants!!.single { (it as Enum<*>).name == "DATAPATHS" })
-        }
-        val run = ReflectionHelpers.getField<AtomicInteger>(controller, "diagnosticRun").get()
+        assertTrue(controller.controllerCoreCallForTest("beginIphone"))
+        val run = checkNotNull(controller.controllerCoreCallForTest<Int?>("beginDataPaths"))
         try {
             ReflectionHelpers.callInstanceMethod<Unit>(controller, "runStack",
                 ClassParameter.from(Iap2UsbSession::class.java, pipe),
