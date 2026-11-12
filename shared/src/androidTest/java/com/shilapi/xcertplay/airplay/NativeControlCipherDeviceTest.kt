@@ -77,19 +77,42 @@ class NativeControlCipherDeviceTest {
         }
     }
 
-    @Test fun realPairVerifyEnablesEncryptedControlAndEventSocketsAndClosesBothOwners() {
+    @Test fun realPairSetupAndVerifyEnableEncryptedControlAndEventSocketsAndCloseAllOwners() {
         assertTrue(NativeMedia.available)
         val loopback = InetAddress.getByName("127.0.0.1")
         ServerSocket(0, 1, loopback).use { listener ->
             Wire(Socket(loopback, listener.localPort)).use { control ->
                 val controller = AirPlayCrypto.ed25519Generate()
-                val pairings = PairingStore().apply { save("cipher-controller", controller.publicKey) }
+                val pairings = PairingStore()
                 val ready = CountDownLatch(1)
                 val session = session(listener.accept(), pairings, object : AirPlaySessionListener {
                     override fun onClusterControlReady(session: AirPlaySession) { ready.countDown() }
                 })
                 try {
                     session.start()
+                    fun setup(body: ByteArray): ByteArray {
+                        control.request("POST", "/pair-setup", body)
+                        return control.read().body
+                    }
+                    fun message(state: Int, vararg items: Tlv8Item) = Tlv8Codec.encode(listOf(Tlv8Item(6, byteArrayOf(state.toByte()))) + items)
+                    val setupM2 = Tlv8Codec.decode(setup(message(1)))
+                    val setupClient = PairSetupDeviceSrpClient(setupM2[2]!!, setupM2[3]!!)
+                    val setupM4 = Tlv8Codec.decode(setup(message(3, Tlv8Item(3, setupClient.publicA), Tlv8Item(4, setupClient.proof))))
+                    assertArrayEquals(setupClient.serverProof, setupM4[4])
+                    val id = "cipher-controller".toByteArray()
+                    fun setupKey(salt: String, info: String) = AirPlayCrypto.hkdfSha512(setupClient.key, salt.toByteArray(), info.toByteArray())
+                    val setupSignature = AirPlayCrypto.ed25519Sign(controller.privateKey,
+                        setupKey("Pair-Setup-Controller-Sign-Salt", "Pair-Setup-Controller-Sign-Info") + id + controller.publicKey)
+                    val setupSub = Tlv8Codec.encode(listOf(Tlv8Item(1, id), Tlv8Item(3, controller.publicKey), Tlv8Item(10, setupSignature)))
+                    val setupEncryption = setupKey("Pair-Setup-Encrypt-Salt", "Pair-Setup-Encrypt-Info")
+                    val setupM6 = Tlv8Codec.decode(setup(message(5, Tlv8Item(5,
+                        AirPlayCrypto.chachaSeal(setupEncryption, AirPlayCrypto.nonceLabel("PS-Msg05"), setupSub)))))
+                    assertArrayEquals(byteArrayOf(6), setupM6[6])
+                    val accessory = Tlv8Codec.decode(AirPlayCrypto.chachaOpen(setupEncryption, AirPlayCrypto.nonceLabel("PS-Msg06"), setupM6[5]!!))
+                    assertTrue(AirPlayCrypto.ed25519Verify(accessory[3]!!,
+                        setupKey("Pair-Setup-Accessory-Sign-Salt", "Pair-Setup-Accessory-Sign-Info") + accessory[1]!! + accessory[3]!!, accessory[10]!!))
+                    assertArrayEquals(controller.publicKey, pairings.get("cipher-controller"))
+                    assertTrue(session.pairSetup.complete)
                     val ephemeral = AirPlayCrypto.x25519Generate()
                     val m1 = Tlv8Codec.encode(listOf(Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, ephemeral.publicKey)))
                     control.request("POST", "/pair-verify", m1)
@@ -98,7 +121,6 @@ class NativeControlCipherDeviceTest {
                     val accessoryPublic = m2[3]!!
                     val shared = AirPlayCrypto.x25519Shared(ephemeral.privateKey, accessoryPublic)
                     val encryptKey = AirPlayCrypto.hkdfSha512(shared, "Pair-Verify-Encrypt-Salt".toByteArray(), "Pair-Verify-Encrypt-Info".toByteArray())
-                    val id = "cipher-controller".toByteArray()
                     val signature = AirPlayCrypto.ed25519Sign(controller.privateKey, ephemeral.publicKey + id + accessoryPublic)
                     val sub = Tlv8Codec.encode(listOf(Tlv8Item(1, id), Tlv8Item(10, signature)))
                     val m3 = Tlv8Codec.encode(listOf(Tlv8Item(6, byteArrayOf(3)),
@@ -131,6 +153,8 @@ class NativeControlCipherDeviceTest {
                         assertNull(session.pairVerify.shared); assertNull(session.pairVerify.controlKeys)
                         assertNull(session.controllerId); assertFalse(session.pairVerify.isVerified)
                         assertEquals(0L, PairVerify::class.java.getDeclaredField("handle").apply { isAccessible = true }.getLong(session.pairVerify))
+                        assertFalse(session.pairSetup.complete)
+                        assertEquals(0L, PairSetup::class.java.getDeclaredField("handle").apply { isAccessible = true }.getLong(session.pairSetup))
                     }
                 } finally { session.close() }
             }

@@ -108,3 +108,9 @@
 -keep class com.shilapi.xcertplay.transport.NativeIap2Link { native <methods>; }
 
 -keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Wire { native <methods>; }
+
+# PairSetup keeps the live platform save callback and the store's binary class name.
+-keep class com.shilapi.xcertplay.airplay.NativePairSetup {
+    native <methods>;
+    public static void save(com.shilapi.xcertplay.airplay.PairingStore, byte[], byte[]);
+}

@@ -3,6 +3,7 @@
 
 use crate::platform::jvm::Env;
 use jni_sys::{jbyteArray, jclass, jint, JNIEnv};
+use ring::hkdf;
 use ring::aead::{Aad, LessSafeKey, Nonce, Tag, UnboundKey, CHACHA20_POLY1305};
 
 pub const TAG_LEN: usize = 16;
@@ -84,4 +85,50 @@ mod tests {
         data[0] ^= 1;
         assert_eq!(opener.open(counter_nonce(3), b"hdr", &mut data), None);
     }
+}
+
+pub(super) fn controller_public_key(raw: &[u8]) -> Option<&[u8; 32]> {
+    let key: &[u8; 32] = raw.get(..32)?.try_into().ok()?;
+    let mut y = *key;
+    y[31] &= 0x7f;
+    let mut minus_one = [0xff; 32];
+    minus_one[0] = 0xec;
+    minus_one[31] = 0x7f;
+    // BC 1.79 checkPointFullVar: canonical y, excluding the eight low-order points.
+    // ring's verifier alone accepts e.g. identity A with the universal signature R=B, S=1.
+    const ORDER8_Y: [[u8; 32]; 2] = [
+        [
+            0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10,
+            0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77,
+            0x92, 0xac, 0x03, 0x7a,
+        ],
+        [
+            0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
+            0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
+            0x6d, 0x53, 0xfc, 0x05,
+        ],
+    ];
+    if (y[1..].iter().all(|&b| b == 0) && y[0] <= 1)
+        || y.iter().rev().cmp(minus_one.iter().rev()) != std::cmp::Ordering::Less
+        || ORDER8_Y.contains(&y)
+    {
+        return None;
+    }
+    Some(key)
+}
+
+pub(super) fn hkdf32(input: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
+    struct Length;
+    impl hkdf::KeyType for Length {
+        fn len(&self) -> usize {
+            32
+        }
+    }
+    let prk = hkdf::Salt::new(hkdf::HKDF_SHA512, salt).extract(input);
+    let mut output = [0; 32];
+    prk.expand(&[info], Length)
+        .unwrap()
+        .fill(&mut output)
+        .unwrap();
+    output
 }

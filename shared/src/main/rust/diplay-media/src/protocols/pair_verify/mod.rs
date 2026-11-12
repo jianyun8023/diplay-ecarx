@@ -2,9 +2,9 @@
 //! ported from our Kotlin contract, including its partial M1 updates and truncated-TLV handling.
 mod jni;
 
-use crate::protocols::crypto::StreamKey;
+use crate::protocols::{crypto::{controller_public_key, hkdf32, StreamKey}, tlv8::{decode, encode}};
 use ring::{
-    agreement, hkdf,
+    agreement,
     rand::SystemRandom,
     signature::{self, Ed25519KeyPair},
 };
@@ -144,96 +144,11 @@ impl PairVerify {
     }
 }
 
-fn controller_public_key(raw: &[u8]) -> Option<&[u8; 32]> {
-    let key: &[u8; 32] = raw.get(..32)?.try_into().ok()?;
-    let mut y = *key;
-    y[31] &= 0x7f;
-    let mut minus_one = [0xff; 32];
-    minus_one[0] = 0xec;
-    minus_one[31] = 0x7f;
-    // BC 1.79 checkPointFullVar: canonical y, excluding the eight low-order points.
-    // ring's verifier alone accepts e.g. identity A with the universal signature R=B, S=1.
-    const ORDER8_Y: [[u8; 32]; 2] = [
-        [
-            0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10,
-            0x67, 0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77,
-            0x92, 0xac, 0x03, 0x7a,
-        ],
-        [
-            0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef,
-            0x98, 0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88,
-            0x6d, 0x53, 0xfc, 0x05,
-        ],
-    ];
-    if (y[1..].iter().all(|&b| b == 0) && y[0] <= 1)
-        || y.iter().rev().cmp(minus_one.iter().rev()) != std::cmp::Ordering::Less
-        || ORDER8_Y.contains(&y)
-    {
-        return None;
-    }
-    Some(key)
-}
-
-fn hkdf32(input: &[u8], salt: &[u8], info: &[u8]) -> [u8; 32] {
-    struct Length;
-    impl hkdf::KeyType for Length {
-        fn len(&self) -> usize {
-            32
-        }
-    }
-    let prk = hkdf::Salt::new(hkdf::HKDF_SHA512, salt).extract(input);
-    let mut output = [0; 32];
-    prk.expand(&[info], Length)
-        .unwrap()
-        .fill(&mut output)
-        .unwrap();
-    output
-}
 
 fn error(state: u8) -> Vec<u8> {
     encode(&[(STATE, &[state]), (7, &[2])])
 }
 
-// Private to this owner: other pairing messages still use the Kotlin TLV codec.
-fn decode(buffer: &[u8]) -> HashMap<u8, Vec<u8>> {
-    let mut output = HashMap::<u8, Vec<u8>>::new();
-    let (mut position, mut previous) = (0, None);
-    while buffer.len() - position >= 2 {
-        let (kind, len) = (buffer[position], buffer[position + 1] as usize);
-        position += 2;
-        if len > buffer.len() - position {
-            break;
-        }
-        let value = &buffer[position..position + len];
-        if previous == Some((kind, 255)) {
-            output.entry(kind).or_default().extend_from_slice(value);
-        } else {
-            output.insert(kind, value.to_vec());
-        }
-        position += len;
-        previous = Some((kind, len));
-    }
-    output
-}
-
-fn encode(items: &[(u8, &[u8])]) -> Vec<u8> {
-    let mut output = Vec::new();
-    let mut previous = None;
-    for &(kind, value) in items {
-        if previous == Some(kind) {
-            output.extend_from_slice(&[255, 0]);
-        }
-        if value.is_empty() {
-            output.extend_from_slice(&[kind, 0]);
-        }
-        for chunk in value.chunks(255) {
-            output.extend_from_slice(&[kind, chunk.len() as u8]);
-            output.extend_from_slice(chunk);
-        }
-        previous = Some(kind);
-    }
-    output
-}
 
 #[cfg(test)]
 mod tests {

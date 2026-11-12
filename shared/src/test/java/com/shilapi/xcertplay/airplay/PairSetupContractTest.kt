@@ -2,16 +2,19 @@ package com.shilapi.xcertplay.airplay
 
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.After
 
 /** Executable contract of the old Kotlin M1-M6 responder, including its partial store commits. */
 class PairSetupContractTest {
-    private class Fixture(
+    private val owners = ArrayList<PairSetup>()
+    @After fun closeOwners() { owners.forEach { it.close() } }
+    private inner class Fixture(
         val identity: AirPlayIdentity = AirPlayIdentity.generate(),
         onSave: ((String, ByteArray) -> Unit)? = null,
     ) {
         val saved = ArrayList<Pair<String, ByteArray>>()
         val store = PairingStore { id, key -> saved.add(id to key.copyOf()); onSave?.invoke(id, key) }
-        val setup = PairSetup(identity, store)
+        val setup = PairSetup(identity, store).also { owners.add(it) }
         val controller = AirPlayCrypto.ed25519Generate()
         val id = "controller-π\u0000".toByteArray(Charsets.UTF_8)
 
@@ -198,6 +201,31 @@ class PairSetupContractTest {
             fixture.checkM6(client, fixture.setup.handle(fixture.m5(client)), verifyKey = identity.publicKey)
             assertEquals(1, fixture.saved.size)
         }
+    }
+
+    @Test fun saveCanReadCompleteAndCloseTheOwnerReentrantly() {
+        lateinit var fixture: Fixture
+        fixture = Fixture(onSave = { _, _ ->
+            assertFalse(fixture.setup.complete)
+            fixture.setup.close()
+            assertFalse(fixture.setup.complete)
+        })
+        val client = fixture.throughM4()
+        val response = Tlv8Codec.decode(fixture.setup.handle(fixture.m5(client)))
+        assertArrayEquals(byteArrayOf(6), response[6])
+        val key = derive(client.key, "Pair-Setup-Encrypt-Salt", "Pair-Setup-Encrypt-Info")
+        val sub = Tlv8Codec.decode(AirPlayCrypto.chachaOpen(key, AirPlayCrypto.nonceLabel("PS-Msg06"), response[5]!!))
+        assertArrayEquals(fixture.identity.publicKey, sub[3])
+        assertFalse(fixture.setup.complete)
+        assertArrayEquals(fixture.controller.publicKey, fixture.store.get(fixture.id.toString(Charsets.UTF_8)))
+        assertThrows(IllegalStateException::class.java) { fixture.setup.handle(message(1)) }
+    }
+
+    @Test fun closingAnUnusedOwnerDoesNotStartAuthenticationAndRejectsLaterRequests() {
+        val setup = PairSetup(AirPlayIdentity.generate(), PairingStore())
+        setup.close(); setup.close()
+        assertFalse(setup.complete)
+        assertThrows(IllegalStateException::class.java) { setup.handle(message(1)) }
     }
 
     companion object {

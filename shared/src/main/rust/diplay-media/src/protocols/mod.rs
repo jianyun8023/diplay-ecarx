@@ -9,3 +9,5 @@ pub mod iap2_link;
 pub mod iap2_wire;
 pub mod pair_verify;
 pub mod rtsp;
+pub mod pair_setup;
+mod tlv8;
