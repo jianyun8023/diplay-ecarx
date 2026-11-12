@@ -5,6 +5,7 @@ use crate::platform::jvm::Env;
 use crate::media::packet::{self, shared_pool};
 use jni_sys::{jbyteArray, jclass, jint, jlong, JNIEnv};
 use crate::media::audio::buffered_state::BufferedAudio;
+use crate::protocols::bplist::{self, Value};
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use crate::media::audio::queue::AudioPacket;
 use std::sync::{Arc, Mutex, Condvar};
@@ -108,6 +109,69 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
     write_longs(env, out, &[position.map(|p| p as i64).unwrap_or(-1), (ntp >> 32) as i64,
         (ntp & 0xffff_ffff) as i64, state.rate as i64, stop as i64]);
     owner.changed.notify_all();
+}
+
+fn anchor_reply(snapshot: &[i64; 5]) -> Value {
+    Value::Dict(vec![
+        ("rtpTime".encode_utf16().collect(), Value::Int(snapshot[0] as u32 as u64)),
+        ("networkTimeSecs".encode_utf16().collect(), Value::Int(snapshot[1].wrapping_sub(2_208_988_800) as u64)),
+        ("networkTimeFrac".encode_utf16().collect(), Value::Null),
+        ("rate".encode_utf16().collect(), Value::Int32(snapshot[3] as i32)),
+    ])
+}
+
+unsafe fn replace_reply_value(env: *mut JNIEnv, map: jni_sys::jobject, name: &str, value: jni_sys::jobject) {
+    let f = &**env;
+    let class = (f.GetObjectClass.unwrap())(env, map);
+    let method = (f.GetMethodID.unwrap())(env, class, c"put".as_ptr(), c"(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".as_ptr());
+    if method.is_null() { return; }
+    (f.CallObjectMethodA.unwrap())(env, map, method, [jni_sys::jvalue { l: Env(env).string(name) }, jni_sys::jvalue { l: value }].as_ptr());
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedAnchor(
+    env: *mut JNIEnv, _: jclass, snapshot: jni_sys::jlongArray,
+) -> jni_sys::jobject {
+    let f = &**env;
+    let mut values = [0; 5];
+    (f.GetLongArrayRegion.unwrap())(env, snapshot, 0, 5, values.as_mut_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 || values[0] < 0 { return std::ptr::null_mut(); }
+    let Some(map) = bplist::jni::write_value(env, &anchor_reply(&values)) else { return std::ptr::null_mut(); };
+    let class = (f.FindClass.unwrap())(env, c"java/math/BigInteger".as_ptr());
+    if class.is_null() { return std::ptr::null_mut(); }
+    let ctor = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(), c"(Ljava/lang/String;)V".as_ptr());
+    if ctor.is_null() { return std::ptr::null_mut(); }
+    let fraction = ((values[2] as u32 as u64) << 32).to_string();
+    let big = (f.NewObjectA.unwrap())(env, class, ctor, [jni_sys::jvalue { l: Env(env).string(&fraction) }].as_ptr());
+    if big.is_null() { return std::ptr::null_mut(); }
+    replace_reply_value(env, map, "networkTimeFrac", big);
+    map
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedFeedback(
+    env: *mut JNIEnv, _: jclass, stream_type: jint, rate: jint, position: jlong,
+    connection: jni_sys::jobject, ntp: jni_sys::jobject, now: jlong,
+) -> jni_sys::jobject {
+    let mut fields = vec![
+        ("type".encode_utf16().collect(), Value::Int32(stream_type)),
+        ("sampleRate".encode_utf16().collect(), Value::Int32(rate)),
+    ];
+    if position >= 0 {
+        fields.extend([
+            ("streamConnectionID".encode_utf16().collect(), Value::Null),
+            ("timestamp".encode_utf16().collect(), Value::Null),
+            ("timestampRawNs".encode_utf16().collect(), Value::Int(now as u64)),
+            ("sampleTime".encode_utf16().collect(), Value::Int(position as u64)),
+        ]);
+    }
+    let Some(map) = bplist::jni::write_value(env, &Value::Dict(fields)) else { return std::ptr::null_mut(); };
+    if position >= 0 {
+        replace_reply_value(env, map, "streamConnectionID", connection);
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
+        replace_reply_value(env, map, "timestamp", ntp);
+    }
+    map
 }
 
 #[no_mangle]

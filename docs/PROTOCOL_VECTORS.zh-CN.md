@@ -35,13 +35,18 @@
 | PairVerify | M1/M2/M3/M4 密钥派生 | 独立客户端 + BC 1.79 合同 | `PairVerifyContractTest` | `protocols/pair_verify` 测试 | `NativePairVerifyDeviceTest` |
 | PairVerify | LIVI hkdf／edSig／chachaLabel／tlv8 | 固定 primitive 字节；不是完整握手 transcript | `PairVerifyContractTest` | `protocols/pair_verify` primitive 测试 | `NativePairVerifyDeviceTest` |
 | PairVerify | 拒绝与宽容样本 | 伪签名／低阶点／非规范 y／未知 controller 拒绝；截断必需项失败，已完成项后的截断 duplicate 可被忽略 | 同上 | `controller_public_key` 及握手测试 | 同上 |
-| PairSetup／SRP | LIVI srpSalt／srpB + 独立数学参考 | LIVI 仅固定 salt、B长度／哈希；数学 fixture 固定完整 A／B／S／K／proof | `Srp6aContractTest` | 未迁移 | 未迁移 |
-| PairSetup | 完整随机 M1–M6 与错误／部分提交合同 | 独立 SRP client、BC 签名／AEAD、实时存储；非外部完整 golden | `PairSetupContractTest` | 未迁移 | 未迁移 |
+| PairSetup／SRP | LIVI srpSalt／srpB + 独立数学参考 | LIVI 仅固定 salt、B长度／哈希；数学 fixture 固定完整 A／B／S／K／proof | `Srp6aContractTest` | `protocols/pair_setup/srp` 固定数学 fixture | `NativePairSetupDeviceTest` |
+| PairSetup | 完整随机 M1–M6 与错误／部分提交合同 | 独立 SRP client、BC 签名／AEAD、实时存储；非外部完整 golden | `PairSetupContractTest` | `protocols/pair_setup` save／M6／identity failure 合同 | `NativePairSetupDeviceTest` |
 | EV 0xA101 | 电耗已知／未知／溢出 | 固定参数字节 | `Iap2VehicleStatusTest` | `vehicle/vehicle_status` 测试 | `NativeVehicleStatusDeviceTest` |
 | 导航 | TLV／缓存／ETA／溢出 | 固定输入输出 | `RouteGuidanceStateTest` | `vehicle/route_guidance` 测试 | `NativeRouteGuidanceDeviceTest` |
 | iAP2 body | 参数顺序／重复 id／畸形长度／精确预算／复制 | 参数头 `u16 length｜u16 id｜payload`；standalone parse 可接受不能再 encode 的大参数 | `Iap2ProtocolTest` + `parseKotlin/encodeKotlin` | `protocols/iap2_body` 测试 | `NativeIap2BodyDeviceTest` |
 | Identification 20/21 | 名称 + connector 组合 | 完整固定TLV及Kotlin字段合同；平台字符串codec保留NUL拒绝／畸形UTF-16替换 | `Iap2VehicleStatusTest`／设备原字段合同 | `vehicle/identification` 固定字节 | `NativeVehicleIdentificationDeviceTest` |
 | PASCD | 固定车机报文／格式化边界 | 原始`$PASCD,...*54`完整报文；1.005舍入／负零／非有限值采用本平台旧Formatter对照 | `VehicleSpeedNmeaTest` | `vehicle/vehicle_speed` 布局／校验固定字节 | `NativeVehicleConversionDeviceTest` |
+| NowPlaying 0x5001 | 增量字段／空文本／错误长度／畸形 UTF-8 | 保留旧 Kotlin 字段合并与平台解码合同；实车原始 elapsed 字节保留原缩放 | `CarPlayPlaybackStatusTest`、`PlaybackCoreParityTest` | `session/playback` 字段与保留状态测试 | `NativePlaybackCoreDeviceTest` |
+| LaneGuidance 0x5204 | 原始车道报文／截断／短重复字段／±1000 unknown angle | 完整更新按 lane index 稳定排序；角度保留 wire 顺序；只有空 body 表示清空 | `Iap2LaneGuidanceTest`、`LaneGuidanceCoreParityTest` | `vehicle/route_guidance::lane_updates...`，复用 `protocols/iap2_body` TLV parser | `NativeLaneGuidanceDeviceTest` |
+| AirPlay 声明／控制／Bonjour | 旧声明／固定 command／status line／probe 计划；平台极值与文本 | 保留字节顺序和 JVM 标量类型；API 28 BigInteger 极值／Regex 数字分类按本平台旧实现对照，不以桌面结果覆盖 | `NativeAirPlayProtocolTest`、`CarPlayBonjourTest`、`BonjourProbePolicyTest` | `protocols/airplay` owner 测试 | `NativeAirPlayProtocolDeviceTest` |
+
+表中设备列登记测试入口，执行结果与源码修订范围见[本轮审计](RUST_CORE_REMAINING.zh-CN.md)；旧候选的成功结果不代表新增源码已经通过验收。网络地址／readiness／radio-return 与导航播放等非 wire 状态合同也登记在该审计中。
 
 ## 3. 已知缺口（后续补）
 

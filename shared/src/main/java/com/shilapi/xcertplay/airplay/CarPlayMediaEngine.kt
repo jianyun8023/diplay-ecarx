@@ -190,9 +190,9 @@ class CarPlayMediaEngine(
             if (streams[streamKey] === screen) {
                 // The cluster asks for a keyframe of its own screen; the plain command is the main screen's.
                 val command = if (type == STREAM_TYPE_ALT_SCREEN) {
-                    mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID))
+                    AirPlayCommands.keyFrame(AirPlayInfoPlist.ALT_UUID)
                 } else {
-                    mapOf("type" to "forceKeyFrame")
+                    AirPlayCommands.keyFrame()
                 }
                 val sent = session.sendCommand(command)
                 session.logDebug("Video recovery: requested keyframe sent=$sent")

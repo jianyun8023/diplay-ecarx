@@ -1,13 +1,14 @@
 //! CarPlay's binary plist codec, ported from this project's Kotlin wire contract.
 //! Java strings cross JNI as UTF-16 units, including NUL and malformed surrogates.
 
-mod jni;
+pub(crate) mod jni;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
     Bool(bool),
     Int(u64),
+    Int32(i32),
     Float(f32),
     Double(f64),
     Date(i64),
@@ -306,6 +307,17 @@ fn add(nodes: &mut Vec<Node>, value: &Value) -> Result<usize> {
             bytes.extend_from_slice(&value.to_be_bytes()[8 - size..]);
             Node::Leaf(bytes)
         }
+        Value::Int32(value) => {
+            nodes.pop();
+            return add(
+                nodes,
+                &if *value < 0 {
+                    Value::Double(f64::from(*value))
+                } else {
+                    Value::Int(*value as u64)
+                },
+            );
+        }
         Value::Float(_) | Value::Double(_) => {
             let real = match value {
                 Value::Float(value) => f64::from(*value),
@@ -393,6 +405,22 @@ pub fn encode(value: &Value) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jvm_int32_values_keep_the_existing_integer_and_negative_real_wire_encoding() {
+        for value in [0, 255, 65536, i32::MAX] {
+            assert_eq!(
+                encode(&Value::Int32(value)),
+                encode(&Value::Int(value as u64))
+            );
+        }
+        for value in [-1, i32::MIN] {
+            assert_eq!(
+                encode(&Value::Int32(value)),
+                encode(&Value::Double(f64::from(value)))
+            );
+        }
+    }
 
     fn text(value: &str) -> Value {
         Value::String(value.encode_utf16().collect())

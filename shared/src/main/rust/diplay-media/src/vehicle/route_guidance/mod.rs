@@ -2,6 +2,37 @@
 mod jni;
 
 use std::collections::HashMap;
+use crate::protocols::iap2_body::parse_parameter_list;
+
+/// Validated DTO rows: update index, then [lane index, status, highlight, angles...].
+/// Empty input alone clears the lanes; malformed nested/duplicate known fields reject the update.
+fn lane_update(payload: &[u8]) -> Option<Vec<Vec<i32>>> {
+    if payload.is_empty() { return Some(vec![vec![-1]]); }
+    let outer = parse_parameter_list(payload).ok()?;
+    let component = &outer.iter().find(|(id, _)| *id == 0)?.1;
+    let index = &outer.iter().find(|(id, _)| *id == 1)?.1;
+    if component.len() != 2 || index.len() != 2 || u16(component) != 42 { return None; }
+    let mut lanes = Vec::new();
+    for (_, group) in outer.iter().filter(|(id, _)| *id == 2) {
+        let fields = parse_parameter_list(group).ok()?;
+        for (id, value) in &fields {
+            let expected = match id { 0 | 2 | 3 => 2, 1 => 1, _ => continue };
+            if value.len() != expected { return None; }
+        }
+        let index = &fields.iter().find(|(id, _)| *id == 0)?.1;
+        let status = &fields.iter().find(|(id, _)| *id == 1)?.1;
+        let angle = |bytes: &[u8]| i16::from_be_bytes(bytes.try_into().unwrap()) as i32;
+        let highlight = fields.iter().find(|(id, _)| *id == 3).map(|(_, value)| angle(value))
+            .filter(|value| !matches!(value, 1000 | -1000)).unwrap_or(i32::MIN);
+        let mut row = vec![u16(index) as i32, status[0] as i32, highlight];
+        row.extend(fields.iter().filter(|(id, _)| *id == 2).map(|(_, value)| angle(value)).filter(|value| !matches!(value, 1000 | -1000)));
+        lanes.push(row);
+    }
+    if lanes.is_empty() { return None; }
+    lanes.sort_by_key(|lane| lane[0]);
+    lanes.insert(0, vec![u16(index) as i32]);
+    Some(lanes)
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(i32)]
@@ -204,6 +235,17 @@ mod tests {
     }
     fn fields(values: &[(u16, &[u8])]) -> Vec<u8> { values.iter().flat_map(|(id, value)| tlv(*id, value)).collect() }
     fn route() -> RouteGuidance { RouteGuidance::new(30_000_000_000, 3_000_000_000, false) }
+    #[test]
+    fn lane_updates_keep_wire_angle_order_stable_lane_order_and_reject_short_duplicates() {
+        let lane = fields(&[(0, &[0, 2]), (1, &[2]), (2, &(-90i16).to_be_bytes()),
+            (2, &1000i16.to_be_bytes()), (2, &[0, 0]), (3, &(-1000i16).to_be_bytes())]);
+        let body = fields(&[(0, &[0, 42]), (1, &[0, 21]), (2, &lane)]);
+        assert_eq!(lane_update(&body), Some(vec![vec![21], vec![2, 2, i32::MIN, -90, 0]]));
+        let bad = [lane, tlv(2, &[0])].concat();
+        assert_eq!(lane_update(&fields(&[(0, &[0, 42]), (1, &[0, 21]), (2, &bad)])), None);
+        assert_eq!(lane_update(&[]), Some(vec![vec![-1]]));
+        assert_eq!(lane_update(&body[..body.len() - 1]), None);
+    }
     fn start(state: &mut RouteGuidance, now: i64) {
         state.accept(0x5202, &fields(&[(1, &[0, 7]), (3, &[2]), (4, " 滨海路😀\0ignored".as_bytes()), (8, &[1])]), now, 0, false);
         assert_eq!(state.accept(0x5201, &fields(&[(1, &[1]), (0x0d, &[0, 7]), (0x0a, &[0, 0, 1, 94])]), now, 0, false), Change::Guidance);

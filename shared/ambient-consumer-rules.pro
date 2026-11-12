@@ -174,3 +174,22 @@
 -keep class com.shilapi.xcertplay.transport.NativeNmeaLocation {
     native <methods>;
 }
+
+-keep class com.shilapi.xcertplay.media.NativePlaybackCore { *; }
+-keep class com.shilapi.xcertplay.media.CarPlayNowPlaying {
+    public <init>(java.lang.String, java.lang.String, java.lang.String, java.lang.Integer, java.lang.String, java.lang.Long, java.lang.Long, boolean);
+}
+
+# Shared call PCM/clock ownership and CarPlay-to-platform route decisions.
+-keep class com.shilapi.xcertplay.media.NativeEchoReference { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeAudioRouting { native <methods>; }
+-keep class com.shilapi.xcertplay.network.NativeP2pStartup { native <methods>; }
+
+-keep class com.shilapi.xcertplay.network.NativeHotspotAddress { native <methods>; }
+
+# AirPlay capability declarations and event/control bodies use this JNI boundary.
+-keep class com.shilapi.xcertplay.airplay.NativeAirPlayProtocol { native <methods>; }
+
+-keep class com.shilapi.xcertplay.network.NativeHotspotRecovery { native <methods>; }
+
+-keep class com.shilapi.xcertplay.iap2.message.NativeLaneGuidance { native <methods>; }

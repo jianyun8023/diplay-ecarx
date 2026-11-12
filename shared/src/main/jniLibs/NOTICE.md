@@ -58,8 +58,10 @@ runs the video decode loop, decodes and encodes Opus, processes PCM, plays throu
 frames/encodes RTSP and binary plists, owns PairVerify/PairSetup/SRP/MFiSAP, control/event encryption, NTP and route guidance,
 controller/VPN/wireless generations, recovery, watchdogs, AirPlay negotiation and iAP2 handshake/reporting state,
 USBMUX/Lockdown, iAP2 framing/body/link/file transfer, type130/tunnel queues and the default NCM core.
-It owns audio receiver-to-renderer routing, AAC/PCM processing, output scheduling, video timing/queues/codec policy,
-HID/touch slots, EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
+It owns audio receiver-to-renderer routing, AAC/PCM processing, output scheduling, shared call PCM/capture clocks,
+video timing/queues/codec policy, incremental playback state, hotspot address/readiness and Wi-Fi Direct retry policy,
+AirPlay info/control/video field schemas and Bonjour publication policy, HID/touch slots,
+EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
 Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path stays default-off. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
@@ -67,16 +69,31 @@ There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
-of Gradle or CI builds; `cargo test` in that directory runs the host tests. Both shipped ABIs were rebuilt from
-source `afa5a55` on 2026-11-12 with NDK `28.2.13676358` and API 28;
-the hashes below identify that build. Each ABI exports the same 434 Java JNI methods plus JNI_OnLoad.
+of Gradle or CI builds; `cargo test` in that directory runs the host tests. Both shipped ABIs were rebuilt on
+2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
+uncommitted migration batch based on `0c4820ae702eaadd2b7f422f38a4a1fa44771d27`; that base commit alone does not
+contain this batch. Its source manifest SHA-256 is
+`da94e9f0fd3a6e2fc48fb7ad3a1513f291798a739db7c261f8f2f42b74f2774d`.
+The digest is SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
+for the crate's Rust sources, manifests/lockfile, toolchain pin, build script and any crate Cargo configuration:
+
+```sh
+rg --files --hidden shared/src/main/rust/diplay-media \
+  -g '*.rs' -g 'Cargo.toml' -g 'Cargo.lock' -g 'build.sh' \
+  -g 'rust-toolchain.toml' -g '**/.cargo/config*' -g '!**/target/**' |
+  LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256
+```
+
+The source manifest was unchanged before and after rebuilding. The hashes below identify that build;
+each ABI exports the same 491 Java JNI methods plus JNI_OnLoad. ELF headers identify AArch64/ARM respectively,
+and both Android identification notes record API 28 (`0x1c`) and NDK r28c build `13676358`.
 A required-core load failure is explicit. Real SDK capability fallback, such as AudioTrack when AAudio cannot open,
 remains platform behavior; there is no production Kotlin protocol/DSP substitute.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1830152 | `5f4380737f9c3bfbd3d212218541f9d6e08ce0183aaa2a69b11cc87541a03ca3` |
-| armeabi-v7a | libdiplay_media.so | 1240812 | `0bd9c817b2448962476c3d8a7ee2f0a42338c08d7320686029d2adce85befd14` |
+| arm64-v8a | libdiplay_media.so | 1949032 | `25744c462ac3e43751264dd5a476cfe8fdb5ed220cac2f1e79e833b5a81bc228` |
+| armeabi-v7a | libdiplay_media.so | 1319204 | `130eeaef17712420726f5be4b99f6b8e4cefe7a24a49f3867a424ea11a4ec342` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

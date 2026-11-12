@@ -7,6 +7,7 @@ import android.media.AudioTrack
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioStreamId
+import com.shilapi.xcertplay.media.reference.KotlinNavigationAudioGain
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,23 +25,23 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [25, 28, 33], manifest = Config.NONE, shadows = [NavigationAudioGainTest.TrackGain::class])
 class NavigationAudioGainTest {
     @Test fun decibelsAreAmplitudeNotPercentAndOutOfRangeNeverBoosts() {
-        assertEquals(1f, NavigationAudioGain.linear(0), 0.0001f)
-        assertEquals(0.1f, NavigationAudioGain.linear(-20), 0.0001f)
-        assertEquals(0.501187f, NavigationAudioGain.linear(-6), 0.0001f)
-        assertEquals(0.1f, NavigationAudioGain.linear(-100), 0.0001f)
-        assertEquals(1f, NavigationAudioGain.linear(20), 0.0001f)
+        assertEquals(1f, KotlinNavigationAudioGain.linear(0), 0.0001f)
+        assertEquals(0.1f, KotlinNavigationAudioGain.linear(-20), 0.0001f)
+        assertEquals(0.501187f, KotlinNavigationAudioGain.linear(-6), 0.0001f)
+        assertEquals(0.1f, KotlinNavigationAudioGain.linear(-100), 0.0001f)
+        assertEquals(1f, KotlinNavigationAudioGain.linear(20), 0.0001f)
     }
 
     @Test fun pcmIsScaledInPlaceAndZeroDecibelsLeavesItAlone() {
         val pcm = pcm16(32767, -32768, 1000, -1000, 0)
-        NavigationAudioGain.scalePcm16(pcm, 0, pcm.size, -20)
+        KotlinNavigationAudioGain.scalePcm16(pcm, 0, pcm.size, -20)
         assertArrayEquals(pcm16(3277, -3277, 100, -100, 0), pcm)
         val untouched = pcm16(32767, -32768, 1234)
-        NavigationAudioGain.scalePcm16(untouched, 0, untouched.size, 0)
+        KotlinNavigationAudioGain.scalePcm16(untouched, 0, untouched.size, 0)
         assertArrayEquals(pcm16(32767, -32768, 1234), untouched)
         // Only the given range, and never half a sample.
         val part = pcm16(20000, 20000, 20000) + byteArrayOf(0x7f)
-        NavigationAudioGain.scalePcm16(part, 2, 3, -6)
+        KotlinNavigationAudioGain.scalePcm16(part, 2, 3, -6)
         assertArrayEquals(pcm16(20000, 10024, 20000) + byteArrayOf(0x7f), part)
     }
 

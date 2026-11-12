@@ -1,131 +1,63 @@
 package com.shilapi.xcertplay.media
 
-import kotlin.math.abs
-import kotlin.math.sign
+import com.shilapi.xcertplay.airplay.NativeMedia
+import java.io.Closeable
+import java.nio.ByteBuffer
 
-/**
- * The far-end call audio as the car's speakers play it, for the microphone's echo canceller.
- *
- * The call renderer appends each PCM block after handing it to its AudioTrack, along with how much
- * audio is still queued ahead of the speaker. That anchors a speaker clock, so the microphone can ask
- * for the samples that were playing over the window it just captured.
- */
-internal class EchoReference(val sampleRate: Int, capacityMillis: Int = 2_000) {
-    private val ring = ShortArray(sampleRate * capacityMillis / 1000)
-    private var written = 0L
-    private var anchorSample = NOT_PLAYING
-    private var anchorNs = 0L
-    private var cursor = NOT_PLAYING
-    private var settled = false
-    private val errors = LongArray(ERROR_WINDOW)
-    private var errorAt = 0
-    private var errorCount = 0
+/** The call's Rust PCM ring and speaker clock, shared by the output worker and microphone. */
+internal class EchoReference private constructor(val sampleRate: Int, private var handle: Long) : Closeable {
+    constructor(sampleRate: Int, capacityMillis: Int = 2_000) : this(
+        sampleRate, NativeEchoReference.create(sampleRate, capacityMillis).also { check(it != 0L) },
+    )
 
-    /**
-     * [pcm] is 16-bit little-endian, interleaved over [channels]. [pendingFrames] is the audio still
-     * queued ahead of the speaker after this block, or null while the track is not playing.
-     */
+    /** Each worker releases its own reference; replacing a renderer does not retire a live microphone. */
     @Synchronized
-    fun append(pcm: ByteArray, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) =
-        appendFrames(length, channels, pendingFrames, nowNs) { at -> (pcm[offset + at + 1].toInt() shl 8) or (pcm[offset + at].toInt() and 0xff) }
+    fun retain(): EchoReference? = if (handle == 0L) null else EchoReference(sampleRate, NativeEchoReference.retain(handle))
 
-    /** As the array form, reading [length] bytes of [pcm] from [offset] without moving its position. */
     @Synchronized
-    fun append(pcm: java.nio.ByteBuffer, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) =
-        appendFrames(length, channels, pendingFrames, nowNs) { at -> (pcm.get(offset + at + 1).toInt() shl 8) or (pcm.get(offset + at).toInt() and 0xff) }
+    fun append(pcm: ByteArray, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) {
+        if (handle != 0L) NativeEchoReference.append(handle, pcm, offset, length, channels, pendingFrames != null, pendingFrames ?: 0L, nowNs)
+    }
 
-    private inline fun appendFrames(length: Int, channels: Int, pendingFrames: Long?, nowNs: Long, sampleAt: (Int) -> Int) {
-        val frameBytes = 2 * channels
-        for (frame in 0 until length / frameBytes) {
-            val base = frame * frameBytes
-            var sum = 0
-            for (channel in 0 until channels) {
-                sum += sampleAt(base + channel * 2)
-            }
-            ring[(written % ring.size).toInt()] = (sum / channels).toShort()
-            written++
-        }
-        if (pendingFrames == null) {
-            anchorSample = NOT_PLAYING
-        } else {
-            anchorSample = written - pendingFrames.coerceIn(0L, written)
-            anchorNs = nowNs
+    /** Reads without moving the SDK buffer's position. */
+    @Synchronized
+    fun append(pcm: ByteBuffer, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) {
+        if (handle == 0L) return
+        if (offset < 0 || length < 0 || offset > pcm.limit() || length > pcm.limit() - offset) throw IndexOutOfBoundsException()
+        if (pcm.isDirect) NativeEchoReference.appendBuffer(handle, pcm, offset, length, channels, pendingFrames != null, pendingFrames ?: 0L, nowNs)
+        else {
+            val bytes = ByteArray(length)
+            pcm.duplicate().apply { position(offset); get(bytes) }
+            NativeEchoReference.append(handle, bytes, 0, length, channels, pendingFrames != null, pendingFrames ?: 0L, nowNs)
         }
     }
 
     @Synchronized
-    fun reset() {
-        written = 0
-        anchorSample = NOT_PLAYING
-        cursor = NOT_PLAYING
-    }
+    fun reset() { if (handle != 0L) NativeEchoReference.reset(handle) }
 
-    /**
-     * Fills [out] with what the speaker played over the window ending at [endNs]; false when that was silence.
-     *
-     * The speaker clock estimate jitters by the playback head's update granularity (often 5-20 ms), and
-     * an adaptive echo filter cannot converge on a reference that jumps by that much. So consecutive reads
-     * continue contiguously from the previous window, and the estimate only steers that cursor: one snap
-     * once its error has averaged out, a one-sample slew when it slowly drifts apart, and a full resync
-     * when playback restarts or slips by more than [RESYNC_MILLIS].
-     */
     @Synchronized
     fun read(out: ShortArray, endNs: Long): Boolean {
-        if (anchorSample == NOT_PLAYING) {
-            cursor = NOT_PLAYING
-            out.fill(0)
-            return false
-        }
-        val estimate = anchorSample + Math.floorDiv((endNs - anchorNs) * sampleRate, 1_000_000_000L) - out.size
-        val start = steer(estimate)
-        cursor = start + out.size
-        val oldest = maxOf(0L, written - ring.size)
-        var heard = false
-        for (i in out.indices) {
-            val sample = start + i
-            out[i] = if (sample in oldest until written) {
-                heard = true
-                ring[(sample % ring.size).toInt()]
-            } else {
-                0
-            }
-        }
-        return heard
+        if (handle != 0L) return NativeEchoReference.read(handle, out, endNs)
+        out.fill(0)
+        return false
     }
 
-    private fun steer(estimate: Long): Long {
-        if (cursor == NOT_PLAYING) {
-            cursor = estimate
-            settled = false
-            errorCount = 0
-            return cursor
-        }
-        errors[errorAt] = estimate - cursor
-        errorAt = (errorAt + 1) % errors.size
-        if (errorCount < errors.size) errorCount++
-        if (errorCount == errors.size) {
-            val mean = errors.sum() / errors.size
-            when {
-                abs(mean) > sampleRate * RESYNC_MILLIS / 1000L -> {
-                    cursor = estimate
-                    settled = false
-                    errorCount = 0
-                }
-                !settled -> {
-                    cursor += mean
-                    settled = true
-                    errorCount = 0
-                }
-                abs(mean) > sampleRate * SLEW_MILLIS / 1000L -> cursor += mean.sign
-            }
-        }
-        return cursor
+    @Synchronized
+    override fun close() {
+        if (handle != 0L) NativeEchoReference.destroy(handle)
+        handle = 0L
     }
+}
 
-    private companion object {
-        const val NOT_PLAYING = Long.MIN_VALUE
-        const val ERROR_WINDOW = 10
-        const val SLEW_MILLIS = 5
-        const val RESYNC_MILLIS = 20
-    }
+internal object NativeEchoReference {
+    init { NativeMedia.requireAvailable() }
+    @JvmStatic external fun create(rate: Int, capacityMillis: Int): Long
+    @JvmStatic external fun retain(handle: Long): Long
+    @JvmStatic external fun destroy(handle: Long)
+    @JvmStatic external fun append(handle: Long, pcm: ByteArray, offset: Int, length: Int, channels: Int, playing: Boolean, pendingFrames: Long, nowNs: Long)
+    @JvmStatic external fun appendBuffer(handle: Long, pcm: ByteBuffer, offset: Int, length: Int, channels: Int, playing: Boolean, pendingFrames: Long, nowNs: Long)
+    @JvmStatic external fun reset(handle: Long)
+    @JvmStatic external fun read(handle: Long, out: ShortArray, endNs: Long): Boolean
+    @JvmStatic external fun captureRead(owner: LongArray, rate: Int, samples: Int, nowNs: Long, stamped: Boolean, timestampNs: Long, framePosition: Long)
+    @JvmStatic external fun captureEnd(owner: LongArray, rate: Int, samplesIntoRead: Int): Long
 }

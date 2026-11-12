@@ -20,6 +20,7 @@ class CoreShadowProvider : ShadowProvider {
     }
 
     private val bindings = listOf(
+        "com.shilapi.xcertplay.airplay.NativeAirPlayProtocol" to "com.shilapi.xcertplay.testcore.ShadowNativeAirPlayProtocol",
         "com.shilapi.xcertplay.airplay.NativeDataStream" to "com.shilapi.xcertplay.testcore.ShadowNativeDataStream",
         "com.shilapi.xcertplay.transport.NativeNcm" to "com.shilapi.xcertplay.testcore.ShadowNativeNcm",
         "com.shilapi.xcertplay.airplay.NativeMfiSap" to "com.shilapi.xcertplay.testcore.ShadowNativeMfiSap",
@@ -62,5 +63,12 @@ class CoreShadowProvider : ShadowProvider {
         "com.shilapi.xcertplay.transport.NativeVehicleSpeed" to "com.shilapi.xcertplay.testcore.ShadowNativeVehicleSpeed",
         "com.shilapi.xcertplay.airplay.NativePairVerify" to "com.shilapi.xcertplay.testcore.ShadowNativePairVerify",
         "com.shilapi.xcertplay.airplay.NativePairSetup" to "com.shilapi.xcertplay.testcore.ShadowNativePairSetup",
+        "com.shilapi.xcertplay.media.NativeEchoReference" to "com.shilapi.xcertplay.testcore.ShadowNativeEchoReference",
+        "com.shilapi.xcertplay.media.NativeAudioRouting" to "com.shilapi.xcertplay.testcore.ShadowNativeAudioRouting",
+        "com.shilapi.xcertplay.network.NativeP2pStartup" to "com.shilapi.xcertplay.testcore.ShadowNativeP2pStartup",
+        "com.shilapi.xcertplay.media.NativePlaybackCore" to "com.shilapi.xcertplay.testcore.ShadowNativePlaybackCore",
+        "com.shilapi.xcertplay.network.NativeHotspotAddress" to "com.shilapi.xcertplay.testcore.ShadowNativeHotspotAddress",
+        "com.shilapi.xcertplay.network.NativeHotspotRecovery" to "com.shilapi.xcertplay.testcore.ShadowNativeHotspotRecovery",
+        "com.shilapi.xcertplay.iap2.message.NativeLaneGuidance" to "com.shilapi.xcertplay.testcore.ShadowNativeLaneGuidance",
     )
 }

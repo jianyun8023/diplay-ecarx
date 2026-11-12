@@ -176,6 +176,7 @@ internal class AudioRenderer(
     override fun close() {
         running = false
         nativeQueue.close()
+        if (!started) echoReference?.close()
         NavigationPlayback.close(navigationPlaybackToken)
         reportNavigationAudio(false, ended = true)
         thread.interrupt()
@@ -262,7 +263,9 @@ internal class AudioRenderer(
             // A worker that stops on an error must still end its prompt focus.
             reportNavigationAudio(false, ended = true)
             runCatching { logStatsIfDue(force = true) }
-            try { release() } finally { consumer?.close() }
+            try { release() } finally {
+                try { consumer?.close() } finally { echoReference?.close() }
+            }
         }
     }
 
@@ -1062,7 +1065,6 @@ internal class AudioRenderer(
         nativeOut?.let { native ->
             nativeOut = null
             runCatching { native.pause() }
-            runCatching { native.flush() }
             runCatching { native.release() }
         }
         val track = track

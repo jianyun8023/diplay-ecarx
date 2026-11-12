@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import android.media.AudioManager
+import com.shilapi.xcertplay.airplay.NativeMedia
 
 internal enum class AudioChannelMappingMode {
     MOBILE_COMPATIBLE,
@@ -43,11 +44,8 @@ internal object AudioChannelMapper {
         mode: AudioChannelMappingMode,
         navigationStreamType: Int = DEFAULT_NAVIGATION_STREAM_TYPE,
     ): AudioChannelSelection {
-        val normalized = audioType.lowercase()
-        return when (mode) {
-            AudioChannelMappingMode.MOBILE_COMPATIBLE -> mapMobileCompatible(normalized, payloadType, navigationStreamType)
-            AudioChannelMappingMode.AUTOMOTIVE_BUS -> mapAutomotiveBus(normalized, payloadType, navigationStreamType)
-        }
+        val selection = NativeAudioRouting.map(audioType.lowercase(), payloadType, mode.ordinal, navigationStreamType)
+        return AudioChannelSelection(AudioChannel.entries[selection[0]], AudioContentType.entries[selection[1]], selection[2])
     }
 
     fun usesNavigationStream(audioType: String, payloadType: Int, advanced: Boolean): Boolean =
@@ -57,45 +55,14 @@ internal object AudioChannelMapper {
      * When the car Bluetooth radio is off there is no SCO, so a CarPlay telephony stream has to
      * play on the media speaker instead of the phone usage.
      */
-    fun playCallOnSpeaker(selection: AudioChannelSelection): AudioChannelSelection =
-        if (selection.channel == AudioChannel.PHONE) {
-            AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.SPEECH, selection.streamType)
-        } else {
-            selection
-        }
-
-    private fun mapMobileCompatible(
-        audioType: String,
-        payloadType: Int,
-        navigationStreamType: Int,
-    ): AudioChannelSelection = when (audioType) {
-        "telephony" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
-        "speechrecognition" ->
-            AudioChannelSelection(AudioChannel.ASSISTANT, AudioContentType.SPEECH)
-        "media" -> AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
-        "default", "alert", "compatibility" ->
-            AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH, navigationStreamType)
-        else -> mainHighAudioOrNavigation(payloadType, navigationStreamType)
+    fun playCallOnSpeaker(selection: AudioChannelSelection): AudioChannelSelection {
+        val routed = NativeAudioRouting.speaker(selection.channel.ordinal, selection.contentType.ordinal, selection.streamType)
+        return AudioChannelSelection(AudioChannel.entries[routed[0]], AudioContentType.entries[routed[1]], routed[2])
     }
+}
 
-    private fun mapAutomotiveBus(
-        audioType: String,
-        payloadType: Int,
-        navigationStreamType: Int,
-    ): AudioChannelSelection = when (audioType) {
-        "telephony" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
-        "speechrecognition" ->
-            AudioChannelSelection(AudioChannel.ASSISTANT, AudioContentType.SPEECH)
-        "media", "compatibility" ->
-            AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
-        "default", "alert" -> AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH, navigationStreamType)
-        else -> mainHighAudioOrNavigation(payloadType, navigationStreamType)
-    }
-
-    private fun mainHighAudioOrNavigation(payloadType: Int, navigationStreamType: Int): AudioChannelSelection =
-        if (payloadType == STREAM_TYPE_MAIN_HIGH_AUDIO) {
-            AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
-        } else {
-            AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH, navigationStreamType)
-        }
+internal object NativeAudioRouting {
+    init { NativeMedia.requireAvailable() }
+    @JvmStatic external fun map(audioType: String, payload: Int, mode: Int, navigationStream: Int): IntArray
+    @JvmStatic external fun speaker(channel: Int, content: Int, stream: Int): IntArray
 }

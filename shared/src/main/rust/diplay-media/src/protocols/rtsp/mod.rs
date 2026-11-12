@@ -68,13 +68,23 @@ pub fn response(protocol: &str, status: i32, reason: Option<&str>, cseq: Option<
         if let Some(entry) = headers.iter_mut().find(|(key, _)| key == name) { entry.1 = value; }
         else { headers.push((name.to_string(), value)); }
     }
-    let mut head = format!("{protocol} {status} {reason}\r\n");
-    for (key, value) in headers { head.push_str(&key); head.push_str(": "); head.push_str(&value); head.push_str("\r\n"); }
-    head.push_str("\r\n");
+    let head = header(&format!("{protocol} {status} {reason}"), &headers);
     // Android US_ASCII replaces UTF-16 units, so a supplementary pair becomes two question marks.
     let mut wire: Vec<u8> = head.encode_utf16().map(|unit| if unit < 128 { unit as u8 } else { b'?' }).collect();
     wire.extend_from_slice(body);
     wire
+}
+
+pub(crate) fn header(start: &str, headers: &[(String, String)]) -> String {
+    let mut head = format!("{start}\r\n");
+    for (key, value) in headers {
+        head.push_str(key);
+        head.push_str(": ");
+        head.push_str(value);
+        head.push_str("\r\n");
+    }
+    head.push_str("\r\n");
+    head
 }
 
 #[cfg(test)]

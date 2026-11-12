@@ -69,14 +69,6 @@ object AirPlayHid {
         name: String,
         descriptor: ByteArray,
         displayUuid: String,
-    ): Map<String, Any?> = linkedMapOf(
-        "hidProductID" to 1L,
-        "hidVendorID" to 2L,
-        "hidCountryCode" to 0L,
-        "uuid" to uid.toString(16),
-        "name" to name,
-        "displayUUID" to displayUuid,
-        "hidDescriptor" to descriptor,
-    )
+    ): Map<String, Any?> = AirPlayCommands.hidDevice(uid, name, descriptor, displayUuid)
 
 }

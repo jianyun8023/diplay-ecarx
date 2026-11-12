@@ -114,6 +114,8 @@ fn malformed(units: &[u16]) -> bool {
 }
 
 struct Input {
+    preserve_types: bool,
+    date: (jclass, jmethodID),
     boolean: (jclass, jmethodID),
     big: (jclass, jmethodID),
     bit_length: jmethodID,
@@ -165,6 +167,8 @@ impl Input {
         let set = class(env, c"java/util/Set")?;
         let entry = class(env, c"java/util/Map$Entry")?;
         Some(Self {
+            preserve_types: false,
+            date: binding(env, c"java/util/Date", c"getTime", c"()J")?,
             boolean,
             big,
             bit_length,
@@ -231,7 +235,18 @@ impl Input {
             return None;
         }
         let result = (|| -> Option<Value> {
+            if object.is_null() && self.preserve_types {
+                return Some(Value::Null);
+            }
             if !object.is_null() {
+                if self.preserve_types && (f.IsInstanceOf.unwrap())(env, object, self.date.0) != 0 {
+                    return Some(Value::Date((f.CallLongMethodA.unwrap())(
+                        env,
+                        object,
+                        self.date.1,
+                        std::ptr::null(),
+                    )));
+                }
                 if (f.IsInstanceOf.unwrap())(env, object, self.boolean.0) != 0 {
                     return Some(Value::Bool(
                         (f.CallBooleanMethodA.unwrap())(
@@ -280,26 +295,51 @@ impl Input {
                         self.long_value,
                         std::ptr::null(),
                     );
-                    return Some(if value < 0 {
-                        Value::Double(value as f64)
-                    } else {
-                        Value::Int(value as u64)
-                    });
+                    if (f.ExceptionCheck.unwrap())(env) != 0 {
+                        return None;
+                    }
+                    return Some(
+                        if self.preserve_types
+                            && (f.IsInstanceOf.unwrap())(env, object, self.integers[3]) == 0
+                        {
+                            Value::Int32(value as i32)
+                        } else if value < 0 && !self.preserve_types {
+                            Value::Double(value as f64)
+                        } else {
+                            Value::Int(value as u64)
+                        },
+                    );
                 }
                 if self
                     .reals
                     .iter()
                     .any(|class| (f.IsInstanceOf.unwrap())(env, object, *class) != 0)
                 {
-                    return Some(Value::Double((f.CallDoubleMethodA.unwrap())(
+                    let value = (f.CallDoubleMethodA.unwrap())(
                         env,
                         object,
                         self.double_value,
                         std::ptr::null(),
-                    )));
+                    );
+                    if (f.ExceptionCheck.unwrap())(env) != 0 {
+                        return None;
+                    }
+                    return Some(
+                        if self.preserve_types
+                            && (f.IsInstanceOf.unwrap())(env, object, self.reals[0]) != 0
+                        {
+                            Value::Float(value as f32)
+                        } else {
+                            Value::Double(value)
+                        },
+                    );
                 }
                 if (f.IsInstanceOf.unwrap())(env, object, self.string.0) != 0 {
-                    return Some(Value::String(self.string_units(env, object)?));
+                    return Some(Value::String(if self.preserve_types {
+                        read_text(env, object)?
+                    } else {
+                        self.string_units(env, object)?
+                    }));
                 }
                 if (f.IsInstanceOf.unwrap())(env, object, self.data) != 0 {
                     return Some(Value::Data(read_bytes(env, object)?));
@@ -379,7 +419,11 @@ impl Input {
                             throw(env, bplist::ENCODE_DEPTH_ERROR);
                             return None;
                         }
-                        keys.push(self.string_units(env, string)?);
+                        keys.push(if self.preserve_types {
+                            read_text(env, string)?
+                        } else {
+                            self.string_units(env, string)?
+                        });
                         (f.DeleteLocalRef.unwrap())(env, key);
                         (f.DeleteLocalRef.unwrap())(env, string);
                         (f.DeleteLocalRef.unwrap())(env, entry);
@@ -435,6 +479,8 @@ impl Input {
 }
 
 struct Output {
+    preserve_types: bool,
+    integer: (jclass, jmethodID),
     boolean: (jclass, jmethodID),
     long: (jclass, jmethodID),
     float: (jclass, jmethodID),
@@ -453,6 +499,8 @@ impl Output {
         let list = binding(env, c"java/util/ArrayList", c"<init>", c"()V")?;
         let map = binding(env, c"java/util/LinkedHashMap", c"<init>", c"()V")?;
         Some(Self {
+            preserve_types: false,
+            integer: binding(env, c"java/lang/Integer", c"<init>", c"(I)V")?,
             boolean: binding(env, c"java/lang/Boolean", c"<init>", c"(Z)V")?,
             long: binding(env, c"java/lang/Long", c"<init>", c"(J)V")?,
             float: binding(env, c"java/lang/Float", c"<init>", c"(F)V")?,
@@ -478,7 +526,7 @@ impl Output {
     }
 
     unsafe fn string(&self, env: *mut JNIEnv, units: &[u16]) -> Option<jstring> {
-        if !malformed(units) {
+        if self.preserve_types || !malformed(units) {
             return text(env, units);
         }
         // Android and desktop JDKs can consume different malformed UTF-16 sequences.
@@ -509,6 +557,7 @@ impl Output {
                     },
                 ),
                 Value::Int(value) => (self.long, jvalue { j: *value as i64 }),
+                Value::Int32(value) => (self.integer, jvalue { i: *value }),
                 Value::Float(value) => (self.float, jvalue { f: *value }),
                 Value::Double(value) => (self.double, jvalue { d: *value }),
                 Value::Date(value) => (self.date, jvalue { j: *value }),
@@ -566,6 +615,19 @@ impl Output {
         let object = (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()));
         result.map(|_| object)
     }
+}
+
+/// Preserve JVM scalar types and raw UTF-16 for protocol DTOs rather than a plist roundtrip.
+pub(crate) unsafe fn read_value(env: *mut JNIEnv, object: jobject) -> Option<Value> {
+    let mut input = Input::new(env)?;
+    input.preserve_types = true;
+    input.read(env, object, 0)
+}
+
+pub(crate) unsafe fn write_value(env: *mut JNIEnv, value: &Value) -> Option<jobject> {
+    let mut output = Output::new(env)?;
+    output.preserve_types = true;
+    output.write(env, value)
 }
 
 #[no_mangle]

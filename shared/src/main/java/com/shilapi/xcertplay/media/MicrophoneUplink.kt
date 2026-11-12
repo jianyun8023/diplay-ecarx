@@ -32,7 +32,7 @@ internal class MicrophoneUplink(
     private val onDiagnostic: (String) -> Unit = {},
     private val speakerphoneCall: Boolean = false,
     /** The call's far-end audio; when set, telephony capture runs DiPlay's own echo canceller. */
-    private val echoReference: EchoReference? = null,
+    echoReference: EchoReference? = null,
     private val echoCancellerFactory: (Int, Int, Int) -> CallEchoCanceller? = { frame, rate, tail ->
         SpeexEchoCanceller.create(frame, rate, tail)
     },
@@ -54,6 +54,8 @@ internal class MicrophoneUplink(
     /** Read for a report window that recorded no sound; see [silenceDetail]. */
     private val audioManager: AudioManager? = null,
 ) : Closeable {
+    private val echoReferenceSource = echoReference
+    @Volatile private var echoReference: EchoReference? = null
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
@@ -71,6 +73,7 @@ internal class MicrophoneUplink(
     fun start(): Boolean {
         NativeMedia.requireAvailable()
         if (!running.compareAndSet(false, true)) return true
+        echoReference = echoReferenceSource?.retain()
 
         val channelMask = if (config.channels >= 2) {
             AndroidAudioFormat.CHANNEL_IN_STEREO
@@ -85,7 +88,7 @@ internal class MicrophoneUplink(
         if (minBuffer <= 0) {
             Log.w(TAG, "microphone unavailable rate=${config.sampleRate} channels=${config.channels}")
             stats.failure(MicrophoneFailureStage.MIN_BUFFER, code = minBuffer)
-            running.set(false)
+            release()
             return false
         }
 
@@ -116,7 +119,7 @@ internal class MicrophoneUplink(
                 null
             }
         if (nextRecorder == null) {
-            running.set(false)
+            release()
             return false
         }
 
@@ -129,7 +132,7 @@ internal class MicrophoneUplink(
             Log.e(TAG, "microphone socket creation failed", error)
             stats.failure(MicrophoneFailureStage.SOCKET_CREATION, error)
             nextRecorder.release()
-            running.set(false)
+            release()
             return false
         }
 
@@ -535,6 +538,9 @@ internal class MicrophoneUplink(
     @Synchronized
     private fun release() {
         running.set(false)
+        val currentReference = echoReference
+        echoReference = null
+        currentReference?.close()
         val currentEffects = effects
         effects = emptyList()
         currentEffects.forEach(::releaseEffect)
@@ -592,33 +598,26 @@ internal fun telephonyMicrophoneSource(speakerphoneCall: Boolean, carPhoneState:
 
 /**
  * When each captured microphone sample was heard, on System.nanoTime's clock. Uses the recorder's
- * timestamp when the platform has one, otherwise assumes the newest sample arrived [FALLBACK_LATENCY_NS] ago.
+ * timestamp when the platform has one, otherwise uses the core's calibrated 20 ms fallback latency.
  */
 internal class CaptureClock(private val sampleRate: Int) {
+    init { require(sampleRate > 0) }
     private val timestamp = android.media.AudioTimestamp()
-    private var samplesRead = 0L
-    private var lastReadSamples = 0
-    private var lastReadEndNs = 0L
+    private val owner = LongArray(3)
 
     fun read(recorder: AudioRecord, samples: Int) {
-        samplesRead += samples
-        lastReadSamples = samples
         val now = System.nanoTime()
         val stamped = runCatching {
             recorder.getTimestamp(timestamp, android.media.AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS
         }.getOrDefault(false)
-        lastReadEndNs = if (stamped && timestamp.nanoTime > 0) {
-            timestamp.nanoTime + (samplesRead - timestamp.framePosition) * 1_000_000_000L / sampleRate
-        } else {
-            now - FALLBACK_LATENCY_NS
-        }
+        read(samples, now, stamped, timestamp.nanoTime, timestamp.framePosition)
     }
+
+    /** Platform reads stay outside the core; tests can replay the same timestamp facts. */
+    internal fun read(samples: Int, nowNs: Long, stamped: Boolean, timestampNs: Long, framePosition: Long) =
+        NativeEchoReference.captureRead(owner, sampleRate, samples, nowNs, stamped, timestampNs, framePosition)
 
     /** The capture time of the end of the first [samplesIntoRead] samples of the latest read. */
     fun frameEndNs(samplesIntoRead: Int): Long =
-        lastReadEndNs - (lastReadSamples - samplesIntoRead).coerceAtLeast(0) * 1_000_000_000L / sampleRate
-
-    private companion object {
-        const val FALLBACK_LATENCY_NS = 20_000_000L
-    }
+        NativeEchoReference.captureEnd(owner, sampleRate, samplesIntoRead)
 }

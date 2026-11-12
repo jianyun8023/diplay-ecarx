@@ -20,7 +20,7 @@ object WifiP2pChannels {
     val bandChoices: List<Int> = listOf(AUTO_5_GHZ, AUTO_2_4_GHZ)
     val channels: List<Int> = listOf(36, 40, 44, 48, 149, 153, 157, 161, 165) + (1..11)
 
-    fun isValid(channel: Int): Boolean = channel == AUTO || channel in bandChoices || channel in channels
+    fun isValid(channel: Int): Boolean = NativeP2pStartup.validChannel(channel)
 
     /** The band an "Auto · band" choice is restricted to, or null for Auto and manual channels. */
     fun band(channel: Int): WifiP2pBand? = when (channel) {
@@ -31,11 +31,7 @@ object WifiP2pChannels {
 
     fun frequencyMhz(channel: Int): Int? {
         require(isValid(channel)) { "Unsupported Wi-Fi Direct channel: $channel" }
-        return when {
-            channel == AUTO || channel in bandChoices -> null
-            channel <= 11 -> 2407 + channel * 5
-            else -> 5000 + channel * 5
-        }
+        return NativeP2pStartup.frequency(channel).takeIf { it != 0 }
     }
 
     /** Diagnostic and error text; never localized. */

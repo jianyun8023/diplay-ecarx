@@ -117,3 +117,30 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_destroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) { if handle != 0 { drop(Box::from_raw(handle as *mut RouteGuidance)); } }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_message_NativeLaneGuidance_parse(
+    env: *mut JNIEnv, _: jclass, payload: jbyteArray,
+) -> jni_sys::jobjectArray {
+    let f = &**env;
+    let length = (f.GetArrayLength.unwrap())(env, payload);
+    let mut bytes = vec![0u8; length as usize];
+    (f.GetByteArrayRegion.unwrap())(env, payload, 0, length, bytes.as_mut_ptr() as *mut i8);
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
+    let Some(rows) = super::lane_update(&bytes) else { return null_mut(); };
+    let class = (f.FindClass.unwrap())(env, c"[I".as_ptr());
+    if class.is_null() { return null_mut(); }
+    let result = (f.NewObjectArray.unwrap())(env, rows.len() as jint, class, null_mut());
+    (f.DeleteLocalRef.unwrap())(env, class);
+    if result.is_null() { return null_mut(); }
+    for (index, row) in rows.iter().enumerate() {
+        let array = (f.NewIntArray.unwrap())(env, row.len() as jint);
+        if array.is_null() { return null_mut(); }
+        (f.SetIntArrayRegion.unwrap())(env, array, 0, row.len() as jint, row.as_ptr());
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
+        (f.SetObjectArrayElement.unwrap())(env, result, index as jint, array);
+        (f.DeleteLocalRef.unwrap())(env, array);
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
+    }
+    result
+}

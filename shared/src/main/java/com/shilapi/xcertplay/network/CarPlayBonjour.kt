@@ -8,9 +8,8 @@ import android.os.Build
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
-import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
+import com.shilapi.xcertplay.airplay.NativeAirPlayProtocol
 import java.io.BufferedInputStream
-import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
@@ -63,7 +62,7 @@ fun CarPlayBonjourEvent.diagnosticSummary(): String = when (this) {
     is CarPlayBonjourEvent.Resolved ->
         "control resolved family=${if (':' in endpoint.host) "IPv6" else "IPv4"} port=${endpoint.port}"
     is CarPlayBonjourEvent.Probed -> {
-        val status = statusLine?.let { Regex("^HTTP/\\d(?:\\.\\d)? (\\d{3})(?: |$)").find(it)?.groupValues?.get(1) }
+        val status = CarPlayBonjourProtocol.probeStatus(statusLine)
         "control probe attempts=$attempts status=${status ?: "none"} error=${error?.javaClass?.simpleName ?: "none"}"
     }
     is CarPlayBonjourEvent.ProbeProgress ->
@@ -74,59 +73,36 @@ fun CarPlayBonjourEvent.diagnosticSummary(): String = when (this) {
 
 /** Pure protocol values shared by the Android runtime and JVM tests. */
 object CarPlayBonjourProtocol {
-    internal fun featuresTxt(features: Long): String {
-        val low = "0x${(features and 0xffffffffL).toString(16)}"
-        val high = features ushr 32
-        return if (high == 0L) low else "$low,0x${high.toString(16)}"
-    }
+    internal fun featuresTxt(features: Long): String = NativeAirPlayProtocol.bonjour(0, listOf(features)) as String
 
-    fun airPlayTxtRecords(
-        config: AirPlayConfig,
-        identity: AirPlayIdentity,
-    ): Map<String, String> = linkedMapOf(
-        "deviceid" to config.deviceId,
-        "features" to featuresTxt(AirPlayInfoPlist.features(config)),
-        "flags" to "0x4",
-        "model" to config.model,
-        "srcvers" to config.sourceVersion,
-        "protovers" to "1.1",
-        "pi" to identity.pairingId,
-        "pk" to identity.publicKeyHex,
-    )
+    @Suppress("UNCHECKED_CAST")
+    fun airPlayTxtRecords(config: AirPlayConfig, identity: AirPlayIdentity): Map<String, String> =
+        NativeAirPlayProtocol.bonjour(1, listOf(config.deviceId, config.disableAudioOutput, config.model,
+            config.sourceVersion, identity.pairingId, identity.publicKeyHex)) as Map<String, String>
 
-    fun connectProbeRequest(
-        host: String,
-        port: Int,
-        sourceVersion: String,
-        deviceId: String,
-    ): String {
-        val unbracketedHost = host.removeSurrounding("[", "]").substringBefore('%')
-        require(unbracketedHost.isNotBlank()) { "host must not be blank" }
-        require(port in 1..65535) { "port must be in 1..65535" }
-        require(sourceVersion.isNotEmpty()) { "sourceVersion must not be empty" }
-        require('\r' !in sourceVersion && '\n' !in sourceVersion) {
-            "sourceVersion must not contain a line break"
+    fun connectProbeRequest(host: String, port: Int, sourceVersion: String, deviceId: String): String =
+        NativeAirPlayProtocol.bonjour(2, listOf(host, port, sourceVersion, deviceId)) as String
+
+    internal fun probeStatus(line: String?): String? = NativeAirPlayProtocol.bonjour(3, listOf(line)) as String?
+
+    internal fun readProbeStatusLine(input: InputStream): String? {
+        val owner = NativeAirPlayProtocol.probeCreate()
+        val buffered = BufferedInputStream(input)
+        try {
+            while (true) {
+                val result = NativeAirPlayProtocol.probeFeed(owner, buffered.read()) ?: continue
+                return result[0]?.toString(StandardCharsets.US_ASCII)
+            }
+        } finally {
+            NativeAirPlayProtocol.probeDestroy(owner)
         }
-        require('\r' !in unbracketedHost && '\n' !in unbracketedHost) {
-            "host must not contain a line break"
-        }
-        val receiverDeviceId = deviceId.replace(":", "")
-        require(receiverDeviceId.isNotEmpty()) { "deviceId must contain a hexadecimal value" }
-        require('\r' !in receiverDeviceId && '\n' !in receiverDeviceId) {
-            "deviceId must not contain a line break"
-        }
-        val hostHeader = if (':' in unbracketedHost) {
-            "[$unbracketedHost]:$port"
-        } else {
-            "$unbracketedHost:$port"
-        }
-        return "GET /ctrl-int/1/connect HTTP/1.1\r\n" +
-            "Host: $hostHeader\r\n" +
-            "User-Agent: AirPlay/$sourceVersion\r\n" +
-            "AirPlay-Receiver-Device-ID: $receiverDeviceId\r\n" +
-            "Connection: close\r\n" +
-            "\r\n"
     }
+}
+
+internal class BonjourProbeRetry {
+    private val token = NativeAirPlayProtocol.probeRetryCreate()
+    fun next(closed: Boolean): Int = NativeAirPlayProtocol.probeRetry(token, 0, closed).toInt()
+    fun failed(closed: Boolean): Long = NativeAirPlayProtocol.probeRetry(token, 1, closed)
 }
 
 /**
@@ -518,11 +494,8 @@ class CarPlayBonjour(
         } else {
             listOfNotNull(serviceInfo.host)
         }
-        return addresses.firstOrNull { it is Inet6Address && it.isLinkLocalAddress }
-            ?.let(::applyLocalScope)
-            ?: addresses.firstOrNull { it is Inet4Address }
-            ?: addresses.firstOrNull { it is Inet6Address }
-            ?: addresses.firstOrNull()
+        val selected = HotspotAddressPolicy.bonjour(addresses) ?: return null
+        return if (selected is Inet6Address && selected.isLinkLocalAddress) applyLocalScope(selected) else selected
     }
 
     private fun applyLocalScope(address: InetAddress): InetAddress {
@@ -541,13 +514,15 @@ class CarPlayBonjour(
         address: InetAddress,
     ): CarPlayBonjourEvent.Probed? {
         var lastError: IOException? = null
-        repeat(MAX_PROBE_ATTEMPTS) { attempt ->
-            if (closed) return null
+        val retry = BonjourProbeRetry()
+        while (true) {
+            val attempt = retry.next(closed)
+            if (attempt == 0) return null
             try {
-                val statusLine = probeOnce(address, endpoint.port, attempt + 1)
+                val statusLine = probeOnce(address, endpoint.port, attempt)
                 return CarPlayBonjourEvent.Probed(
                     endpoint = endpoint,
-                    attempts = attempt + 1,
+                    attempts = attempt,
                     statusLine = statusLine,
                     error = null,
                 )
@@ -556,17 +531,11 @@ class CarPlayBonjour(
             } catch (error: RuntimeException) {
                 lastError = IOException("AirPlay control probe failed", error)
             }
-            if (closed) return null
-            if (attempt + 1 < MAX_PROBE_ATTEMPTS) {
-                Thread.sleep(PROBE_RETRY_DELAY_MILLIS)
-            }
+            val delay = retry.failed(closed)
+            if (delay < 0) return null
+            if (delay == 0L) return CarPlayBonjourEvent.Probed(endpoint, attempt, null, lastError)
+            Thread.sleep(delay)
         }
-        return CarPlayBonjourEvent.Probed(
-            endpoint = endpoint,
-            attempts = MAX_PROBE_ATTEMPTS,
-            statusLine = null,
-            error = lastError,
-        )
     }
 
     private fun probeOnce(address: InetAddress, port: Int, attempt: Int): String {
@@ -609,19 +578,7 @@ class CarPlayBonjour(
         }
     }
 
-    /** Reads up to the first newline. Fails when the host sends more than [MAX_STATUS_LINE_BYTES] without one. */
-    private fun readStatusLine(input: InputStream): String? {
-        val line = ByteArrayOutputStream()
-        val buffered = BufferedInputStream(input)
-        while (true) {
-            val next = buffered.read()
-            if (next < 0) return if (line.size() == 0) null else line.toString(StandardCharsets.US_ASCII.name())
-            if (next == '\n'.code) break
-            if (line.size() >= MAX_STATUS_LINE_BYTES) throw IOException("AirPlay control probe status line over $MAX_STATUS_LINE_BYTES bytes")
-            line.write(next)
-        }
-        return line.toString(StandardCharsets.US_ASCII.name()).removeSuffix("\r")
-    }
+    private fun readStatusLine(input: InputStream): String? = CarPlayBonjourProtocol.readProbeStatusLine(input)
 
     private fun sourceAddressFor(target: InetAddress): InetAddress? =
         advertisedAddresses.firstOrNull { (it is Inet4Address) == (target is Inet4Address) }
@@ -641,7 +598,7 @@ class CarPlayBonjour(
             }
             is CarPlayBonjourEvent.ProbeFailed -> lastProbe.set("failed_after_${event.stage}_${event.error.javaClass.simpleName}")
             is CarPlayBonjourEvent.Probed -> {
-                val status = event.statusLine?.let { Regex("^HTTP/\\d(?:\\.\\d)? (\\d{3})(?: |$)").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                val status = CarPlayBonjourProtocol.probeStatus(event.statusLine)?.toIntOrNull()
                 if (status != null && status in 200..299) successfulProbeCount.incrementAndGet()
                 if (event.error == null) lastProbe.set("status_${status ?: "unknown"}")
             }
@@ -674,11 +631,8 @@ class CarPlayBonjour(
         const val RESOLVE_ATTEMPTS = 3
         const val RESOLVE_TIMEOUT_MILLIS = 10_000L
         const val RESOLVE_RETRY_DELAY_MILLIS = 250L
-        const val MAX_PROBE_ATTEMPTS = 7
-        const val PROBE_RETRY_DELAY_MILLIS = 1_500L
         const val CONNECT_TIMEOUT_MILLIS = 3_000
         const val READ_TIMEOUT_MILLIS = 3_000
-        const val MAX_STATUS_LINE_BYTES = 8 * 1024
         const val JOIN_TIMEOUT_MILLIS = 2_000L
         const val FAILURE_NONE = -1
     }

@@ -84,6 +84,9 @@ internal object NativeMedia {
     /** 0 anchor, 1 rate, 2 flush, 3 feedback. out: RTP (-1 absent), NTP seconds/fraction, rate, stop output. */
     @JvmStatic external fun bufferedControl(handle: Long, op: Int, timestamp: Long, rate: Int,
         ntpSeconds: Long, ntpFraction: Long, nowNanos: Long, out: LongArray)
+    @JvmStatic external fun bufferedAnchor(snapshot: LongArray): Map<String, Any?>?
+    @JvmStatic external fun bufferedFeedback(type: Int, sampleRate: Int, position: Long, connectionId: Any?,
+        ntp: java.math.BigInteger, nowNanos: Long): Map<String, Any?>
     /** Wakes the bounded receiver, releases all queued packets; returns whether to stop the platform output. */
     @JvmStatic external fun bufferedDestroy(handle: Long): Boolean
 

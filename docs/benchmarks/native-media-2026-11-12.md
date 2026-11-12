@@ -256,3 +256,17 @@ Identification使用原`Iap2WireCodec.string`提供已验证的NUL终止字节�
 同一新测试APK SHA`4db02f7943098fcc0dcdedefbbc5037bae5f6463f6b63fef36533fbb867a81d2`，手机API35 ARM64／ARMv7及API28 ARM64模拟器首轮各77项通过（原60+新17），分别11.597／12.764／17.519秒，精确16类、无失败／跳过，手机恢复ARM64。双ABI完整动态导出138项，保留全部旧115并新增23，nm／readelf同集；ELF Android note实际API28／NDKr28c/build13676358。来源汇总、原失败XML与定向替换清单保留于`artifacts/issue96-domain-body-wired-20261112/verification.json`，不把当前仅定向5／4项的Gradle输出冒充全量。
 
 原始dump／APK／日志不上传。设备验收仍是Debug包；缩减发布包运行、ECARX／真实iPhone、USB NCM、长测和新性能未验收，完整协议／会话迁移仍有剩余范围，PR保持Draft。
+
+## Issue #96：2026-11-13 剩余生产核心审计与补齐
+
+本轮以 `feat/rust-protocol-media-all` 的 `0c4820ae` 为核查基线，按实际生产调用补齐 AirPlay 能力／控制／Bonjour 编码、音频 route／echo／capture clock／buffered 回复、NowPlaying／导航播放状态、热点地址／readiness／radio recovery、P2P 计划／重试和 lane update 解析。既有 controller／VPN／run 代际、watchdog、协议／媒体核心未重复迁移。独立旧算法留 testCore／仅 shared 的 testCoreInternal，新增 host／Android 共用合同；CI 另加 locked Rust 单测。
+
+本节是新批次记录，不修改前文历史候选与历史执行范围。最终冻结源码的 locked Rust 单测 212 项全部通过；最终同一轮完整 CI＋四应用 R8 用时 5 分 33 秒、432 tasks，三模块 JVM 共 3546 项（3544 通过、0 失败、2 跳过：主机端口行为及缺真实 SDK class JAR），四应用 lintDebug／assembleDebug／minifyReleaseWithR8 全部通过。日志为 `build/task-validation/final-verification.log`。
+
+API 28 ARM64 模拟器上的同一 49 项真实 JNI 合同最终全部通过，11.405 秒；首轮发现的 Regex 数字分类与 BigInteger 极值平台差异已修复并重验，未删减合同。NowPlaying 内嵌 NUL、corner-mask 畸形嵌套、Robolectric 真 JNI 转发及 shared-only fixture source-set 边界的失败也已修正，最终计数来自重跑后的 XML。
+
+API 28 双 ABI 已重建，源 manifest SHA-256 为 `da94e9f0fd3a6e2fc48fb7ad3a1513f291798a739db7c261f8f2f42b74f2774d`，两个 ABI 均导出 491 个 Java JNI 方法加 JNI_OnLoad。库来源、最终产物及逐项边界见[剩余缺口审计](../RUST_CORE_REMAINING.zh-CN.md)与 native NOTICE。没有新增性能测量结论。
+
+最终 APK 审计确认 mobile／shared 测试包内两 ABI 库与最终原库经独立 strip 的结果逐字节一致，14 份 license／NOTICE／source-pointer 资源匹配仓库；其余三个应用无运行时 shared 依赖，未包含 core 符合边界。原库与 APK 内 strip 后库的大小／哈希分别登记，不能混用。四应用 R8 mapping／keep seeds 审计覆盖八个新增 facade／55 个 native 方法、NativeMedia 两个新增入口、NowPlaying 八参构造及 decodeText。1665 个 tracked＋59 个 untracked 文件公开树扫描通过，Rust 目录 123 个源码／配置／构建文件的 manifest 未变。本地 ignored 证据为 `build/task-validation/debug-apk-native-license-audit.log`、`build/task-validation/r8-jni-keep-audit.log` 和 `build/task-validation/public-tree-including-untracked.log`；原始 APK／日志不上传。
+
+真实 ECARX／iPhone 互通、音路／AEC、USB NCM、radio 唤醒、R8 发布包实际运行和长会话仍需目标硬件验收；只有 classes.dex 的本地候选 JAR 不能提供真实 SDK class ABI 证据，需可加载的真实 class JAR 或独立 DEX ABI 核验。本轮未操作物理手机或车机。

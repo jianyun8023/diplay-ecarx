@@ -155,21 +155,14 @@ internal class BufferedAudioStream(
 
     /** The /feedback entry for this stream: the sample playing now on the session clock. */
     fun feedback(nowNtp: BigInteger, connectionId: Any?): Map<String, Any?> = synchronized(lock) {
-        linkedMapOf<String, Any?>(
-            "type" to format.payloadType,
-            "sampleRate" to format.sampleRate,
-        ).apply {
-            val now = nanoTime()
-            if (closed.get()) return@apply
+        val now = nanoTime()
+        val position = if (closed.get()) -1L else {
             val values = LongArray(5)
             NativeMedia.bufferedControl(nativeCore, 3, -1, 0, 0, 0, now, values)
-            val position = values[0].takeIf { it >= 0 }
-            position ?: return@apply
-            put("streamConnectionID", unsignedPlistInteger(connectionId ?: 0L))
-            put("timestamp", nowNtp)
-            put("timestampRawNs", now)
-            put("sampleTime", position)
+            values[0]
         }
+        NativeMedia.bufferedFeedback(format.payloadType, format.sampleRate, position,
+            if (position >= 0) unsignedPlistInteger(connectionId) else null, nowNtp, now)
     }
 
     // The protocol still uses plist maps; the core retains the anchor and returns a snapshot.
@@ -181,9 +174,7 @@ internal class BufferedAudioStream(
         if (values[4] != 0L) runCatching { sink.onAudioStopped(id) }
             .onFailure { log("Buffered audio: output cleanup failed (${it.javaClass.simpleName})") }
         lock.notifyAll()
-        if (values[0] < 0) return null
-        val anchor = BigInteger.valueOf(values[1]).shiftLeft(32).add(BigInteger.valueOf(values[2]))
-        return anchorPlist(values[0], anchor, values[3].toInt())
+        return NativeMedia.bufferedAnchor(values)
     }
 
     override fun close() {
@@ -218,19 +209,5 @@ internal class BufferedAudioStream(
         const val AUDIO_BUFFER_BYTES = 8 * 1024 * 1024
         private const val FEED_POLL_MILLIS = 20L
         private const val U32 = 0xffff_ffffL
-        /** Seconds between NTP's 1900 epoch and the 1970 epoch the anchor's networkTimeSecs uses. */
-        private const val NTP_UNIX_OFFSET = 2_208_988_800L
-
-        /**
-         * The anchor plist: RTP sample [rtp] plays at [ntp] (NTP64 on the session's timing clock). The
-         * iPhone reads networkTimeSecs on the 1970 epoch and networkTimeFrac as a 64-bit fraction.
-         */
-        internal fun anchorPlist(rtp: Long, ntp: BigInteger, rate: Int): Map<String, Any?> = linkedMapOf(
-            "rtpTime" to (rtp and U32),
-            "networkTimeSecs" to ntp.shiftRight(32).toLong() - NTP_UNIX_OFFSET,
-            "networkTimeFrac" to ntp.and(BigInteger.valueOf(U32)).shiftLeft(32),
-            "rate" to rate,
-        )
-
     }
 }

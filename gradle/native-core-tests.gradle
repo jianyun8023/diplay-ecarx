@@ -20,6 +20,9 @@ def configureCoreTests = { Project project ->
     android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreShadows/kotlin'))
     android.sourceSets.getByName('test').resources.srcDir(rootProject.file('shared/src/testCoreShadows/resources'))
     if (project.path == ':shared') {
+        // These contracts use shared's internal owners; common/home only need the shared JNI shadows.
+        android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreInternal/kotlin'))
+        android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCoreInternal/kotlin'))
         android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCore/kotlin'))
         android.sourceSets.getByName('androidTest').java.srcDir(rootProject.file('shared/src/testCore/java'))
     }
