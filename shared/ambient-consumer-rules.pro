@@ -122,3 +122,9 @@
 -keep class com.shilapi.xcertplay.airplay.NativeAirPlayNegotiation { native <methods>; }
 
 -keep class com.shilapi.xcertplay.media.NativeVideoPolicy { native <methods>; }
+
+# USBMUX bridges return only bootstrap arrays/strings; protocol exception has a String-only ctor.
+-keep class com.shilapi.xcertplay.transport.NativeUsbMux { native <methods>; }
+-keep class com.shilapi.xcertplay.transport.IphoneUsbException$Protocol {
+    public <init>(java.lang.String);
+}
