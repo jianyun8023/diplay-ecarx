@@ -138,6 +138,8 @@ class Iap2CsmChannel private constructor(
                 throw failure
             }
             throw terminalize(failure)
+        } finally {
+            framer.close()
         }
     }
 

@@ -89,6 +89,12 @@
 }
 
 # iAP2 body parameter framing and the DTO its native parser constructs.
+-keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Csm {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.iap2.wire.Iap2Frame {
+    public <init>(int, byte[]);
+}
 -keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Body {
     native <methods>;
 }
@@ -98,3 +104,5 @@
 -keep class com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException {
     public <init>(java.lang.String, java.lang.Throwable);
 }
+
+-keep class com.shilapi.xcertplay.transport.NativeIap2Link { native <methods>; }

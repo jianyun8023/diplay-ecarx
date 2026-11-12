@@ -81,7 +81,7 @@ mod tests {
 use jni_sys::{jbyteArray, jclass, jint, jintArray, jobjectArray, jvalue, JNIEnv};
 use std::ptr::null_mut;
 
-unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
+pub(super) unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     let f = &**env;
     if (f.ExceptionCheck.unwrap())(env) != 0 { return; }
     let class = std::ffi::CString::new(class).unwrap();
@@ -98,7 +98,7 @@ unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     if (f.ExceptionCheck.unwrap())(env) == 0 && !error.is_null() { (f.Throw.unwrap())(env, error); }
 }
 
-unsafe fn read_bytes(env: *mut JNIEnv, array: jbyteArray) -> Option<Vec<u8>> {
+pub(super) unsafe fn read_bytes(env: *mut JNIEnv, array: jbyteArray) -> Option<Vec<u8>> {
     if array.is_null() { return Some(Vec::new()); }
     let f = &**env;
     let length = (f.GetArrayLength.unwrap())(env, array) as usize;
@@ -107,7 +107,7 @@ unsafe fn read_bytes(env: *mut JNIEnv, array: jbyteArray) -> Option<Vec<u8>> {
     if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(bytes) }
 }
 
-unsafe fn byte_array(env: *mut JNIEnv, bytes: &[u8]) -> jbyteArray {
+pub(super) unsafe fn byte_array(env: *mut JNIEnv, bytes: &[u8]) -> jbyteArray {
     let f = &**env;
     let array = (f.NewByteArray.unwrap())(env, bytes.len() as jint);
     if array.is_null() { return null_mut(); }
