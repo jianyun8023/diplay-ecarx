@@ -50,12 +50,13 @@ SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source 
 The production APK ABI filters select ARM64 and ARMv7; x86_64 files remain in the source tree.
 Keep the applicable licenses and corresponding source when redistributing native binaries.
 
-## Media data plane
+## Rust CarPlay core
 
-`libdiplay_media.so` is the media data plane (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
+`libdiplay_media.so` contains the migrated CarPlay core (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
 screen and audio streams, owns compressed audio queues, buffered-music anchors/controls/backpressure and music clock trim,
 runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio,
-frames/encodes RTSP and binary plists, owns route guidance state, applies wireless-run state transitions and converts EV status payloads
+frames/encodes RTSP and binary plists, owns control/event encryption and route guidance state,
+applies wireless-run and recovery transitions, encodes HID reports/descriptors, converts EV status payloads
 and seals the microphone uplink. It also contains the optional, default-off USB NCM/tun bridge. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
@@ -69,8 +70,8 @@ When the library cannot load, the Kotlin receivers and the platform cipher (Cons
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1204304 | `eed10740d32e43d91590daa9ed394821f2a5437799e1c9351fb85d938f679c17` |
-| armeabi-v7a | libdiplay_media.so | 826420 | `fee3258a517e4c8b00840ec71a9788ad08efe0b99ba53e8a7845c708f9cd3fde` |
+| arm64-v8a | libdiplay_media.so | 1217664 | `336c5adc2ee2b60e33f94f22b79944c3d9e11ee65e78e06b1710fa3ffacda255` |
+| armeabi-v7a | libdiplay_media.so | 835956 | `7cd54390458e42fc84af8f2cc19a6c68d6f0254c52eee9051ec821e8b0d149b0` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

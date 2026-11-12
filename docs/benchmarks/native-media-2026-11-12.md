@@ -177,3 +177,24 @@ LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b`，bplist blob 为 `
 本批在设备收敛后运行一轮完整 CI，用时 5 分 50 秒：Android 单测 3416 通过、2 跳过、0 失败（shared 1830 总数／2 跳过，common 1573，home 15）；四应用 lint、Debug 与 R8 检查通过，未变化的任务复用缓存。主应用 R8 mapping 保留 NativeBplist／NativeRouteGuidance／NativeRtsp／AppleManeuver 类名，seeds 保留 maneuver 的八参数构造器。主应用和独立测试 APK 的 source／cargo／merged／stripped 来源与 NATIVE-NOTICE、LIVI 声明匹配；其余三个应用也检查了产物，按原依赖边界不包含该原生库。公共源码凭据及 diff 检查通过，手机测试包恢复 ARM64。
 
 配对／控制加密／iAP2／NTP、controller 代际与恢复、其余车辆转换与 HID、剩余媒体逐包交接仍待继续迁移。设备验证为 Debug 测试包；未运行缩减后的发布包实车互通、ECARX BUS／焦点、真实 iPhone 听感、USB NCM 主机拓扑、长测或物理延迟对照，PR 继续保持 Draft。
+
+## Issue #96：控制加密、无线恢复与 HID
+
+本批从 `e116d00a` 并行实施，主线集成 `f9ddfb38`（HID）、`745d86b1`（恢复）、`c5c3952e`（加密及关闭锁序），`49f27b1d` 补齐原有测试中的临时 cipher 释放。没有新增依赖或设置；PASCD／VehicleSpeedLocationProvider 只有测试消费，没有生产 SDK 装配点，因此本批未新增车辆速度原生模块。
+
+- Rust `control_cipher` 唯一持有 control／event 的分帧、AEAD key 与双向 wrapping nonce counter。保留空输入的 18 字节帧、16 KiB 加密分块、u16 解密长度、部分帧 rest identity，以及成功 prefix 后遇到认证失败时已推进的计数。Kotlin 同步 encrypt／decrypt／close，Session 关闭、替换和迟到安装均管理真实 owner；JNI 构造既有 Decrypted，保留其 R8 构造器。
+- 创建原生 owner 时固定密钥；生产 PairVerify／HKDF 调用方均传入新生成的 32 字节数组，不依赖创建后修改外部数组。非法 key 保留异常类型与使用时才失败的时机，provider 专属错误文本可能不同；认证失败保持 AEADBadTagException 与 tag mismatch。
+- Rust `wireless_recovery` 用不透明值 token 持有 run 三项一次性预算、attempt 编号／有效性／stage／超时，以及 Throwable facts 的失败决策。最多四次 attempt，保留 connect retry 400 ms、bootstrap retry 800 ms、一次 fallback、终止错误优先与 8 层 cause 检查。Kotlin 保留异常消息／cause／suppressed 组装、验证及资源执行顺序、100 ms 可取消等待、watchdog 调度；不分配原生堆句柄或保留第二份活动策略。
+- Rust `hid` 编码 touch／knob／media／telephony 报告及四类 descriptor，直接消费原 `/info` 和 Session 发送入口。UID／Map 元数据、Android 输入适配及 AirPlayTouchSlots 保留 Kotlin。保留 slot id 首次匹配、Android Math.round、坐标低 16 位、轴 ±127 与按键低 8 位；JNI 传递 primitive arrays，不创建状态句柄。
+
+交叉审查发现原有 event 写锁与 VideoPlaybackAvailability monitor 的锁环：写失败自行 close，或 reader EOF 清理时，可能与持 monitor 等待发送的档位更新互等。新增两条定向回归先在旧实现复现失败，再做最小锁序修正：先关 socket 打断 I/O，full close 不再重置已死亡会话的视频状态，迟到发送／可用性更新受 closed gate 限制；正常 RTSP TEARDOWN 仍重置状态。reader finally 同样先关 socket。两条夹具均先确认档位线程已 BLOCKED，修复后通过，VideoPlaybackAvailability 自身未迁移。
+
+LIVI 对照固定 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 livi-cp control_cipher.rs、hid.rs 与 ts_vectors，仅复用 cipher／cipher2 和 HID 黄金数据，没有复制实现／宏或引入其运行时。LIVI debug counter 溢出、rest copy、触摸列表顺序／饱和轴等规则与本项目不同；本批保留本项目 wrapping counter、rest identity、按 id 选槽及低位截断。README 和应用第三方许可资产保留其 NOTICE 要求的完整署名。
+
+开发中定向验证：HID Kotlin 38／Rust 5，恢复 Kotlin 74／Rust 6，控制加密及关闭 Kotlin 78／Rust 7，集成后临时 owner 清理回归 28，均通过。控制加密另有真实 macOS JNI 10 项，四个 native 方法动态链接可核对；`-Xcheck:jni` 无 JNI 诊断，JDK 25 的 System.loadLibrary 受限方法提示单独保留。集成 Rust 主机共 91 项通过。
+
+统一重建 API 28 双 ABI，最终同一 Debug 独立测试 APK 在小米 8／API 35 ARM64、ARMv7 和 API 28 ARM64 模拟器各 51 项通过：control cipher 7、HID 6、恢复 3，加上前批 bplist 7、导航 6、Opus 4、AAudio 2、音频状态 7、RTSP 5、无线状态 2、EV 2。包含真实 PairVerify→加密 control／event 往返、Session.close 清零、阻塞写／EOF／迟到安装，以及原 HID 入口的 11 个加密 event 报告。
+
+设备收敛后完整 CI 仅一轮，5 分 54 秒：Android 单测 3429 通过、2 跳过、0 失败（shared 1843 总数／2 跳过，common 1573，home 15），四应用 lint、Debug 构建及 R8 均通过。测试子代理独立核对双 ABI ELF、source=cargo=merged、stripped=主应用／独立测试 APK、NATIVE-NOTICE／第三方许可资产和 Decrypted 构造器；其余三个应用沿原依赖边界不包含该核心库。公共源码凭据与 diff 检查通过，手机恢复 ARM64，未重复已通过设备集合。
+
+完整来源记录：`artifacts/issue96-control-recovery-hid-20261112/verification.json`，编译源码提交 `49f27b1d`，测试 APK SHA-256 `67d0fe9909e888a4598fa8f5ce2dae4f8c43858c2e30cc45788f6f67917e41e1`。原始日志、APK 和私有 dump 不上传。配对／iAP2／NTP、watchdog 调度与 controller 代际／平台资源、触摸槽状态及其余车辆转换、剩余媒体交接继续待迁移；Android／SDK 适配保留。设备为 Debug 测试包，缩减发布包运行、ECARX／真实 iPhone、USB NCM、长测和新性能对照仍未验收，NCM 默认关闭，PR 保持 Draft。

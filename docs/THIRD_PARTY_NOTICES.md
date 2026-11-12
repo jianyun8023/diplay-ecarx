@@ -12,7 +12,7 @@ Upstream credits [LIVI](https://github.com/f-io/LIVI) and [Showcase](https://git
 
 Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
 
-The bplist tests reuse LIVI's protocol golden-vector data at revision `6ac88bab7351a39b0cffac20c5dcf92ca848319b`; the codec implementation is ported from this repository's Kotlin code. LIVI is GPL-3.0-or-later, with the attribution requirement in its [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE). This notice is also packaged in the app's open-source notices.
+The bplist, control-cipher and HID tests reuse LIVI's protocol golden-vector data at revision `6ac88bab7351a39b0cffac20c5dcf92ca848319b`; their implementations are ported from this repository's Kotlin code. LIVI is GPL-3.0-or-later, with the attribution requirement in its [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE). This notice is also packaged in the app's open-source notices.
 
 ## Home and settings UI
 

@@ -17,9 +17,9 @@
 迁移顺序：
 
 1. 完成媒体闭环。AAudio 正确性与视频直连已完成；音频压缩队列、缓冲音乐锚点、SETRATE／FLUSH、音乐 PI 时钟与 TCP 背压现由 Rust 拥有。继续收敛平台输出调度与逐包交接，并完成实车验收。
-2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP 请求分帧／解析、响应编码与 bplist 已接入 Rust，配对／控制加密及 iAP2 等仍待迁移。
-3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState 的生命周期与 handoff 首批已迁移，controller 代际及资源动作仍保留。
-4. 迁移导航、车辆转换和输入协议；EV 0xA101 数据转换及导航状态已迁移，其余车辆转换与 HID 尚待完成。验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
+2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP 请求分帧／解析、响应编码、bplist 与 control／event 加密已接入 Rust，配对、密钥存储及 iAP2 等仍待迁移。
+3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState 生命周期／handoff 及 WirelessBootstrapRecovery 预算／attempt／失败决策已迁移；watchdog 调度、controller 代际与平台资源动作仍保留。
+4. 迁移导航、车辆转换和输入协议；EV 0xA101、导航状态及 HID 报告／描述符编码已迁移，其余车辆转换与触摸槽状态尚待迁移，Android 输入适配保留 Kotlin。验收后删除重复 Kotlin 核心及无用依赖，更新归属规则。
 
 验证覆盖范围与批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)；完整协议／会话核心尚未迁入 Rust。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
 
@@ -27,7 +27,7 @@
 
 [LIVI](https://github.com/f-io/LIVI) 是协议迁移的优先参考：`native/crates/livi-cp` 包含 RTSP、bplist、SRP、配对、控制加密、时钟、HID、UI Sync 和车辆状态，iAP2 在 `iap2-csm/link/mfi/usbmux/wired` 等 crate；`livi-cp` 还保留 `ts_vectors` 测试。现有 `Srp6a.kt` 注明移植自其早期 `srp.ts`；本地 2026-11-11 的 Ultra 调研已核对 Rust 提交 `870d2644`。2026-11-12 重新核查了当前 Rust 模块结构。
 
-每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。LIVI 当前使用 Tokio／OpenSSL，Android 分发包为 Android 10+ ARM64；这些不能代替本项目 API 28 和 ARMv7 的验证。本批复用 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 bplist 黄金向量数据，未导入实现或运行时；已将其 [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE) 要求的署名加入 README 和应用可查看的第三方许可声明。
+每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。LIVI 当前使用 Tokio／OpenSSL，Android 分发包为 Android 10+ ARM64；这些不能代替本项目 API 28 和 ARMv7 的验证。bplist、control cipher 与 HID 复用 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的黄金向量数据，未导入实现或运行时；已将其 [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE) 要求的署名加入 README 和应用可查看的第三方许可声明。
 
 ## 1. 目标平台
 
@@ -137,7 +137,10 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 - 对照 LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 rtsp.rs／ts_vectors：其 16 MiB body、leading-digit 长度解析、非 ASCII 等规则与本项目不同，因此移植本仓库行为，保留 16 KiB header／1 MiB body 上限；标准 RTSP／500 响应与其向量逐字节相同。没有复制 LIVI 文件或导入依赖。
 - `WirelessRunState` 的生命周期、handoff、tunnelReady 与首次失败由 Rust 查询／转移。Kotlin 只串行保存一个 opaque value token，不解释其编码，不分配 native 堆句柄。关闭后首次迟到失败沿用相同转移规则；原 controller 资源锁、代际、超时和恢复动作尚未迁移。
 - `Iap2VehicleStatus.update` 将 EV 快照的范围／电量／能量转换交给 Rust；保留未知能量省略、负值钳零、u32 溢出拒绝、缩放／舍入、NaN 拒绝和无穷钳制。对照 LIVI `870d26441e073cdb802c427c5ae8833dba694951` 的 iap2-csm vehicle_status 字段／类型一致；livi-cp vehicle_state 属于另一车辆特征协议，不能替代该参数体。SDK provider、订阅和 Iap2Frame 包装继续使用 Kotlin。
-- 三个首批 owner 可独立实现；完整会话事件／存储契约与 HID 编码须在后续协议迁移时统一。Kotlin 旧算法仅在库不可用时启用，所有权和设备验收详见 issue #96。
+- `ControlCipher` 的分帧、AEAD 与双向 wrapping nonce counter 由 Rust 持有。Kotlin 以同步的 Closeable owner 串行使用／释放句柄；AirPlaySession 关闭 control 和 event owner，拒绝关闭后的迟到安装，并在等待 event 写锁前关闭 socket 以唤醒阻塞写。保留空输入加密帧、u16 解密长度、部分帧 rest identity 及认证失败前已成功帧的计数进度。配对与密钥存储尚未迁移。
+- `WirelessBootstrapRecovery` 用 Rust value token 持有 run 预算与 attempt 状态，并决定 Java Throwable facts 的终止／重试／超时包装。保留一次 connect retry、一次 fallback、一次 bootstrap retry、400／800 ms 等待、验证及资源执行顺序；Kotlin 仅保留平台异常描述、100 ms 可取消等待、watchdog 调度与实际资源动作。
+- Rust `hid` 持有二指触摸、旋钮、媒体及电话报告和四类 descriptor 的编码。原 `/info` 注册与 Session 发送入口直接消费；UID／元数据、Android 触摸适配与 AirPlayTouchSlots 留在 Kotlin。保留按 slot id 首次匹配、Android Math.round 与低 16 位截断；这些与 LIVI 的列表顺序／饱和规则不同。
+- Kotlin 旧核心算法仅在库不可用时启用，所有权和设备验收详见 issue #96。PASCD／VehicleSpeedLocationProvider 当前无生产 SDK 装配点，未新增无人消费的 Rust 模块。
 
 ### 6.4 各路径的实现
 
