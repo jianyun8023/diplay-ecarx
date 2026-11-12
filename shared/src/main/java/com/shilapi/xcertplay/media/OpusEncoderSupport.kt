@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.media
 
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import com.shilapi.xcertplay.airplay.NativeMedia
 
 /**
  * Whether this head unit can encode Opus for the CarPlay microphone uplink.
@@ -11,10 +12,13 @@ import android.media.MediaFormat
  * without opening the microphone or changing the audio mode.
  */
 object OpusEncoderSupport {
-    fun isAvailable(): Boolean = isAvailable(
-        platformAvailable = ::platformAvailable,
-        software = { MicrophoneOpusEncoders.createSoftware(bitrate = 48_000) },
-    )
+    fun isAvailable(): Boolean {
+        NativeMedia.requireAvailable()
+        return isAvailable(
+            platformAvailable = ::platformAvailable,
+            software = { MicrophoneOpusEncoders.createSoftware(bitrate = 48_000) },
+        )
+    }
 
     internal fun isAvailable(
         platformAvailable: () -> Boolean,
@@ -23,7 +27,7 @@ object OpusEncoderSupport {
         if (runCatching(platformAvailable).getOrDefault(false)) return true
         return runCatching {
             software().use { encoder ->
-                encoder.available && encoder.encode(ByteArray(SoftwareOpusEncoder.FRAME_BYTES))
+                encoder.available && encoder.encode(ByteArray(NativeOpusEncoder.FRAME_BYTES))
                     .any { it.isNotEmpty() }
             }
         }.getOrDefault(false)

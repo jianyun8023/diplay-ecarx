@@ -1,11 +1,12 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.media
 
 import org.concentus.OpusApplication
 import org.concentus.OpusSignal
 
 /**
- * Opus encoder in pure Java (Concentus, a port of the Opus reference library) for head units whose
- * Android has no MediaCodec Opus encoder. Kept free of Android types so it stays testable on the JVM.
+ * Independent pre-migration Concentus encoder oracle, never selected or packaged by production.
  */
 internal class SoftwareOpusEncoder(
     bitrate: Int,

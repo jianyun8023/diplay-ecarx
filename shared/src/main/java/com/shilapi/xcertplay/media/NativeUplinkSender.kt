@@ -24,9 +24,9 @@ internal class NativeUplinkSender private constructor(private var handle: Long) 
     }
 
     companion object {
-        /** Null without the library or when the socket cannot be shared; the Kotlin path then sends. */
+        /** Null when the socket cannot be shared or the sender rejects its configuration. */
         fun create(socket: DatagramSocket, config: MicrophoneConfig): NativeUplinkSender? {
-            if (!NativeMedia.available) return null
+            NativeMedia.requireAvailable()
             val fd = runCatching { ParcelFileDescriptor.fromDatagramSocket(socket).detachFd() }.getOrNull() ?: return null
             val bitrate = if (config.codec == AudioCodecKind.OPUS) config.bitrate ?: 48_000 else 0
             val handle = NativeMedia.uplinkCreate(

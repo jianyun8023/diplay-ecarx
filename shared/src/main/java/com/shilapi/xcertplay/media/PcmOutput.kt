@@ -106,7 +106,8 @@ internal class NativeAudioOut private constructor(private var handle: Long, priv
     companion object {
         /** Null when AAudio cannot open this format and these attributes; the renderer then builds an AudioTrack. */
         fun open(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): NativeAudioOut? {
-            if (!NativeMedia.available || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
+            NativeMedia.requireAvailable()
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
             val handle = NativeMedia.outOpen(sampleRate, channels, usage, contentType, capacityFrames)
             return if (handle == 0L) null else NativeAudioOut(handle, 2 * channels)
         }

@@ -34,7 +34,7 @@ import org.robolectric.shadows.ShadowSystemClock
     instrumentedPackages = ["com.shilapi.xcertplay.media"])
 class BufferedMusicClockTrimTest {
     private val key = ByteArray(32) { (it + 1).toByte() }
-    private val format = AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, BufferedAudioStream.STREAM_TYPE, "media")
+    private val format = AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, KotlinBufferedAudioStream.STREAM_TYPE, "media")
 
     @Before @After fun forgetLearnedTrim() { MediaClockTrim.learnedTrim = 0.0 }
 
@@ -99,7 +99,7 @@ class BufferedMusicClockTrimTest {
         }
     }
 
-    private data class HeadUnit(val startMs: Int, val drift: Double = 0.0, val payloadType: Int = BufferedAudioStream.STREAM_TYPE)
+    private data class HeadUnit(val startMs: Int, val drift: Double = 0.0, val payloadType: Int = KotlinBufferedAudioStream.STREAM_TYPE)
 
     private class Second(val rate: Int, val levelMs: Long)
 
@@ -225,7 +225,7 @@ class BufferedMusicClockTrimTest {
             override fun onAudioStopped(id: AudioStreamId) { events += SinkEvent.Stopped }
         }
         val clock = VirtualClock()
-        val stream = BufferedAudioStream(key, format, sink, nanoTime = clock::nanoTime, pause = {})
+        val stream = KotlinBufferedAudioStream(key, format, sink, nanoTime = clock::nanoTime, pause = {})
         val lock = privateField(stream, "lock") as Object
         val queue = privateField(stream, "queue") as ArrayDeque<*>
         val fed = privateField(stream, "fed") as ArrayDeque<*>
@@ -252,7 +252,7 @@ class BufferedMusicClockTrimTest {
                 out.flush()
                 val last = (BASE + (sent - 1) * FRAME) and 0xffff_ffffL
                 val deadline = System.nanoTime() + 5_000_000_000L
-                while (synchronized(lock) { ((queue.peekLast() ?: fed.peekLast()) as BufferedAudioStream.Frame?)?.timestamp } != last) {
+                while (synchronized(lock) { ((queue.peekLast() ?: fed.peekLast()) as KotlinBufferedAudioStream.Frame?)?.timestamp } != last) {
                     assertTrue("the stream did not receive frame $sent", System.nanoTime() < deadline)
                     Thread.onSpinWait()
                 }
@@ -329,8 +329,8 @@ class BufferedMusicClockTrimTest {
         fun nanoTime(): Long = ns.also { if (Thread.currentThread() === feedThread) feedReads++ }
     }
 
-    private fun privateField(stream: BufferedAudioStream, name: String): Any =
-        BufferedAudioStream::class.java.getDeclaredField(name).apply { isAccessible = true }.get(stream)!!
+    private fun privateField(stream: KotlinBufferedAudioStream, name: String): Any =
+        KotlinBufferedAudioStream::class.java.getDeclaredField(name).apply { isAccessible = true }.get(stream)!!
 
     private fun seal(sequence: Int, timestamp: Long): ByteArray {
         val header = ByteArray(12)

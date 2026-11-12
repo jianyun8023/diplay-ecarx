@@ -12,6 +12,7 @@ import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.MicrophoneCounters
 import com.shilapi.xcertplay.airplay.MicrophonePacketizer
+import com.shilapi.xcertplay.airplay.NativeMedia
 import java.io.Closeable
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -42,7 +43,6 @@ internal class MicrophoneUplink(
                 MicrophoneOpusEncoders.createSoftware(
                     value,
                     native = { NativeOpusEncoder(it, onError = { message, error -> Log.w(TAG, message, error) }) },
-                    concentus = { SoftwareOpusEncoder(it, onError = { message, error -> Log.w(TAG, message, error) }) },
                 )
             },
         )
@@ -60,13 +60,14 @@ internal class MicrophoneUplink(
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: MicrophoneOpusEncoder? = null
-    // Encodes, seals and sends each frame natively when the library is there; then [opusEncoder] is unused.
+    // Encodes, seals and sends each frame natively when the socket can be shared.
     @Volatile private var nativeSender: NativeUplinkSender? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
     @Volatile private var echoCanceller: CallEchoCanceller? = null
     private var thread: Thread? = null
 
     fun start(): Boolean {
+        NativeMedia.requireAvailable()
         if (!running.compareAndSet(false, true)) return true
 
         val channelMask = if (config.channels >= 2) {
@@ -146,7 +147,7 @@ internal class MicrophoneUplink(
         recorder = nextRecorder
         socket = nextSocket
         nativeSender = NativeUplinkSender.create(nextSocket, config)
-        // The native sender encodes itself; the Kotlin encoder is only the fallback.
+        // The native sender encodes itself; the separate encoder serves an unshareable socket.
         opusEncoder = if (nativeSender != null) null.also { nextEncoder?.close() } else nextEncoder
         val implementation = when {
             nativeSender != null && config.codec == AudioCodecKind.OPUS -> "native encoder=opus-pure"

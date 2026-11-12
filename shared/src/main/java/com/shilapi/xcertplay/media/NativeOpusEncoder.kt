@@ -5,20 +5,20 @@ import com.shilapi.xcertplay.airplay.NativeMedia
 /**
  * The microphone's Opus encoder in `libdiplay_media` (opus-pure, a pure-Rust port of libopus): 48 kHz
  * mono, VoIP, complexity 5, voice signal. The uplink owns it; close may also run after its worker's
- * bounded join times out. [onError] receives why the native encoder is unavailable, so a head unit that
- * falls back to the Java encoder leaves the reason in its logs.
+ * bounded join times out. [onError] reports a refused encoder configuration; a missing required core
+ * library propagates its load failure.
  */
 internal class NativeOpusEncoder(
     bitrate: Int,
     private val onError: (String, Throwable) -> Unit = { _, _ -> },
 ) : MicrophoneOpusEncoder {
-    private var handle = if (NativeMedia.available) NativeMedia.opusEncoderCreate(bitrate) else 0L
+    private var handle = run { NativeMedia.requireAvailable(); NativeMedia.opusEncoderCreate(bitrate) }
     private val output = ByteArray(1_275)
 
     init {
         if (handle == 0L) {
             onError("native Opus encoder unavailable",
-                NativeMedia.loadError ?: IllegalStateException("opus encoder refused bitrate=$bitrate"))
+                IllegalStateException("opus encoder refused bitrate=$bitrate"))
         }
     }
 
@@ -38,5 +38,9 @@ internal class NativeOpusEncoder(
         if (handle == 0L) return
         NativeMedia.opusEncoderDestroy(handle)
         handle = 0L
+    }
+
+    companion object {
+        const val FRAME_BYTES = 960 * 2
     }
 }

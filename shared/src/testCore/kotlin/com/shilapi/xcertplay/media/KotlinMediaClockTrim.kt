@@ -1,3 +1,5 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+
 package com.shilapi.xcertplay.media
 
 import kotlin.math.abs
