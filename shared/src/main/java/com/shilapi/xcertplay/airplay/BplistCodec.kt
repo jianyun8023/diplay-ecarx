@@ -10,7 +10,10 @@ package com.shilapi.xcertplay.airplay
 object BplistCodec {
     private val magic = "bplist00".toByteArray(Charsets.US_ASCII)
 
-    fun decode(bytes: ByteArray): Any? {
+    fun decode(bytes: ByteArray): Any? =
+        if (NativeMedia.available) NativeBplist.decode(bytes) else decodeFallback(bytes)
+
+    internal fun decodeFallback(bytes: ByteArray): Any? {
         require(bytes.size >= 40) { "bplist: too short" }
         require(bytes.copyOfRange(0, magic.size).contentEquals(magic)) { "bplist: bad magic" }
 
@@ -40,10 +43,14 @@ object BplistCodec {
         return readObject(bytes, offsets, refSize, topObject.toInt(), 0, limits)
     }
 
-    fun encode(root: Any?): ByteArray {
+    fun encode(root: Any?): ByteArray =
+        if (NativeMedia.available) NativeBplist.encode(root) else encodeFallback(root)
+
+    internal fun encodeFallback(root: Any?): ByteArray {
         val nodes = ArrayList<Node>()
 
-        fun add(value: Any?): Int {
+        fun add(value: Any?, depth: Int = 0): Int {
+            require(depth <= MAX_ENCODE_DEPTH) { "bplist: nested too deep to encode" }
             val index = nodes.size
             nodes.add(Leaf(ByteArray(0)))
             when (value) {
@@ -68,13 +75,13 @@ object BplistCodec {
                 is String -> nodes[index] = Leaf(encodeString(value))
                 is ByteArray -> nodes[index] = Leaf(marker(0x4, value.size) + value)
                 is List<*> -> {
-                    val refs = value.map { add(it) }.toIntArray()
+                    val refs = value.map { add(it, depth + 1) }.toIntArray()
                     nodes[index] = Container(marker(0xa, value.size), refs)
                 }
                 is Map<*, *> -> {
                     val entries = value.entries.toList()
-                    val keyRefs = entries.map { add(it.key.toString()) }.toIntArray()
-                    val valueRefs = entries.map { add(it.value) }.toIntArray()
+                    val keyRefs = entries.map { add(it.key.toString(), depth + 1) }.toIntArray()
+                    val valueRefs = entries.map { add(it.value, depth + 1) }.toIntArray()
                     nodes[index] = Container(marker(0xd, entries.size), keyRefs + valueRefs)
                 }
                 else -> throw IllegalArgumentException("bplist: unsupported value $value")
@@ -255,8 +262,7 @@ object BplistCodec {
             2 -> 1
             else -> 0
         }
-        val raw = number.toByteArray()
-        return byteArrayOf((0x10 or log).toByte()) + raw.copyOfRange(raw.size - size, raw.size)
+        return byteArrayOf((0x10 or log).toByte()) + bigEndian(number.toLong(), size)
     }
 
     private fun marker(type: Int, count: Int): ByteArray {
@@ -329,6 +335,8 @@ object BplistCodec {
 
     // Real CarPlay messages nest a few levels. A plist that refers to itself would otherwise recurse until the stack ends.
     private const val MAX_DEPTH = 32
+    // Also bounds cyclic application graphs before entering the native encoder's stack.
+    private const val MAX_ENCODE_DEPTH = 128
     private const val WORK_PER_BYTE = 4L
     private const val WORK_BASE = 1024L
     // Real messages hold a few hundred objects; each read costs about 30 bytes of the result.
