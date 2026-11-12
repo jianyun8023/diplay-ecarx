@@ -6,6 +6,7 @@ import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import com.shilapi.xcertplay.iap2.wire.Iap2ParameterList
 import com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException
 import com.shilapi.xcertplay.iap2.wire.Iap2WireCodec
+import com.shilapi.xcertplay.iap2.wire.NativeIap2Wire
 
 /**
  * Typed reader over an ordered CSM body.
@@ -35,67 +36,38 @@ class Iap2BodyReader private constructor(
 
     fun void(id: Int): Boolean {
         val parameter = require(id)
-        requireEmpty(parameter, id)
+        NativeIap2Wire.requireVoid(id, parameter.payload)
         return true
     }
 
     fun optionalVoid(id: Int): Boolean = first(id)?.let {
-        requireEmpty(it, id)
+        NativeIap2Wire.requireVoid(id, it.payload)
         true
     } ?: false
 
-    fun u8(id: Int): Int = Iap2WireCodec.readU8(scalar(id, 1))
+    fun u8(id: Int): Int = scalar(id, NativeIap2Wire.U8).toInt()
+    fun optionalU8(id: Int): Int? = optionalScalar(id, NativeIap2Wire.U8)?.toInt()
 
-    fun optionalU8(id: Int): Int? = first(id)?.let {
-        requireSize(it, id, 1)
-        Iap2WireCodec.readU8(it.payload)
-    }
+    fun i8(id: Int): Int = scalar(id, NativeIap2Wire.I8).toInt()
+    fun optionalI8(id: Int): Int? = optionalScalar(id, NativeIap2Wire.I8)?.toInt()
 
-    fun i8(id: Int): Int = Iap2WireCodec.readI8(scalar(id, 1))
+    fun u16(id: Int): Int = scalar(id, NativeIap2Wire.U16).toInt()
+    fun optionalU16(id: Int): Int? = optionalScalar(id, NativeIap2Wire.U16)?.toInt()
 
-    fun optionalI8(id: Int): Int? = first(id)?.let {
-        requireSize(it, id, 1)
-        Iap2WireCodec.readI8(it.payload)
-    }
+    fun i16(id: Int): Int = scalar(id, NativeIap2Wire.I16).toInt()
+    fun optionalI16(id: Int): Int? = optionalScalar(id, NativeIap2Wire.I16)?.toInt()
 
-    fun bool(id: Int): Boolean = u8(id) != 0
+    fun u32(id: Int): Long = scalar(id, NativeIap2Wire.U32)
+    fun optionalU32(id: Int): Long? = optionalScalar(id, NativeIap2Wire.U32)
 
-    fun optionalBool(id: Int): Boolean? = optionalU8(id)?.let { it != 0 }
+    fun i32(id: Int): Int = scalar(id, NativeIap2Wire.I32).toInt()
+    fun optionalI32(id: Int): Int? = optionalScalar(id, NativeIap2Wire.I32)?.toInt()
 
-    fun u16(id: Int): Int = Iap2WireCodec.readU16(scalar(id, 2))
+    fun u64(id: Int): Long = scalar(id, NativeIap2Wire.U64)
+    fun optionalU64(id: Int): Long? = optionalScalar(id, NativeIap2Wire.U64)
 
-    fun optionalU16(id: Int): Int? = first(id)?.let {
-        requireSize(it, id, 2)
-        Iap2WireCodec.readU16(it.payload)
-    }
-
-    fun i16(id: Int): Int = Iap2WireCodec.readI16(scalar(id, 2))
-
-    fun optionalI16(id: Int): Int? = first(id)?.let {
-        requireSize(it, id, 2)
-        Iap2WireCodec.readI16(it.payload)
-    }
-
-    fun u32(id: Int): Long = Iap2WireCodec.readU32(scalar(id, 4))
-
-    fun optionalU32(id: Int): Long? = first(id)?.let {
-        requireSize(it, id, 4)
-        Iap2WireCodec.readU32(it.payload)
-    }
-
-    fun i32(id: Int): Int = Iap2WireCodec.readI32(scalar(id, 4))
-
-    fun optionalI32(id: Int): Int? = first(id)?.let {
-        requireSize(it, id, 4)
-        Iap2WireCodec.readI32(it.payload)
-    }
-
-    fun u64(id: Int): Long = Iap2WireCodec.readU64(scalar(id, 8))
-
-    fun optionalU64(id: Int): Long? = first(id)?.let {
-        requireSize(it, id, 8)
-        Iap2WireCodec.readU64(it.payload)
-    }
+    fun bool(id: Int): Boolean = scalar(id, NativeIap2Wire.BOOL_NONZERO) != 0L
+    fun optionalBool(id: Int): Boolean? = optionalScalar(id, NativeIap2Wire.BOOL_NONZERO)?.let { it != 0L }
 
     fun bytes(id: Int): ByteArray = raw(id)
 
@@ -152,24 +124,11 @@ class Iap2BodyReader private constructor(
 
     fun list(): List<Iap2Parameter> = parameters.asList()
 
-    private fun scalar(id: Int, expectedBytes: Int): ByteArray {
-        val parameter = require(id)
-        requireSize(parameter, id, expectedBytes)
-        return parameter.payload
-    }
+    private fun scalar(id: Int, kind: Int): Long =
+        NativeIap2Wire.readScalar(kind, require(id).payload, 0, id)
 
-    private fun requireSize(parameter: Iap2Parameter, id: Int, expectedBytes: Int) {
-        if (parameter.payload.size != expectedBytes) {
-            throw Iap2ProtocolException(
-                "Parameter 0x${hex(id)} expected $expectedBytes bytes, got ${parameter.payload.size}",
-            )
-        }
-    }
-
-    private fun requireEmpty(parameter: Iap2Parameter, id: Int) {
-        if (parameter.payload.isNotEmpty()) {
-            throw Iap2ProtocolException("Parameter 0x${hex(id)} must be void")
-        }
+    private fun optionalScalar(id: Int, kind: Int): Long? = first(id)?.let {
+        NativeIap2Wire.readScalar(kind, it.payload, 0, id)
     }
 
     private fun malformed(id: Int, failure: Iap2ProtocolException): Iap2ProtocolException =

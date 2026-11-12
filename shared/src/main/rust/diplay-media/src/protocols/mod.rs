@@ -6,5 +6,6 @@ pub mod crypto;
 pub mod iap2_body;
 pub mod iap2_csm;
 pub mod iap2_link;
+pub mod iap2_wire;
 pub mod pair_verify;
 pub mod rtsp;

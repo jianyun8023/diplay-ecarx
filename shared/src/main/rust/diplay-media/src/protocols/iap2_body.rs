@@ -1,6 +1,6 @@
 //! iAP2 CSM body parameter framing (Kotlin's old `Iap2ParameterList.encode/parse`).
 //! Parameters are `u16 total-length | u16 id | payload`; order and repeated ids are preserved.
-//! Scalar/string codecs and the builder/reader APIs stay Kotlin.
+//! Schema rules execute here; Kotlin retains the builder/reader API and descriptive metadata.
 
 const HEADER_BYTES: usize = 4;
 const MAX_PARAM_BYTES: usize = 0xffff;
@@ -84,9 +84,15 @@ use std::ptr::null_mut;
 pub(super) unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     let f = &**env;
     if (f.ExceptionCheck.unwrap())(env) != 0 { return; }
+    let protocol_exception = class == "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException";
     let class = std::ffi::CString::new(class).unwrap();
     let target = (f.FindClass.unwrap())(env, class.as_ptr());
     if target.is_null() { return; }
+    if !protocol_exception {
+        let message = std::ffi::CString::new(message).unwrap();
+        (f.ThrowNew.unwrap())(env, target, message.as_ptr());
+        return;
+    }
     // Kotlin's protocol exception has (String, Throwable), not ThrowNew's String-only constructor.
     let init = (f.GetMethodID.unwrap())(env, target, c"<init>".as_ptr(), c"(Ljava/lang/String;Ljava/lang/Throwable;)V".as_ptr());
     if init.is_null() { return; }
@@ -96,6 +102,50 @@ pub(super) unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     let args = [jvalue { l: text }, jvalue { l: null_mut() }];
     let error = (f.NewObjectA.unwrap())(env, target, init, args.as_ptr());
     if (f.ExceptionCheck.unwrap())(env) == 0 && !error.is_null() { (f.Throw.unwrap())(env, error); }
+}
+
+/// Returns an error category and input index; the host formats its original UTF-16 field names.
+pub fn validate_builder(ids: &[i32], kinds: &[i32], specs: &[[i32; 3]]) -> Option<[i32; 2]> {
+    use std::collections::HashMap;
+    let mut by_id = HashMap::new();
+    let mut counts = HashMap::<i32, usize>::new();
+    for (index, spec) in specs.iter().enumerate() { by_id.insert(spec[0], index); }
+    for id in ids { *counts.entry(*id).or_default() += 1; }
+    for (index, id) in ids.iter().enumerate() {
+        let Some(&spec_index) = by_id.get(id) else { return Some([0, index as i32]); };
+        let spec = specs[spec_index];
+        // Iap2WireType.OPAQUE is the final descriptor, index 13; every other type is exact.
+        if spec[1] != 13 && spec[1] != kinds[index] { return Some([1, index as i32]); }
+        if spec[2] & 2 == 0 && counts[id] > 1 { return Some([2, index as i32]); }
+    }
+    for (index, spec) in specs.iter().enumerate() {
+        if spec[2] & 1 != 0 && !counts.contains_key(&spec[0]) { return Some([3, index as i32]); }
+    }
+    None
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Body_validateBuilder(
+    env: *mut JNIEnv, _: jclass, ids: jintArray, kinds: jintArray, specs: jintArray,
+) -> jintArray {
+    let f = &**env;
+    let mut arrays = Vec::with_capacity(3);
+    for input in [ids, kinds, specs] {
+        let count = (f.GetArrayLength.unwrap())(env, input);
+        let mut values = vec![0; count as usize];
+        if count > 0 { (f.GetIntArrayRegion.unwrap())(env, input, 0, count, values.as_mut_ptr()); }
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
+        arrays.push(values);
+    }
+    if arrays[0].len() != arrays[1].len() || arrays[2].len() % 3 != 0 {
+        throw(env, "java/lang/IllegalArgumentException", "Invalid CSM builder schema arrays");
+        return null_mut();
+    }
+    let specs: Vec<[i32; 3]> = arrays[2].chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect();
+    let Some(error) = validate_builder(&arrays[0], &arrays[1], &specs) else { return null_mut(); };
+    let result = (f.NewIntArray.unwrap())(env, 2);
+    if !result.is_null() { (f.SetIntArrayRegion.unwrap())(env, result, 0, 2, error.as_ptr()); }
+    result
 }
 
 pub(super) unsafe fn read_bytes(env: *mut JNIEnv, array: jbyteArray) -> Option<Vec<u8>> {

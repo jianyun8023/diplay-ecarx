@@ -147,7 +147,7 @@ Kotlin 目前仍负责解码器与路由决策，Rust 负责已迁移的包、�
 
 协议样本、固定来源与独立合同的区别见[向量清单](PROTOCOL_VECTORS.zh-CN.md)；测试入口不等于该批已完成设备验收。
 
-- `protocols::iap2_body` 持有CSM body参数编码／解析、长度校验、顺序与重复项。encode保留65529字节body上限，standalone parse沿用更宽的旧输入合同；Java异常类型／消息、DTO复制和JNI局部引用有界性保持。R8保留DTO及协议异常类名／现有构造器；builder／reader及标量／字符串codec留Kotlin。
+- `protocols::iap2_body` 持有CSM参数编码／解析、长度校验、顺序与重复项，以及builder的未知／类型／重复／必选字段规则。`iap2_wire`持有标量、列表／NUL布局和reader字段长度校验；Kotlin只保留DTO、描述性schema、builder／reader接口及平台UTF-8转换，schema错误由Rust返回输入索引，保留UTF-16字段名。encode保留65529字节body上限，standalone parse沿用更宽的旧输入合同；独立旧算法移至pure testCore，不进入生产。R8保留DTO及协议异常类名／现有构造器。本轮尚未进行新增测试验收。
 - `protocols::iap2_csm` 持有65535字节有界的外层分帧、重同步与link分块；`iap2_link` 持有同步协商、序号／ACK／窗口、重传、有限队列和定时器。同步facade串行使用／销毁，worker用`use`持有link owner；旧完整算法只留测试源码，生产不回退。对照LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的`iap2-csm/src/lib.rs`与`iap2-link/src/lib.rs`：保留本仓库严格分块校验、peer长度校验、有界输入／输出／事件、Dead清空语义、原始非control session payload及Long wrapping时钟；没有导入LIVI crate或运行时。当前source阶段尚待统一双ABI／设备验收。
 - wired USB结果携带所属run，取消／换代后迟到的Connected在交接边界释放。mux发布与close用既有resource monitor排序，锁内不做I/O或关闭。USB pipe只交给factory一次，局部finally只关自己的startup watchdog，不能终止替代run；其余controller／CSM／VPN资源代际仍待迁移。
 - `RtspMessage` 的公开 DTO 与调用入口不变；Rust 解析合包／分片、限制头／体大小、生成响应，JNI 直接构造 Request／Parsed。边界保留 Kotlin US_ASCII 替换、trim／大小写、Content-Length、NUL、重复头和响应顺序语义；错误继续抛 ProtocolException。JNI 使用 UTF-16 并按消息释放局部引用，R8 保留 DTO 名称／构造器。

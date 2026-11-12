@@ -106,3 +106,5 @@
 }
 
 -keep class com.shilapi.xcertplay.transport.NativeIap2Link { native <methods>; }
+
+-keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Wire { native <methods>; }
