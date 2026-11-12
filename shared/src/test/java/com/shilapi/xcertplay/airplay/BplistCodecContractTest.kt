@@ -46,6 +46,11 @@ class BplistCodecContractTest {
             val charset = if (value.all { it.code <= 127 }) Charsets.US_ASCII else Charsets.UTF_16BE
             assertEquals(String(value.toByteArray(charset), charset), BplistCodec.decode(encoded))
         }
+        for (raw in listOf(byteArrayOf(0xd8.toByte(), 0, 0, 65), byteArrayOf(0xdc.toByte(), 0, 0, 65),
+            byteArrayOf(0xd8.toByte(), 0, 0xd8.toByte(), 1))) {
+            val encoded = BplistCodec.encode("\u0100A").apply { raw.copyInto(this, 9) }
+            assertEquals(String(raw, Charsets.UTF_16BE), BplistCodec.decode(encoded))
+        }
     }
 
     @Test fun unsupportedValuesAndUnsignedBoundsRemainIllegalArguments() {

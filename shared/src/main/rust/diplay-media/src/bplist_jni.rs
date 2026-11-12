@@ -208,7 +208,7 @@ impl Input {
             self.string.1,
             [jvalue { l: self.charset }].as_ptr(),
         );
-        if encoded.is_null() {
+        if (f.ExceptionCheck.unwrap())(env) != 0 || encoded.is_null() {
             return None;
         }
         let encoded_bytes = read_bytes(env, encoded)?;
@@ -311,7 +311,7 @@ impl Input {
                         self.iterator,
                         std::ptr::null(),
                     );
-                    if iterator.is_null() {
+                    if (f.ExceptionCheck.unwrap())(env) != 0 || iterator.is_null() {
                         return None;
                     }
                     let mut values = Vec::new();
@@ -345,12 +345,12 @@ impl Input {
                 if (f.IsInstanceOf.unwrap())(env, object, self.map.0) != 0 {
                     let set =
                         (f.CallObjectMethodA.unwrap())(env, object, self.map.1, std::ptr::null());
-                    if set.is_null() {
+                    if (f.ExceptionCheck.unwrap())(env) != 0 || set.is_null() {
                         return None;
                     }
                     let entries =
                         (f.CallObjectMethodA.unwrap())(env, set, self.to_array, std::ptr::null());
-                    if entries.is_null() {
+                    if (f.ExceptionCheck.unwrap())(env) != 0 || entries.is_null() {
                         return None;
                     }
                     let count = (f.GetArrayLength.unwrap())(env, entries);
@@ -372,7 +372,7 @@ impl Input {
                             self.string_value_of,
                             [jvalue { l: key }].as_ptr(),
                         );
-                        if string.is_null() {
+                        if (f.ExceptionCheck.unwrap())(env) != 0 || string.is_null() {
                             return None;
                         }
                         if depth + 1 > bplist::MAX_ENCODE_DEPTH {
@@ -424,8 +424,9 @@ impl Input {
             throw_text(env, &message);
             None
         })();
+        let failed = (f.ExceptionCheck.unwrap())(env) != 0;
         (f.PopLocalFrame.unwrap())(env, null_mut());
-        if (f.ExceptionCheck.unwrap())(env) != 0 {
+        if failed {
             None
         } else {
             result
@@ -527,10 +528,10 @@ impl Output {
                             self.add,
                             [jvalue { l: child }].as_ptr(),
                         );
-                        (f.DeleteLocalRef.unwrap())(env, child);
                         if (f.ExceptionCheck.unwrap())(env) != 0 {
                             return None;
                         }
+                        (f.DeleteLocalRef.unwrap())(env, child);
                     }
                     return Some(list);
                 }
@@ -549,12 +550,12 @@ impl Output {
                             self.put,
                             [jvalue { l: key }, jvalue { l: child }].as_ptr(),
                         );
-                        (f.DeleteLocalRef.unwrap())(env, key);
-                        (f.DeleteLocalRef.unwrap())(env, child);
-                        (f.DeleteLocalRef.unwrap())(env, old);
                         if (f.ExceptionCheck.unwrap())(env) != 0 {
                             return None;
                         }
+                        (f.DeleteLocalRef.unwrap())(env, key);
+                        (f.DeleteLocalRef.unwrap())(env, child);
+                        (f.DeleteLocalRef.unwrap())(env, old);
                     }
                     return Some(map);
                 }
