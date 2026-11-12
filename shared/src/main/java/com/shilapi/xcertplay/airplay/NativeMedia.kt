@@ -89,6 +89,10 @@ internal object NativeMedia {
     @JvmStatic external fun clockLearned(set: Boolean, value: Double): Double
     @JvmStatic external fun clockDestroy(handle: Long)
 
+    /** EV 0xA101 parameter body; energyMask bits 0/1 preserve optional current/max charge. Null rejects invalid values. */
+    @JvmStatic external fun vehicleStatusPayload(rangeKm: Int, rangeWarning: Boolean, batteryPercent: Double,
+        currentChargeWh: Long, maxChargeWh: Long, energyMask: Int, maxRangeKm: Int, charging: Boolean): ByteArray?
+
     @JvmStatic external fun packetSize(handle: Long): Int
     @JvmStatic external fun packetRetain(handle: Long)
     @JvmStatic external fun packetRelease(handle: Long)

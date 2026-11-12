@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.transport
 
+import com.shilapi.xcertplay.airplay.NativeMedia
 import com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder
 import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
@@ -73,7 +74,17 @@ object Iap2VehicleStatus {
         }
     }
 
-    fun update(status: VehicleStatusSnapshot): Iap2Frame = Iap2Messages.buildRaw(VEHICLE_STATUS_UPDATE) {
+    fun update(status: VehicleStatusSnapshot): Iap2Frame {
+        if (!NativeMedia.available) return kotlinUpdate(status)
+        val energyMask = (if (status.currentChargeWh != null) 1 else 0) or (if (status.maxChargeWh != null) 2 else 0)
+        val payload = requireNotNull(NativeMedia.vehicleStatusPayload(status.rangeKm, status.rangeWarning,
+            status.batteryPercent, status.currentChargeWh ?: 0, status.maxChargeWh ?: 0, energyMask,
+            status.maxRangeKm, status.charging)) { "Vehicle status values cannot be encoded" }
+        return Iap2Frame(VEHICLE_STATUS_UPDATE, payload)
+    }
+
+    /** Library-unavailable fallback and native parity reference. */
+    internal fun kotlinUpdate(status: VehicleStatusSnapshot): Iap2Frame = Iap2Messages.buildRaw(VEHICLE_STATUS_UPDATE) {
         u16(3, status.rangeKm.coerceIn(0, 0xffff)) // Range, km
         bool(6, status.rangeWarning) // RangeWarning
         u16(11, status.rangeKm.coerceIn(0, 0xffff)) // RangeElectric, km
