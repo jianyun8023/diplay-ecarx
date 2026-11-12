@@ -11,13 +11,19 @@ import java.io.Closeable
 internal class AirPlayTouchSlots(private val slots: Int) : Closeable {
     private val fallback = if (NativeMedia.available) null else KotlinAirPlayTouchSlots(slots)
     private var handle = if (fallback == null) NativeTouchSlots.create(slots).also { check(it != 0L) } else 0L
+    private var closed = false
 
     /** The contacts to report, each with its slot as id; empty slots are left out. Fallback only. */
-    fun assign(contacts: List<AirPlayContact>): List<AirPlayContact> =
-        checkNotNull(fallback) { "assign() is only available on the Kotlin fallback" }.assign(contacts)
+    @Synchronized
+    fun assign(contacts: List<AirPlayContact>): List<AirPlayContact> {
+        check(!closed) { "Touch slots are closed" }
+        return checkNotNull(fallback) { "assign() is only available on the Kotlin fallback" }.assign(contacts)
+    }
 
     /** The 12-byte HID report for contacts carrying Android pointer ids, scaled to the display. */
-    fun report(contacts: List<AirPlayContact>, widthPixels: Int, heightPixels: Int): ByteArray {
+    @Synchronized
+    fun report(contacts: List<AirPlayContact>, widthPixels: Int, heightPixels: Int): ByteArray? {
+        if (closed) return null
         val kotlin = fallback
         if (kotlin != null) {
             val scaled = kotlin.assign(contacts).map {
@@ -38,7 +44,9 @@ internal class AirPlayTouchSlots(private val slots: Int) : Closeable {
         return NativeTouchSlots.assignReport(handle, ids, xs, ys, down, widthPixels, heightPixels)
     }
 
+    @Synchronized
     override fun close() {
+        closed = true
         if (handle != 0L) NativeTouchSlots.destroy(handle)
         handle = 0L
     }

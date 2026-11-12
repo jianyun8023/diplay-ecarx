@@ -21,7 +21,7 @@ pub struct AudioBufferProgress {
 
 impl AudioBufferProgress {
     pub fn new(frame_bytes: i32) -> AudioBufferProgress {
-        AudioBufferProgress { frame_bytes: frame_bytes.max(1) as i64, written_bytes: 0, played_frames: 0, last_head: 0 }
+        AudioBufferProgress { frame_bytes: frame_bytes as i64, written_bytes: 0, played_frames: 0, last_head: 0 }
     }
 
     /// A freshly built output starts from zero without releasing the native owner.
@@ -32,7 +32,7 @@ impl AudioBufferProgress {
     }
 
     pub fn written(&mut self, bytes: i32) {
-        self.written_bytes += bytes.max(0) as i64;
+        self.written_bytes += bytes as i64;
     }
 
     /// Bytes written but not yet played. `raw_head` is the platform's unsigned 32-bit position.

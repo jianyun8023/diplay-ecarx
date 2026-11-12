@@ -384,9 +384,10 @@ class AirPlaySession(
 
     /** [contacts] carry Android pointer ids; an empty list releases every finger. */
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
+        if (closed.get()) return false
         val width = config.main.widthPixels
         val height = config.main.heightPixels
-        val report = touchSlots.report(contacts, width, height)
+        val report = touchSlots.report(contacts, width, height) ?: return false
         val sendStartNs = System.nanoTime()
         val sent = sendHidReport(AirPlayHid.TOUCH_HID_UID, report)
         if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(sendStartNs, System.nanoTime() - sendStartNs)

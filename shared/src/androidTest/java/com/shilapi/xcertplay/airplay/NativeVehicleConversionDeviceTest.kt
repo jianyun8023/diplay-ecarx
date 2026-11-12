@@ -9,12 +9,15 @@ import com.shilapi.xcertplay.transport.VehicleSpeedSample
 import com.shilapi.xcertplay.hud.NativeClusterArrow
 import com.shilapi.xcertplay.hud.NativeDayNight
 import com.shilapi.xcertplay.hud.NativeLaneIcon
+import com.shilapi.xcertplay.hud.KotlinLaneIcon
+import com.shilapi.xcertplay.iap2.message.LaneGuidanceLane
 import com.shilapi.xcertplay.media.NativeAudioScheduler
 import com.shilapi.xcertplay.transport.NativeVehicleSpeed
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /** Exercises the new input/vehicle/output-accounting JNI owners against their Kotlin contracts. */
@@ -41,11 +44,10 @@ class NativeVehicleConversionDeviceTest {
 
     @Test fun pascdMatchesThePinnedHeadUnitSentence() {
         assertTrue(NativeMedia.available)
-        val sentence = NativeVehicleSpeed.pascdEncode(
-            0, longArrayOf(17_877_092, 17_877_252), doubleArrayOf(0.0, 0.0),
-        )
+        val sentence = PascdEncoder.encode(VehicleSpeedReading(VehicleGear.PARK,
+            listOf(VehicleSpeedSample(17_877_092, 0.0), VehicleSpeedSample(17_877_252, 0.0))))
         assertEquals("\$PASCD,17877.092,C,P,0,2,0.00,0.000,0.16,0.000*54\r\n", sentence)
-        assertEquals(null, NativeVehicleSpeed.pascdEncode(0, longArrayOf(), doubleArrayOf()))
+        assertNull(NativeVehicleSpeed.pascdEncode(0, emptyArray()))
     }
 
     @Test fun audioSchedulerBufferAccountingAndRebufferMatchKotlin() {
@@ -113,16 +115,38 @@ class NativeVehicleConversionDeviceTest {
             VehicleSpeedReading(VehicleGear.PARK, listOf(VehicleSpeedSample(17_877_092, 0.0), VehicleSpeedSample(17_877_252, 0.0))),
             VehicleSpeedReading(VehicleGear.DRIVE, listOf(VehicleSpeedSample(1_000, 1.2345), VehicleSpeedSample(1_250, -3.0))),
             VehicleSpeedReading(VehicleGear.REVERSE, listOf(VehicleSpeedSample(0, 0.0005))),
+            VehicleSpeedReading(VehicleGear.DRIVE, listOf(VehicleSpeedSample(1000, 0.0), VehicleSpeedSample(2005, 1.25))),
+            VehicleSpeedReading(VehicleGear.DRIVE, listOf(VehicleSpeedSample(1000, -0.0), VehicleSpeedSample(999, Double.NaN))),
+            VehicleSpeedReading(VehicleGear.DRIVE, listOf(VehicleSpeedSample(Long.MAX_VALUE, Double.POSITIVE_INFINITY),
+                VehicleSpeedSample(Long.MIN_VALUE, Double.MAX_VALUE))),
             VehicleSpeedReading(VehicleGear.NEUTRAL, emptyList()),
         )
         for (reading in cases) {
             val expected = PascdEncoder.kotlinEncode(reading)
-            val actual = NativeVehicleSpeed.pascdEncode(
-                reading.gear.ordinal,
-                LongArray(reading.samples.size) { reading.samples[it].elapsedMillis },
-                DoubleArray(reading.samples.size) { reading.samples[it].metersPerSecond },
-            )
+            val actual = PascdEncoder.encode(reading)
             assertEquals(expected, actual)
+        }
+    }
+
+    @Test fun closedTouchSlotsRejectLateReportsAndRepeatedClose() {
+        assertTrue(NativeMedia.available)
+        val slots = AirPlayTouchSlots(2)
+        assertTrue(slots.report(listOf(AirPlayContact(7, 0.5, 0.25, true)), 1920, 1080) != null)
+        slots.close()
+        assertNull(slots.report(emptyList(), 1920, 1080))
+        slots.close()
+    }
+
+    @Test fun laneIconsMatchTheOldContractAcrossDirectionAndHighlightCombinations() {
+        assertTrue(NativeMedia.available)
+        val angles = listOf(-180, -90, -45, 0, 45, 90)
+        for (mask in 0 until (1 shl angles.size)) {
+            val directions = angles.filterIndexed { index, _ -> mask and (1 shl index) != 0 }
+            for (status in 0..2) for (highlight in listOf(null) + angles) {
+                val lane = LaneGuidanceLane(status, directions, highlight)
+                assertEquals("$lane", KotlinLaneIcon.forLane(lane),
+                    NativeLaneIcon.forLane(status, directions.toIntArray(), highlight ?: 0, highlight != null).takeIf { it >= 0 })
+            }
         }
     }
 

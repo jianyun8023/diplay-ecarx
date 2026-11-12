@@ -4,6 +4,7 @@ import com.shilapi.xcertplay.iap2.catalog.Iap2Endpoint
 import com.shilapi.xcertplay.iap2.catalog.Iap2FieldSpec
 import com.shilapi.xcertplay.iap2.catalog.Iap2WireType
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.wire.Iap2CsmFramer
 import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import com.shilapi.xcertplay.iap2.wire.Iap2ParameterList
 import com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException
@@ -81,8 +82,12 @@ class Iap2BodyBuilder private constructor(
     }
 
     /** Adds a group whose child TLV bytes were encoded elsewhere (Rust) without re-parsing them. */
-    fun groupEncoded(id: Int, payload: ByteArray): Iap2BodyBuilder =
-        add(id, payload.copyOf(), Iap2WireType.GROUP)
+    internal fun groupEncoded(id: Int, payload: ByteArray): Iap2BodyBuilder {
+        require(payload.size <= Iap2CsmFramer.MAX_BODY_BYTES) {
+            "Encoded CSM parameters exceed the ${Iap2CsmFramer.MAX_BODY_BYTES}-byte message body limit"
+        }
+        return add(id, payload, Iap2WireType.GROUP)
+    }
 
     fun optionalVoid(id: Int, present: Boolean): Iap2BodyBuilder =
         if (present) void(id) else this

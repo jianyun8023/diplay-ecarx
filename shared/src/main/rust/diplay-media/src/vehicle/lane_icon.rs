@@ -10,7 +10,7 @@ pub fn for_lane(status: i32, angles: &[i32], highlight_angle: Option<i32>) -> Op
     }
     let highlight = if status != 0 { highlight_angle } else { None };
     let directions: BTreeSet<i32> = if angles.is_empty() {
-        highlight.into_iter().collect()
+        highlight_angle.into_iter().collect()
     } else {
         angles.iter().copied().chain(highlight).collect()
     };
@@ -68,6 +68,7 @@ mod tests {
 
     #[test]
     fn known_directions_and_recommended_variants_match_oem_ids() {
+        assert_eq!(for_lane(0, &[], Some(-90)), Some(1));
         assert_eq!(for_lane(0, &[-90], None), Some(1));
         assert_eq!(for_lane(0, &[0], None), Some(0));
         assert_eq!(for_lane(2, &[0], Some(90)), Some(33));

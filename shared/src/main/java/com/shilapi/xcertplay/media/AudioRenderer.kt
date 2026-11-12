@@ -131,7 +131,10 @@ internal class AudioRenderer(
     private var statsWindowStartNs = 0L
     private var statsLastUnderruns = 0
     private var bytesPerSecond = 0
-    private var bufferProgress = AudioBufferProgress(if (format.channels >= 2) 4 else 2)
+    // Only the worker uses this owner; a renderer closed before start must not allocate it.
+    private val bufferProgress by lazy(LazyThreadSafetyMode.NONE) {
+        AudioBufferProgress(if (format.channels >= 2) 4 else 2)
+    }
     private var underrunsAtPlaybackStart = 0
     private var headAtPlaybackStart = 0
     private var droppedAtLastTrim = 0

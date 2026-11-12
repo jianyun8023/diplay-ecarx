@@ -34,11 +34,15 @@ object PascdEncoder {
     fun encode(reading: VehicleSpeedReading): String? {
         val samples = reading.samples.takeIf { it.isNotEmpty() } ?: return null
         if (NativeMedia.available) {
-            return NativeVehicleSpeed.pascdEncode(
-                reading.gear.ordinal,
-                LongArray(samples.size) { samples[it].elapsedMillis },
-                DoubleArray(samples.size) { samples[it].metersPerSecond },
-            )
+            // Keep this platform's Formatter rounding, signed zero and non-finite spelling.
+            val start = samples.first().elapsedMillis
+            val parts = Array(samples.size * 2 + 1) { "" }
+            parts[0] = format("%.3f", start / 1000.0)
+            samples.forEachIndexed { index, sample ->
+                parts[index * 2 + 1] = format("%.2f", (sample.elapsedMillis - start) / 1000.0)
+                parts[index * 2 + 2] = format("%.3f", sample.metersPerSecond.coerceAtLeast(0.0))
+            }
+            return NativeVehicleSpeed.pascdEncode(reading.gear.ordinal, parts)
         }
         return kotlinEncode(reading)
     }
@@ -65,7 +69,7 @@ object PascdEncoder {
 
 /** The native `$PASCD` encoder; [VehicleGear.ordinal] is the wire gear index (P/R/N/D). */
 internal object NativeVehicleSpeed {
-    @JvmStatic external fun pascdEncode(gear: Int, elapsedMillis: LongArray, metersPerSecond: DoubleArray): String?
+    @JvmStatic external fun pascdEncode(gear: Int, formattedParts: Array<String>): String?
 }
 
 /**

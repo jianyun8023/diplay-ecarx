@@ -4,6 +4,7 @@ import com.shilapi.xcertplay.airplay.NativeMedia
 import com.shilapi.xcertplay.iap2.body.Iap2BodyBuilder
 import com.shilapi.xcertplay.iap2.message.Iap2Messages
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.wire.Iap2WireCodec
 import kotlin.math.min
 import kotlin.math.roundToLong
 
@@ -61,8 +62,9 @@ object Iap2VehicleStatus {
         name: String, connectors: EvChargingConnectors, native: Boolean,
     ) {
         if (native) {
-            groupEncoded(20, NativeVehicleIdentification.group20(name, connectors.wireValues))
-            groupEncoded(21, NativeVehicleIdentification.group21(name))
+            val namePayload = Iap2WireCodec.string(name)
+            groupEncoded(20, NativeVehicleIdentification.group20(namePayload, connectors.wireValues))
+            groupEncoded(21, NativeVehicleIdentification.group21(namePayload))
             return
         }
         group(20) {
@@ -112,8 +114,8 @@ object Iap2VehicleStatus {
 
 /** The native pure TLV encoder for IdentificationInformation vehicle components. */
 internal object NativeVehicleIdentification {
-    @JvmStatic external fun group20(name: String, connectors: IntArray): ByteArray
-    @JvmStatic external fun group21(name: String): ByteArray
+    @JvmStatic external fun group20(namePayload: ByteArray, connectors: IntArray): ByteArray
+    @JvmStatic external fun group21(namePayload: ByteArray): ByteArray
 }
 
 /** Serves the phone's vehicle-status subscription inside an iAP2 control loop. */
