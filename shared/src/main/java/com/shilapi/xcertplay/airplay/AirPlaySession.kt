@@ -101,44 +101,31 @@ class AirPlaySession(
     internal var encBuf = ByteArray(0)
     var deviceBtMac = ""
         private set
-    internal val activeStreams = linkedSetOf<Int>()
+    private val negotiation = AirPlayNegotiation(config)
+    internal val activeStreams: List<Int> get() = negotiation.streams()
 
     /** Counts the iPhone's cluster stream setups; 0 while no cluster stream is up. */
-    @Volatile var clusterStream = 0
-        private set
-    private var clusterStreamSetups = 0
-    @Volatile private var mainScreenToken: Any? = null
-    @Volatile private var mainFrameRendered = false
+    val clusterStream: Int get() = negotiation.clusterStream
+    private class MainScreenLease(val epoch: Long)
+    @Volatile private var mainScreenToken: MainScreenLease? = null
     // Activity 重建后仍可判断当前会话的中控主视频是否已经出帧。
-    val hasRenderedMainFrame: Boolean get() = mainFrameRendered && !closed.get()
+    val hasRenderedMainFrame: Boolean get() = negotiation.hasRenderedMainFrame
 
-    private val closed = AtomicBoolean(false)
-    internal val isClosed: Boolean get() = closed.get()
-    private val notified = AtomicBoolean(false)
-    private var connectingReported = false
+    internal val isClosed: Boolean get() = negotiation.isClosed
     @Volatile private var eventServer: ServerSocket? = null
     @Volatile private var eventSocket: Socket? = null
     @Volatile private var eventCipher: ControlCipher? = null
-    private var eventCseq = 0
-    private var pendingNightMode: Boolean? = null
-    private val nightModeRequests = linkedMapOf<Int, Boolean>()
     private val firstTouchSendLogged = AtomicBoolean(false)
     private val touchSendFailureLogged = AtomicBoolean(false)
     // Only the controller's single touch thread calls sendTouch.
     private val touchSlots = AirPlayTouchSlots(AirPlayHid.TOUCH_CONTACTS)
     private val ntp = NtpClock()
-    // A repeated non-stream SETUP gets the ports already open rather than a second listener.
-    private var timingPort: Int? = null
-    private var timingPeerStarted = false
     private var keepAliveSocket: DatagramSocket? = null
     private var keepAliveThread: Thread? = null
     private val eventWriteLock = Any()
     private val navigationExitTimer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "carplay-navigation-exit").apply { isDaemon = true }
     }
-    private var navigationExitPending = false
-    private var navigationExitRequestId: Long? = null
-    private var navigationExitLastEntity: Int? = null
     private var navigationExitTimeout: java.util.concurrent.ScheduledFuture<*>? = null
     private val eventThreads = CopyOnWriteArrayList<Thread>()
 
@@ -164,9 +151,7 @@ class AirPlaySession(
     internal fun logDebug(message: String) = debugLog(message)
 
     internal fun videoFrameRendered() {
-        if (closed.get()) return
-        mainFrameRendered = true
-        listener.onVideoFrameRendered(this)
+        if (negotiation.frameRendered()) listener.onVideoFrameRendered(this)
     }
 
     internal fun logTrace(message: String) = trace { message }
@@ -179,7 +164,7 @@ class AirPlaySession(
     }
 
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
+        if (!negotiation.beginClose()) return
         // A sender may hold eventWriteLock while blocked in write; interrupt its socket first.
         safeClose(eventSocket)
         releaseNavigationExit("session-closed")
@@ -198,12 +183,16 @@ class AirPlaySession(
         }
         teardown()
         pairVerify.close()
+        pairSetup.close()
         touchSlots.close()
-        if (notified.compareAndSet(false, true)) listener.onSessionEnded(this)
+        if (negotiation.notifyEnded()) listener.onSessionEnded(this)
     }
 
     /** Stable identity of the usable primary screen; replaced on SETUP, absent after teardown/close. */
-    internal fun mainScreenSessionToken(): Any? = if (closed.get()) null else mainScreenToken
+    internal fun mainScreenSessionToken(): Any? {
+        val lease = mainScreenToken ?: return null
+        return lease.takeIf { negotiation.isMainScreenCurrent(it.epoch) }
+    }
 
     /**
      * Asks the iPhone to draw CarPlay's cluster UI on the alt screen (showUI with the display's URL,
@@ -212,14 +201,14 @@ class AirPlaySession(
      */
     fun setClusterUiShown(shown: Boolean): Boolean {
         synchronized(clusterCommandLock) {
-            if (closed.get() || clusterStream <= 0) return false
+            if (negotiation.isClosed || clusterStream <= 0) return false
             val content = synchronized(clusterContentLock) { clusterContent } ?: return false
             if (!shown) {
                 val sent = sendCommand(mapOf("type" to "stopUI",
                     "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID)))
                 return synchronized(clusterContentLock) {
                     val current = clusterContent ?: return false
-                    if (closed.get() || current.stream != content.stream) {
+                    if (negotiation.isClosed || current.stream != content.stream) {
                         if (sent) clusterContent = current.copy(displayed = null, shown = false, token = Any())
                         return false
                     }
@@ -244,7 +233,7 @@ class AirPlaySession(
     /** One immutable snapshot keeps content and generation checks consistent without locking keys. */
     internal fun clusterContentRoute(): Triple<Int, String?, Any>? {
         val content = clusterContent ?: return null
-        if (closed.get() || content.stream != clusterStream) return null
+        if (negotiation.isClosed || content.stream != clusterStream) return null
         return Triple(content.stream, content.displayed, content.token)
     }
 
@@ -257,7 +246,7 @@ class AirPlaySession(
         return synchronized(clusterCommandLock) {
             val content = synchronized(clusterContentLock) {
                 val current = clusterContent ?: return false
-                if (closed.get() || current.stream != clusterStream || config.cluster == null) return false
+                if (negotiation.isClosed || current.stream != clusterStream || config.cluster == null) return false
                 requestedClusterUrl = url
                 current.copy(requested = url).also { clusterContent = it }
             }
@@ -268,7 +257,7 @@ class AirPlaySession(
     /** Seeds a retained controller selection even when this phone has not set up its cluster yet. */
     internal fun restoreClusterUrl(url: String, send: Boolean): Boolean = synchronized(clusterCommandLock) {
         val content = synchronized(clusterContentLock) {
-            if (closed.get() || config.cluster == null) return false
+            if (negotiation.isClosed || config.cluster == null) return false
             requestedClusterUrl = url
             clusterContent?.copy(requested = url)?.also { clusterContent = it }
         }
@@ -277,14 +266,14 @@ class AirPlaySession(
     }
 
     private fun showClusterUrl(content: ClusterContent, url: String): Boolean {
-        if (closed.get() || clusterStream != content.stream) return false
+        if (negotiation.isClosed || clusterStream != content.stream) return false
         val uuid = AirPlayInfoPlist.ALT_UUID
         val uiSent = sendCommand(mapOf("type" to "showUI", "params" to mapOf("uuid" to uuid, "url" to url)))
-        val sent = uiSent && clusterStream == content.stream && !closed.get() &&
+        val sent = uiSent && clusterStream == content.stream && !negotiation.isClosed &&
             sendCommand(mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to uuid)))
         return synchronized(clusterContentLock) {
             val current = clusterContent ?: return false
-            if (closed.get() || current.stream != content.stream || clusterStream != content.stream) {
+            if (negotiation.isClosed || current.stream != content.stream || clusterStream != content.stream) {
                 // A command already in flight can outlast re-SETUP. Its displayed result is unknown.
                 if (uiSent) clusterContent = current.copy(displayed = null, token = Any())
                 return false
@@ -295,15 +284,16 @@ class AirPlaySession(
         }
     }
 
-    private fun beginClusterContent() = synchronized(clusterContentLock) {
-        val stream = ++clusterStreamSetups
-        val initial = config.cluster?.initialUrl
-        clusterContent = ClusterContent(stream, requestedClusterUrl, initial)
-        clusterStream = stream
+    private fun recordAcceptedStream(type: Int) = synchronized(clusterContentLock) {
+        // These Java identities are platform routing leases; Rust owns their live generations.
+        when (negotiation.accepted(type)) {
+            1 -> mainScreenToken = MainScreenLease(negotiation.mainScreenEpoch)
+            2 -> clusterContent = ClusterContent(negotiation.clusterStream, requestedClusterUrl, config.cluster?.initialUrl)
+        }
     }
 
     private fun clearClusterContent() = synchronized(clusterContentLock) {
-        clusterStream = 0
+        negotiation.clearCluster()
         clusterContent = null
     }
 
@@ -356,18 +346,18 @@ class AirPlaySession(
      * enabled video and the event channel is ready. An iPhone without the feature gets no command.
      */
     internal fun setVideoPlaybackAllowed(allowed: Boolean): VideoPlaybackDelivery =
-        if (closed.get()) VideoPlaybackDelivery.QUEUED else videoPlaybackAvailability.setDesired(allowed)
+        if (negotiation.isClosed) VideoPlaybackDelivery.QUEUED else videoPlaybackAvailability.setDesired(allowed)
 
     private fun sendCommandLocked(command: Map<String, Any?>, extraHeaders: String = ""): Boolean {
-        if (closed.get()) return false
+        if (negotiation.isClosed) return false
         val socket = eventSocket ?: return false
         val cipher = eventCipher ?: return false
-        eventCseq++
+        negotiation.advanceEventSequence()
         val body = BplistCodec.encode(command)
         val head = "POST /command RTSP/1.0\r\n" + extraHeaders +
             "Content-Type: $PLIST_CONTENT_TYPE\r\n" +
             "Content-Length: ${body.size}\r\n" +
-            "CSeq: $eventCseq\r\n\r\n"
+            "CSeq: ${negotiation.eventSequence}\r\n\r\n"
         trace { "airplay event tx headers=$head bodyHex=${body.toHex()}" }
         return try {
             val bytes = cipher.encrypt(head.toByteArray(Charsets.US_ASCII) + body)
@@ -384,7 +374,7 @@ class AirPlaySession(
 
     /** [contacts] carry Android pointer ids; an empty list releases every finger. */
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
-        if (closed.get()) return false
+        if (negotiation.isClosed) return false
         val width = config.main.widthPixels
         val height = config.main.heightPixels
         val report = touchSlots.report(contacts, width, height) ?: return false
@@ -437,39 +427,37 @@ class AirPlaySession(
      * Only the phone's subsequent route metadata can confirm that its route actually ended.
      */
     fun requestNavigationExit(requestId: Long? = null): Boolean = synchronized(eventWriteLock) {
-        if (closed.get()) {
+        val action = negotiation.beginNavigationExit(requestId)
+        if (action < 0) {
             if (requestId != null) NavigationOutputs.diagnostic("exit claim written=false reason=session-closed", requestId)
             return false
         }
-        if (navigationExitPending) {
-            if (requestId != null) NavigationOutputs.diagnostic("exit claim coalesced withRequest=$navigationExitRequestId", requestId)
+        if (action == 0) {
+            if (requestId != null) NavigationOutputs.diagnostic("exit claim coalesced withRequest=${negotiation.navigationRequestId()}", requestId)
             return true
         }
-        navigationExitRequestId = requestId
-        navigationExitLastEntity = null
-        navigationExitPending = true
         val sent = sendCommandLocked(mapOf("type" to "changeModes", "params" to mapOf(
             "appStates" to listOf(mapOf("appStateID" to 3, "state" to true)),
             "reasonStr" to "User requested navigation exit",
         )))
-        navigationExitPending = sent
+        negotiation.navigationExitSent(sent)
         Log.i(TAG, "navigation exit claim written=$sent")
         if (requestId != null) NavigationOutputs.diagnostic("exit claim written=$sent", requestId)
         if (sent) navigationExitTimeout = navigationExitTimer.schedule(
-            { releaseNavigationExit("timeout") }, 5, java.util.concurrent.TimeUnit.SECONDS)
+            { releaseNavigationExit("timeout") }, negotiation.navigationTimeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
         sent
     }
 
     private fun releaseNavigationExit(reason: String): Unit = synchronized(eventWriteLock) {
-        if (!navigationExitPending) return@synchronized
-        navigationExitPending = false
+        val action = negotiation.releaseNavigationExit()
+        if (action < 0) return@synchronized
         navigationExitTimeout?.cancel(false)
-        val sent = !closed.get() && sendCommandLocked(mapOf("type" to "changeModes", "params" to mapOf(
+        val sent = action > 0 && sendCommandLocked(mapOf("type" to "changeModes", "params" to mapOf(
             "appStates" to listOf(mapOf("appStateID" to 3, "state" to false)),
             "reasonStr" to "Navigation exit arbitration complete",
         )))
         Log.i(TAG, "navigation exit release reason=$reason written=$sent routeEndUnconfirmed=true")
-        navigationExitRequestId?.let { NavigationOutputs.diagnostic("exit release reason=$reason written=$sent", it) }
+        negotiation.navigationRequestId()?.let { NavigationOutputs.diagnostic("exit release reason=$reason written=$sent", it) }
     }
 
     fun sendIapMessage(data: ByteArray, timeoutMillis: Long = 0L): Boolean {
@@ -490,7 +478,7 @@ class AirPlaySession(
                 }
             }
             if (sent != null) return sent
-            if (closed.get()) return false
+            if (negotiation.isClosed) return false
 
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0) return false
@@ -508,21 +496,20 @@ class AirPlaySession(
     }
 
     fun setNightMode(night: Boolean): Boolean = synchronized(eventWriteLock) {
-        pendingNightMode = night
+        negotiation.queueNightMode(night)
         sendPendingNightModeLocked()
     }
 
     private fun sendPendingNightModeLocked(): Boolean {
-        val night = pendingNightMode ?: return true
+        val night = negotiation.pendingNightMode ?: return true
         val sent = sendCommandLocked(
             linkedMapOf("type" to "setNightMode", "params" to linkedMapOf("nightMode" to night)),
         )
-        if (sent) pendingNightMode = null
+        if (sent) negotiation.nightModeDelivered()
         if (sent && listener.debugLogsEnabled) {
             // The reader uses the same lock so even an immediate response can be correlated.
-            if (nightModeRequests.size >= 16) nightModeRequests.remove(nightModeRequests.keys.first())
-            nightModeRequests[eventCseq] = night
-            debugLog("THEME_DIAGNOSTIC tx cseq=$eventCseq night=$night")
+            val sequence = negotiation.trackNightMode(night)
+            debugLog("THEME_DIAGNOSTIC tx cseq=$sequence night=$night")
         }
         return sent
     }
@@ -544,7 +531,7 @@ class AirPlaySession(
         val buffer = ByteArray(READ_CHUNK_BYTES)
         var closeReason = "session closed"
         try {
-            while (!closed.get()) {
+            while (!negotiation.isClosed) {
                 val count = input.read(buffer)
                 if (count < 0) {
                     closeReason = "peer EOF"
@@ -611,7 +598,7 @@ class AirPlaySession(
                     val keys = if (cipher == null) pairVerify.controlKeys else null
                     if (keys != null) {
                         synchronized(controlCipherLock) {
-                            if (!closed.get() && cipher == null) cipher = ControlCipher(keys.readKey, keys.writeKey)
+                            if (!negotiation.isClosed && cipher == null) cipher = ControlCipher(keys.readKey, keys.writeKey)
                         }
                         debugLog("airplay control encryption enabled")
                     }
@@ -621,7 +608,7 @@ class AirPlaySession(
             }
         } catch (error: Exception) {
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
-            if (!closed.get()) Log.e(TAG, "airplay $closeReason", error)
+            if (!negotiation.isClosed) Log.e(TAG, "airplay $closeReason", error)
         } finally {
             debugLog("airplay control closing reason=$closeReason activeStreams=$activeStreams")
             close()
@@ -629,54 +616,52 @@ class AirPlaySession(
     }
 
     private fun handle(request: RtspMessage.Request): RtspMessage.Response {
-        when (request.method) {
-            "SETUP" -> return handleSetup(request)
-            "SET_PARAMETER" -> {
+        val action = negotiation.route(request.method, request.path, request.body.size)
+        when (action) {
+            AirPlayNegotiation.RequestAction.SETUP -> return handleSetup(request)
+            AirPlayNegotiation.RequestAction.PARAMETER -> {
                 // iOS can replace the mask when the display changes; never decode PNG on RTSP.
-                if (config.main.useIphoneCornerMask && request.body.size <=
-                    IPhoneCornerMaskWireLimit.MAX_PNG_BYTES + 64 * 1024) {
-                    val value = runCatching { BplistCodec.decode(request.body) }.getOrNull()
-                    findIphoneCornerMask(value)?.let(::notifyCornerMask)
-                }
+                val value = runCatching { BplistCodec.decode(request.body) }.getOrNull()
+                findIphoneCornerMask(value)?.let(::notifyCornerMask)
                 return RtspMessage.Response(status = 200)
             }
-            "RECORD" -> {
+            AirPlayNegotiation.RequestAction.RECORD -> {
                 debugLog("Playback recovery session=${System.identityHashCode(this)} RECORD monotonicNs=${System.nanoTime()}")
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
             }
-            "TEARDOWN" -> return handleTeardown(request)
+            AirPlayNegotiation.RequestAction.TEARDOWN -> return handleTeardown(request)
+            else -> Unit
         }
 
-        if (config.bufferedAudioOutputEnabled && request.method in BUFFERED_AUDIO_METHODS) {
-            val body = if (request.body.isEmpty() && request.method == "GETANCHOR") emptyMap() else {
+        if (action == AirPlayNegotiation.RequestAction.BUFFERED || action == AirPlayNegotiation.RequestAction.GET_ANCHOR) {
+            val body = if (request.body.isEmpty() && action == AirPlayNegotiation.RequestAction.GET_ANCHOR) emptyMap() else {
                 runCatching { asMap(BplistCodec.decode(request.body)) }.getOrNull()
                     ?: return RtspMessage.Response(status = 400)
             }
             val response = media.onBufferedAudioControl(this, request.method, body)
-            if (request.method != "GETANCHOR") debugLog("airplay ${request.method} $body -> ${response ?: "ok"}")
+            if (action != AirPlayNegotiation.RequestAction.GET_ANCHOR) debugLog("airplay ${request.method} $body -> ${response ?: "ok"}")
             return if (response == null) RtspMessage.Response(status = 200) else RtspMessage.Response(
                 headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
                 body = BplistCodec.encode(response),
             )
         }
 
-        val path = request.path.lowercase()
-        return when {
-            path.endsWith("/pair-setup") -> RtspMessage.Response(
+        return when (action) {
+            AirPlayNegotiation.RequestAction.PAIR_SETUP -> RtspMessage.Response(
                 headers = mapOf("Content-Type" to PAIRING_CONTENT_TYPE),
                 body = pairSetup.handle(request.body),
             )
-            path.endsWith("/pair-verify") -> RtspMessage.Response(
+            AirPlayNegotiation.RequestAction.PAIR_VERIFY -> RtspMessage.Response(
                 headers = mapOf("Content-Type" to PAIRING_CONTENT_TYPE),
                 body = pairVerify.handle(request.body),
             )
-            path.endsWith("/auth-setup") -> {
+            AirPlayNegotiation.RequestAction.AUTH_SETUP -> {
                 val body = mfi?.let { MfiSapAuthSetup.handle(request.body, it) }
                 if (body == null) RtspMessage.Response(status = 400)
                 else RtspMessage.Response(headers = mapOf("Content-Type" to OCTET_CONTENT_TYPE), body = body)
             }
-            path.endsWith("/info") -> {
+            AirPlayNegotiation.RequestAction.INFO -> {
                 val info = AirPlayInfoPlist.build(config)
                 if (request.body.isNotEmpty()) {
                     val requestInfo = try {
@@ -702,8 +687,8 @@ class AirPlaySession(
                     body = BplistCodec.encode(info),
                 )
             }
-            request.method == "POST" && path.endsWith("/command") -> handleCommand(request)
-            request.method == "POST" && path.endsWith("/feedback") -> {
+            AirPlayNegotiation.RequestAction.COMMAND -> handleCommand(request)
+            AirPlayNegotiation.RequestAction.FEEDBACK -> {
                 val body = media.onFeedback(this)
                 if (body == null) {
                     RtspMessage.Response(status = 200)
@@ -787,10 +772,7 @@ class AirPlaySession(
         val videoDelivery = videoPlaybackAvailability.setFeatureEnabled(videoPlaybackEnabled)
         debugLog("airplay video playback negotiated=$videoPlaybackEnabled availability=$videoDelivery")
         response["enabledFeatures"] = features
-        if (!connectingReported) {
-            connectingReported = true
-            listener.onSessionConnecting(this)
-        }
+        if (negotiation.reportConnecting()) listener.onSessionConnecting(this)
         return RtspMessage.Response(
             headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),
             body = BplistCodec.encode(response),
@@ -803,21 +785,19 @@ class AirPlaySession(
             val stream = asMap(entry) ?: continue
             val type = long(stream["type"])?.toInt() ?: continue
             debugLog("airplay SETUP stream type=$type payload=$stream")
-            when (type) {
-                STREAM_TYPE_MAIN_SCREEN, STREAM_TYPE_ALT_SCREEN -> {
+            when (val action = negotiation.streamAction(type)) {
+                AirPlayNegotiation.StreamAction.SCREEN -> {
                     val port = media.onScreen(this, type, stream)
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
                         if (type == STREAM_TYPE_MAIN_SCREEN && config.main.useIphoneCornerMask) {
                             findIphoneCornerMask(stream)?.let(::notifyCornerMask)
                         }
-                        activeStreams.add(type)
-                        if (type == STREAM_TYPE_ALT_SCREEN) beginClusterContent()
-                        else mainScreenToken = Any()
+                        recordAcceptedStream(type)
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
                     }
                 }
-                STREAM_TYPE_MAIN_AUDIO, STREAM_TYPE_ALT_AUDIO, STREAM_TYPE_MAIN_HIGH_AUDIO -> {
+                AirPlayNegotiation.StreamAction.AUDIO -> {
                     val streamResponse = media.onAudio(this, type, stream)
                     debugLog(
                         "airplay audio stream type=$type accepted=${streamResponse != null} " +
@@ -825,27 +805,28 @@ class AirPlaySession(
                             "controlPort=${streamResponse?.get("controlPort") ?: "none"}",
                     )
                     if (streamResponse != null) {
-                        activeStreams.add(type)
+                        recordAcceptedStream(type)
                         result.add(streamResponse)
                     }
                 }
-                STREAM_TYPE_MAIN_BUFFERED_AUDIO -> {
-                    val streamResponse = if (config.bufferedAudioOutputEnabled) media.onBufferedAudio(this, stream) else null
+                AirPlayNegotiation.StreamAction.BUFFERED, AirPlayNegotiation.StreamAction.BUFFERED_DISABLED -> {
+                    val streamResponse = if (action == AirPlayNegotiation.StreamAction.BUFFERED)
+                        media.onBufferedAudio(this, stream) else null
                     debugLog("airplay buffered audio stream accepted=${streamResponse != null} " +
                         "dataPort=${streamResponse?.get("dataPort") ?: "none"}")
                     if (streamResponse != null) {
-                        activeStreams.add(type)
+                        recordAcceptedStream(type)
                         result.add(streamResponse)
                     }
                 }
-                STREAM_TYPE_DATA -> {
+                AirPlayNegotiation.StreamAction.DATA -> {
                     val streamResponse = media.onDataStream(this, stream)
                     debugLog(
                         "airplay data stream type=$type accepted=${streamResponse != null} " +
                             "dataPort=${streamResponse?.get("dataPort") ?: "none"}",
                     )
                     if (streamResponse != null) {
-                        activeStreams.add(type)
+                        recordAcceptedStream(type)
                         result.add(streamResponse)
                     }
                 }
@@ -885,12 +866,12 @@ class AirPlaySession(
             val entity = (navigation?.get("entity") as? Number)?.toInt()
             if (entity != null) {
                 synchronized(eventWriteLock) {
-                    if (entity != navigationExitLastEntity) {
+                    val action = negotiation.navigationEntity(entity)
+                    if (action and 1 != 0) {
                         Log.i(TAG, "navigation mode entity=" + entity)
-                        navigationExitLastEntity = entity
-                        navigationExitRequestId?.let { NavigationOutputs.diagnostic("exit modesChanged entity=$entity", it) }
+                        negotiation.navigationRequestId()?.let { NavigationOutputs.diagnostic("exit modesChanged entity=$entity", it) }
                     }
-                    if (entity == 2) releaseNavigationExit("accessory-granted")
+                    if (action and 2 != 0) releaseNavigationExit("accessory-granted")
                 }
             }
         }
@@ -922,15 +903,19 @@ class AirPlaySession(
         trace { "airplay TEARDOWN raw${request.body.size}Hex=${request.body.toHex()}" }
 
         // Restore wheel input before releasing media resources, which may take time to close.
-        if (types == null || STREAM_TYPE_MAIN_SCREEN in types) mainScreenToken = null
-        if (types == null || STREAM_TYPE_ALT_SCREEN in types) clearClusterContent()
-        if (types == null) {
-            activeStreams.toList().forEach { media.onTeardown(this, it) }
-            activeStreams.clear()
-        } else {
-            types.forEach { type -> if (activeStreams.remove(type)) media.onTeardown(this, type) }
+        synchronized(clusterContentLock) {
+            val actions = negotiation.prepareTeardown(types)
+            if (actions and 1 != 0) mainScreenToken = null
+            if (actions and 2 != 0) clusterContent = null
         }
-        if (STREAM_TYPE_ALT_SCREEN !in activeStreams) clearClusterContent()
+        if (types == null) {
+            // A failed callback leaves the full ordered set intact, as before.
+            activeStreams.forEach { media.onTeardown(this, it) }
+        } else {
+            // A partial teardown commits each removal before invoking that resource's callback.
+            types.forEach { type -> if (negotiation.removeStream(type)) media.onTeardown(this, type) }
+        }
+        if (negotiation.finishTeardown(types == null)) clearClusterContent()
         return RtspMessage.Response(status = 200)
     }
 
@@ -940,10 +925,11 @@ class AirPlaySession(
     }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = timingPort ?: ntp.listen().also { timingPort = it }
-        if (peerPort > 0 && !timingPeerStarted) peerAddress?.let {
-            ntp.start(it, peerPort)
-            timingPeerStarted = true
+        val actions = negotiation.timingAction(peerPort, peerAddress != null)
+        val port = if (actions and 1 != 0) ntp.listen().also(negotiation::timingOpened) else negotiation.timingPort
+        if (actions and 2 != 0) {
+            ntp.start(requireNotNull(peerAddress), peerPort)
+            negotiation.timingPeerStarted()
         }
         return port
     }
@@ -963,11 +949,11 @@ class AirPlaySession(
 
     private fun runKeepAlive(socket: DatagramSocket) {
         val buffer = ByteArray(512)
-        while (!closed.get()) {
+        while (!negotiation.isClosed) {
             try {
                 socket.receive(DatagramPacket(buffer, buffer.size))
             } catch (_: Exception) {
-                if (closed.get()) return
+                if (negotiation.isClosed) return
             }
         }
     }
@@ -983,13 +969,12 @@ class AirPlaySession(
     private fun teardown() {
         safeClose(eventSocket)
         // A failing sender may close while holding eventWriteLock; do not wait for a gear callback's monitor.
-        if (!closed.get()) {
+        if (!negotiation.isClosed) {
             videoPlaybackAvailability.setEventReady(false)
             videoPlaybackAvailability.setFeatureEnabled(false)
         }
         ntp.close()
-        timingPort = null
-        timingPeerStarted = false
+        negotiation.timingClosed()
         safeClose(keepAliveSocket)
         keepAliveSocket = null
         keepAliveThread?.interrupt()
@@ -1016,7 +1001,7 @@ class AirPlaySession(
             socket.tcpNoDelay = true
             debugLog("airplay event connection accepted from ${socket.remoteSocketAddress} noDelay=${socket.tcpNoDelay}")
             synchronized(eventWriteLock) {
-                if (closed.get() || eventServer !== server) { safeClose(socket); return }
+                if (negotiation.isClosed || eventServer !== server) { safeClose(socket); return }
                 eventSocket = socket
             }
             val shared = pairVerify.shared
@@ -1039,7 +1024,7 @@ class AirPlaySession(
                 32,
             )
             val cipher = synchronized(eventWriteLock) {
-                if (closed.get() || eventServer !== server || eventSocket !== socket) { safeClose(socket); return }
+                if (negotiation.isClosed || eventServer !== server || eventSocket !== socket) { safeClose(socket); return }
                 eventCipher?.close()
                 val cipher = ControlCipher(readKey, writeKey)
                 eventCipher = cipher
@@ -1052,7 +1037,7 @@ class AirPlaySession(
             listener.onClusterControlReady(this)
             runEventRead(socket, cipher)
         } catch (error: Exception) {
-            if (!closed.get()) {
+            if (!negotiation.isClosed) {
                 Log.e(TAG, "airplay event accept failed", error)
                 close()
             }
@@ -1066,7 +1051,7 @@ class AirPlaySession(
             var encrypted = ByteArray(0)
             var plaintext = ByteArray(0)
             val buffer = ByteArray(READ_CHUNK_BYTES)
-            while (!closed.get()) {
+            while (!negotiation.isClosed) {
                 val count = input.read(buffer)
                 if (count < 0) break
                 encrypted += buffer.copyOf(count)
@@ -1084,7 +1069,7 @@ class AirPlaySession(
                     if (message.method.startsWith("RTSP/") || message.method.startsWith("HTTP/")) {
                         if (!listener.debugLogsEnabled) continue
                         val seq = message.headers["cseq"]?.toIntOrNull() ?: continue
-                        val night = synchronized(eventWriteLock) { nightModeRequests.remove(seq) } ?: continue
+                        val night = synchronized(eventWriteLock) { negotiation.nightModeResponse(seq) } ?: continue
                         val status = if (message.body.size in 1..4096) runCatching {
                             asMap(BplistCodec.decode(message.body))?.get("status") as? Number
                         }.getOrNull() else null
@@ -1109,17 +1094,17 @@ class AirPlaySession(
                 }
             }
         } catch (error: Exception) {
-            if (!closed.get()) Log.e(TAG, "airplay event read failed", error)
+            if (!negotiation.isClosed) Log.e(TAG, "airplay event read failed", error)
         } finally {
             safeClose(socket)
             debugLog("airplay event connection closed")
-            if (!closed.get()) videoPlaybackAvailability.setEventReady(false)
+            if (!negotiation.isClosed) videoPlaybackAvailability.setEventReady(false)
             synchronized(eventWriteLock) {
                 if (eventSocket === socket) eventSocket = null
                 if (eventCipher === cipher) eventCipher = null
                 cipher.close()
             }
-            if (!closed.get()) close()
+            if (!negotiation.isClosed) close()
         }
     }
 
@@ -1142,7 +1127,6 @@ class AirPlaySession(
         const val STREAM_TYPE_MAIN_HIGH_AUDIO = 102
         const val STREAM_TYPE_DATA = 130
         const val STREAM_TYPE_MAIN_BUFFERED_AUDIO = 103
-        private val BUFFERED_AUDIO_METHODS = setOf("SETRATE", "SETRATEANCHORTIME", "GETANCHOR", "FLUSHBUFFERED")
 
         const val READ_CHUNK_BYTES = 16 * 1024
         const val ZOOM_DIRECTION_IN = 0
@@ -1174,32 +1158,15 @@ internal fun findIphoneCornerMask(value: Any?, depth: Int = 0): ByteArray? {
     }
 }
 
-internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> {
-    val features = mutableListOf<String>()
-    if (config.hevc) features.add("hevc")
-    features.add("iAPChannel")
-    features.add("viewAreas")
-    if (config.cluster != null) features.add("altScreen")
-    if (config.main.useIphoneCornerMask && proposed.orEmpty().contains("cornerMasks")) features.add("cornerMasks")
-    if (config.videoInCar && proposed.orEmpty().contains(VideoInCar.FEATURE)) features.add(VideoInCar.FEATURE)
-    if (config.bufferedAudioOutputEnabled && proposed.orEmpty().contains(MAIN_BUFFERED_FEATURE)) features.add(MAIN_BUFFERED_FEATURE)
-    return features
-}
+internal fun setupEnabledFeatures(config: AirPlayConfig, proposed: List<*>?): List<String> =
+    AirPlayNegotiation.enabledFeatures(config, proposed)
 
 /**
  * The stream types a TEARDOWN body closes, or null when it names none (the whole session). Several
  * type-130 streams can be open, the iAP tunnel (streamID 1) and video in car's data streams; tearing
  * down one of the latter must not close the iAP tunnel.
  */
-internal fun teardownStreamTypes(body: Any?): List<Int>? {
-    val entries = ((body as? Map<*, *>)?.get("streams") as? List<*>).orEmpty().mapNotNull { entry ->
-        val stream = entry as? Map<*, *> ?: return@mapNotNull null
-        val type = (stream["type"] as? Number)?.toInt() ?: return@mapNotNull null
-        type to (stream["streamID"] as? Number)?.toLong()
-    }
-    if (entries.isEmpty()) return null
-    return entries.filterNot { (type, streamId) -> type == 130 && streamId != null && streamId != 1L }.map { it.first }
-}
+internal fun teardownStreamTypes(body: Any?): List<Int>? = AirPlayNegotiation.teardownTypes(body)
 
 internal fun safeClose(closeable: Closeable?) {
     try {
