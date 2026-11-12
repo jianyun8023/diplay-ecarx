@@ -99,6 +99,16 @@ build/target-specific dependencies `autocfg 1.5.1`, `cpufeatures 0.3.1`,
 Verbatim notices from the locked crate versions are included in
 [the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt), packaged with the APK.
 
+The MfiSAP `/auth-setup` runtime uses RustCrypto [aes 0.8.4](https://github.com/RustCrypto/block-ciphers/tree/f2dbee516b4d0cf4cb4f3045d09e35b5fd80087b/aes)
+and [ctr 0.9.2](https://github.com/RustCrypto/block-modes/tree/65320945adb1b6f7290e61b033f9e04ccdb2581b/ctr)
+for AES-128-CTR. Their additional locked dependencies are `cipher 0.4.4`, `crypto-common 0.1.7`,
+`inout 0.1.4`, `generic-array 0.14.7`, `typenum 1.20.1`, `version_check 0.9.5` and
+`cpufeatures 0.2.17` (separate from the `cpufeatures 0.3.1` above; the set includes build/target-specific dependencies).
+These nine crate notices use MIT, choosing the MIT option where dual-licensed. Their unmodified
+upstream license texts and copyrights, source archive checksums and revision links are retained in
+[the same license bundle](licenses/dependencies/Rust-crates-LICENSES.txt); exact package versions and
+registry checksums are fixed in [Cargo.lock](../shared/src/main/rust/diplay-media/Cargo.lock).
+
 ## Experimental authentication data
 
 Historical upstream preview APKs included an accessory certificate/key pair recovered from public
