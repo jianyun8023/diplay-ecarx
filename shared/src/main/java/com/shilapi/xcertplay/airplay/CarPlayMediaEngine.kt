@@ -23,6 +23,8 @@ data class AudioStreamId(val type: Int, val audioType: String)
 interface MediaSink {
     fun onVideoCodec(type: Int, codec: VideoCodec) {}
     fun onVideoConfig(type: Int, codecData: ByteArray) {}
+    fun onNativeVideoRoute(type: Int, route: NativeVideoRoute) {}
+    fun onVideoReceiving(type: Int) {}
     fun onVideoFrame(type: Int, naluBytes: ByteArray) {}
     /** A frame with the iPhone's frame time and its arrival time (System.nanoTime); see [ScreenStream.Listener]. */
     fun onVideoFrame(type: Int, naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) =
@@ -68,6 +70,10 @@ interface MediaSink {
  * connects after SETUP returns the port, which is after the stream is registered as current.
  */
 internal fun currentScreenListener(type: Int, sink: MediaSink, isCurrent: () -> Boolean) = object : ScreenStream.Listener {
+    override fun onNativeVideoRoute(route: NativeVideoRoute) {
+        if (isCurrent()) sink.onNativeVideoRoute(type, route) else route.disconnect()
+    }
+    override fun onReceiving() { if (isCurrent()) sink.onVideoReceiving(type) }
     override fun onCodec(codec: VideoCodec) { if (isCurrent()) sink.onVideoCodec(type, codec) }
     override fun onConfig(codecData: ByteArray) { if (isCurrent()) sink.onVideoConfig(type, codecData) }
     override fun onFrame(naluBytes: ByteArray) { if (isCurrent()) sink.onVideoFrame(type, naluBytes) }

@@ -12,6 +12,7 @@
 -keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeStreamCallbacks {
     void onPacket(long, int, int, long, long);
     void onConfig(byte[]);
+    void onReceiving();
     void onLog(int, java.lang.String);
     void onReport(java.lang.String);
     void onEnded(java.lang.String);

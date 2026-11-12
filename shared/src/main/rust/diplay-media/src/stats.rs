@@ -190,6 +190,17 @@ impl<C: Clock> ReceiveStats<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_input_drain_keeps_arrival_history_and_separates_idle_gaps() {
+        let mut stats = VideoInputStats::default();
+        stats.received(100, 1_000_000_000, Some(20_000_000));
+        stats.received(200, 1_030_000_000, Some(10_000_000));
+        assert_eq!(stats.take(), [2, 300, 30_000_000, 0, 0, 2, 30_000_000, 20_000_000]);
+        stats.received(50, 3_530_000_000, None);
+        assert_eq!(stats.take(), [1, 50, 0, 1, 2_500_000_000, 0, 0, 0]);
+        assert_eq!(stats.take(), [0; 8]);
+    }
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -229,4 +240,35 @@ mod tests {
         let line = stats.flush(true, &|| String::new()).unwrap();
         assert!(line.contains("seqForwardGaps=0 lateOrDuplicate=1"), "{line}");
     }
+}
+/// Per-decoder input metrics, drained with the output metrics without losing the last arrival.
+#[derive(Default)]
+pub struct VideoInputStats {
+    last_arrival_ns: i64,
+    /// received, bytes, active max gap, idle gaps/max, touch samples/sum/max.
+    values: [i64; 8],
+}
+
+impl VideoInputStats {
+    pub fn received(&mut self, size: usize, now: i64, touch_latency: Option<i64>) {
+        if self.last_arrival_ns != 0 {
+            let gap = now - self.last_arrival_ns;
+            if gap >= 2_000_000_000 {
+                self.values[3] += 1;
+                self.values[4] = self.values[4].max(gap);
+            } else {
+                self.values[2] = self.values[2].max(gap);
+            }
+        }
+        self.last_arrival_ns = now;
+        self.values[0] += 1;
+        self.values[1] += size as i64;
+        if let Some(latency) = touch_latency.filter(|latency| *latency >= 0) {
+            self.values[5] += 1;
+            self.values[6] += latency;
+            self.values[7] = self.values[7].max(latency);
+        }
+    }
+
+    pub fn take(&mut self) -> [i64; 8] { std::mem::take(&mut self.values) }
 }

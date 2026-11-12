@@ -1,6 +1,6 @@
 //! One CarPlay screen stream (Kotlin's `ScreenStream`): a 128-byte header, then a body that is a
 //! clear VideoConfig or a sealed VideoFrame. Frames are opened and turned into Annex B in their
-//! pooled buffer, and only the handle goes to Kotlin.
+//! pooled buffer, then sent directly to native decoder queues (or to Kotlin's packet fallback).
 
 use crate::annexb;
 use crate::crypto::{counter_nonce, StreamKey, TAG_LEN};
@@ -18,19 +18,25 @@ const MAX_BODY: usize = 8 * 1024 * 1024;
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_startVideo(
-    env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, callbacks: jobject,
+    env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, callbacks: jobject, route: jlong,
 ) -> jlong {
     let e = Env(env);
     let mut key_bytes = [0u8; 32];
     if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
     let (Some(stream_key), Some(callbacks)) = (StreamKey::new(&key_bytes), Callbacks::new(e, callbacks)) else { return 0 };
     let control = Control::new(fd);
+    #[cfg(target_os = "android")]
+    let route = crate::vpipe::retain_route(route);
+    #[cfg(not(target_os = "android"))]
+    let _ = route;
     stream::spawn("airplay-screen", control, callbacks, move |env, control, callbacks| {
-        receive(env, control, callbacks, stream_key)
+        receive(env, control, callbacks, stream_key, #[cfg(target_os = "android")] route)
     })
 }
 
-fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey) {
+fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
+    #[cfg(target_os = "android")] route: Option<std::sync::Arc<crate::vpipe::Route>>,
+) {
     let Some(fd) = control.socket() else { return };
     let pool = Pool::new();
     let mut stats = ReceiveStats::new("video".into(), SESSION_REPORT_INTERVAL_NS, SystemClock);
@@ -73,12 +79,19 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey) {
                 }
                 if first_frame {
                     first_frame = false;
+                    callbacks.receiving(env);
                     let head: String = packet.bytes().iter().take(16).map(|b| format!("{b:02x}")).collect();
                     callbacks.log(env, 0, &format!(
                         "video first decrypted frame sealed={body_size} plain={plain} head={head} chacha=ring impl=rust"));
                 }
                 let size = packet.len();
-                callbacks.packet(env, packet.into_handle(), size, flags, annexb::sender_nanos(&header), arrival);
+                let handle = packet.into_handle();
+                let sender = annexb::sender_nanos(&header);
+                #[cfg(target_os = "android")]
+                let delivered = route.as_ref().is_some_and(|route| unsafe { route.deliver(handle, size, flags, sender, arrival) });
+                #[cfg(not(target_os = "android"))]
+                let delivered = false;
+                if !delivered { callbacks.packet(env, handle, size, flags, sender, arrival); }
             }
             OP_VIDEO_CONFIG => {
                 callbacks.config(env, packet.bytes());

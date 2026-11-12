@@ -45,6 +45,25 @@ class CurrentScreenListenerTest {
     private val frame = byteArrayOf(0, 0, 0, 1, 0x65, 0x11)
     private val timedFrame = byteArrayOf(0, 0, 0, 1, 0x41, 0x22)
 
+    @Test fun nativeRouteAndReceivingNotificationOnlyReachTheCurrentStream() {
+        val routes = mutableListOf<NativeVideoRoute>()
+        val receiving = mutableListOf<Int>()
+        val sink = object : MediaSink {
+            override fun onNativeVideoRoute(type: Int, route: NativeVideoRoute) { routes += route }
+            override fun onVideoReceiving(type: Int) { receiving += type }
+        }
+        val current = AtomicBoolean(true)
+        val listener = currentScreenListener(111, sink) { current.get() }
+        val route = NativeVideoRoute(0)
+        listener.onNativeVideoRoute(route)
+        listener.onReceiving()
+        current.set(false)
+        listener.onNativeVideoRoute(NativeVideoRoute(0))
+        listener.onReceiving()
+        assertEquals(listOf(route), routes)
+        assertEquals(listOf(111), receiving)
+    }
+
     private fun ScreenStream.Listener.deliverAll(codec: VideoCodec = VideoCodec.H265) {
         onCodec(codec)
         onConfig(config)

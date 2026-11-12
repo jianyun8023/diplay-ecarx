@@ -12,6 +12,19 @@ class VideoStatsTest {
     private var now = 1_000_000_000L
     private val stats = VideoStats(nanoTime = { now })
 
+    @Test fun nativeInputCountersKeepTheExistingDiagnosticFormat() {
+        stats.addNative(longArrayOf(2, 1, 1, 40_000_000, 1, 2_800_000_000,
+            3, 1500, 30_000_000, 1, 2_500_000_000, 2, 30_000_000, 20_000_000), intArrayOf(20_000), 1)
+        now += 5_000_000_000
+        val line = stats.logIfDue()!!
+        assertTrue(line, line.contains("rx=0.6fps shown=0.4fps maxGap=30ms kbps=2 recoveries=1"))
+        assertTrue(line, line.contains("touch2frame avg=15ms max=20ms n=2"))
+        assertTrue(line, line.contains("decode p50=20ms p90=20ms late=1 delay=40ms"))
+        assertTrue(line, line.contains("idleGaps=1 idleGapMax=2500ms"))
+        now += 5_000_000_000
+        assertNull(stats.logIfDue())
+    }
+
     @Test fun longInputGapsAreVisibleSeparatelyFromTheExistingActiveGapMetric() {
         stats.onReceived(100)
         now += 30_000_000; stats.onReceived(100)

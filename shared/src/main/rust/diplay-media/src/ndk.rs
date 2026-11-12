@@ -51,7 +51,8 @@ extern "C" {
     pub fn AMediaCodec_stop(codec: *mut AMediaCodec) -> media_status_t;
     pub fn AMediaCodec_delete(codec: *mut AMediaCodec) -> media_status_t;
     pub fn AMediaCodec_getInputBuffer(codec: *mut AMediaCodec, index: usize, size: *mut usize) -> *mut u8;
-    pub fn AMediaCodec_queueInputBuffer(codec: *mut AMediaCodec, index: usize, offset: i64, size: usize, time_us: u64,
+    // NdkMediaCodec.h's _off_t_compat is C long-sized, including 32-bit ARM.
+    pub fn AMediaCodec_queueInputBuffer(codec: *mut AMediaCodec, index: usize, offset: libc::c_long, size: usize, time_us: u64,
         flags: u32) -> media_status_t;
     pub fn AMediaCodec_releaseOutputBuffer(codec: *mut AMediaCodec, index: usize, render: bool) -> media_status_t;
     pub fn AMediaCodec_releaseOutputBufferAtTime(codec: *mut AMediaCodec, index: usize, timestamp_ns: i64) -> media_status_t;

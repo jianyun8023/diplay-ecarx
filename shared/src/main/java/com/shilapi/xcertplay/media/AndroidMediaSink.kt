@@ -13,6 +13,7 @@ import com.shilapi.xcertplay.airplay.MediaPacket
 import com.shilapi.xcertplay.airplay.MediaSink
 import com.shilapi.xcertplay.telecom.PhoneAudioRoute
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.airplay.NativeVideoRoute
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -155,6 +156,7 @@ class AndroidMediaSink(
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
     private val surfaces = ConcurrentHashMap<Int, Surface>()
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
+    private val nativeVideoRoutes = HashMap<Int, NativeVideoRoute>()
     // Surface capture, worker publication, retirement and detach snapshots share one ownership boundary.
     // Native codec work and waits never run under this lock.
     private val videoOwnershipLock = Any()
@@ -291,6 +293,7 @@ class AndroidMediaSink(
             closingVideoDecoders += decoder
             videoDecoders.remove(type, decoder)
             decoder.close()
+            updateNativeVideoRoute(type)
         }
     }
 
@@ -317,7 +320,8 @@ class AndroidMediaSink(
     private fun onVideoDecoderExit(decoder: VideoDecoder) {
         val listeners = synchronized(videoOwnershipLock) {
             closingVideoDecoders -= decoder
-            videoDecoders.entries.removeIf { it.value === decoder }
+            val exitedTypes = videoDecoders.entries.filter { it.value === decoder }.map { it.key }
+            exitedTypes.forEach { videoDecoders.remove(it, decoder); updateNativeVideoRoute(it) }
             if (videoClosed && videoDecoders.isEmpty() && closingVideoDecoders.isEmpty()) {
                 videoReleasedListeners.toList().also { videoReleasedListeners.clear() }
             } else emptyList()
@@ -362,8 +366,8 @@ class AndroidMediaSink(
                 videoDecoders[type]?.setMirror(key, surface)
                 return
             }
-            if (surface == null) return
-            lastVideoConfig[type]?.let { (codec, data) -> mirrorDecoders(type).forEach { it.configure(codec, data) } }
+            if (surface != null) lastVideoConfig[type]?.let { (codec, data) -> mirrorDecoders(type).forEach { it.configure(codec, data) } }
+            updateNativeVideoRoute(type)
         }
     }
 
@@ -388,6 +392,24 @@ class AndroidMediaSink(
         synchronized(videoOwnershipLock) {
             if (!videoClosed) pendingVideoCodec[type] = codec
         }
+    }
+
+    override fun onNativeVideoRoute(type: Int, route: NativeVideoRoute) {
+        synchronized(videoOwnershipLock) {
+            if (videoClosed) { route.disconnect(); return }
+            nativeVideoRoutes.put(type, route)?.disconnect()
+            updateNativeVideoRoute(type)
+        }
+    }
+
+    private fun updateNativeVideoRoute(type: Int) {
+        val route = nativeVideoRoutes[type] ?: return
+        val decoders = mirrorDecoders(type) + videoDecoder(type)
+        route.setTargets { decoders.map { it.retainNativeTarget() }.toLongArray() }
+    }
+
+    override fun onVideoReceiving(type: Int) {
+        if (type == MAIN_SCREEN_TYPE) mainVideoReceived = true
     }
 
     override fun onVideoConfig(type: Int, codecData: ByteArray) {
@@ -432,6 +454,7 @@ class AndroidMediaSink(
         synchronized(videoOwnershipLock) {
             if (videoClosed) return
             if (!active) {
+                nativeVideoRoutes.remove(type)?.disconnect()
                 videoRecoveryHandlers.remove(type)
                 videoDiagnosticHandlers.remove(type)
                 videoDecoders[type]?.let { retire(type, it) }
@@ -683,6 +706,8 @@ class AndroidMediaSink(
         synchronized(audioModeLock) { microphoneClosed = true }
         synchronized(videoOwnershipLock) {
             videoClosed = true
+            nativeVideoRoutes.values.forEach { it.disconnect() }
+            nativeVideoRoutes.clear()
             videoDecoders.entries.toList().forEach { (type, decoder) -> retire(type, decoder) }
             synchronized(mirrorLock) {
                 mirrorDecoders.values.forEach(VideoDecoder::close)

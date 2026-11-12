@@ -217,7 +217,7 @@ internal class VideoDecoder(
     private var debugLogsCheckedNanos = 0L
     private val queue = VideoDecodeQueue()
     private val pipe: NativeVideoPipe? = if (nativeDecodeLoop) {
-        NativeVideoPipe.create(pacingDelayNanos) { kind, detail -> queue.offer(VideoJob.NativeEvent(kind, detail)) }
+        NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail -> queue.offer(VideoJob.NativeEvent(kind, detail)) }
     } else null
     // Guards [pipe] against [submit] and [liveCounters] once the worker has destroyed it.
     private val pipeLock = Any()
@@ -284,7 +284,7 @@ internal class VideoDecoder(
         synchronized(pipeLock) {
             if (pipeAlive) {
                 val native = checkNotNull(pipe).live()
-                return LiveVideoCounters(liveReceived.get(), native[1], native[2], native[3])
+                return LiveVideoCounters(native[0], native[1], native[2], native[3])
             }
         }
         return javaLiveCounters()
@@ -325,14 +325,18 @@ internal class VideoDecoder(
 
     /** Takes ownership of [frame]: the worker releases it once fed or dropped. */
     fun submit(frame: MediaPacket, senderNanos: Long = 0L, arrivalNanos: Long = 0L) {
-        stats.onReceived(frame.size)
-        liveReceived.incrementAndGet()
         if (pipe != null) {
             synchronized(pipeLock) { if (pipeAlive) pipe.submit(frame, senderNanos, arrivalNanos) else frame.release() }
             return
         }
+        stats.onReceived(frame.size)
+        liveReceived.incrementAndGet()
         // Pacing runs on the worker, in queue order: callbacks of a replaced stream may still deliver here.
         queue.offer(VideoJob.Frame(frame, senderNanos = senderNanos, arrivalNanos = arrivalNanos))
+    }
+
+    fun retainNativeTarget(): Long = synchronized(pipeLock) {
+        if (pipeAlive) checkNotNull(pipe).retainTarget() else 0L
     }
 
     fun setSurface(surface: Surface?) {

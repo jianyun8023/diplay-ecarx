@@ -114,6 +114,10 @@ pub fn shared_pool() -> &'static Arc<Pool> { BUFFERED_POOL.get_or_init(Pool::new
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetRetain(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
+    retain(handle);
+}
+
+pub unsafe fn retain(handle: jlong) {
     if handle != 0 { packet(handle).refs.fetch_add(1, Ordering::Relaxed); }
 }
 

@@ -63,15 +63,22 @@ internal class VideoStats(
 
     /** The counters a native decode loop kept over the window ([NativeVideoPipe.drainStats]). */
     @Synchronized fun addNative(
-        renderedFrames: Int, recoveryCount: Int, lateFrames: Int, pacingDelay: Long, held: Int, heldMaxNs: Long,
-        decode: IntArray, decodeCount: Int,
+        values: LongArray, decode: IntArray, decodeCount: Int,
     ) {
-        rendered += renderedFrames
-        recoveries += recoveryCount
-        late += lateFrames
-        if (pacingDelay > 0) pacingDelayNanos = pacingDelay
-        heldDecodeSamples += held
-        maxHeldDecodeNs = maxOf(maxHeldDecodeNs, heldMaxNs)
+        rendered += values[0].toInt()
+        recoveries += values[1].toInt()
+        late += values[2].toInt()
+        if (values[3] > 0) pacingDelayNanos = values[3]
+        heldDecodeSamples += values[4].toInt()
+        maxHeldDecodeNs = maxOf(maxHeldDecodeNs, values[5])
+        received += values[6].toInt()
+        bytes += values[7]
+        maxArrivalGapNs = maxOf(maxArrivalGapNs, values[8])
+        idleGaps += values[9].toInt()
+        maxIdleGapNs = maxOf(maxIdleGapNs, values[10])
+        touchSamples += values[11].toInt()
+        touchLatencySumNs += values[12]
+        maxTouchLatencyNs = maxOf(maxTouchLatencyNs, values[13])
         for (i in 0 until decodeCount) if (decodeSamples < decodeMicros.size) decodeMicros[decodeSamples++] = decode[i]
     }
 

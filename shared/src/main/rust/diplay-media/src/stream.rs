@@ -59,6 +59,7 @@ pub struct Callbacks {
     object: jobject,
     on_packet: jmethodID,
     on_config: jmethodID,
+    on_receiving: jmethodID,
     on_log: jmethodID,
     on_report: jmethodID,
     on_ended: jmethodID,
@@ -75,13 +76,14 @@ impl Callbacks {
             object: env.new_global(object),
             on_packet: env.method(class, "onPacket", "(JIIJJ)V"),
             on_config: env.method(class, "onConfig", "([B)V"),
+            on_receiving: env.method(class, "onReceiving", "()V"),
             on_log: env.method(class, "onLog", "(ILjava/lang/String;)V"),
             on_report: env.method(class, "onReport", "(Ljava/lang/String;)V"),
             on_ended: env.method(class, "onEnded", "(Ljava/lang/String;)V"),
         };
         env.delete_local(class);
         let complete = !callbacks.object.is_null() && !callbacks.on_packet.is_null() && !callbacks.on_config.is_null() &&
-            !callbacks.on_log.is_null() && !callbacks.on_report.is_null() && !callbacks.on_ended.is_null();
+            !callbacks.on_receiving.is_null() && !callbacks.on_log.is_null() && !callbacks.on_report.is_null() && !callbacks.on_ended.is_null();
         if complete { Some(callbacks) } else { env.delete_global(callbacks.object); None }
     }
 
@@ -96,6 +98,8 @@ impl Callbacks {
         env.call_void(self.object, self.on_config, &[jvalue { l: array }]);
         env.delete_local(array);
     }
+
+    pub fn receiving(&self, env: Env) { env.call_void(self.object, self.on_receiving, &[]); }
 
     /// Logcat: 0 info, 1 warning.
     pub fn log(&self, env: Env, level: i32, line: &str) {

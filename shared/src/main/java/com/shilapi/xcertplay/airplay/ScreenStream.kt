@@ -32,6 +32,8 @@ class ScreenStream(
     interface Listener {
         fun onCodec(codec: VideoCodec) {}
         fun onConfig(codecData: ByteArray) {}
+        fun onNativeVideoRoute(route: NativeVideoRoute) {}
+        fun onReceiving() {}
         fun onFrame(naluBytes: ByteArray) {}
         /**
          * A frame with the iPhone's frame time ([senderNanos], from the header) and when its body finished
@@ -56,6 +58,7 @@ class ScreenStream(
     private var socket: Socket? = null
     private var thread: Thread? = null
     private val nativeHandle = AtomicLong(0)
+    @Volatile private var nativeRoute: NativeVideoRoute? = null
     @Volatile private var listener: Listener = object : Listener {}
 
     fun listen(listener: Listener): Int {
@@ -77,6 +80,7 @@ class ScreenStream(
     }
 
     private fun stopNative() {
+        nativeRoute?.close()
         val handle = nativeHandle.getAndSet(0)
         if (handle != 0L) NativeMedia.stop(handle)
     }
@@ -131,6 +135,7 @@ class ScreenStream(
             }
 
             override fun onConfig(bytes: ByteArray) = onConfigBody(bytes)
+            override fun onReceiving() { if (!closed.get()) listener.onReceiving() }
 
             override fun onLog(level: Int, line: String) {
                 if (level == 0) Log.i(TAG, line) else Log.w(TAG, line)
@@ -145,8 +150,12 @@ class ScreenStream(
                 if (!closed.get()) listener.onClosed(error?.let(::IOException))
             }
         }
-        val handle = NativeMedia.startVideo(fd, key, callbacks)
+        val route = NativeVideoRoute.create()
+        nativeRoute = route
+        if (route != null) listener.onNativeVideoRoute(route)
+        val handle = if (route != null) route.start(fd, key, callbacks) else NativeMedia.startVideo(fd, key, callbacks)
         if (handle == 0L) {
+            route?.close()
             runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
             return false
         }

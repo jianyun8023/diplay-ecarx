@@ -13,6 +13,7 @@ import com.shilapi.xcertplay.airplay.NativeVideoCallbacks
  * format keys, which surface, when to rebuild) and acts on the pipe's events from its worker.
  */
 internal class NativeVideoPipe private constructor(private val handle: Long) {
+    fun retainTarget(): Long = NativeMedia.pipeRetain(handle)
     /** Takes ownership of [frame]. A Kotlin receiver's frame (packet capture) is copied into a pooled one. */
     fun submit(frame: MediaPacket, senderNanos: Long, arrivalNanos: Long) {
         val native = frame as? NativePacket ?: run {
@@ -60,10 +61,10 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
 
     /** Moves the native five-second counters into [stats]. */
     fun drainStats(stats: VideoStats) {
-        val values = LongArray(6)
+        val values = LongArray(14)
         val decode = IntArray(1024)
         val count = NativeMedia.pipeTakeStats(handle, values, decode)
-        stats.addNative(values[0].toInt(), values[1].toInt(), values[2].toInt(), values[3], values[4].toInt(), values[5], decode, count)
+        stats.addNative(values, decode, count)
     }
 
     fun destroy() = NativeMedia.pipeDestroy(handle)
@@ -79,12 +80,12 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         const val EVENT_LOG = 8
 
         /** Null without the library or before API 28 (no async NDK MediaCodec). */
-        fun create(pacingDelayNanos: Long, onEvent: (Int, String?) -> Unit): NativeVideoPipe? {
+        fun create(pacingDelayNanos: Long, trackTouches: Boolean, onEvent: (Int, String?) -> Unit): NativeVideoPipe? {
             if (!NativeMedia.available || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
             val callbacks = object : NativeVideoCallbacks() {
                 override fun onEvent(kind: Int, detail: String?) = onEvent(kind, detail)
             }
-            return NativeMedia.pipeCreate(callbacks, pacingDelayNanos).takeIf { it != 0L }?.let(::NativeVideoPipe)
+            return NativeMedia.pipeCreate(callbacks, pacingDelayNanos, trackTouches).takeIf { it != 0L }?.let(::NativeVideoPipe)
         }
     }
 }

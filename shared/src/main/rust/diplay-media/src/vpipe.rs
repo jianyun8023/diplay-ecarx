@@ -16,7 +16,7 @@ use crate::jvm::{Attached, Env};
 use crate::ndk::*;
 use crate::pacing::{is_obsolete, BacklogRecovery, FramePacer, PacingDelay};
 use crate::packet;
-use crate::stats::clock;
+use crate::stats::{clock, VideoInputStats};
 use jni_sys::{jboolean, jbyteArray, jclass, jint, jintArray, jlong, jlongArray, jmethodID, jobject, jobjectArray, jstring, jvalue, JNIEnv};
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -103,6 +103,8 @@ struct Inner {
     report_vendor_format: bool,
     requested_size: (i32, i32),
     stats: Stats,
+    input_stats: VideoInputStats,
+    track_touches: bool,
 }
 
 // The codec and window pointers are only used under the lock or by the control thread that owns them.
@@ -338,6 +340,78 @@ fn run_feeder(pipe: Arc<Pipe>) {
 
 unsafe fn pipe<'a>(handle: jlong) -> &'a Arc<Pipe> { &*(handle as *const Arc<Pipe>) }
 
+/// None uses Kotlin's packet callback; an empty list disconnects a replaced/closed receiver.
+pub struct Route(Mutex<Option<Vec<Arc<Pipe>>>>);
+
+impl Route {
+    /// Returns false without consuming the packet when Kotlin must handle it.
+    pub unsafe fn deliver(&self, frame: jlong, size: usize, flags: i32, sender: i64, arrival: i64) -> bool {
+        let targets = self.0.lock().unwrap();
+        let Some(targets) = targets.as_ref() else { return false };
+        for target in targets {
+            packet::retain(frame);
+            submit(target, frame, size, flags, sender, arrival);
+        }
+        packet::release(frame);
+        true
+    }
+}
+
+pub unsafe fn retain_route(handle: jlong) -> Option<Arc<Route>> {
+    (handle != 0).then(|| (&*(handle as *const Arc<Route>)).clone())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRouteCreate(
+    _env: *mut JNIEnv, _class: jclass,
+) -> jlong {
+    Box::into_raw(Box::new(Arc::new(Route(Mutex::new(None))))) as jlong
+}
+
+/// The caller transfers separately retained references, never the worker's original pipe handles.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRouteSetTargets(
+    env: *mut JNIEnv, _class: jclass, handle: jlong, targets: jlongArray,
+) {
+    let count = ((**env).GetArrayLength.unwrap())(env, targets) as usize;
+    let mut handles = vec![0; count];
+    ((**env).GetLongArrayRegion.unwrap())(env, targets, 0, count as i32, handles.as_mut_ptr());
+    let fallback = handles.contains(&0);
+    let pipes: Vec<_> = handles.into_iter().filter(|h| *h != 0)
+        .map(|h| *Box::from_raw(h as *mut Arc<Pipe>)).collect();
+    *(&*(handle as *const Arc<Route>)).0.lock().unwrap() = if fallback { None } else { Some(pipes) };
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRouteDestroy(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+) {
+    let route = Box::from_raw(handle as *mut Arc<Route>);
+    *route.0.lock().unwrap() = Some(Vec::new());
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeRetain(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+) -> jlong { Box::into_raw(Box::new(pipe(handle).clone())) as jlong }
+
+static PENDING_TOUCH_NS: AtomicI64 = AtomicI64::new(0);
+
+#[no_mangle]
+pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoTouchSent(
+    _env: *mut JNIEnv, _class: jclass, sent_at: jlong,
+) { let _ = PENDING_TOUCH_NS.compare_exchange(0, sent_at, Ordering::Relaxed, Ordering::Relaxed); }
+
+#[no_mangle]
+pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoTouchFrame(
+    _env: *mut JNIEnv, _class: jclass, now: jlong,
+) -> jlong { touch_latency(now).unwrap_or(-1) }
+
+fn touch_latency(now: i64) -> Option<i64> {
+    let sent = PENDING_TOUCH_NS.swap(0, Ordering::Relaxed);
+    (sent != 0).then_some(now - sent)
+}
+
 unsafe extern "C" fn on_input(codec: *mut AMediaCodec, user: *mut c_void, index: i32) {
     let pipe = &*(user as *const Pipe);
     let mut inner = pipe.inner.lock().unwrap();
@@ -418,7 +492,7 @@ fn run_events(pipe: Arc<Pipe>, callbacks: jobject, on_event: jmethodID) {
 /// A pipe for one screen stream; `pacing_delay_nanos` > 0 paces frames by the iPhone's frame times.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeCreate(
-    env: *mut JNIEnv, _class: jclass, callbacks: jobject, pacing_delay_nanos: jlong,
+    env: *mut JNIEnv, _class: jclass, callbacks: jobject, pacing_delay_nanos: jlong, track_touches: jboolean,
 ) -> jlong {
     let e = Env(env);
     if set_async_notify_callback().is_none() { return 0; }
@@ -438,6 +512,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
             backlog: BacklogRecovery::default(), frames_since_configure: 0, last_keyframe_request_ns: 0,
             first_input_logged: false, first_frame_sent: false, report_vendor_format: false, requested_size: (0, 0),
             stats: Stats::default(),
+            input_stats: VideoInputStats::default(), track_touches: track_touches != 0,
         }),
         work: Condvar::new(),
         events: Mutex::new((VecDeque::new(), false)),
@@ -667,12 +742,19 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
     _env: *mut JNIEnv, _class: jclass, handle: jlong, frame: jlong, size: jint, flags: jint,
     sender_nanos: jlong, arrival_nanos: jlong,
 ) {
-    let pipe = pipe(handle);
-    pipe.live_received.fetch_add(1, Ordering::Relaxed);
+    if size < 0 || size as usize > packet::size(frame) { packet::release(frame); return; }
+    submit(pipe(handle), frame, size as usize, flags, sender_nanos, arrival_nanos);
+}
+
+unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nanos: i64, arrival_nanos: i64) {
     let now = clock(libc::CLOCK_MONOTONIC);
     let mut events = Vec::new();
     {
         let mut inner = pipe.inner.lock().unwrap();
+        if inner.destroyed { packet::release(frame); return; }
+        pipe.live_received.fetch_add(1, Ordering::Relaxed);
+        let touch = if inner.track_touches { touch_latency(now) } else { None };
+        inner.input_stats.received(size, now, touch);
         if !inner.accepting {
             packet::release(frame);
         } else if flags & FLAG_ANNEX_B == 0 {
@@ -688,7 +770,6 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
                 Some(pacer) if sender_nanos > 0 && arrival_nanos > 0 => pacer.local_time(sender_nanos, arrival_nanos),
                 _ => 0,
             };
-            let size = size as usize;
             if inner.frames.len() >= MAX_FRAMES || inner.frame_bytes + size > MAX_BYTES {
                 // VideoDecodeQueue's overflow: the chain is gone; an unused decoder survives it.
                 inner.drop_frames();
@@ -729,9 +810,13 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeTakeStats(
     env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, decode: jintArray,
 ) -> jint {
-    let stats = std::mem::take(&mut pipe(handle).inner.lock().unwrap().stats);
-    let values = [stats.rendered, stats.recoveries, stats.late, stats.pacing_delay_ns, stats.held_samples, stats.held_max_ns];
-    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 6, values.as_ptr());
+    let (stats, input) = {
+        let mut inner = pipe(handle).inner.lock().unwrap();
+        (std::mem::take(&mut inner.stats), inner.input_stats.take())
+    };
+    let mut values = vec![stats.rendered, stats.recoveries, stats.late, stats.pacing_delay_ns, stats.held_samples, stats.held_max_ns];
+    values.extend(input);
+    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, values.len() as i32, values.as_ptr());
     let count = stats.decode_micros.len().min(((**env).GetArrayLength.unwrap())(env, decode) as usize);
     ((**env).SetIntArrayRegion.unwrap())(env, decode, 0, count as i32, stats.decode_micros.as_ptr());
     count as jint

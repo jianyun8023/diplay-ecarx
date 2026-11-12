@@ -39,7 +39,14 @@ internal object NativeMedia {
      * `airplay-screen` thread. Returns the handle for [stop], or 0 when it could not start (the caller
      * then still owns [fd]).
      */
-    @JvmStatic external fun startVideo(fd: Int, key: ByteArray, callbacks: NativeStreamCallbacks): Long
+    @JvmStatic external fun startVideo(fd: Int, key: ByteArray, callbacks: NativeStreamCallbacks, route: Long = 0L): Long
+
+    @JvmStatic external fun videoRouteCreate(): Long
+    /** Consumes retained pipe handles; any zero selects the packet callback fallback. Empty disconnects. */
+    @JvmStatic external fun videoRouteSetTargets(handle: Long, targets: LongArray)
+    @JvmStatic external fun videoRouteDestroy(handle: Long)
+    @JvmStatic external fun videoTouchSent(sentAtNanos: Long)
+    @JvmStatic external fun videoTouchFrame(nowNanos: Long): Long
 
     /** As [startVideo], for one RTP audio stream on an `airplay-audio-rx` thread at audio priority. */
     @JvmStatic external fun startAudio(fd: Int, key: ByteArray, streamType: Int, callbacks: NativeStreamCallbacks): Long
@@ -66,9 +73,10 @@ internal object NativeMedia {
     @JvmStatic external fun pcmDecodeOpus(handle: Long, packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
     /** Big-endian LPCM bytes copied into the start of the direct [out] as little-endian, or -1. */
     @JvmStatic external fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
-    /** Runs the PCM steps on the first [length] bytes of the direct [buffer]; 1 when sound was detected. */
     /** A screen stream's native decode loop (see `NativeVideoPipe`); 0 when this system cannot run one. */
-    @JvmStatic external fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long): Long
+    @JvmStatic external fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long
+    /** A separately owned reference for a receiver route; survives destruction of the Kotlin pipe handle. */
+    @JvmStatic external fun pipeRetain(handle: Long): Long
     @JvmStatic external fun pipeConfigure(
         handle: Long, name: String?, mime: String, width: Int, height: Int, keys: Array<String>, values: IntArray,
         csd0: ByteArray?, csd1: ByteArray?, surface: android.view.Surface, hevc: Boolean, reportVendorFormat: Boolean,
@@ -128,6 +136,7 @@ internal object NativeMedia {
     @JvmStatic external fun outSetRate(handle: Long, rate: Int): Int
     @JvmStatic external fun outClose(handle: Long)
 
+    /** Runs the PCM steps on the first [length] bytes of the direct [buffer]; 1 when sound was detected. */
     @JvmStatic external fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int
 }
 
@@ -140,6 +149,7 @@ internal object NativeMedia {
 internal abstract class NativeStreamCallbacks {
     abstract fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long)
     open fun onConfig(bytes: ByteArray) {}
+    open fun onReceiving() {}
     /** Logcat: [level] 0 is info, 1 a warning. */
     abstract fun onLog(level: Int, line: String)
     /** A line for the session's diagnostic log (the `Receive:` stats). */
