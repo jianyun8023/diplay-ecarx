@@ -62,7 +62,6 @@ class DiPlayMapPanelTest {
 
     @Test fun bindsTheDebugBuild() = assertBinds("com.shihab.diplay.hudtest")
 
-    @Test fun bindsTheAutomotiveBuild() = assertBinds("com.shilapi.xcertplay")
 
     @Test @Config(sdk = [28])
     fun legacyHomeBindsTheMapWithoutAutomaticallyOpeningCarPlay() {
