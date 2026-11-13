@@ -28,11 +28,12 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_startAu
     let e = Env(env);
     let mut key_bytes = [0u8; 32];
     if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
-    let (Some(stream_key), Some(callbacks)) = (StreamKey::new(&key_bytes), Callbacks::new(e, callbacks)) else { return 0 };
+    let Some(stream_key) = StreamKey::new(&key_bytes) else { return 0 };
+    let Some(callbacks) = Callbacks::new(e, callbacks) else { return 0 };
     let Some(route) = route::retain(route_handle) else { return 0 };
     let capture_wire = route.capture_wire();
     let control = Control::new(fd);
-    stream::spawn("airplay-audio-rx", control, callbacks, move |env, control, callbacks| {
+    stream::spawn(e, "airplay-audio-rx", control, callbacks, move |env, control, callbacks| {
         env.set_thread_priority(THREAD_PRIORITY_AUDIO);
         receive(env, control, callbacks, stream_key, stream_type, route, capture_wire)
     })

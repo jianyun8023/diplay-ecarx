@@ -23,13 +23,14 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_startVi
     let e = Env(env);
     let mut key_bytes = [0u8; 32];
     if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
-    let (Some(stream_key), Some(callbacks)) = (StreamKey::new(&key_bytes), Callbacks::new(e, callbacks)) else { return 0 };
+    let Some(stream_key) = StreamKey::new(&key_bytes) else { return 0 };
+    let Some(callbacks) = Callbacks::new(e, callbacks) else { return 0 };
     let control = Control::new(fd);
     #[cfg(target_os = "android")]
     let route = crate::media::video::vpipe::retain_route(route);
     #[cfg(not(target_os = "android"))]
     let _ = route;
-    stream::spawn("airplay-screen", control, callbacks, move |env, control, callbacks| {
+    stream::spawn(e, "airplay-screen", control, callbacks, move |env, control, callbacks| {
         receive(env, control, callbacks, stream_key, #[cfg(target_os = "android")] route)
     })
 }

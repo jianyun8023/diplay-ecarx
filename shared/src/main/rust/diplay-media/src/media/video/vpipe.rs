@@ -41,12 +41,7 @@ const DECODE_SAMPLES: usize = 1024;
 
 struct Frame { handle: jlong, size: usize, flags: i32, received_ns: i64, local_ns: i64 }
 
-/// What the feeder does with the codec, decided under the lock and carried out outside it.
-enum Action {
-    Feed { index: usize, handle: jlong, size: usize, presentation_us: i64 },
-    Render { index: usize, at_ns: Option<i64> },
-    Drop { index: usize },
-}
+use super::codec_actions::{execute, Action, CodecIo};
 
 #[derive(Default)]
 struct Stats {
@@ -210,7 +205,10 @@ impl Inner {
     }
 
     /// Decides how each decoded picture is released: paced, at once, or not shown (retired codec).
-    fn plan_outputs(&mut self, pipe: &Pipe, now: i64, events: &mut Events, actions: &mut Vec<Action>) {
+    fn plan_outputs(&mut self, pipe: &Pipe, now: i64, actions: &mut Vec<Action>) {
+        // Release/start-failure cleanup clears the codec before waiting for an active batch.
+        // Queued callbacks then belong to teardown, never to a null codec on the next loop.
+        if self.codec.is_null() { return; }
         while let Some((index, info)) = self.outputs.pop_front() {
             let index = index as usize;
             if self.retired { actions.push(Action::Drop { index }); continue; }
@@ -230,15 +228,7 @@ impl Inner {
             }
             if let Some(delay) = plan.pacing_delay { self.stats.pacing_delay_ns = delay; }
             if plan.late { self.stats.late += 1; }
-            actions.push(Action::Render { index, at_ns: plan.render_at });
-            if shown {
-                self.stats.rendered += 1;
-                pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
-                if !self.first_frame_sent {
-                    self.first_frame_sent = true;
-                    events.push((EVENT_FIRST_FRAME, Some(format!("bytes={}", info.size))));
-                }
-            }
+            actions.push(Action::Render { index, at_ns: plan.render_at, shown, bytes: info.size });
         }
     }
 }
@@ -251,7 +241,7 @@ fn run_feeder(pipe: Arc<Pipe>) {
         let now = clock(libc::CLOCK_MONOTONIC);
         let mut events = Vec::new();
         let mut actions = Vec::new();
-        guard.plan_outputs(&pipe, now, &mut events, &mut actions);
+        guard.plan_outputs(&pipe, now, &mut actions);
         guard.plan_feeds(now, &mut events, &mut actions);
         if actions.is_empty() {
             if !events.is_empty() { drop(guard); pipe.post_all(events); guard = pipe.inner.lock().unwrap(); continue; }
@@ -262,37 +252,64 @@ fn run_feeder(pipe: Arc<Pipe>) {
         let codec = guard.codec;
         guard.busy = true;
         drop(guard);
-        let mut oversized = false;
-        for action in actions {
-            unsafe {
-                match action {
-                    Action::Feed { index, handle, size, presentation_us } => {
-                        let mut capacity = 0usize;
-                        let input = AMediaCodec_getInputBuffer(codec, index, &mut capacity);
-                        if input.is_null() || size > capacity {
-                            AMediaCodec_queueInputBuffer(codec, index, 0, 0, 0, 0);
-                            oversized = true;
-                        } else {
-                            std::ptr::copy_nonoverlapping(packet::bytes(handle).as_ptr(), input, size);
-                            AMediaCodec_queueInputBuffer(codec, index, 0, size, presentation_us as u64, 0);
-                        }
-                        packet::release(handle);
-                    }
-                    Action::Render { index, at_ns: Some(at) } => { AMediaCodec_releaseOutputBufferAtTime(codec, index, at); }
-                    Action::Render { index, at_ns: None } => { AMediaCodec_releaseOutputBuffer(codec, index, true); }
-                    Action::Drop { index } => { AMediaCodec_releaseOutputBuffer(codec, index, false); }
-                }
-            }
-        }
+        let result = execute(&mut NdkCodec(codec), actions);
         guard = pipe.inner.lock().unwrap();
         guard.busy = false;
         pipe.work.notify_all();
-        if oversized && guard.codec == codec {
-            guard.recover("video frame exceeded codec input capacity", false, clock(libc::CLOCK_MONOTONIC), &mut events);
+        if guard.codec == codec {
+            for bytes in result.rendered {
+                guard.stats.rendered += 1;
+                pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
+                if !guard.first_frame_sent {
+                    guard.first_frame_sent = true;
+                    events.push((EVENT_FIRST_FRAME, Some(format!("bytes={bytes}"))));
+                }
+            }
+            if let Some(error) = result.failure {
+                // Use the same codec-failure path as the asynchronous callback, including Kotlin's
+                // existing fallback policy. Do not report a second error if that callback won.
+                if !guard.retired {
+                    guard.retired = true;
+                    events.push((EVENT_CODEC_ERROR, Some(error)));
+                }
+            } else if result.oversized {
+                guard.recover("video frame exceeded codec input capacity", false, clock(libc::CLOCK_MONOTONIC), &mut events);
+            }
         }
         if !events.is_empty() { drop(guard); pipe.post_all(events); guard = pipe.inner.lock().unwrap(); }
     }
     drop(guard);
+}
+
+/// NDK calls stay outside the pipe lock. A failed batch is retired before another is planned.
+struct NdkCodec(*mut AMediaCodec);
+
+impl CodecIo for NdkCodec {
+    fn feed(&mut self, index: usize, handle: jlong, size: usize, presentation_us: i64) -> Result<bool, String> {
+        unsafe {
+            let mut capacity = 0;
+            let input = AMediaCodec_getInputBuffer(self.0, index, &mut capacity);
+            if input.is_null() { return Err("getInputBuffer returned null".into()); }
+            let oversized = size > capacity;
+            if !oversized { std::ptr::copy_nonoverlapping(packet::bytes(handle).as_ptr(), input, size); }
+            let status = AMediaCodec_queueInputBuffer(self.0, index, 0,
+                if oversized { 0 } else { size }, if oversized { 0 } else { presentation_us as u64 }, 0);
+            if status != AMEDIA_OK { return Err(status_text("queueInputBuffer", status)); }
+            Ok(oversized)
+        }
+    }
+
+    fn output(&mut self, index: usize, render: bool, at_ns: Option<i64>) -> Result<(), String> {
+        let (phase, status) = unsafe {
+            match at_ns {
+                Some(at) => ("releaseOutputBufferAtTime", AMediaCodec_releaseOutputBufferAtTime(self.0, index, at)),
+                None => ("releaseOutputBuffer", AMediaCodec_releaseOutputBuffer(self.0, index, render)),
+            }
+        };
+        if status == AMEDIA_OK { Ok(()) } else { Err(status_text(phase, status)) }
+    }
+
+    fn release_packet(&mut self, handle: jlong) { unsafe { packet::release(handle) }; }
 }
 
 unsafe fn pipe<'a>(handle: jlong) -> &'a Arc<Pipe> { &*(handle as *const Arc<Pipe>) }
@@ -419,8 +436,16 @@ unsafe extern "C" fn on_error(codec: *mut AMediaCodec, user: *mut c_void, error:
 }
 
 /// Delivers events to Kotlin in order on an attached thread, until the pipe is destroyed.
-fn run_events(pipe: Arc<Pipe>, callbacks: jobject, on_event: jmethodID) {
-    let Some(attached) = Attached::current("carplay-video-events") else { return };
+fn run_events(pipe: Arc<Pipe>, callbacks: jobject, on_event: jmethodID, ready: std::sync::mpsc::SyncSender<bool>) {
+    let Some(attached) = Attached::current("carplay-video-events") else {
+        // Creator still owns the global reference until attachment succeeds.
+        let _ = ready.send(false);
+        return;
+    };
+    if ready.send(true).is_err() {
+        attached.env.delete_global(callbacks);
+        return;
+    }
     let env = attached.env;
     loop {
         let next = {
@@ -471,10 +496,17 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
         live_decode_samples: AtomicI64::new(0),
     });
     let global = e.new_global(callbacks) as usize;
+    if global == 0 { e.clear_exception(); return 0; }
     let thread_pipe = pipe.clone();
     let mid = on_event as usize;
-    if std::thread::Builder::new().name("carplay-video-events".into())
-        .spawn(move || run_events(thread_pipe, global as jobject, mid as jmethodID)).is_err() {
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+    let event_thread = match std::thread::Builder::new().name("carplay-video-events".into())
+        .spawn(move || run_events(thread_pipe, global as jobject, mid as jmethodID, ready_tx)) {
+        Ok(thread) => thread,
+        Err(_) => { e.delete_global(global as jobject); return 0; }
+    };
+    if ready_rx.recv() != Ok(true) {
+        let _ = event_thread.join();
         e.delete_global(global as jobject);
         return 0;
     }
@@ -482,6 +514,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
     if std::thread::Builder::new().name("carplay-video-feed".into()).spawn(move || run_feeder(feeder)).is_err() {
         pipe.events.lock().unwrap().1 = true;
         pipe.wake.notify_one();
+        let _ = event_thread.join();
         return 0;
     }
     Box::into_raw(Box::new(pipe)) as jlong
@@ -576,7 +609,16 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCon
     AMediaFormat_delete(format);
     let started = if configured == AMEDIA_OK { AMediaCodec_start(codec) } else { configured };
     if started != AMEDIA_OK {
-        pipe.inner.lock().unwrap().codec = std::ptr::null_mut();
+        {
+            let mut inner = pipe.inner.lock().unwrap();
+            inner.codec = std::ptr::null_mut();
+            inner.retired = true;
+            // A vendor may have delivered callbacks before start returned an error.
+            // Do not delete a codec while its feeder still owns an in-flight call.
+            while inner.busy { inner = pipe.work.wait(inner).unwrap(); }
+            inner.inputs.clear();
+            inner.outputs.clear();
+        }
         AMediaCodec_delete(codec);
         ANativeWindow_release(window);
         set_detail(status_text(if configured != AMEDIA_OK { "configure" } else { "start" }, started));

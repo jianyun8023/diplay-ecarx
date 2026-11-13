@@ -194,9 +194,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_buffere
     let e = Env(env);
     let mut bytes = [0u8; 32];
     if handle == 0 || fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut bytes) { return 0; }
-    let (Some(key), Some(callbacks)) = (StreamKey::new(&bytes), Callbacks::new(e, callbacks)) else { return 0 };
+    let Some(key) = StreamKey::new(&bytes) else { return 0 };
+    let Some(callbacks) = Callbacks::new(e, callbacks) else { return 0 };
     let owner = owner(handle).clone();
-    stream::spawn("airplay-buffered-rx", Control::new(fd), callbacks, move |env, control, callbacks| {
+    stream::spawn(e, "airplay-buffered-rx", Control::new(fd), callbacks, move |env, control, callbacks| {
         let Some(fd) = control.socket() else { return };
         let pool = shared_pool().clone();
         let (mut received_bytes, mut failures) = (0u64, 0u64);

@@ -134,7 +134,7 @@ class ShadowNativeCrypto {
 }
 
 @Implements(className = "com.shihab.diplay.airplay.NativeMedia", isInAndroidSdk = false, callNativeMethodsByDefault = true)
-class ShadowNativeMedia {
+open class ShadowNativeMedia {
     @Implementation fun getAvailable(): Boolean = HostNative.requireCore()
     @Implementation fun requireAvailable() { HostNative.requireCore() }
     @Implementation fun getLoadError(): Throwable? { HostNative.requireCore(); return null }
