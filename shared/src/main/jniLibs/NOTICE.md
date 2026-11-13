@@ -62,7 +62,7 @@ It owns audio receiver-to-renderer routing, AAC/PCM processing, output schedulin
 video timing/queues/codec policy, incremental playback state, hotspot address/readiness and Wi-Fi Direct retry policy,
 AirPlay info/control/video field schemas and Bonjour publication policy, HID/touch slots,
 EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
-Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path stays default-off. It is built from
+Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path is attempted by default unless explicitly disabled; if it cannot start, the Java I/O adapter still uses the Rust NCM core. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
 There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
@@ -71,14 +71,14 @@ Build it from the repository root with
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. Gradle APK builds still package
 the checked-in Android libraries. The Android checks workflow runs `scripts/check_rust_android_native.sh`
 on every pull request and `main`／`dev` push: it cross-compiles both ABIs with the pinned Rust／NDK versions,
-checks ELF architecture, the 491 Java JNI exports, `JNI_OnLoad` and identical JNI export sets, then stages
+checks ELF architecture, the 494 Java JNI exports, `JNI_OnLoad` and identical JNI export sets, then stages
 the freshly built libraries for Debug／Release APK packaging. The pair and source revision are retained as
 an Actions artifact. Checked-in hashes below identify the repository copies, not necessarily the CI-built
 APK payload; byte-level equality across build hosts is not required. `cargo test` in this directory runs the host tests. Both shipped ABIs were rebuilt on
 2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
 uncommitted migration batch based on `0c4820ae702eaadd2b7f422f38a4a1fa44771d27`; that base commit alone does not
 contain this batch. Its source manifest SHA-256 is
-`da94e9f0fd3a6e2fc48fb7ad3a1513f291798a739db7c261f8f2f42b74f2774d`.
+`972e96a60cd7f5222739fea69c2ab56e32770d55267f816be8a77b1433bf3ce5`.
 The digest is SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
 for the crate's Rust sources, manifests/lockfile, toolchain pin, build script and any crate Cargo configuration:
 
@@ -90,15 +90,15 @@ rg --files --hidden shared/src/main/rust/diplay-media \
 ```
 
 The source manifest was unchanged before and after rebuilding. The hashes below identify that build;
-each ABI exports the same 491 Java JNI methods plus JNI_OnLoad. ELF headers identify AArch64/ARM respectively,
+each ABI exports the same 494 Java JNI methods plus JNI_OnLoad. ELF headers identify AArch64/ARM respectively,
 and both Android identification notes record API 28 (`0x1c`) and NDK r28c build `13676358`.
 A required-core load failure is explicit. Real SDK capability fallback, such as AudioTrack when AAudio cannot open,
 remains platform behavior; there is no production Kotlin protocol/DSP substitute.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1949032 | `25744c462ac3e43751264dd5a476cfe8fdb5ed220cac2f1e79e833b5a81bc228` |
-| armeabi-v7a | libdiplay_media.so | 1319204 | `130eeaef17712420726f5be4b99f6b8e4cefe7a24a49f3867a424ea11a4ec342` |
+| arm64-v8a | libdiplay_media.so | 1951888 | `bd0cf3a71b5ab898979da5bbb13e522a599f72f113f822dca666532fc9770c93` |
+| armeabi-v7a | libdiplay_media.so | 1320948 | `8022ba444df2be6f68d43a302bd97617cdf6f2c4eecfdd64666c0986a1d1e609` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

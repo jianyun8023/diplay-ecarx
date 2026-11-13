@@ -35,6 +35,7 @@ class EcarxAdaptapiAbiTest {
             fun type(name: String): Class<*> = Class.forName(name, false, loader)
             val int = Int::class.javaPrimitiveType!!
             val boolean = Boolean::class.javaPrimitiveType!!
+            val float = Float::class.javaPrimitiveType!!
             val string = String::class.java
             val dim = type(EcarxCapabilities.DIM_INTERACTION)
             val navi = type(EcarxCapabilities.NAVI_INTERACTION)
@@ -86,6 +87,30 @@ class EcarxAdaptapiAbiTest {
             expect(dayNight, "getDayNightMode")
             expect(dayNight, "registerDayNightModeCallBack", dayNightCallback)
             expect(dayNight, "unregisterDayNigntModeCallBack", dayNightCallback)
+            // EcarxVehicleSpeedSource (PASCD wheel speed + selected gear)
+            val car = type(EcarxCapabilities.CAR)
+            val iCar = type("com.ecarx.xui.adaptapi.car.ICar")
+            val sensor = type("com.ecarx.xui.adaptapi.car.sensor.ISensor")
+            val sensorListener = type("com.ecarx.xui.adaptapi.car.sensor.ISensor\$ISensorListener")
+            val functionStatus = type("com.ecarx.xui.adaptapi.FunctionStatus")
+            val connectable = type("com.ecarx.xui.adaptapi.binder.IConnectable")
+            val connectWatcher = type("com.ecarx.xui.adaptapi.binder.IConnectable\$IConnectWatcher")
+            expect(car, "create", Context::class.java)
+            expect(iCar, "getSensorManager")
+            expect(sensor, "isSensorSupported", int)
+            expect(sensor, "getSensorLatestValue", int)
+            expect(sensor, "registerListener", sensorListener, int)
+            expect(sensor, "registerListener", sensorListener, int, int)
+            expect(sensor, "unregisterListener", sensorListener)
+            expect(sensorListener, "onSensorValueChanged", int, float)
+            expect(sensorListener, "onSensorSupportChanged", int, functionStatus)
+            expect(connectable, "registerConnectWatcher", connectWatcher)
+            expect(connectable, "unregisterConnectWatcher")
+            expect(connectWatcher, "onConnected")
+            expect(connectWatcher, "onDisConnected")
+            for (status in listOf("active", "notactive", "notavailable", "error")) {
+                if (runCatching { functionStatus.getField(status) }.isFailure) missing += "FunctionStatus.$status"
+            }
             // AudioDiagnosticSnapshot
             expect(audio, "create", Context::class.java)
             expect(audio, "getAudioState")

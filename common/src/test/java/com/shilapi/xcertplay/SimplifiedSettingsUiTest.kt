@@ -152,8 +152,8 @@ class SimplifiedSettingsUiTest {
         assertFalse(rebuilt.single { it.contentDescription == map.contentDescription }.isChecked)
     }
 
-    @Test fun nativeWiredPathIsOptInAndSurvivesSettingsBackup() {
-        assertFalse(AirPlayPersistence.loadNativeWiredDataPath(activity))
+    @Test fun nativeWiredPathDefaultsOnAndPreservesOptOutInSettingsBackup() {
+        assertTrue(AirPlayPersistence.loadNativeWiredDataPath(activity))
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(DiPlayPalette.DARK.surface)
@@ -164,14 +164,14 @@ class SimplifiedSettingsUiTest {
         val control = views(root).filterIsInstance<android.widget.Switch>().single {
             it.contentDescription == activity.getString(R.string.settings_native_wired_data_path)
         }
-        assertFalse(control.isChecked)
+        assertTrue(control.isChecked)
         screenshot(root, "native-wired-data-path")
         control.performClick()
-        assertTrue(AirPlayPersistence.loadNativeWiredDataPath(activity))
+        assertFalse(AirPlayPersistence.loadNativeWiredDataPath(activity))
         val backup = com.shilapi.xcertplay.backup.SettingsBackupCodec.export(activity, "test")
-        AirPlayPersistence.saveNativeWiredDataPath(activity, false)
+        AirPlayPersistence.saveNativeWiredDataPath(activity, true)
         assertFalse(com.shilapi.xcertplay.backup.SettingsBackupCodec.import(activity, backup).invalid)
-        assertTrue(AirPlayPersistence.loadNativeWiredDataPath(activity))
+        assertFalse(AirPlayPersistence.loadNativeWiredDataPath(activity))
     }
 
     @Test @Config(sdk = [28]) fun carHotspotBootSwitchSavesWithoutAdb() {

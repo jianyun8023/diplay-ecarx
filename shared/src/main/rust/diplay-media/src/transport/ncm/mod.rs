@@ -2,7 +2,8 @@
 //! over `NcmUsbBridge`'s bulk transfers): NTB16 framing, the Ethernet II header, the neighbor
 //! advertisement fix-up and the traffic counters, ported one to one from `Ntb16Codec`,
 //! `EthernetIpv6Codec`, `NcmTrafficCounter` and the bridge's reassembly and resync. The engine that
-//! moves the bytes ([crate::transport::ncm::engine]) is off by default until a wired test confirms it.
+//! moves the bytes ([crate::transport::ncm::engine]) is attempted by default; an explicit opt-out or
+//! startup failure keeps Kotlin USB/tun I/O over this core.
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub mod engine;

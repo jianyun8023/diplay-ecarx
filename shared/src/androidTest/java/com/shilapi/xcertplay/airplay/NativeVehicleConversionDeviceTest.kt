@@ -23,6 +23,7 @@ import org.junit.Test
 
 /** Exercises the new input/vehicle/output-accounting JNI owners against their Kotlin contracts. */
 class NativeVehicleConversionDeviceTest {
+    @Test fun realWheelSpeedBatchContract() = com.shilapi.xcertplay.transport.VehicleSpeedCoreContract.verify()
     @Test fun touchSlotsKeepOneFingerPerSlotAndReleaseWhereItWas() {
         assertTrue(NativeMedia.available)
         val handle = NativeTouchSlots.create(2)

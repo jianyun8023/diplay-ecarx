@@ -50,7 +50,13 @@ object PascdEncoder {
 
 /** The native `$PASCD` encoder; [VehicleGear.ordinal] is the wire gear index (P/R/N/D). */
 internal object NativeVehicleSpeed {
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun pascdEncode(gear: Int, formattedParts: Array<String>): String?
+    /** Opaque GC value: only Rust interprets the retained gear/samples. */
+    @JvmStatic external fun speedGear(state: LongArray, gear: Int): LongArray
+    @JvmStatic external fun speedSample(state: LongArray, elapsedMillis: Long, metersPerSecond: Double): LongArray
+    /** Snapshot DTO: gear ordinal followed by timestamp-millis / m/s pairs. */
+    @JvmStatic external fun speedSnapshot(state: LongArray): DoubleArray
 }
 
 /**
@@ -80,7 +86,7 @@ class VehicleSpeedLocationProvider(
 
     override fun start(): Boolean {
         val started = position.start()
-        if (speedRequested) speed.start()
+        if (speedRequested) speed.start() else speed.stop()
         return started || speedRequested
     }
 

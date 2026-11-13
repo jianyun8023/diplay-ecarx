@@ -1,7 +1,8 @@
 //! Moves the wired link's bytes (Kotlin's `NativeNcmBridge`): bulk IN → NTB16 → Ethernet → IPv6 →
 //! tun, and tun → Ethernet → NTB16 → bulk OUT, on two threads with synchronous usbdevfs transfers on
 //! a duplicate of the claimed `UsbDeviceConnection` fd. Kotlin keeps the interface claim, the status
-//! endpoint, the VPN and the lifecycle. Off by default (Advanced setting) until a wired test confirms it.
+//! endpoint, the VPN and the lifecycle. Enabled by default, with an Advanced setting opt-out and
+//! a Kotlin I/O fallback when the engine cannot start.
 
 use crate::platform::jvm::Env;
 use super::{ethernet_frame, fix_neighbor_advertisement, ipv6_payload, multicast_mac, ntb16_build, Drained, Reassembler, Traffic};

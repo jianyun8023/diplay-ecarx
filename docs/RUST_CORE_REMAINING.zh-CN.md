@@ -81,7 +81,7 @@ API 28 首轮 49 项中两项暴露 Android／桌面平台差异：Regex 数字�
 | 无线首次连接、radio 休眠／唤醒、热点／P2P／Bonjour 与 IPv4／IPv6 family recovery 的组合互通 | 实车真实 radio／AP 与 iPhone 重现连接、断开、回车唤醒与重试；保存包含版本和代际的日志 |
 | 双屏／HUD／仪表／HID 与 Surface／codec 切换的实车组合验收 | 目标显示和输入设备就绪，完成实际输出及操作回归 |
 | R8 优化发布包的实际运行（部分完成） | 小米 8 已完成下述 v149 正式 Release 包的无线会话／主屏／音频运行，AAudio 最小修复已完成独立设备验收；真实 CarPlay 修后重放、实车及目标 SDK／组合场景仍待验收 |
-| PASCD／VehicleSpeedLocationProvider 的真实生产车速装配 | 提供并登记可用 SDK／车辆信号源及单位、权限和更新合同，再接已有 Rust 编码入口；当前没有生产源，不能猜测接口 |
+| PASCD 真实车速装配 | 已接入 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION`，`EcarxVehicleSpeedSource` 驱动既有 Rust PASCD 编码；接口／单位／权限已在平台笔记登记。仍需目标车实车验证订阅、权限、断线恢复与单位 |
 | ECARX 真实 SDK 方法／签名 ABI | 提供含真实 JVM `.class`、可加载的 SDK class JAR 后运行现有 ABI 测试，或另行核验真实 DEX 的类型／方法签名；只有 `classes.dex` 的候选 JAR 不能直接用于 URLClassLoader 合同 |
 | 外部完整 PairVerify／PairSetup transcript、更多真实 CSM／HUD 固定输入输出 | 取得可公开登记来源的独立固定样本；现有数学参考／旧实现差分继续使用，不虚称外部 golden |
 
@@ -140,3 +140,23 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 ### 本次验收边界
 
 本次已补充正式 Release／R8 包在小米 8 上的实际无线认证、会话、主屏首帧和音频切换运行证据，并完成 AAudio 最小修复后的独立设备验收。详细 FPS、长期掉帧、听感及长会话尚未验收；副屏只有流接收证据，没有渲染证据。实车、真实 ECARX SDK ABI、USB NCM、车机音路／AEC 和组合恢复仍按前表暂挂条件恢复验收。修复后的真实 CarPlay／Release 场景重放仍待 iPhone 可用后进行，不以独立设备音频测试替代。
+
+## 2026-11-13：NCM 原生路径默认选择
+
+有线 `CarPlayVpnService.attach` 与设置／诊断的 `AirPlayPersistence.loadNativeWiredDataPath` 对同一 `native_wired_data_path` 偏好均默认读取为开启；已有显式关闭和备份恢复后的关闭选择继续有效，不新增偏好或迁移用户选择。
+
+默认尝试 `NcmUsbBridge.startNative` 的 USB／TUN FD 原生转发；已有 Java 读取、FD 能力或引擎启动条件不满足时仍使用 Kotlin USB／TUN I/O 适配。两条路径的 NCM framing／路由核心都在 Rust，能力回退不恢复旧协议算法。真实 USB 主机拓扑、车机驱动、拔插／重连和性能仍须目标硬件验收，不以默认开启代替验收。
+
+新增实际 attach 事务合同覆盖未保存偏好、显式关闭、原生启动失败后沿用同一 TUN，以及交接后失败的资源关闭；设置合同覆盖默认开启及显式关闭的备份恢复。执行结果待本批源码冻结后的统一验证登记，历史默认关闭的台架记录保持原样。
+
+## 2026-11-13：PASCD 真实车速装配点
+
+此前 PASCD 只有 Rust 编码入口（`vehicle::vehicle_speed`）而没有生产车速来源。本轮接入并登记了真实来源，不再用 GPS 速度或模拟值代替：
+
+- 车速：ECARX AdaptAPI `Car.create(context)` → `ICar.getSensorManager()` → `ISensor` 的 `SENSOR_TYPE_CAR_SPEED = 1048832`；`isSensorSupported` 为 `active` 后读取 `getSensorLatestValue`，单位 m/s（SDK `SensorPaUtil` 将 `PaNaviVehSpeed` 原始值除以 100，合法 0–125 m/s），并 `registerListener(..., RATE_NORMAL=3)` 订阅变化。
+- 挡位：Android VHAL `GEAR_SELECTION = 289408000`（global area 0、Integer、on-change），只接受 `CarPropertyValue.getStatus() == 0`；`CarSensorEvent` 的 P=4／R=2／N=1／D=8。AdaptAPI 的 `SENSOR_TYPE_GEAR = 2097664` 在本固件 `SensorImpl`／`SensorListener` 未实现，因此不作备用来源。
+- 权限：声明并检查 `android.car.permission.CAR_POWERTRAIN`（平台签名）；接口／权限缺失时保留 Android 位置，不向 iPhone 声明 wheel-speed。
+
+`EcarxVehicleSpeedSource`（`shared/.../hud`）把上述只读信号按挡位归集为采样，交给既有 `VehicleSpeedLocationProvider` → Rust `NativeVehicleSpeed` 的 `speedGear／speedSample／speedSnapshot`，仍由 Rust 编码 `$PASCD`。`CarPlayHostActivity` 仅在“向 iPhone 报告位置”开启且 `EcarxVehicleSpeedSource.supported()` 为真时装配；iPhone 停止请求车速时停止车辆信号订阅。服务断开时清空未发送批次，重连后恢复采样（不把旧值当作当前车况）。
+
+验证：Rust `vehicle::vehicle_speed` 单测 5 项（批量、挡位不混淆、非法值／时钟、上限 512 对）；JVM `VehicleSpeedCoreTest`／`NativeVehicleConversionDeviceTest.realWheelSpeedBatchContract` 走真实 host JNI 覆盖 `speedGear／speedSample／speedSnapshot`；`EcarxVehicleSpeedSourceTest`（Robolectric）覆盖订阅、P/R/N/D 映射、未知／错误挡位丢弃、断线恢复与停用回退；双 ABI 均导出 494 个 Java JNI 方法（原 491 加新增 `speedGear／speedSample／speedSnapshot`）。真实车机的单位、权限、断线与组合场景仍属本表“PASCD 真实车速装配”的实车验收，不用台架结果替代。

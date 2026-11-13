@@ -120,7 +120,7 @@ ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" scripts/check_rust_android_na
 ```
 
 The check builds both libraries into a temporary output directory, validates ELF architecture,
-the 491 Java JNI exports, `JNI_OnLoad`, and identical JNI export sets across ABIs. CI then stages
+the 494 Java JNI exports, `JNI_OnLoad`, and identical JNI export sets across ABIs. CI then stages
 those freshly built libraries into `shared/src/main/jniLibs` before building the Debug and Release
 APKs, and retains the pair plus source revision as an Actions artifact. It does not require
 byte-for-byte equality with the checked-in copies: build-host metadata can differ even when the

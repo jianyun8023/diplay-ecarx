@@ -119,7 +119,7 @@ class NcmUsbBridge internal constructor(
             ?: traffic.connectionAttemptSince(port, sinceNanos)
 
     /**
-     * Hands both directions of the data link to `libdiplay_media` (experimental, off by default): bulk
+     * Hands both directions of the data link to `libdiplay_media` (the default wired data path): bulk
      * IN/OUT and [tun] then never pass through Java. Call before any [recv]: a queued Java read would take
      * the engine's data. False when the engine cannot start; the caller then bridges in Kotlin.
      */
@@ -338,7 +338,7 @@ class NcmUsbBridge internal constructor(
     }
 
     companion object {
-        /** The app's preferences file and the key of the experimental native wired data path (off by default). */
+        /** The app's preferences file and the key of the native wired data path (enabled unless explicitly disabled). */
         const val NATIVE_DATA_PATH_PREFS = "xcertplay_airplay"
         const val NATIVE_DATA_PATH_KEY = "native_wired_data_path"
 

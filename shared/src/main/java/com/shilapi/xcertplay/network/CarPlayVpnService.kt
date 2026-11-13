@@ -141,7 +141,7 @@ class CarPlayVpnService : VpnService() {
             tun = tunFd
 
             val nativePath = getSharedPreferences(NcmUsbBridge.NATIVE_DATA_PATH_PREFS, MODE_PRIVATE)
-                .getBoolean(NcmUsbBridge.NATIVE_DATA_PATH_KEY, false) &&
+                .getBoolean(NcmUsbBridge.NATIVE_DATA_PATH_KEY, true) &&
                 ncm.startNative(tunFd, hostMac, { line -> runCatching { listener.onDebugLog(line) } }) { error ->
                     onTransportError(generation, callbacks, error)
                 }
