@@ -106,7 +106,7 @@ class SoftwareOpusEncoderTest {
     @Test
     fun bundledRustEncoderProducesDecodablePackets() {
         MicrophoneOpusEncoders.createSoftware(48_000).use { encoder ->
-            assertEquals("opus-pure", encoder.implementation)
+            assertEquals("libopus", encoder.implementation)
             val packet = encoder.encode(toneFrame(0)).single()
             val pcm = ShortArray(960)
             assertEquals(960, OpusDecoder(48_000, 1).decode(packet, 0, packet.size, pcm, 0, 960, false))

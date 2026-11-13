@@ -123,7 +123,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 原 public owner 保持可达，私有字段及 JNI 子模块不因搬迁扩大权限。Android／Linux receiver、stream、NCM engine 与 Android-only NDK／vpipe 保留各自 cfg；纯算法和 AAudio 状态仍可 host 编译。NCM engine 沿用媒体 stats 的 clock，不为目录整理新增通用时间层。
 
 全部 owner 继续编入同一库，无额外应用运行时；必要密码依赖由 Cargo.lock 锁定，许可证保存在 docs/licenses。bplist 保留 32 层解码与工作／载荷预算，生产与测试参考编码统一限制为 128 层；Java 类型／畸形 UTF-16 替换留在 JNI 平台边界。导航两个进程级输出各持独立 owner，Kotlin 仅提供时钟、当前会话存活和 SDK 输出。
-- Opus 由 [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3) 编解码，编进同一 `.so`；不再携带预编译的 `libopus.so` 与其 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
+- Opus 由 [libopus](https://github.com/xiph/opus)（经 [libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3) 的 bundled 源码静态链接）编解码，编进同一 `.so`；不再携带单独的 `libopus.so` 与 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
   2026-11-12 扩展设备回归发现的 Opus 失败已定位为 JNI 误将 120 ms／7662 字节上限用于验证 Kotlin 的 20 ms／1275 字节缓冲；现统一为单帧上限，并保留原码率／VoIP 校准。AAudio 旧后端不遵守正超时值的时长，一次阻塞排空曾耗时 6.9 秒；旧测试提前启动 5 秒播放等待导致误报，现从首次阻塞提交完成后计时，仍严格验证全部帧播放，未改变生产缓冲或重采样。最终设备结果与旧库对照见 issue #96 和[实验记录](benchmarks/native-media-2026-11-12.md)；台架不能替代 iPhone 互通与实车听感验收。
 - 构建：Rust 1.97.1、NDK r28、`aarch64-linux-android` 与 `armv7-linux-androideabi`、最低 API 28；`build.sh` 从 `CARGO_TARGET_DIR`（缺省 `target`）复制产物，再把 `.so` 检入 `shared/src/main/jniLibs/`。普通本地 APK 构建使用检入的 Android 库。GitHub Actions 在每次 PR 及 `main`／`dev` push 中运行 `scripts/check_rust_android_native.sh`：用固定工具链重编两个 ABI，校验 ELF 架构、494 个 Java JNI 导出、`JNI_OnLoad` 及两 ABI 符号一致性；将本次生成的 `.so` 暂存后再构建 Debug／Release APK，并保留原生库与源码 revision artifact。CI 不依赖检入 `.so` 的跨主机字节相等；本地修改 Rust 后仍需运行 `build.sh` 更新本地 APK 使用的库。JVM 测试另构建并加载真实 host JNI，CI 也执行 `cargo test --locked --lib`。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。
 - 第三方许可写进 `shared/src/main/jniLibs/NOTICE.md` 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
@@ -180,7 +180,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 | 路径 | 目标 |
 | --- | --- |
 | 视频 | Rust：`recv` 进池化缓冲 → 原地开封 → 原地 AVCC→Annex B、解析 NAL 类型 → route 直接分发至解码队列 → NDK `AMediaCodec` 异步循环。关键帧门控、输入背压恢复、按 iPhone 帧时间的节拍与统计在 Rust；`VideoDecoder` 的 worker 处理配置、Surface、镜像、停放与 Rust 发来的事件（要关键帧、要解码器、重建、出错）。无原生 pipe 的目标保留句柄回调路径。 |
-| UDP 音频 | Rust 接收、开封并默认直入 renderer Rust 队列；诊断 wiretap 保留原生包句柄交付。Opus 用 opus-pure 解码；AAC 保留系统 MediaCodec；LPCM 字节序、通话高通、有声检测、导航衰减与淡入在 Rust 处理。音乐和导航的 usage 路径尝试 AAudio；通话、Siri、旧式流类型及打开失败时使用 `AudioTrack`。 |
+| UDP 音频 | Rust 接收、开封并默认直入 renderer Rust 队列；诊断 wiretap 保留原生包句柄交付。Opus 用 libopus 解码；AAC 保留系统 MediaCodec；LPCM 字节序、通话高通、有声检测、导航衰减与淡入在 Rust 处理。音乐和导航的 usage 路径尝试 AAudio；通话、Siri、旧式流类型及打开失败时使用 `AudioTrack`。 |
 | 缓冲音乐 | Rust 读长度前缀、开封并直接入有界队列，拥有锚点、SETRATE／FLUSH、暂停预填保留、填充节奏与 TCP 回压；Android worker 拉取核心发送步骤，串行执行平台开始／交付／停止。 |
 | 麦克风 | Kotlin 保留 `AudioRecord` 采集、音效会话与原有 Speex C/JNI 回声处理。可共享 socket FD 时 Rust 编码／RTP／封装／发送；不能共享时 Java DatagramSocket 执行发送，编码、packetizer 和密码仍要求 Rust。 |
 | 有线 | Kotlin 保留 USB 接口认领、VPN 与生命周期。未保存过原生数据通路选择时，默认尝试 Rust usbdevfs 同步 bulk、NTB16 重组、邻居通告修补与 tun 转发；显式关闭或原生引擎无法启动时使用 Java USB／tun I/O 适配，NCM framing／路由核心仍由 Rust 执行。 |
@@ -193,10 +193,10 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 | --- | --- | --- |
 | 0 | 基线：60 fps 会话 + 音乐，记录各线程与整进程 CPU、每包接收耗时、恢复次数 | 两轮可复现的数字 |
 | 1 | 接收与开封：视频、UDP 音频、缓冲音乐；池化包句柄，解码器从包直接拷入输入缓冲 | 接收线程每包 CPU 下降；包无泄漏（`pooled` 稳定）；无新增恢复、欠载 |
-| 2 | 音频解码与 PCM 处理（opus-pure、LPCM、PCM 步骤；AAC 输出经直接缓冲） | 与 Kotlin 实现同一黄金向量；Siri 走原生 Opus；导航衰减、通话路由、焦点不变 |
+| 2 | 音频解码与 PCM 处理（libopus、LPCM、PCM 步骤；AAC 输出经直接缓冲） | 与 Kotlin 实现同一黄金向量；Siri 走原生 Opus；导航衰减、通话路由、焦点不变 |
 | 3 | 视频解码循环：NDK `AMediaCodec` 异步模式，回调只排队、专用喂帧线程调用编解码器；Rust 内节拍、关键帧门控与背压恢复 | `MediaCodec_loop` 与解码线程 CPU 下降；首帧、恢复、Surface 切换与停放行为不变 |
 | 4 | 音频输出：AAudio（按 usage 路由的音乐与导航），通话、Siri 与旧式流类型保留 `AudioTrack`；焦点压低音量改为 PCM 增益，时钟微调改为 Rust 重采样 | 实车各声道路由、焦点、欠载不变 |
-| 5 | 麦克风发送：opus-pure 编码、RTP、封装、`sendto` 一次调用；采集仍是 `AudioRecord`（车机麦克风策略与平台音效挂在它的会话上），Speex 回声消除仍是原 C 库 | Siri 与通话实车可用；同输入下上行包与 Kotlin 逐字节一致 |
+| 5 | 麦克风发送：libopus 编码、RTP、封装、`sendto` 一次调用；采集仍是 `AudioRecord`（车机麦克风策略与平台音效挂在它的会话上），Speex 回声消除仍是原 C 库 | Siri 与通话实车可用；同输入下上行包与 Kotlin 逐字节一致 |
 | 6 | 有线 NCM ↔ tun：usbdevfs 同步 bulk、NTB16 重组与重同步、邻居通告修补、流量计数全在 Rust；高级设置“有线数据通路原生化（实验性）”未保存选择时默认开启，保留显式关闭和能力回退 | 有线连接、断开、重连实车可用；有线帧率与 CPU 对照 |
 
 阶段 0 / 1 结果（小米 8，Android 15，请求 60 fps，两路视频合计约 57 个接收消息/秒，并播放音乐；A/B/A/B 各 300 秒，2026-11-11）。两路均值约为 22 和 35，日志没有流 ID，不把合计值写成主屏帧率：

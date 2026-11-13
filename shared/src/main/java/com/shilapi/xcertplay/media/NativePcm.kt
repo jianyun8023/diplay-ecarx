@@ -7,7 +7,7 @@ import java.io.Closeable
 import java.nio.ByteBuffer
 
 /**
- * An [AudioRenderer]'s PCM work in `libdiplay_media`: Opus decoding with opus-pure, wired
+ * An [AudioRenderer]'s PCM work in `libdiplay_media`: Opus decoding with libopus, wired
  * LPCM byte order, and the steps before each track write (call high-pass, navigation sound
  * detection, navigation attenuation, fade-in), all on the renderer's direct PCM buffer. Only the
  * renderer's worker uses it, and closes it.

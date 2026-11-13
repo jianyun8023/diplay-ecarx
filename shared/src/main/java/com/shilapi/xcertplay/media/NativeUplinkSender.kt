@@ -8,7 +8,7 @@ import java.net.DatagramSocket
 import java.net.Inet6Address
 
 /**
- * The microphone's send path in `libdiplay_media`: each captured frame is encoded (opus-pure) or put
+ * The microphone's send path in `libdiplay_media`: each captured frame is encoded (libopus) or put
  * in wire order, sealed and sent in one call, in the layout of [com.shilapi.xcertplay.airplay.MicrophonePacketizer].
  * Its own duplicate of the uplink's socket lets [close] race the capture thread's last send safely.
  */

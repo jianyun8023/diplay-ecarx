@@ -2,14 +2,13 @@
 //! PCM steps of [crate::media::audio::pcm]. Every call comes from that renderer's worker thread, into its direct
 //! PCM buffer, so no PCM crosses the Java heap.
 //!
-//! Opus is decoded by opus-pure, a pure-Rust port of libopus whose 16-bit API matches libopus 1.6.1
-//! sample for sample.
+//! Opus is decoded by the statically linked C libopus (16-bit API), matching the former bridge.
 
 use crate::platform::jvm::Env;
 use crate::media::packet;
 use crate::media::audio::pcm::{self, VoiceFilter, DEFAULT_CUTOFF_HZ};
 use jni_sys::{jboolean, jclass, jint, jlong, jobject, JNIEnv};
-use opus_pure::OpusDecoder;
+use libopus_sys::{opus_decode, opus_decoder_create, opus_decoder_destroy, OpusDecoder, OPUS_OK};
 
 /// Samples the Android Opus decoder drops at the start (OpusHead pre-skip, 6.5 ms at 48 kHz).
 const OPUS_PRE_SKIP: usize = 312;
@@ -22,7 +21,7 @@ pub struct Renderer {
     sample_rate: i32,
     channels: usize,
     filter: Option<VoiceFilter>,
-    opus: Option<OpusDecoder>,
+    opus: Option<*mut OpusDecoder>,
     pre_skip_left: usize,
     decoded: Vec<i16>,
 }
@@ -48,7 +47,9 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
         decoded: Vec::new(),
     });
     if opus_decoder != 0 {
-        let Ok(decoder) = OpusDecoder::new(sample_rate, channels as usize) else { return 0 };
+        let mut error = 0;
+        let decoder = unsafe { opus_decoder_create(sample_rate, channels as i32, &mut error) };
+        if decoder.is_null() || error != OPUS_OK as i32 { return 0; }
         state.opus = Some(decoder);
         state.pre_skip_left = OPUS_PRE_SKIP * sample_rate as usize / 48_000;
         // 120 ms, the longest Opus packet.
@@ -61,7 +62,10 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
-    if handle != 0 { drop(Box::from_raw(handle as *mut Renderer)); }
+    if handle == 0 { return; }
+    let state = Box::from_raw(handle as *mut Renderer);
+    if let Some(decoder) = state.opus { unsafe { opus_decoder_destroy(decoder) }; }
+    drop(state);
 }
 
 /// Decodes `length` bytes at `offset` of a packet into `out` (from its start). Returns the PCM bytes
@@ -77,11 +81,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
     let (offset, length) = (offset as usize, length as usize);
     if offset > source.len() || length > source.len() - offset { return -100; }
     let capacity = state.decoded.len() / state.channels;
-    let Some(decoder) = state.opus.as_mut() else { return -100 };
-    let frames = match decoder.decode_s16(&source[offset..offset + length], capacity, &mut state.decoded) {
-        Ok(frames) => frames as i32,
-        Err(_) => return -1,
-    };
+    let Some(decoder) = state.opus else { return -100 };
+    let frames = unsafe { opus_decode(decoder, source[offset..offset + length].as_ptr(), length as i32,
+        state.decoded.as_mut_ptr(), capacity as i32, 0) };
+    if frames < 0 { return -1; }
+    let frames = frames as usize;
     let skip = state.pre_skip_left.min(frames as usize);
     state.pre_skip_left -= skip;
     let decoded = &state.decoded[skip * state.channels..frames as usize * state.channels];

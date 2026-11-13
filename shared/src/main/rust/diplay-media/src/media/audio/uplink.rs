@@ -1,6 +1,6 @@
 //! The microphone uplink's send path (Kotlin's `MicrophoneUplink.sendFrame`): one captured frame in,
-//! one sealed RTP datagram out. Opus frames are encoded with opus-pure at the settings the libopus
-//! bridge used (VoIP, complexity 5, voice signal); PCM goes in CarPlay's big-endian wire order. The
+//! one sealed RTP datagram out. Opus frames are encoded with the statically linked C libopus at the settings the
+//! former JNI bridge used (VoIP, complexity 5, voice signal); PCM goes in CarPlay's big-endian wire order. The
 //! packet layout is `MicrophonePacketizer`'s: a clear 12-byte RTP header whose timestamp and SSRC are
 //! the associated data, the ChaCha20-Poly1305 ciphertext and tag, then the 8-byte little-endian nonce.
 //!
@@ -10,23 +10,37 @@
 use crate::protocols::crypto::TAG_LEN;
 use crate::platform::jvm::Env;
 use jni_sys::{jbyteArray, jclass, jint, jlong, JNIEnv};
-use opus_pure::{Application, OpusEncoder, Signal};
+use libopus_sys::{
+    opus_encode, opus_encoder_create, opus_encoder_ctl, opus_encoder_destroy, OpusEncoder,
+    OPUS_APPLICATION_VOIP, OPUS_OK, OPUS_SET_BITRATE_REQUEST, OPUS_SET_COMPLEXITY_REQUEST,
+    OPUS_SET_SIGNAL_REQUEST, OPUS_SIGNAL_VOICE,
+};
+
+/// `OPUS_RESET_STATE` (opus_defines.h); libopus_sys 0.3 does not re-export it.
+const OPUS_RESET_STATE_REQUEST: i32 = 4028;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 
 const RTP_HEADER_LEN: usize = 12;
 const NONCE_LEN: usize = 8;
 const OPUS_RATE: i32 = 48_000;
 const OPUS_FRAME_SAMPLES: usize = 960;
-// opus-pure's MAX_PACKET_BYTES covers 120 ms; CarPlay sends one 20 ms frame.
+// CarPlay sends one 20 ms frame; libopus's packet fits this budget.
 const OPUS_PACKET_BYTES: usize = 1275;
 
-fn voice_encoder(bitrate: i32) -> Option<OpusEncoder> {
+/// A 48 kHz mono VoIP encoder backed by the statically linked C libopus (same settings the
+/// former JNI bridge used: VoIP, complexity 5, voice signal). `None` when libopus refuses.
+fn voice_encoder(bitrate: i32) -> Option<*mut OpusEncoder> {
     if bitrate <= 0 { return None; }
-    let mut encoder = OpusEncoder::new(OPUS_RATE, 1, Application::Voip).ok()?;
-    encoder.bitrate_bps = bitrate;
-    encoder.complexity = 5;
-    encoder.signal_type = Some(Signal::Voice);
-    Some(encoder)
+    unsafe {
+        let mut error = 0;
+        let encoder = opus_encoder_create(OPUS_RATE, 1, OPUS_APPLICATION_VOIP as i32, &mut error);
+        if encoder.is_null() || error != OPUS_OK as i32 { return None; }
+        let ok = opus_encoder_ctl(encoder, OPUS_SET_BITRATE_REQUEST as i32, bitrate) == OPUS_OK as i32
+            && opus_encoder_ctl(encoder, OPUS_SET_COMPLEXITY_REQUEST as i32, 5) == OPUS_OK as i32
+            && opus_encoder_ctl(encoder, OPUS_SET_SIGNAL_REQUEST as i32, OPUS_SIGNAL_VOICE as i32) == OPUS_OK as i32;
+        if !ok { opus_encoder_destroy(encoder); return None; }
+        Some(encoder)
+    }
 }
 
 pub struct Uplink {
@@ -36,7 +50,7 @@ pub struct Uplink {
     key: LessSafeKey,
     payload_type: u8,
     samples_per_packet: u32,
-    encoder: Option<OpusEncoder>,
+    encoder: Option<*mut OpusEncoder>,
     sequence: u16,
     timestamp: u32,
     nonce: u64,
@@ -124,21 +138,21 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
     if !e.read_array(frame, 0, &mut bytes) { return -1; }
     up.packet.clear();
     up.packet.resize(RTP_HEADER_LEN, 0);
-    match up.encoder.as_mut() {
+    match up.encoder {
         Some(encoder) => {
             up.pcm.clear();
             up.pcm.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
             if up.pcm.len() < OPUS_FRAME_SAMPLES { return -1; }
             let mut out = [0u8; OPUS_PACKET_BYTES];
-            match encoder.encode_s16(&up.pcm, OPUS_FRAME_SAMPLES, &mut out) {
-                Ok(0) => return 0,
-                Ok(size) => up.packet.extend_from_slice(&out[..size]),
-                Err(_) => {
-                    // As the libopus bridge did: start the next frame from a clean state.
-                    let _ = encoder.reset_state();
-                    return -1;
-                }
+            let size = unsafe { opus_encode(encoder, up.pcm.as_ptr(), OPUS_FRAME_SAMPLES as i32,
+                out.as_mut_ptr(), OPUS_PACKET_BYTES as i32) };
+            if size == 0 { return 0; }
+            if size < 0 {
+                // As the libopus bridge did: start the next frame from a clean state.
+                unsafe { opus_encoder_ctl(encoder, OPUS_RESET_STATE_REQUEST) };
+                return -1;
             }
+            up.packet.extend_from_slice(&out[..size as usize]);
         }
         None => up.packet.extend(bytes.chunks_exact(2).flat_map(|s| [s[1], s[0]])),
     }
@@ -157,6 +171,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
 ) {
     if handle == 0 { return; }
     let up = Box::from_raw(handle as *mut Uplink);
+    if let Some(encoder) = up.encoder { unsafe { opus_encoder_destroy(encoder) }; }
     libc::close(up.fd);
 }
 
@@ -165,7 +180,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderCreate(
     _env: *mut JNIEnv, _class: jclass, bitrate: jint,
 ) -> jlong {
-    voice_encoder(bitrate).map(|encoder| Box::into_raw(Box::new(encoder)) as jlong).unwrap_or(0)
+    voice_encoder(bitrate).map(|encoder| encoder as jlong).unwrap_or(0)
 }
 
 /// Encodes 960 samples of 16-bit little-endian PCM from `pcm` into `output`; the packet length, or
@@ -175,29 +190,46 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opu
     env: *mut JNIEnv, _class: jclass, handle: jlong, pcm: jbyteArray, output: jbyteArray,
 ) -> jint {
     let e = Env(env);
-    let encoder = &mut *(handle as *mut OpusEncoder);
+    if handle == 0 { return -1; }
+    let encoder = handle as *mut OpusEncoder;
     if e.array_len(pcm) != OPUS_FRAME_SAMPLES * 2 || e.array_len(output) < OPUS_PACKET_BYTES { return -1; }
     let mut bytes = vec![0u8; OPUS_FRAME_SAMPLES * 2];
     if !e.read_array(pcm, 0, &mut bytes) { return -1; }
     let samples: Vec<i16> = bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect();
     let mut out = [0u8; OPUS_PACKET_BYTES];
-    match encoder.encode_s16(&samples, OPUS_FRAME_SAMPLES, &mut out) {
-        Ok(size) => if e.write_array(output, 0, &out[..size]) { size as jint } else { -1 },
-        Err(_) => { let _ = encoder.reset_state(); -1 }
+    let size = unsafe { opus_encode(encoder, samples.as_ptr(), OPUS_FRAME_SAMPLES as i32,
+        out.as_mut_ptr(), OPUS_PACKET_BYTES as i32) };
+    if size < 0 {
+        unsafe { opus_encoder_ctl(encoder, OPUS_RESET_STATE_REQUEST) };
+        return -1;
     }
+    if e.write_array(output, 0, &out[..size as usize]) { size as jint } else { -1 }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
-    if handle != 0 { drop(Box::from_raw(handle as *mut OpusEncoder)); }
+    if handle != 0 { unsafe { opus_encoder_destroy(handle as *mut OpusEncoder) }; }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opus_pure::OpusDecoder;
+    use libopus_sys::{opus_decode, opus_decoder_create, opus_decoder_destroy};
+
+    /// Decode one packet with the same static libopus the encoder links against.
+    unsafe fn decode_opus(packet: &[u8], pcm: &mut [i16]) -> i32 {
+        unsafe {
+            let mut error = 0;
+            let decoder = opus_decoder_create(OPUS_RATE, 1, &mut error);
+            if decoder.is_null() { return -1; }
+            let frames = opus_decode(decoder, packet.as_ptr(), packet.len() as i32,
+                pcm.as_mut_ptr(), pcm.len() as i32, 0);
+            opus_decoder_destroy(decoder);
+            frames
+        }
+    }
 
     #[test]
     fn the_jni_encoder_uses_the_kotlin_twenty_ms_frame_and_packet_contract() {
@@ -245,10 +277,9 @@ mod tests {
                 assert!((1..=1275).contains(&first), "20 ms / {bitrate} bps with Kotlin's 1275-byte output returned {first}");
                 assert_eq!(invalid, vec![-1; 4]);
                 assert!((1..=1275).contains(&second));
-                let mut decoder = OpusDecoder::new(OPUS_RATE, 1).unwrap();
                 let mut decoded = [0i16; 960];
-                assert_eq!(decoder.decode_s16(&first_packet, 960, &mut decoded).unwrap(), 960);
-                assert_eq!(decoder.decode_s16(&output[..second as usize], 960, &mut decoded).unwrap(), 960);
+                assert_eq!(decode_opus(&first_packet, &mut decoded), 960);
+                assert_eq!(decode_opus(&output[..second as usize], &mut decoded), 960);
                 assert!(decoded.iter().any(|&sample| sample != 0));
             }
             for bitrate in [0, -1] {
@@ -275,26 +306,31 @@ mod tests {
     const GOLDEN: &str = "80640007000003c00000000055727079e7668ab0538bf19d08f4688b9121d2050300000000000000";
 
     #[test]
-    fn a_voice_frame_round_trips_through_opus_pure() {
-        let mut encoder = voice_encoder(64_000).unwrap();
-        let mut decoder = OpusDecoder::new(OPUS_RATE, 1).unwrap();
+    fn a_voice_frame_round_trips_through_libopus() {
+        let encoder = voice_encoder(64_000).unwrap();
         let mut out = [0u8; OPUS_PACKET_BYTES];
         let mut pcm = vec![0i16; OPUS_FRAME_SAMPLES];
         let mut energy_in = 0f64;
         let mut energy_out = 0f64;
+        let mut error = 0;
+        let decoder = unsafe { opus_decoder_create(OPUS_RATE, 1, &mut error) };
+        assert!(!decoder.is_null());
         for frame in 0..50 {
             let input: Vec<i16> = (0..OPUS_FRAME_SAMPLES)
                 .map(|n| (((frame * OPUS_FRAME_SAMPLES + n) as f64 * 2.0 * std::f64::consts::PI * 300.0 / 48_000.0).sin() * 8000.0) as i16)
                 .collect();
-            let size = encoder.encode_s16(&input, OPUS_FRAME_SAMPLES, &mut out).unwrap();
-            assert!(size > 0 && size <= OPUS_PACKET_BYTES);
-            let decoded = decoder.decode_s16(&out[..size], OPUS_FRAME_SAMPLES, &mut pcm).unwrap();
-            assert_eq!(decoded, OPUS_FRAME_SAMPLES);
+            let size = unsafe { opus_encode(encoder, input.as_ptr(), OPUS_FRAME_SAMPLES as i32,
+                out.as_mut_ptr(), OPUS_PACKET_BYTES as i32) };
+            assert!(size > 0 && size as usize <= OPUS_PACKET_BYTES);
+            let decoded = unsafe { opus_decode(decoder, out.as_ptr(), size,
+                pcm.as_mut_ptr(), OPUS_FRAME_SAMPLES as i32, 0) };
+            assert_eq!(decoded, OPUS_FRAME_SAMPLES as i32);
             if frame >= 10 {
                 energy_in += input.iter().map(|&s| (s as f64).powi(2)).sum::<f64>();
                 energy_out += pcm.iter().map(|&s| (s as f64).powi(2)).sum::<f64>();
             }
         }
+        unsafe { opus_encoder_destroy(encoder); opus_decoder_destroy(decoder) };
         let ratio = energy_out / energy_in;
         assert!((0.7..1.3).contains(&ratio), "{ratio}");
     }

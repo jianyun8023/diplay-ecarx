@@ -64,15 +64,16 @@ DiPlay vendors a subset of [SpeexDSP 1.2.1](https://github.com/xiph/speexdsp/tre
 
 SpeexDSP uses a BSD-style three-clause license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored COPYING file](../shared/src/main/jni/speexdsp/COPYING). Component source headers retain their additional notices, including KISS FFT's Mark Borgerding attribution, also copied to [KISS-FFT-LICENSE.txt](licenses/dependencies/KISS-FFT-LICENSE.txt). The [vendoring notes](../shared/src/main/jni/speexdsp/README.md) identify the source version and build configuration.
 
-## Opus codec (opus-pure)
+## Opus codec (libopus)
 
-Opus audio is decoded and the microphone is encoded by [opus-pure 0.2.3](https://github.com/stephenberry/opus-pure),
-Stephen Berry's pure-Rust port of the reference libopus (derived from rusty-opus and opus-rs), compiled into
-`libdiplay_media.so`. Its BSD-3-Clause license keeps the copyright notices of Xiph.Org, Skype Limited, Octasic,
-Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla and
-Amazon; the full text is in [Opus-COPYING.txt](licenses/dependencies/Opus-COPYING.txt).
+Opus audio is decoded and the microphone is encoded by the reference [libopus](https://github.com/xiph/opus)
+(1.5 series), statically linked into `libdiplay_media.so` from the sources vendored by
+[libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3). libopus is BSD-3-Clause and keeps the
+copyright notices of Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO,
+Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla and Amazon; the full text is in
+[Opus-COPYING.txt](licenses/dependencies/Opus-COPYING.txt). libopus_sys itself is MIT licensed.
 
-DiPlay retains [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors, only as an independent test oracle. It is excluded from production source sets; the production software Opus encoder uses Rust.
+DiPlay retains [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors, only as an independent test oracle. It is excluded from production source sets; the production software Opus encoder uses the statically linked libopus.
 
 Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/testCore/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/testCore/java/org/concentus/README.md) identify the source commit.
 
