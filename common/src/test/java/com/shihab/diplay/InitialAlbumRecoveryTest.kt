@@ -6,9 +6,10 @@ import org.junit.Test
 
 class InitialAlbumRecoveryTest {
     private fun media(title: String? = "lyric", id: Int? = 129, playing: Boolean = true,
-                      app: String? = "music", elapsed: Long = 40_000) =
-        CarPlayNowPlaying(title = title, artworkTransferId = id, playing = playing,
-            sourceApp = app, elapsedMillis = elapsed)
+                      app: String? = "music", elapsed: Long = 40_000,
+                      artist: String? = "artist") =
+        CarPlayNowPlaying(title = title, artist = artist, album = "album", durationMillis = 180_000,
+            artworkTransferId = id, playing = playing, sourceApp = app, elapsedMillis = elapsed)
 
     private fun begin(recovery: InitialAlbumRecovery, info: CarPlayNowPlaying = media()): Long {
         assertTrue(recovery.observe(info, false))
@@ -31,7 +32,8 @@ class InitialAlbumRecoveryTest {
         assertTrue(recovery.observe(media(), false))
         val token = recovery.pendingToken
         repeat(50) {
-            assertFalse(recovery.observe(media(title = "line $it", elapsed = 40_000L + it * 500), false))
+            assertFalse(recovery.observe(media(title = "title lyric $it", artist = "artist lyric $it",
+                elapsed = 40_000L + it * 500), false))
             assertEquals(token, recovery.pendingToken)
         }
         assertTrue(recovery.beginRequest(token, media(title = "last line"), false))
@@ -39,17 +41,16 @@ class InitialAlbumRecoveryTest {
         assertTrue(recovery.claimSend(token, media(title = "another line"), false))
     }
 
-    @Test fun referenceChangeRebindsBeforeSendAndOnlyNewReferenceCanClaim() {
+    @Test fun artworkReferenceChangesDoNotResetTheTrackRecoveryBudget() {
         val recovery = InitialAlbumRecovery()
-        val old = begin(recovery)
-        assertTrue(recovery.observe(media(id = 130), false))
-        val next = recovery.pendingToken
-        assertFalse(recovery.claimSend(old, media(), false))
-        assertTrue(recovery.beginRequest(next, media(id = 130), false))
-        recovery.finished(old)
-        assertTrue(recovery.claimSend(next, media(id = 130), false))
+        val token = begin(recovery)
         assertFalse(recovery.observe(media(id = 130), false))
-        assertEquals(listOf("cancelled reason=referenceChanged"), recovery.takeEvents())
+        assertEquals(token, recovery.pendingToken)
+        assertTrue(recovery.beginRequest(token, media(id = 130), false))
+        assertTrue(recovery.claimSend(token, media(id = 130), false))
+        assertFalse(recovery.observe(media(id = 131), false))
+        assertEquals(token, recovery.pendingToken)
+        assertTrue(recovery.takeEvents().isEmpty())
     }
 
     @Test fun sourceChangeRebindsBeforeSendAndOnlyCurrentAppCanClaim() {
@@ -60,17 +61,17 @@ class InitialAlbumRecoveryTest {
         assertFalse(recovery.claimSend(old, media(), false))
         assertTrue(recovery.beginRequest(next, media(app = "other"), false))
         assertTrue(recovery.claimSend(next, media(app = "other"), false))
-        assertEquals(listOf("cancelled reason=sourceChanged"), recovery.takeEvents())
+        assertEquals(listOf("cancelled reason=trackChanged"), recovery.takeEvents())
     }
 
-    @Test fun referenceChangeWhilePausedWaitsForPlaybackBeforeBindingNewMedia() {
+    @Test fun artworkReferenceChangesWhilePausedDoNotBindOrSpendTheTrackBudget() {
         val recovery = InitialAlbumRecovery()
         val old = begin(recovery)
         assertFalse(recovery.observe(media(id = 130, playing = false), false))
         assertFalse(recovery.observe(media(id = 131, playing = false), false))
         assertFalse(recovery.claimSend(old, media(), false))
-        val next = begin(recovery, media(id = 132))
-        assertTrue(recovery.claimSend(next, media(id = 132), false))
+        val resumed = begin(recovery, media(id = 132))
+        assertTrue(recovery.claimSend(resumed, media(id = 132), false))
     }
 
     @Test fun lateSourceFieldForSameReferenceIsAccepted() {
@@ -141,10 +142,10 @@ class InitialAlbumRecoveryTest {
         recovery.finished(token) // Successful or failed send; never keep resubscribing.
         assertFalse(recovery.observe(media(playing = false), false))
         repeat(50) { assertFalse(recovery.observe(media(title = "line $it"), false)) }
-        assertTrue(recovery.observe(media(id = 130), false))
+        assertTrue(recovery.observe(media(title = "next", elapsed = 0), false))
         val next = recovery.pendingToken
-        assertTrue(recovery.beginRequest(next, media(id = 130), false))
-        assertTrue(recovery.claimSend(next, media(id = 130), false))
+        assertTrue(recovery.beginRequest(next, media(title = "next", elapsed = 0), false))
+        assertTrue(recovery.claimSend(next, media(title = "next", elapsed = 0), false))
     }
 
     @Test fun disabledSettingCancelsWithoutSpendingAttemptAndCanResume() {

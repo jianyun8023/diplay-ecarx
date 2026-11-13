@@ -20,7 +20,8 @@ internal object ClusterMusicState {
             // A metadata-only update must not punch a hole in a permanent card. Keep the
             // previous cover while the next transfer arrives, just like Android's media session.
             // An empty playback snapshot (disconnect) always clears the retained image.
-            val hasTrack = !info.title.isNullOrBlank() || !info.artist.isNullOrBlank()
+            val hasTrack = info.sourceApp != null || info.album != null || info.durationMillis != null ||
+                info.artworkTransferId != null || !info.title.isNullOrBlank() || !info.artist.isNullOrBlank()
             val retained = if (hasTrack) artwork ?: state.artwork?.takeUnless { it.isRecycled } else null
             state = Snapshot(info, retained, if (changed) SystemClock.elapsedRealtime() else state.changedAt, state.revision + if (changed) 1 else 0)
             listeners.toList().forEach { it(state) }
@@ -35,7 +36,5 @@ internal object ClusterMusicState {
     }
 
     fun trackChanged(old: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
-        old.title != next.title || old.artist != next.artist || old.album != next.album ||
-            old.sourceApp != next.sourceApp ||
-            (old.durationMillis != null && next.durationMillis != null && old.durationMillis != next.durationMillis)
+        (old == CarPlayNowPlaying() && next != old) || albumTrackChanged(old, next)
 }

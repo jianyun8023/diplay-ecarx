@@ -2,10 +2,9 @@ package com.shihab.diplay
 
 import com.shihab.diplay.media.CarPlayNowPlaying
 
-/** One send attempt for each identifiable playing media of a playback owner. */
+/** One send attempt for each identifiable playing media item, independent of artwork transfer ids. */
 internal class InitialAlbumRecovery {
-    private var reference: Int? = null
-    private var sourceApp: String? = null
+    private var observed: CarPlayNowPlaying? = null
     private var bound = false
     private var colorComplete = false
     private var attempted = false
@@ -56,17 +55,15 @@ internal class InitialAlbumRecovery {
     }
 
     private fun eligible(info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean): Boolean {
-        val changed = when {
-            bound && info.artworkTransferId != reference -> "referenceChanged"
-            bound && sourceApp != null && info.sourceApp != sourceApp -> "sourceChanged"
-            else -> null
-        }
-        if (changed != null) {
-            cancelPending(changed)
+        val previous = observed
+        if (bound && previous != null && albumTrackChanged(previous, info)) {
+            cancelPending("trackChanged")
             bound = false
             colorComplete = false
             attempted = false
         }
+        observed = info
+
         if (attempted) return false
         // Paused connection metadata never chooses a media item or spends the send budget.
         if (!info.playing) {
@@ -76,11 +73,8 @@ internal class InitialAlbumRecovery {
         if (info.artworkTransferId == null) return false
         if (!bound) {
             bound = true
-            reference = info.artworkTransferId
-            sourceApp = info.sourceApp
+            colorComplete = false
         }
-        // The app field can arrive after the first reference in an incremental update.
-        if (sourceApp == null) sourceApp = info.sourceApp
         if (hasColor) {
             if (!colorComplete) cancelPending("colorReady", report = true)
             colorComplete = true

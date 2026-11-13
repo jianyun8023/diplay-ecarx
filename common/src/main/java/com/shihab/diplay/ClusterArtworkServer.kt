@@ -67,12 +67,13 @@ internal class ClusterArtworkServer : Closeable {
 
     fun publish(png: ByteArray): String {
         val path = synchronized(images) {
-            // Repeated transfers of the same cover must keep the receiver's cache identity.
-            val path = images.entries.firstOrNull { it.value.contentEquals(png) }?.key
-                ?: "/${UUID.randomUUID()}.png"
+            // Repeated transfers of the same cover refresh its bounded cache entry without
+            // counting or allocating a second published image.
+            val existing = images.entries.firstOrNull { it.value.contentEquals(png) }?.key
+            val path = existing ?: "/${UUID.randomUUID()}.png"
             images.remove(path)
             images[path] = png
-            published++
+            if (existing == null) published++
             while (images.size > 4) images.remove(images.keys.first())
             path
         }

@@ -52,14 +52,65 @@ class ClusterArtworkDeliveryTest {
         val song = CarPlayNowPlaying(title = "A", artist = "Artist", artworkTransferId = 7, elapsedMillis = 90_000)
         val art = seed(song)
         val owner = field<Any>("artworkOwner")
-        // This title/position update used to start a new artwork session, dropping in-flight bytes.
-        `when`(controller.nowPlayingSnapshot()).thenReturn(song.copy(title = "B", elapsedMillis = 0))
+        // Title and artist may carry lyrics; their updates must not replace the current cover.
+        `when`(controller.nowPlayingSnapshot()).thenReturn(song.copy(title = "lyric B", artist = "lyric artist"))
         call("onNowPlayingChanged", controller); idle()
         assertSame(owner, field<Any>("artworkOwner"))
         assertSame(art, field<MutableMap<Int, Bitmap?>>("artworkCache")[7])
         var shown: Bitmap? = null
         val stop = ClusterMusicState.observe { shown = it.artwork }
         assertSame(art, shown)
+        stop()
+    }
+
+    @Test fun artworkArrivingBeforeMetadataIsAdoptedWhenTheReferenceArrives() {
+        val song = CarPlayNowPlaying(title = "A", artist = "Artist", album = "Album",
+            sourceApp = "Music", durationMillis = 180_000, artworkTransferId = 7,
+            elapsedMillis = 60_000, playing = true)
+        val art = seed(song)
+        val owner = field<Any>("artworkOwner")
+        val cached = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        val cachedUri = android.net.Uri.parse("http://127.0.0.1:12345/cover-8.png")
+        field<MutableMap<Int, Bitmap?>>("artworkCache")[8] = cached
+        field<MutableMap<Int, android.net.Uri>>("clusterArtworkUris")[8] = cachedUri
+        `when`(controller.nowPlayingSnapshot()).thenReturn(song.copy(artworkTransferId = 8))
+        call("onNowPlayingChanged", controller); idle()
+        assertSame(owner, field<Any>("artworkOwner"))
+        assertSame(cached, field<Bitmap>("artwork"))
+        assertEquals(cachedUri, field<android.net.Uri>("artworkUri"))
+        assertSame(art, field<MutableMap<Int, Bitmap?>>("artworkCache")[7])
+    }
+
+    @Test fun transferIdChangeForTheSameTrackKeepsTheDecodedCoverAndMetadataIdentity() {
+        val song = CarPlayNowPlaying(title = "A", artist = "Artist", album = "Album",
+            sourceApp = "Music", durationMillis = 180_000, artworkTransferId = 7,
+            elapsedMillis = 60_000, playing = true)
+        val art = seed(song)
+        val next = song.copy(artworkTransferId = 8)
+        assertFalse(albumTrackChanged(song, next))
+        assertFalse(CarPlayMediaSession.metadataChanged(song, next))
+        `when`(controller.nowPlayingSnapshot()).thenReturn(next)
+        call("onNowPlayingChanged", controller); idle()
+        assertSame(art, field<Bitmap>("artwork"))
+        assertSame(art, field<MutableMap<Int, Bitmap?>>("artworkCache")[7])
+    }
+
+    @Test fun titleAndArtistLyricUpdatesDoNotAdvanceClusterTrackRevision() {
+        val song = CarPlayNowPlaying(title = "Song", artist = "Artist", album = "Album",
+            sourceApp = "Music", durationMillis = 180_000, artworkTransferId = 7,
+            elapsedMillis = 60_000, playing = true)
+        val art = seed(song)
+        var revision = -1L
+        val stop = ClusterMusicState.observe { revision = it.revision }
+        val initialRevision = revision
+        ClusterMusicState.publish(song.copy(title = "lyric 1", artist = "lyric 1",
+            elapsedMillis = 60_500), art)
+        idle()
+        assertEquals(initialRevision, revision)
+        ClusterMusicState.publish(song.copy(title = "lyric 2", artist = "lyric 2",
+            elapsedMillis = 61_000), art)
+        idle()
+        assertEquals(initialRevision, revision)
         stop()
     }
 

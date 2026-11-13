@@ -69,9 +69,37 @@ class NowPlayingArtworkQueueTest {
         queue.submit(owner, 1, byteArrayOf(3))
         worker.runNext()
         assertEquals(listOf(2, 3), decoded)
-        assertEquals(listOf(2), discarded)
+        assertTrue(discarded.isEmpty())
         main.runNext()
         assertEquals(listOf(1 to 3), published)
+        queue.clear()
+        assertEquals(listOf(2), discarded)
+    }
+
+    @Test fun identicalPayloadsWithDifferentTransferIdsShareOneDecodeBeforeDelivery() {
+        val owner = queue.newSession()
+        queue.submit(owner, 1, byteArrayOf(42, 7))
+        queue.submit(owner, 2, byteArrayOf(42, 7))
+        worker.runNext()
+        assertEquals(listOf(42), decoded)
+        assertEquals(1, main.size)
+        main.runNext()
+        assertEquals(listOf(1 to 42, 2 to 42), published)
+        assertTrue(discarded.isEmpty())
+    }
+
+    @Test fun identicalPayloadAfterPublicationReusesTheDecodedImageWithoutAWorkerTask() {
+        val owner = queue.newSession()
+        queue.submit(owner, 1, byteArrayOf(42, 7))
+        worker.runNext()
+        main.runNext()
+        queue.submit(owner, 2, byteArrayOf(42, 7))
+        assertEquals(0, worker.size)
+        assertEquals(1, main.size)
+        main.runNext()
+        assertEquals(listOf(42), decoded)
+        assertEquals(listOf(1 to 42, 2 to 42), published)
+        assertTrue(discarded.isEmpty())
     }
 
     @Test fun supersededDecodedImageIsNotPublishedWhileItsReplacementIsQueued() {
@@ -81,10 +109,12 @@ class NowPlayingArtworkQueueTest {
         queue.submit(owner, 1, byteArrayOf(2))
         main.runNext()
         assertTrue(published.isEmpty())
-        assertEquals(listOf(1), discarded)
+        assertTrue(discarded.isEmpty()) // The bounded content cache still owns the stale image.
         worker.runNext()
         main.runNext()
         assertEquals(listOf(1 to 2), published)
+        queue.clear()
+        assertEquals(listOf(1), discarded)
     }
 
     @Test fun teardownDropsQueuedBytesAndUnpublishedImages() {

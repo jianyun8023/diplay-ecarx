@@ -15,6 +15,7 @@ class ClusterArtworkServerTest {
             repeat(3) { server.publish(byteArrayOf(it.toByte())) }
             assertEquals(first, server.publish(cover.copyOf()))
             assertNotEquals(first, server.publish(byteArrayOf(1, 2, 4)))
+            assertTrue(server.diagnosticReport().contains("published=5"))
             assertArrayEquals(cover, URL(first).openStream().use { it.readBytes() })
         }
     }
