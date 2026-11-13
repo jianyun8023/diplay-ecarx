@@ -64,8 +64,8 @@ AirPlay info/control/video field schemas and Bonjour publication policy, HID/tou
 EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
 Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path is attempted by default unless explicitly disabled; if it cannot start, the Java I/O adapter still uses the Rust NCM core. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
-and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
-There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
+and Poly1305 come from BoringSSL's assembly; [libopus](https://github.com/xiph/opus) 1.5 series, vendored through [libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3) and compiled statically with its NEON/SSE assembly; libopus_sys (MIT), jni-sys and libc).
+The C libopus is compiled into this same `.so` from vendored sources; no separate `libopus.so` is shipped. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
 it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. Gradle APK builds still package
@@ -78,14 +78,14 @@ APK payload; byte-level equality across build hosts is not required. `cargo test
 2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
 uncommitted migration batch based on `0c4820ae702eaadd2b7f422f38a4a1fa44771d27`; that base commit alone does not
 contain this batch. Its source manifest SHA-256 is
-`972e96a60cd7f5222739fea69c2ab56e32770d55267f816be8a77b1433bf3ce5`.
+`70dbd4681aac8349cf725b36b39e58316351d0f32aa562356a80e274c698a224`.
 The digest is SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
 for the crate's Rust sources, manifests/lockfile, toolchain pin, build script and any crate Cargo configuration:
 
 ```sh
 rg --files --hidden shared/src/main/rust/diplay-media \
   -g '*.rs' -g 'Cargo.toml' -g 'Cargo.lock' -g 'build.sh' \
-  -g 'rust-toolchain.toml' -g '**/.cargo/config*' -g '!**/target/**' |
+  -g 'rust-toolchain.toml' -g '**/.cargo/config*' -g '*.cmake' -g '!**/target/**' |
   LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256
 ```
 
@@ -97,8 +97,8 @@ remains platform behavior; there is no production Kotlin protocol/DSP substitute
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1951888 | `bd0cf3a71b5ab898979da5bbb13e522a599f72f113f822dca666532fc9770c93` |
-| armeabi-v7a | libdiplay_media.so | 1320948 | `8022ba444df2be6f68d43a302bd97617cdf6f2c4eecfdd64666c0986a1d1e609` |
+| arm64-v8a | libdiplay_media.so | 1700320 | `8ca7b3d0715683bf006c4a2b1549005f90a05fba8921f6b7a994d5e4987a5009` |
+| armeabi-v7a | libdiplay_media.so | 1185476 | `0b78a5b3d65192d0c9ac912ffe614fe11c4f8ee601707f8baaacfed1f09ac0ed` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

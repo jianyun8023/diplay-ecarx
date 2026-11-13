@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
 BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$(uname -s | tr A-Z a-z)-x86_64/bin"
 OUT=${DIPLAY_JNI_LIBS_DIR:-../../jniLibs}
+TOOLCHAIN="$PWD/cmake/android-toolchain.cmake"
 TARGET_DIR=${CARGO_TARGET_DIR:-target}
 # Keep build-machine paths (panic locations) out of the checked-in libraries.
 export RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}/registry/src=/crates --remap-path-prefix=$PWD=/diplay-media"
@@ -15,6 +16,8 @@ build() { # rust target, clang prefix, ABI directory
     env "CC_$(echo "$1" | tr - _)=$BIN/${2}28-clang" "AR_$(echo "$1" | tr - _)=$BIN/llvm-ar" \
         "CFLAGS_$(echo "$1" | tr - _)=${4:-}" \
         "CARGO_TARGET_${upper}_LINKER=$BIN/${2}28-clang" \
+        "CMAKE_TOOLCHAIN_FILE=$TOOLCHAIN" "ANDROID_NDK=$ANDROID_NDK_HOME" \
+        "OPUS_ANDROID_ABI=$3" "OPUS_ANDROID_PLATFORM=android-28" \
         cargo build --release --locked --lib --target "$1"
     mkdir -p "$OUT/$3"
     cp "$TARGET_DIR/$1/release/libdiplay_media.so" "$OUT/$3/"

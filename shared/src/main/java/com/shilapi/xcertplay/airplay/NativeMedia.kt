@@ -157,7 +157,7 @@ internal object NativeMedia {
     @JvmStatic external fun pipeTakeStats(handle: Long, out: LongArray, decodeMicros: IntArray): Int
     @JvmStatic external fun pipeDestroy(handle: Long)
 
-    /** A 48 kHz mono VoIP Opus encoder (opus-pure); 0 when [bitrate] is refused. */
+    /** A 48 kHz mono VoIP Opus encoder (libopus); 0 when [bitrate] is refused. */
     @JvmStatic external fun opusEncoderCreate(bitrate: Int): Long
     /** Encodes 960 samples of [pcm] into [output]; the packet length, or negative (the encoder is then reset). */
     @JvmStatic external fun opusEncode(handle: Long, pcm: ByteArray, output: ByteArray): Int

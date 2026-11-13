@@ -159,7 +159,7 @@ internal class MicrophoneUplink(
             throw error
         }
         val implementation = when {
-            nativeSender != null && config.codec == AudioCodecKind.OPUS -> "native encoder=opus-pure"
+            nativeSender != null && config.codec == AudioCodecKind.OPUS -> "native encoder=libopus"
             nativeSender != null -> "native"
             else -> opusEncoder?.implementation?.let { "kotlin encoder=$it" } ?: "kotlin"
         }

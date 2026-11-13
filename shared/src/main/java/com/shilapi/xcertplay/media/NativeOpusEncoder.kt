@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.media
 import com.shilapi.xcertplay.airplay.NativeMedia
 
 /**
- * The microphone's Opus encoder in `libdiplay_media` (opus-pure, a pure-Rust port of libopus): 48 kHz
+ * The microphone's Opus encoder in `libdiplay_media` (statically linked C libopus): 48 kHz
  * mono, VoIP, complexity 5, voice signal. The uplink owns it; close may also run after its worker's
  * bounded join times out. [onError] reports a refused encoder configuration; a missing required core
  * library propagates its load failure.
@@ -22,7 +22,7 @@ internal class NativeOpusEncoder(
         }
     }
 
-    override val implementation = "opus-pure"
+    override val implementation = "libopus"
     override val available: Boolean
         @Synchronized get() = handle != 0L
 

@@ -66,7 +66,7 @@ class MicrophoneEncoderAttachmentTest {
         assertEquals("Kotlin encoder must not be built when the native sender encodes", 0, factoryCalls.get())
         assertTrue(
             diagnostics.joinToString("\n"),
-            diagnostics.any { it.contains("implementation=native encoder=opus-pure") },
+            diagnostics.any { it.contains("implementation=native encoder=libopus") },
         )
     }
 
