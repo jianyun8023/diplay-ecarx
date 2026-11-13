@@ -123,6 +123,9 @@ The check uses the pinned Rust/NDK versions, validates ELF architecture and the 
 and fails if either generated `.so` differs from the tracked binary. If it reports a mismatch,
 regenerate the checked-in files, then rerun the check:
 
+The workflow uploads the freshly generated pair as the `rust-android-native-libraries` Actions artifact,
+so a mismatch can be inspected without modifying the tracked files.
+
 ```sh
 ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" shared/src/main/rust/diplay-media/build.sh
 ```
