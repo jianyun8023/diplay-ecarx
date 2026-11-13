@@ -81,4 +81,22 @@ class LegacyPreferencesMigrationTest {
                 .getBoolean("migrated_from_legacy_airplay", false),
         )
     }
+
+    @Test fun migratesWhenUnlockHappensBetweenCheckAndRegistration() {
+        app.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit()
+            .putInt("display_fps", 48)
+            .commit()
+        // Model the race the reviewer reported: the user unlocks after the initial "is it unlocked?"
+        // check but at/just after registration, so the ACTION_USER_UNLOCKED broadcast is never
+        // delivered to us. The re-check after registering must catch it and migrate synchronously.
+        // The predicate is locked on the first (pre-check) call and unlocked on every later call.
+        var calls = 0
+        val isUnlocked: (Context) -> Boolean = { calls += 1; calls > 1 }
+
+        LegacyPreferences.ensureMigrated(app, isUnlocked)
+
+        val current = app.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE)
+        assertEquals(48, current.getInt("display_fps", 0))
+        assertTrue(current.getBoolean("migrated_from_legacy_airplay", false))
+    }
 }

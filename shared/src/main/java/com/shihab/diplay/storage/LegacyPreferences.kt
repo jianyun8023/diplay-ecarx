@@ -31,28 +31,37 @@ object LegacyPreferences {
      * it registers a one-shot `ACTION_USER_UNLOCKED` receiver and migrates when the user unlocks.
      * Safe to call more than once (Application start and the boot receiver both do).
      */
-    fun ensureMigrated(context: Context) {
+    fun ensureMigrated(context: Context) = ensureMigrated(context, ::isUserUnlocked)
+
+    internal fun ensureMigrated(context: Context, isUnlocked: (Context) -> Boolean) {
         val app = context.applicationContext ?: context
-        if (isUserUnlocked(app)) {
-            migrateAirPlay(app)
+        if (isUnlocked(app)) {
+            migrateAirPlay(app, isUnlocked)
             return
         }
         synchronized(LegacyPreferences::class.java) {
             if (waitingForUnlock) return
             waitingForUnlock = true
-            runCatching {
-                app.registerReceiver(
-                    object : BroadcastReceiver() {
-                        override fun onReceive(receiverContext: Context, intent: Intent) {
-                            runCatching { app.unregisterReceiver(this) }
-                            synchronized(LegacyPreferences::class.java) { waitingForUnlock = false }
-                            migrateAirPlay(app)
-                        }
-                    },
-                    IntentFilter(Intent.ACTION_USER_UNLOCKED),
-                )
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(receiverContext: Context, intent: Intent) {
+                    runCatching { app.unregisterReceiver(this) }
+                    synchronized(LegacyPreferences::class.java) { waitingForUnlock = false }
+                    migrateAirPlay(app, isUnlocked)
+                }
+            }
+            val registered = runCatching {
+                app.registerReceiver(receiver, IntentFilter(Intent.ACTION_USER_UNLOCKED))
             }.onFailure {
                 synchronized(LegacyPreferences::class.java) { waitingForUnlock = false }
+            }.isSuccess
+            // Close the window between the check above and this registration: ACTION_USER_UNLOCKED is
+            // delivered only to receivers that were already registered, so an unlock that happened in
+            // that window would be missed and the process would wait forever. Re-check now and, if the
+            // user is unlocked, drop the registration and migrate synchronously.
+            if (registered && isUnlocked(app)) {
+                runCatching { app.unregisterReceiver(receiver) }
+                synchronized(LegacyPreferences::class.java) { waitingForUnlock = false }
+                migrateAirPlay(app, isUnlocked)
             }
         }
     }
@@ -61,8 +70,10 @@ object LegacyPreferences {
      * Copies the legacy file into [AIRPLAY] once. Must only run while the user is unlocked (CE storage
      * readable); it returns without touching storage otherwise.
      */
-    fun migrateAirPlay(context: Context) {
-        if (!isUserUnlocked(context)) return
+    fun migrateAirPlay(context: Context) = migrateAirPlay(context, ::isUserUnlocked)
+
+    internal fun migrateAirPlay(context: Context, isUnlocked: (Context) -> Boolean) {
+        if (!isUnlocked(context)) return
         val target = context.getSharedPreferences(AIRPLAY, Context.MODE_PRIVATE)
         if (target.getBoolean(MIGRATED, false)) return
         synchronized(LegacyPreferences::class.java) {
