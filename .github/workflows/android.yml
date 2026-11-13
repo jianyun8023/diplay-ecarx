@@ -23,14 +23,55 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.1'
+          targets: aarch64-linux-android,armv7-linux-androideabi
       - name: Rust core unit tests
         run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+      - name: Build and verify Rust Android shared libraries
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
+          DIPLAY_JNI_LIBS_DIR="$RUNNER_TEMP/rust-android-libs" \
+            scripts/check_rust_android_native.sh
+      - name: Upload rebuilt Rust Android shared libraries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-android-native-libraries
+          path: ${{ runner.temp }}/rust-android-libs/
+          if-no-files-found: warn
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests, lint and source-only debug build
+      - name: Unit tests, lint and debug APK builds
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --no-parallel --max-workers=1 --stacktrace
+      - name: Verify debug APK contains both Rust Android ABIs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          apk_dir = Path("mobile/build/outputs/apk/debug")
+          apks = sorted(apk_dir.glob("*.apk"))
+          assert apks, f"No mobile debug APK found in {apk_dir}"
+          expected = {
+              "lib/arm64-v8a/libdiplay_media.so": 183,  # EM_AARCH64
+              "lib/armeabi-v7a/libdiplay_media.so": 40,  # EM_ARM
+          }
+          for apk in apks:
+              with ZipFile(apk) as archive:
+                  names = set(archive.namelist())
+                  for path, expected_machine in expected.items():
+                      assert path in names, f"{apk}: missing {path}"
+                      data = archive.read(path)
+                      assert data[:4] == b"\x7fELF", f"{apk}: {path} is not ELF"
+                      byte_order = {1: "little", 2: "big"}.get(data[5])
+                      assert byte_order, f"{apk}: {path} has invalid ELF byte order"
+                      machine = int.from_bytes(data[18:20], byte_order)
+                      assert machine == expected_machine, (
+                          f"{apk}: {path} has e_machine={machine}, expected {expected_machine}"
+                      )
+              print(f"Verified both Rust Android ABIs in {apk}")
+          PY
       - name: Check release optimization without signing
         run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --no-parallel --max-workers=1 --stacktrace
       - name: Test reports

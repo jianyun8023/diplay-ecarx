@@ -68,8 +68,12 @@ and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io
 There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
-it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
-of Gradle or CI builds; `cargo test` in that directory runs the host tests. Both shipped ABIs were rebuilt on
+it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. Gradle APK builds still package
+the checked-in Android libraries. The Android checks workflow runs `scripts/check_rust_android_native.sh`
+on every pull request and `main`／`dev` push: it cross-compiles both ABIs with the pinned Rust／NDK versions,
+checks ELF architecture, the 491 Java JNI exports and `JNI_OnLoad`, then requires byte-for-byte equality
+with the checked-in `.so` files before the APK build. A source change without matching checked-in binaries
+therefore fails CI. `cargo test` in this directory runs the host tests. Both shipped ABIs were rebuilt on
 2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
 uncommitted migration batch based on `0c4820ae702eaadd2b7f422f38a4a1fa44771d27`; that base commit alone does not
 contain this batch. Its source manifest SHA-256 is

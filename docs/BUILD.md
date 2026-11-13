@@ -30,8 +30,8 @@ Install these tools:
 - Android SDK Platform 37 (`platforms;android-37.0`).
 - Android SDK Build-Tools 36.0.0.
 - Android SDK Platform-Tools.
-- Rust 1.97.1 for core unit tests, JVM JNI tests, and rebuilding native libraries.
-- Android NDK 28.2.13676358 only when rebuilding the native sources. Ordinary APK builds use the checked-in prebuilt libraries.
+- Rust 1.97.1 for core unit tests, JVM JNI tests, and cross-compiling the Android native library.
+- Android NDK 28.2.13676358 for CI native-library validation and any local native rebuild. Ordinary Gradle APK builds still package the checked-in libraries.
 
 Use the Gradle wrapper included in this repository.
 The first build needs an internet connection to download dependencies.
@@ -110,9 +110,22 @@ cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Carg
 
 Check that Gradle reports `BUILD SUCCESSFUL`.
 JVM test tasks build and load the host Rust JNI library with `cargo build --locked`; the separate
-`cargo test` command executes Rust's own unit tests. APK builds still use the checked-in Android
-ABI libraries, so rebuild both shipped ABIs with `shared/src/main/rust/diplay-media/build.sh`
-after changing native source before testing an APK.
+`cargo test` command executes Rust's own unit tests. Android APK builds package the checked-in
+ARM64 and ARMv7 libraries. Before testing a native-source change, cross-compile both Android ABIs
+and verify that the checked-in binaries match:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi
+ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" scripts/check_rust_android_native.sh
+```
+
+The check uses the pinned Rust/NDK versions, validates ELF architecture and the 491 Java JNI exports,
+and fails if either generated `.so` differs from the tracked binary. If it reports a mismatch,
+regenerate the checked-in files, then rerun the check:
+
+```sh
+ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" shared/src/main/rust/diplay-media/build.sh
+```
 Shared-only contracts that access internal core owners live in `shared/src/testCoreInternal/kotlin`
 and are included only in shared JVM/Android tests. Common/home reuse the general test references and
 real-host JNI shadows without compiling those internal contracts.
@@ -185,7 +198,7 @@ That opt-in embeds the runtime identity in the APK, where recipients can extract
 
 ### GitHub Release automation
 
-The Android checks workflow runs locked Rust core unit tests, Android/JVM tests, lint and source-only Debug builds on `dev`/`main` pushes and pull requests.
+The Android checks workflow runs locked Rust core unit tests, cross-compiles and verifies both Rust Android ABIs against the checked-in libraries, then runs Android/JVM tests, lint and Debug APK builds on `dev`/`main` pushes and pull requests. It also verifies that the Debug APK contains both Rust ABIs.
 Publishing a GitHub Release also runs those checks, then signs the main Release APK and attaches
 `DiPlay-v<versionCode>-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt` to that Release.
 The mapping is included in the checksums and retained as a Release asset beyond the Actions artifact retention period.

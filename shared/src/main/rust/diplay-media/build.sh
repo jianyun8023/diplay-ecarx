@@ -5,7 +5,7 @@ set -eu
 cd "$(dirname "$0")"
 : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
 BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$(uname -s | tr A-Z a-z)-x86_64/bin"
-OUT=../../jniLibs
+OUT=${DIPLAY_JNI_LIBS_DIR:-../../jniLibs}
 TARGET_DIR=${CARGO_TARGET_DIR:-target}
 # Keep build-machine paths (panic locations) out of the checked-in libraries.
 export RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}/registry/src=/crates --remap-path-prefix=$PWD=/diplay-media"
