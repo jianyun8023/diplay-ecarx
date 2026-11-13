@@ -10,6 +10,6 @@ import com.shihab.diplay.storage.LegacyPreferences
 class DiPlayApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        LegacyPreferences.migrateAirPlay(this)
+        LegacyPreferences.ensureMigrated(this)
     }
 }
