@@ -1,48 +1,57 @@
 # Prebuilt native libraries — provenance
 
-APK builds consume these `.so` files without compiling native code. The original three
-libraries below come from `DiPlay-0.2.15.apk`; `libdiplay_media.so` is built from our Rust source (below).
+APK builds consume these `.so` files without compiling native code. All four libraries are rebuilt
+from the sources kept in this repository: the three C libraries from `shared/src/main/jni`
+(`local_hotspot_radio`, `speex_echo`, `xcertplay_i2c`) with NDK `28.2.13676358`, and
+`libdiplay_media.so` from the Rust source under `shared/src/main/rust/diplay-media`.
 
-## Why
+## Why the C libraries are checked in
 
 `shared/src/main/jni/` holds the real sources (`local_hotspot_radio.c`, `speex_echo_jni.c`,
 `linux_i2c_jni.c`, `speexdsp/`) and `Android.mk` / `Application.mk`; upstream builds them with
-`ndkBuild`. The build was done on Windows from a checkout whose path contained non-ASCII
-characters, and the NDK's GNU make cannot cope with that: it renders the NDK prefix with
-replacement characters and the compile step then fails with
-`fatal error: 'jni.h' file not found`. Switching to prebuilt libraries avoids rebuilding
-the C sources during ordinary APK builds.
+`ndkBuild`. Ordinary Gradle APK builds do not run `ndk-build`, so the compiled libraries are kept
+under `jniLibs/` as prebuilt binaries. They were rebuilt from these sources on 2026-11-13 with NDK
+`28.2.13676358` at API 28 from an ASCII-only checkout path. Rebuild with:
 
-The C sources and the makefiles are left in place, so a build from an ASCII-only path reproduces
-the upstream behaviour unchanged; only `shared/build.gradle` needs its `externalNativeBuild` block
-put back.
+```sh
+$ANDROID_NDK_HOME/ndk-build APP_ABI="arm64-v8a armeabi-v7a x86_64" \
+  NDK_PROJECT_PATH=shared/src/main/jni \
+  APP_BUILD_SCRIPT=shared/src/main/jni/Android.mk \
+  NDK_APPLICATION_MK=shared/src/main/jni/Application.mk
+# then copy libs/<abi>/*.so into shared/src/main/jniLibs/<abi>/
+```
+
+The NDK's GNU make cannot handle a checkout path containing non-ASCII characters; keep the build
+path ASCII-only. Alternatively the `externalNativeBuild` block can be put back in
+`shared/build.gradle` and the C sources compiled during the APK build.
 
 ## Integrity
 
-Compare against the source APK (must match exactly):
+Rebuilt from the retained sources on 2026-11-13 with NDK `28.2.13676358` (production ABI filters are
+ARM64 and ARMv7; x86_64 files remain for the source tree / emulator):
 
-| ABI | File | Bytes | SHA-256 (first 24) |
-|---|---|---|---|
-| arm64-v8a | liblocal_hotspot_radio.so | 4,896 | `5253167fd86de913a84e9163` |
-| arm64-v8a | libspeex_echo.so | 56,856 | `84fca93c08fc3fc19c148da0` |
-| arm64-v8a | libxcertplay_i2c.so | 6,760 | `e4a5921518f430dc58884a85` |
-| armeabi-v7a | liblocal_hotspot_radio.so | 3,548 | `ddf3ef5f9345343f534bcc6b` |
-| armeabi-v7a | libspeex_echo.so | 33,612 | `aef8140c154517a151840354` |
-| armeabi-v7a | libxcertplay_i2c.so | 4,676 | `50696d4d2b181167bf6c2899` |
-| x86_64 | liblocal_hotspot_radio.so | 4,864 | `4442b3796e5d56e807066da0` |
-| x86_64 | libspeex_echo.so | 72,744 | `dff57dc476901931cfe5f1a0` |
-| x86_64 | libxcertplay_i2c.so | 6,648 | `52bb21d092673f6ba0883289` |
+| ABI | File | Bytes | SHA-256 |
+|---|---|---:|---|
+| arm64-v8a | liblocal_hotspot_radio.so | 4,880 | `7d226e17f474678b1c0c8cb8de203b5f15df46e8939303443fc1df01fd925c70` |
+| arm64-v8a | libspeex_echo.so | 56,856 | `fadea4a56f1593d14d2bee1a7401441d14c4fddaf863d694c7de1591bbb67ab3` |
+| arm64-v8a | libxcertplay_i2c.so | 6,728 | `16fd9f81c63e5f239fb61eddffabceff712db2c3ffbc8c2fe047e9703630c009` |
+| armeabi-v7a | liblocal_hotspot_radio.so | 3,532 | `2f927a99d46ace2fa7ddc51261d57ee71e9601a499cb1ef97ffc440c72235f7f` |
+| armeabi-v7a | libspeex_echo.so | 33,580 | `a2aada56c83ba5d89a6d8696bbd61b0ff564fb1602784c27dc852834c845bb04` |
+| armeabi-v7a | libxcertplay_i2c.so | 4,660 | `ce601eb4ca1dfb131f8bda993de58ed72963f327721097f6eadc318d776e7564` |
+| x86_64 | liblocal_hotspot_radio.so | 4,848 | `cb4e90c3c6e0b8e8bb19fd562c5b6be417e2e54c7f5480d7a7b77b7700e50031` |
+| x86_64 | libspeex_echo.so | 72,712 | `541b9bd49607619182edc5ddc264837151c15e5375d57eb79987de515c5ec0cb` |
+| x86_64 | libxcertplay_i2c.so | 6,616 | `602d5bbd97823d628c03604b81395c5f9c3b48d15b8bcfa7f2c84baae52e105e` |
 
 `libandroidx.graphics.path.so` is **not** copied: it ships inside the
 `androidx.graphics:graphics-path` AAR and is packaged by Gradle.
 
 ## Source and distribution boundary
 
-The table covers the nine original native binaries. Their bytes and hash prefixes match the
-repository's current files. This integrity check does not establish that a rebuild of the retained
-sources corresponds to the extracted binaries; the exact upstream source revision and necessary build
-scripts still need verification before relying on them as corresponding source. GPL compliance does not
-require byte-for-byte reproducible builds; the unresolved point here is source correspondence.
+The table covers the nine native binaries rebuilt from the retained C sources. Their bytes and hashes
+above match the repository's current files. GPL compliance does not require byte-for-byte
+reproducible builds; these binaries are built from the in-repo sources listed above with the pinned
+NDK, so they are the corresponding source-built artifacts (they are no longer byte-identical to the
+old `DiPlay-0.2.15.apk` copies).
 
 `Android.mk` still declares only `xcertplay_i2c`, `local_hotspot_radio` and `speex_echo`.
 
@@ -73,12 +82,12 @@ the checked-in Android libraries. The Android checks workflow runs `scripts/chec
 on every pull request and `main`／`dev` push: it cross-compiles both ABIs with the pinned Rust／NDK versions,
 checks ELF architecture, the 494 Java JNI exports, `JNI_OnLoad` and identical JNI export sets, then stages
 the freshly built libraries for Debug／Release APK packaging. The pair and source revision are retained as
-an Actions artifact. Checked-in hashes below identify the repository copies, not necessarily the CI-built
+an Actions artifact. checked in hashes below identify the repository copies, not necessarily the CI-built
 APK payload; byte-level equality across build hosts is not required. `cargo test` in this directory runs the host tests. Both shipped ABIs were rebuilt on
 2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
-uncommitted migration batch based on `0c4820ae702eaadd2b7f422f38a4a1fa44771d27`; that base commit alone does not
-contain this batch. Its source manifest SHA-256 is
-`70dbd4681aac8349cf725b36b39e58316351d0f32aa562356a80e274c698a224`.
+#100 package-rename batch based on `70733a9b`; that base commit alone does not contain this batch. Its
+source manifest SHA-256 is
+`5c68950c734d95a97e8c0c1c7c81e29ea0bfd810c7cc5e91dbda7e9d8b3dad27`.
 The digest is SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
 for the crate's Rust sources, manifests/lockfile, toolchain pin, build script and any crate Cargo configuration:
 
@@ -97,8 +106,8 @@ remains platform behavior; there is no production Kotlin protocol/DSP substitute
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1700320 | `8ca7b3d0715683bf006c4a2b1549005f90a05fba8921f6b7a994d5e4987a5009` |
-| armeabi-v7a | libdiplay_media.so | 1185476 | `0b78a5b3d65192d0c9ac912ffe614fe11c4f8ee601707f8baaacfed1f09ac0ed` |
+| arm64-v8a | libdiplay_media.so | 1696096 | `283b0ea9efc16f3eed378d7deeaef2e328c656506078f52ce85214fd3fdb524f` |
+| armeabi-v7a | libdiplay_media.so | 1181188 | `66c3316a366d968ca203c54885284cf784ae9099c5a87faf0c79fb7cea05a13c` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).
