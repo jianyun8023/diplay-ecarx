@@ -39,11 +39,16 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
     if grep -q '^Java_com_shilapi_xcertplay' <<<"$symbols"; then
       echo "FAIL $abi/$lib.so still exports legacy Java_com_shilapi_xcertplay_* symbols" >&2; fail=1
     fi
-    new_count="$(grep -c '^Java_com_shihab_diplay_' <<<"$symbols" || true)"
-    expected_count="$(grep -ho 'Java_com_shihab_diplay_[A-Za-z0-9_]*' "$ROOT/shared/src/main/jni/$(src_for "$lib")" | sort -u | wc -l | tr -d ' ')"
-    if [[ "$new_count" != "$expected_count" ]]; then
-      echo "FAIL $abi/$lib.so exports $new_count renamed JNI symbols, source declares $expected_count" >&2; fail=1
+    # Compare the complete sorted set, not just the count: a wrong symbol could otherwise slip through
+    # when another one happens to make the totals equal.
+    exported_syms="$(grep '^Java_com_shihab_diplay_' <<<"$symbols" | LC_ALL=C sort -u)"
+    source_syms="$(grep -ho 'Java_com_shihab_diplay_[A-Za-z0-9_]*' "$ROOT/shared/src/main/jni/$(src_for "$lib")" | LC_ALL=C sort -u)"
+    if [[ "$exported_syms" != "$source_syms" ]]; then
+      echo "FAIL $abi/$lib.so JNI export set differs from source $(src_for "$lib")" >&2
+      diff -u <(printf '%s\n' "$source_syms") <(printf '%s\n' "$exported_syms") | sed 's/^/    /' >&2 || true
+      fail=1
     fi
+    new_count="$(printf '%s\n' "$exported_syms" | grep -c . || true)"
 
     expected_sha="$(python3 - "$NOTICE" "$abi" "$lib.so" <<'PY'
 import re, sys
