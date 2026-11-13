@@ -119,16 +119,13 @@ rustup target add aarch64-linux-android armv7-linux-androideabi
 ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" scripts/check_rust_android_native.sh
 ```
 
-The check uses the pinned Rust/NDK versions, validates ELF architecture and the 491 Java JNI exports,
-and fails if either generated `.so` differs from the tracked binary. If it reports a mismatch,
-regenerate the checked-in files, then rerun the check:
-
-The workflow uploads the freshly generated pair as the `rust-android-native-libraries` Actions artifact,
-so a mismatch can be inspected without modifying the tracked files.
-
-```sh
-ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" shared/src/main/rust/diplay-media/build.sh
-```
+The check builds both libraries into a temporary output directory, validates ELF architecture,
+the 491 Java JNI exports, `JNI_OnLoad`, and identical JNI export sets across ABIs. CI then stages
+those freshly built libraries into `shared/src/main/jniLibs` before building the Debug and Release
+APKs, and retains the pair plus source revision as an Actions artifact. It does not require
+byte-for-byte equality with the checked-in copies: build-host metadata can differ even when the
+ABI and JNI contract is unchanged. Ordinary local Gradle builds still use the checked-in files,
+so regenerate them with `build.sh` after changing Rust source.
 Shared-only contracts that access internal core owners live in `shared/src/testCoreInternal/kotlin`
 and are included only in shared JVM/Android tests. Common/home reuse the general test references and
 real-host JNI shadows without compiling those internal contracts.
@@ -201,7 +198,7 @@ That opt-in embeds the runtime identity in the APK, where recipients can extract
 
 ### GitHub Release automation
 
-The Android checks workflow runs locked Rust core unit tests, cross-compiles and verifies both Rust Android ABIs against the checked-in libraries, then runs Android/JVM tests, lint and Debug APK builds on `dev`/`main` pushes and pull requests. It also verifies that the Debug APK contains both Rust ABIs.
+The Android checks workflow runs locked Rust core unit tests, cross-compiles both Rust Android ABIs, validates their ELF/JNI contracts, and packages those fresh libraries into Debug and Release APKs on `dev`/`main` pushes and pull requests. It also verifies that the Debug APK contains both Rust ABIs.
 Publishing a GitHub Release also runs those checks, then signs the main Release APK and attaches
 `DiPlay-v<versionCode>-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt` to that Release.
 The mapping is included in the checksums and retained as a Release asset beyond the Actions artifact retention period.

@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE_DIR="$ROOT/shared/src/main/rust/diplay-media"
-TRACKED_LIBS="$ROOT/shared/src/main/jniLibs"
 
 : "${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME to NDK 28.2.13676358}"
 NDK_REVISION="$(sed -n 's/^Pkg.Revision = //p' "$ANDROID_NDK_HOME/source.properties" | tr -d '\r')"
@@ -69,13 +68,9 @@ check_library() {
   local file="$2"
   local expected_class="$3"
   local expected_machine="$4"
-  local tracked="$TRACKED_LIBS/$abi/libdiplay_media.so"
   local header symbols java_count
 
   test -s "$file"
-  test -f "$tracked"
-  git -C "$ROOT" ls-files --error-unmatch "shared/src/main/jniLibs/$abi/libdiplay_media.so" >/dev/null
-
   header="$("$READELF" --file-header "$file")"
   grep -Eq "Class:[[:space:]]+$expected_class" <<<"$header"
   grep -Eq "Machine:[[:space:]]+$expected_machine" <<<"$header"
@@ -92,16 +87,8 @@ check_library() {
   fi
   grep '^Java_' <<<"$symbols" > "$VERIFY_TMP/$abi-jni-symbols.txt"
 
-  if ! cmp -s "$file" "$tracked"; then
-    echo "Generated $abi libdiplay_media.so differs from the checked-in binary." >&2
-    echo "Rebuild and commit both Android libraries with:" >&2
-    echo "  ANDROID_NDK_HOME=$ANDROID_NDK_HOME $CRATE_DIR/build.sh" >&2
-    shasum -a 256 "$file" "$tracked" >&2
-    exit 1
-  fi
-
-  printf '%s: %s Java JNI exports + JNI_OnLoad; %s; matches checked-in binary\n' \
-    "$abi" "$java_count" "$expected_machine"
+  printf '%s: %s Java JNI exports + JNI_OnLoad; ELF %s / %s\n' \
+    "$abi" "$java_count" "$expected_class" "$expected_machine"
   shasum -a 256 "$file"
 }
 
@@ -113,4 +100,5 @@ if ! cmp -s "$VERIFY_TMP/arm64-v8a-jni-symbols.txt" "$VERIFY_TMP/armeabi-v7a-jni
   exit 1
 fi
 
-echo "Rust Android native build passed: both ABIs are valid, JNI-compatible and byte-identical to the checked-in libraries."
+git -C "$ROOT" rev-parse HEAD > "$OUTPUT_DIR/SOURCE-REVISION.txt"
+echo "Rust Android native build passed: both ABIs are valid and expose the same JNI contract."

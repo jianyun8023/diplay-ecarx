@@ -41,6 +41,10 @@ jobs:
           name: rust-android-native-libraries
           path: ${{ runner.temp }}/rust-android-libs/
           if-no-files-found: warn
+      - name: Stage freshly built Rust libraries for Debug APK
+        run: |
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests, lint and debug APK builds
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --no-parallel --max-workers=1 --stacktrace
@@ -106,6 +110,14 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+      - uses: actions/download-artifact@v4
+        with:
+          name: rust-android-native-libraries
+          path: ${{ runner.temp }}/rust-android-libs
+      - name: Stage freshly built Rust libraries for Release APK
+        run: |
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
       - uses: gradle/actions/setup-gradle@v4
       - name: Restore Android signing keystore
         env:

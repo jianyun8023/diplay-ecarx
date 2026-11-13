@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds libdiplay_media.so into shared/src/main/jniLibs for the two shipped ABIs.
+# Builds libdiplay_media.so into shared/src/main/jniLibs (or DIPLAY_JNI_LIBS_DIR) for both shipped ABIs.
 # Needs rustup targets aarch64-linux-android and armv7-linux-androideabi, and ANDROID_NDK_HOME.
 set -eu
 cd "$(dirname "$0")"
