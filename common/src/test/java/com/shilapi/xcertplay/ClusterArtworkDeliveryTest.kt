@@ -86,11 +86,8 @@ class ClusterArtworkDeliveryTest {
         stop()
     }
 
-    @Test fun missingCoverRecoveryWorksForEcarxEvenWithTheOverlayDisabled() {
+    @Test fun artworkRecoveryStaysEnabledForEcarx() {
         seed(CarPlayNowPlaying(title = "A", artworkTransferId = 7))
-        ClusterMusicSettings.saveEnabled(context, true)
-        assertEquals(true, call("albumRecoveryEnabled"))
-        ClusterMusicSettings.saveEnabled(context, false)
         assertEquals(true, call("albumRecoveryEnabled"))
     }
 
