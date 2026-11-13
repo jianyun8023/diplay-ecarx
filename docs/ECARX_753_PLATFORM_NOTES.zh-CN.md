@@ -29,7 +29,7 @@
 | 仪表布局 | V3 1920×720，左侧 ADAS 面板限制居中矩形宽度；安全区 top 273 / bottom 100 / left 494 / right 494 | 实车标定 |
 | 中控分辨率 | 1920×1080 横屏，含车机底部 Dock | 实车截图 |
 | 应用安装位置 | `/data/app/com.shihab.diplay-*/base.apk`，平台签名，flags 无 `SYSTEM`／`PERSISTENT`；历史 UID 10125，2026-11-02 截图 UID 10105 | 实车 dumpsys、截图 |
-| 发布 ABI | 仅 arm64-v8a、armeabi-v7a | 构建配置 |
+| 发布 ABI | 三个独立 APK：arm64-v8a（默认）、armeabi-v7a（兜底）、x86_64（仅模拟器测试） | 构建配置 |
 
 其他 Android 版本（10、11、13、15）只用于台架调试，不作为兼容承诺。小米 8（Android 15 / LineageOS）和 BOOX NoteX2（Android 11）出现在证据里时，都是台架。
 

@@ -27,6 +27,10 @@ internal fun Context.appVersionName(): String =
 internal fun Context.appBuildNumber(): Long =
     androidx.core.content.pm.PackageInfoCompat.getLongVersionCode(packageManager.getPackageInfo(packageName, 0))
 
+/** The shipped ABI this device runs, so an update downloads the package built for its own platform. */
+internal fun Context.platformAbi(): String =
+    UpdateCatalog.platformAbi(android.os.Build.SUPPORTED_ABIS.toList())
+
 /** Update downloads and verified installation for one launcher lifetime. */
 internal class DiPlayUpdates(
     private val activity: android.app.Activity,
@@ -55,7 +59,7 @@ internal class DiPlayUpdates(
         installedNotesLoading = true
         render(false)
         Thread({
-            val outcome = runCatching { UpdateReleaseLookup.installed(build, userAgent(), UpdateAvailability.routes(this)) }
+            val outcome = runCatching { UpdateReleaseLookup.installed(build, userAgent(), UpdateAvailability.routes(this), platformAbi()) }
             activity.runOnUiThread {
                 installedNotesLoading = false
                 outcome.onSuccess { lookup ->
@@ -104,7 +108,7 @@ internal class DiPlayUpdates(
     }
 
     private fun latestRelease(): UpdateRelease? {
-        val lookup = UpdateReleaseLookup.latest(appBuildNumber(), userAgent(), UpdateAvailability.routes(this))
+        val lookup = UpdateReleaseLookup.latest(appBuildNumber(), userAgent(), UpdateAvailability.routes(this), platformAbi())
         updateRoute = lookup.route
         UpdateAvailability.recordWorkingRoute(this, lookup.route)
         return lookup.release

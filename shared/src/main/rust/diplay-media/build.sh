@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds libdiplay_media.so into shared/src/main/jniLibs (or DIPLAY_JNI_LIBS_DIR) for the shipped ABIs.
-# With no arguments it builds both ABIs; pass one or more cargo target triples to build a subset.
-# Needs rustup targets aarch64-linux-android and armv7-linux-androideabi, and ANDROID_NDK_HOME.
+# With no arguments it builds every ABI; pass one or more cargo target triples to build a subset.
+# Needs rustup targets aarch64-linux-android, armv7-linux-androideabi and x86_64-linux-android, and ANDROID_NDK_HOME.
+# ARM64 is the default production package; ARMv7 is the fallback; x86_64 is test-only (emulator).
 set -eu
 cd "$(dirname "$0")"
 : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
@@ -23,7 +24,7 @@ build() { # rust target, clang prefix, ABI directory
     cp "$TARGET_DIR/$1/release/libdiplay_media.so" "$OUT/$3/"
 }
 if [ "$#" -eq 0 ]; then
-    set -- aarch64-linux-android armv7-linux-androideabi
+    set -- aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 fi
 for target in "$@"; do
     case "$target" in
@@ -32,6 +33,8 @@ for target in "$@"; do
         armv7-linux-androideabi)
             # ring's ARM assembly needs ARMv7 with Thumb-2 spelled out.
             build armv7-linux-androideabi armv7a-linux-androideabi armeabi-v7a "-march=armv7-a -mthumb" ;;
+        x86_64-linux-android)
+            build x86_64-linux-android x86_64-linux-android x86_64 ;;
         *)
             echo "unsupported target: $target" >&2
             exit 2 ;;

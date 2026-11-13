@@ -11,12 +11,13 @@ internal object UpdateReleaseLookup {
         installedBuild: Long,
         userAgent: String,
         routes: List<String>,
+        abi: String = UpdateCatalog.DEFAULT_ABI,
         openConnection: (URL) -> URLConnection = { it.openConnection() },
     ): UpdateLookup {
         val (json, route) = UpdateMirror.firstWorking(routes) { route ->
             UpdateClient.fetchText(UpdateMirror.url(route, UpdateCatalog.MANIFEST_URL), "application/json", userAgent, openConnection)
         }
-        val release = UpdateCatalog.parse(json)?.takeIf { UpdateVersion.isNewer(it.tagName, installedBuild) }
+        val release = UpdateCatalog.parse(json, abi)?.takeIf { UpdateVersion.isNewer(it.tagName, installedBuild) }
         return UpdateLookup(release, route)
     }
 
@@ -25,12 +26,13 @@ internal object UpdateReleaseLookup {
         installedBuild: Long,
         userAgent: String,
         routes: List<String>,
+        abi: String = UpdateCatalog.DEFAULT_ABI,
         openConnection: (URL) -> URLConnection = { it.openConnection() },
     ): UpdateLookup {
         val tag = "v$installedBuild"
         val (json, route) = UpdateMirror.firstWorking(routes) { route ->
             UpdateClient.fetchText(UpdateMirror.url(route, UpdateCatalog.manifestUrl(tag)), "application/json", userAgent, openConnection)
         }
-        return UpdateLookup(UpdateCatalog.parse(json)?.takeIf { it.tagName == tag }, route)
+        return UpdateLookup(UpdateCatalog.parse(json, abi)?.takeIf { it.tagName == tag }, route)
     }
 }

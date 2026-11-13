@@ -1,6 +1,6 @@
 # Install and connect
 
-1. Park the car. Install this fork’s Android 9 / ECARX 753 / 820A vehicle build with the matching platform signature. APKs contain ARM64 and ARMv7 only. Android 10/13 and other releases are development/debug environments. The app needs no network ADB, debugging key or computer authorization step. See [permissions and validation](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
+1. Park the car. Install this fork’s Android 9 / ECARX 753 / 820A vehicle build with the matching platform signature. Releases ship one APK per ABI: ARM64 (the default production package), ARMv7 (fallback) and x86_64 (emulator testing only); the in-app updater picks the package for the device's own ABI. Android 10/13 and other releases are development/debug environments. The app needs no network ADB, debugging key or computer authorization step. See [permissions and validation](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
 2. Install on the Android head unit using its supported APK installation method. Do not install on the iPhone. Use the same package/variant and a matching signing certificate for an in-place update that preserves settings and pairing records. Do not infer update compatibility from the filename.
 3. Open DiPlay. Inspect current grants in **Settings → Diagnostics → Permission check**; Refresh is read-only. Grant the permissions requested for the features you use: Bluetooth/Nearby devices, Wi-Fi/Location on older Android, and microphone for Siri/calls. Allow notifications for connection controls.
 4. Close other phone-projection apps before connecting.

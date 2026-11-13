@@ -7,7 +7,9 @@ Releases:
 https://github.com/jianyun8023/diplay-ecarx/releases
 
 Public Release builds distribute these files together:
-- DiPlay-release.apk
+- DiPlay-v<versionCode>-arm64-v8a-release.apk, DiPlay-v<versionCode>-armeabi-v7a-release.apk and
+  DiPlay-v<versionCode>-x86_64-release.apk: one package per ABI (ARM64 default, ARMv7 fallback,
+  x86_64 test-only), named in update.json for the in-app updater.
 - DiPlay-licenses.zip: the license texts and copyright notices also included in the APK.
 - DiPlay-source.tar.gz: the repository source and build files from the same commit as the APK.
 - SOURCE-REVISION.txt: the repository and exact commit used for that build.

@@ -1,6 +1,6 @@
 # DiPlay ECARX release notes
 
-The current ECARX release is **[v146](https://github.com/jianyun8023/diplay-ecarx/releases/tag/v146)** (2026-11-10), on upstream DiPlay 0.2.22, with Android versionCode 146. Each GitHub Release carries `DiPlay-v<versionCode>-release.apk` and an `update.json` that the installed app reads for in-app updates. The full record of changes is the [changelog](../CHANGELOG.md) (Simplified Chinese); this page is the English summary.
+The current ECARX release is **[v146](https://github.com/jianyun8023/diplay-ecarx/releases/tag/v146)** (2026-11-10), on upstream DiPlay 0.2.22, with Android versionCode 146. Each GitHub Release carries one APK per ABI (`DiPlay-v<versionCode>-arm64-v8a-release.apk` default, `-armeabi-v7a-` fallback, `-x86_64-` test-only) and an `update.json` that lists them in an `apks` map, so the installed app downloads the package for its own ABI. The full record of changes is the [changelog](../CHANGELOG.md) (Simplified Chinese); this page is the English summary.
 
 - **v146**: release builds optimized with R8 while keeping class and method names readable in crash reports; each Release also carries `DiPlay-v<versionCode>-mapping.txt`.
 - **v145**: the "HY proxy" media mode renamed "Android standard" with a switch for the HY cover broadcast, a centred and larger ECARX cluster safe area, the live CarPlay map in the sample launcher on Android 9, versioned APK file names, one USB request per wired connection, and a repeated iPhone SETUP no longer dropping the session.
