@@ -144,9 +144,11 @@ internal object CarPlayMediaSession {
             synchronized(this) {
                 if (controller === next) {
                     onNowPlayingChanged(next)
-                    // The same metadata the car's media session shows is what an ECARX cluster's media card
-                    // wants, so it is forwarded from here rather than read a second time off the controller.
-                    publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId], "metadata-received")
+                    // A transport reference can rotate while the same cover remains on screen.
+                    val sameTrack = !albumTrackChanged(nowPlaying, update)
+                    val nextArtworkUri = clusterArtworkUris[update.artworkTransferId]
+                        ?: artworkUri.takeIf { sameTrack }
+                    publishMediaCenter(update, nextArtworkUri, "metadata-received")
                 }
             }
         }
@@ -192,28 +194,38 @@ internal object CarPlayMediaSession {
                 // Resolve retained state at delivery: a queued callback cannot roll a replay back.
                 val update = expected.nowPlayingSnapshot()
                 val previousArtwork = artwork
-                if (albumTrackChanged(nowPlaying, update)) {
-                    val previousId = nowPlaying.artworkTransferId
+                val previousArtworkUri = artworkUri
+                val previousId = nowPlaying.artworkTransferId
+                val nextId = update.artworkTransferId
+                val trackChanged = albumTrackChanged(nowPlaying, update)
+                if (trackChanged) {
                     if (previousId != null) {
                         ambientColorCache.remove(previousId)
-                        if (previousId != update.artworkTransferId) {
+                        if (previousId != nextId) {
                             artworkCache.remove(previousId)
                             clusterArtworkUris.remove(previousId)
                         }
                     }
-                    if (previousId == update.artworkTransferId) {
-                        // Metadata can arrive after its artwork. Keep the connection's decode token;
-                        // cancelling it here loses a valid in-flight cover for a reused reference.
-                        initialAlbumRecovery = InitialAlbumRecovery()
+                    artwork = artworkCache[nextId]
+                    artworkUri = clusterArtworkUris[nextId]
+                } else if (nextId != previousId) {
+                    // Artwork can arrive before its NowPlaying reference. Adopt that cached
+                    // result when metadata catches up; otherwise retain the currently visible art.
+                    artworkCache[nextId]?.let { cached ->
+                        artwork = cached
+                        artworkUri = clusterArtworkUris[nextId]
                     }
-                    artwork = artworkCache[update.artworkTransferId]
-                    artworkUri = clusterArtworkUris[update.artworkTransferId]
+                } else if (artwork == null && nextId != null) {
+                    artwork = artworkCache[nextId]
+                    artworkUri = clusterArtworkUris[nextId]
                 }
                 if (nowPlaying.elapsedMillis != update.elapsedMillis) elapsedUpdatedAt = SystemClock.elapsedRealtime()
-                val metadataChanged = metadataChanged(nowPlaying, update) || artwork !== previousArtwork
+                val metadataChanged = metadataChanged(nowPlaying, update) ||
+                    artwork !== previousArtwork || artworkUri != previousArtworkUri
                 nowPlaying = update
-                publishMediaCenter(update, clusterArtworkUris[update.artworkTransferId], "metadata-applied")
-                if (metadataChanged) ClusterMusicState.publish(update, artwork)
+                val nextArtworkUri = artworkUri ?: clusterArtworkUris[update.artworkTransferId]
+                publishMediaCenter(update, nextArtworkUri, "metadata-applied")
+                if (metadataChanged || trackChanged) ClusterMusicState.publish(update, artwork)
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
                 // Republishing the metadata each time sent a copy of the artwork through system_server
@@ -251,13 +263,10 @@ internal object CarPlayMediaSession {
             return
         }
         clusterArtworkUris.remove(id)
-        if (result != null) runCatching {
-            val server = clusterArtworkServer ?: ClusterArtworkServer().also { clusterArtworkServer = it }
-            clusterArtworkUris[id] = android.net.Uri.parse(server.publish(result.png))
+        val uri = result?.let { publishClusterArtwork(it.png) }
+        if (uri != null) {
+            clusterArtworkUris[id] = uri
             while (clusterArtworkUris.size > MAX_CACHED_ARTWORK) clusterArtworkUris.remove(clusterArtworkUris.keys.first())
-        }.onFailure {
-            lastClusterArtworkReport = "Cluster artwork HTTP: startup/publish failed=${it.javaClass.simpleName}"
-            Log.w(TAG, "Cluster artwork HTTP handoff failed", it)
         }
         artworkCache.remove(id)
         artworkCache[id] = decoded
@@ -266,15 +275,27 @@ internal object CarPlayMediaSession {
         while (ambientColorCache.size > MAX_CACHED_ARTWORK) ambientColorCache.remove(ambientColorCache.keys.first())
         while (artworkCache.size > MAX_CACHED_ARTWORK) artworkCache.remove(artworkCache.keys.first())
         if (nowPlaying.artworkTransferId == id) {
+            val artworkChanged = artwork !== decoded || artworkUri != uri
             artwork = decoded
-            artworkUri = clusterArtworkUris[id]
-            publishMediaCenter(nowPlaying, clusterArtworkUris[id], "artwork-decoded")
-            ClusterMusicState.publish(nowPlaying, artwork)
+            artworkUri = uri
+            if (artworkChanged) {
+                publishMediaCenter(nowPlaying, uri, "artwork-decoded")
+                ClusterMusicState.publish(nowPlaying, artwork)
+                session?.setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
+                publishHyDisplayLocked()
+            }
             controller?.let(::updateInitialAlbumRecovery)
-            session?.setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
-            publishHyDisplayLocked()
         }
     }
+
+    /** Reuses the server's content-addressed URL when another transfer carries the same cover. */
+    private fun publishClusterArtwork(png: ByteArray): Uri? = runCatching {
+        val server = clusterArtworkServer ?: ClusterArtworkServer().also { clusterArtworkServer = it }
+        Uri.parse(server.publish(png))
+    }.onFailure {
+        lastClusterArtworkReport = "Cluster artwork HTTP: startup/publish failed=${it.javaClass.simpleName}"
+        Log.w(TAG, "Cluster artwork HTTP handoff failed", it)
+    }.getOrNull()
 
     @Synchronized
     fun artworkDiagnosticReport(): String =
@@ -573,7 +594,7 @@ internal object CarPlayMediaSession {
         // A connecting session has no phone metadata yet; do not clear HY's current source.
         if (nowPlaying == CarPlayNowPlaying()) return
         val uri = artworkUri
-        val publication = nowPlaying.copy(elapsedMillis = null) to uri
+        val publication = nowPlaying.copy(elapsedMillis = null, artworkTransferId = null) to uri
         if (lastHyPublication == publication) return
         lastHyPublication = publication
         HyMediaDisplay.publish(context, nowPlaying, uri)
@@ -809,7 +830,8 @@ internal object CarPlayMediaSession {
 
     /** Whether [next] changes what the media session's metadata shows; position and play state do not. */
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
-        previous.copy(elapsedMillis = null, playing = false) != next.copy(elapsedMillis = null, playing = false)
+        previous.copy(elapsedMillis = null, playing = false, artworkTransferId = null) !=
+            next.copy(elapsedMillis = null, playing = false, artworkTransferId = null)
 
     internal fun androidMetadata(info: CarPlayNowPlaying, artwork: Bitmap? = null, artworkUri: Uri? = null): MediaMetadata =
         MediaMetadata.Builder().apply {
@@ -935,12 +957,15 @@ internal object CarPlayMediaSession {
 
     private fun publishMediaCenter(now: CarPlayNowPlaying, artwork: Uri? = null, reason: String = "metadata"): Unit = synchronized(mediaCenterLock) {
         val entry = mediaCenterOwner ?: return@synchronized
+        // iAP2 artwork references can rotate independently of the media item. The vehicle
+        // transport only needs user-visible playback metadata and the actual cover URI.
+        val publication = now.copy(artworkTransferId = null)
         val previous = lastMediaPublication
-        val trackChanged = previous != null && albumTrackChanged(previous, now)
+        val trackChanged = previous != null && albumTrackChanged(previous, publication)
         val artworkChanged = artwork != lastMediaArtwork
         mediaPublicationCount++
-        if (previous != null && !metadataChanged(previous, now) && previous.playing == now.playing &&
-            !artworkChanged && previous.elapsedMillis != now.elapsedMillis) {
+        if (previous != null && !metadataChanged(previous, publication) && previous.playing == publication.playing &&
+            !artworkChanged && previous.elapsedMillis != publication.elapsedMillis) {
             mediaProgressOnlyCount++
         }
         // Requests may coalesce before Binder publication; never log URI contents or track text.
@@ -952,7 +977,7 @@ internal object CarPlayMediaSession {
             mediaPublicationEvents.addLast(event)
             Log.i(TAG, "ECARX media request $event")
         }
-        lastMediaPublication = now
+        lastMediaPublication = publication
         lastMediaArtwork = artwork
         mediaCenterEngine.update(MediaCenterSessionEngine.Desired(entry, now, artwork) {
             mediaCenterOwner === entry && outputMode == MediaSessionMode.ECARX &&

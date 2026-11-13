@@ -20,6 +20,7 @@ class MediaCenterSessionEngineTest {
         override val connected get() = alive
         var claims = 0
         var publishes = 0
+        val publishedFrames = mutableListOf<CarPlayNowPlaying>()
         var accepted = true
         var granted = true
         var clean = true
@@ -30,7 +31,9 @@ class MediaCenterSessionEngineTest {
         override fun connect() { events += "connect:$id"; if (connectFailure) throw SecurityException() }
         override fun register(now: CarPlayNowPlaying, artwork: Uri?) { events += "register:$id"; onRegister(); registered = true }
         override fun requestPlay(): Boolean { claims++; onClaim(); return granted }
-        override fun publish(now: CarPlayNowPlaying, artwork: Uri?): Boolean { publishes++; return accepted }
+        override fun publish(now: CarPlayNowPlaying, artwork: Uri?): Boolean {
+            publishes++; publishedFrames += now; return accepted
+        }
         override fun clear() { events += "clear:$id"; if (clearFailure) throw IllegalStateException() }
         override fun unregister(): Boolean { events += "unregister:$id"; if (clean) registered = false; return clean }
         override fun close() { events += "close:$id" }
@@ -68,6 +71,20 @@ class MediaCenterSessionEngineTest {
         f.engine.tick(); f.queue.drain()
         assertEquals(1, f.instances.getValue(a).claims)
     }
+    @Test fun artworkTransferIdRotationDoesNotRepublishButRemainsAvailableToTheTransport() {
+        val f = Fixture(); val a = f.fake("a")
+        f.update(MediaCenterSessionEngine.Desired(a,
+            CarPlayNowPlaying(title = "track", artworkTransferId = 7, playing = true, sourceApp = "music"), null) { true })
+        val transport = f.instances.getValue(a)
+        assertEquals(1, transport.publishes)
+        assertEquals(7, transport.publishedFrames.single().artworkTransferId)
+
+        f.update(MediaCenterSessionEngine.Desired(a,
+            CarPlayNowPlaying(title = "track", artworkTransferId = 8, playing = true, sourceApp = "music"), null) { true })
+        assertEquals(1, transport.publishes)
+        assertEquals(7, transport.publishedFrames.single().artworkTransferId)
+    }
+
     @Test fun repeatedFramesAndTicksNeverReclaimPlayingSource() {
         val f = Fixture(); val a = f.fake("a")
         f.update(f.frame(a))

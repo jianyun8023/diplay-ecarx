@@ -2,14 +2,17 @@ package com.shihab.diplay
 
 import com.shihab.diplay.media.CarPlayNowPlaying
 
-/** Lyrics can occupy title. A title change alone must not invalidate the decoded cover. */
+/**
+ * Artwork transfer ids are transport handles, not media identity. Title and artist are also
+ * excluded because some iPhones/apps reuse those fields for rapidly changing lyrics.
+ */
 internal fun albumTrackChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean {
-    if (previous.artworkTransferId != next.artworkTransferId) return true
     fun changed(old: Any?, new: Any?) = old != null && old != new
-    if (changed(previous.sourceApp, next.sourceApp) || changed(previous.artist, next.artist) ||
-        changed(previous.album, next.album) || changed(previous.durationMillis, next.durationMillis)) return true
-    // Same album/reference is common. A new title plus a large position restart identifies it;
-    // an ordinary lyric update or a seek without a title change keeps the existing palette.
-    return previous.title != next.title && previous.elapsedMillis?.let { it > 15_000 } == true &&
+    if (changed(previous.sourceApp, next.sourceApp) || changed(previous.album, next.album) ||
+        changed(previous.durationMillis, next.durationMillis)) return true
+
+    // A playback-position restart is the remaining signal for a new item within the same album.
+    // It may also represent an explicit seek-to-start; that is safer than treating lyrics as a track.
+    return previous.elapsedMillis?.let { it > 15_000 } == true &&
         next.elapsedMillis?.let { it < 3_000 } == true
 }

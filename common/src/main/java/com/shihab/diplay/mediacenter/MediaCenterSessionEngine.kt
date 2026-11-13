@@ -152,14 +152,17 @@ internal class MediaCenterSessionEngine(
             }
             if (desired?.owner !== frame.owner || !usable(desired) || status.uncertain) { cleanup(); return }
             // Progress can change independently; no recurring requestPlay while playing.
-            if (frame.now != previous || frame.artwork != lastArtwork) {
+            // artworkTransferId is a transfer handle, not a media field. Preserve it for the
+            // transport (it can signal that media exists), but exclude it from publication equality.
+            val media = frame.now.copy(artworkTransferId = null)
+            if (media != previous || frame.artwork != lastArtwork) {
                 phase("PUBLISHING")
                 val accepted = transport!!.publish(frame.now, frame.artwork)
                 finishOperation()
                 if (desired?.owner !== frame.owner || !usable(desired) || status.uncertain) { cleanup(); return }
                 status = Status("REGISTERED", if (accepted) "PLAYBACK_ACCEPTED" else "PLAYBACK_REJECTED", true, accepted, false, status.claimed, transport!!.artworkSupported)
                 callbackOwner = if (accepted) frame.owner else null
-                last = frame.now; lastArtwork = frame.artwork
+                last = media; lastArtwork = frame.artwork
             }
         } catch (error: Exception) {
             finishOperation(); failedOwner = currentOwner

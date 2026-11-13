@@ -143,7 +143,7 @@ class CarPlayMediaCallbackTest {
         assertEquals(false, CarPlayMediaSession.metadataChanged(song, song.copy(elapsedMillis = 1_450)))
         assertEquals(false, CarPlayMediaSession.metadataChanged(song, song.copy(playing = false)))
         assertEquals(true, CarPlayMediaSession.metadataChanged(song, song.copy(title = "Next")))
-        assertEquals(true, CarPlayMediaSession.metadataChanged(song, song.copy(artworkTransferId = 8)))
+        assertEquals(false, CarPlayMediaSession.metadataChanged(song, song.copy(artworkTransferId = 8)))
         assertEquals(true, CarPlayMediaSession.metadataChanged(CarPlayNowPlaying(), song))
     }
 }

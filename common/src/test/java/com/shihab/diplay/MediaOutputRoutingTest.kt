@@ -124,15 +124,18 @@ class MediaOutputRoutingTest {
 
     @Test fun artworkDiagnosticRequestsRetainTransitionsButDoNotLogProgressOrTrackText() {
         val attached = attach("Private title", 7)
+        val initial = song("Private title", 7).copy(elapsedMillis = 30_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(initial)
+        attached.now(initial); shadowOf(Looper.getMainLooper()).idle()
         attached.cover(7, png()); awaitArtwork()
         val events = field(CarPlayMediaSession, "mediaPublicationEvents").get(CarPlayMediaSession) as ArrayDeque<*>
         val before = events.toList()
-        val next = song("Private title", 7).copy(elapsedMillis = 1_000)
+        val next = song("Private title", 7).copy(elapsedMillis = 30_500)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
         attached.now(next); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(before, events.toList())
 
-        val changed = song("Another private title", 8)
+        val changed = song("Another private title", 8).copy(elapsedMillis = 0)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(changed)
         attached.now(changed); shadowOf(Looper.getMainLooper()).idle()
         attached.cover(8, png()); awaitArtwork()
@@ -832,6 +835,10 @@ class MediaOutputRoutingTest {
         val session = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
         field(CarPlayMediaSession, "session").set(CarPlayMediaSession, session)
         val published = ArgumentCaptor.forClass(MediaMetadata::class.java)
+        // Establish a position for "First" so a later restart is recognisable as a new track.
+        val first = song("First", 7).copy(elapsedMillis = 30_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(first)
+        attached.now(first); shadowOf(Looper.getMainLooper()).idle()
         attached.cover(7, png(Color.RED)); awaitArtwork()
         verify(session, atLeastOnce()).setMetadata(published.capture())
         val oldArt = published.value.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)!!
@@ -839,7 +846,7 @@ class MediaOutputRoutingTest {
         assertEquals(2, updates().size)
 
         // HY polls duration and rowBytes, not bitmap content. New title arrives before its cover.
-        val next = song("Second", 8).copy(playing = false)
+        val next = song("Second", 8).copy(playing = false, elapsedMillis = 0)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
         attached.now(next); shadowOf(Looper.getMainLooper()).idle()
         verify(session, atLeastOnce()).setMetadata(published.capture())
@@ -940,7 +947,7 @@ class MediaOutputRoutingTest {
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(resumed)
         attached.now(resumed); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(4, hyUpdates().size)
-        val progress = resumed.copy(elapsedMillis = 3_000)
+        val progress = resumed.copy(elapsedMillis = 60_000)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(progress)
         attached.now(progress); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(4, hyUpdates().size)
@@ -951,7 +958,7 @@ class MediaOutputRoutingTest {
         attached.cover(8, png(Color.RED)); awaitArtwork()
         assertEquals(4, hyUpdates().size)
         attached.now(third)
-        val fourth = song("Fourth", 10)
+        val fourth = song("Fourth", 10).copy(elapsedMillis = 0)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(fourth)
         attached.now(fourth)
         attached.cover(9, png(Color.RED)); awaitArtwork()
@@ -1039,6 +1046,42 @@ class MediaOutputRoutingTest {
 
     private data class Attached(val controller: CarPlayController,
         val now: (CarPlayNowPlaying) -> Unit, val cover: (Int, ByteArray) -> Unit)
+    @Test fun identicalArtworkBytesWithANewTransferIdReuseTheBitmapAndClusterUri() {
+        val attached = attach("Same track", 7)
+        val bytes = png(Color.BLUE)
+        attached.cover(7, bytes); awaitArtwork()
+        val firstBitmap = field(CarPlayMediaSession, "artwork").get(CarPlayMediaSession) as Bitmap
+        val firstUri = field(CarPlayMediaSession, "artworkUri").get(CarPlayMediaSession) as Uri
+        assertNotNull(firstUri)
+
+        val next = song("Same track", 8)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
+        attached.now(next); shadowOf(Looper.getMainLooper()).idle()
+        attached.cover(8, bytes); awaitArtwork()
+
+        val bitmaps = field(CarPlayMediaSession, "artworkCache").get(CarPlayMediaSession) as MutableMap<Int, Bitmap?>
+        val uris = field(CarPlayMediaSession, "clusterArtworkUris").get(CarPlayMediaSession) as MutableMap<Int, Uri>
+        assertSame(firstBitmap, bitmaps[8])
+        assertEquals(firstUri, uris[8])
+        assertTrue(CarPlayMediaSession.artworkDiagnosticReport().contains("published=1"))
+    }
+
+    @Test fun artworkTransferIdChangesDoNotRepublishTheSameMediaCenterTrack() {
+        val attached = attach("Stable track", 7)
+        val initial = song("Stable track", 7).copy(elapsedMillis = 30_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(initial)
+        attached.now(initial); shadowOf(Looper.getMainLooper()).idle()
+        val transport = ecarx.single()
+        val before = transport.frames.size
+
+        val next = initial.copy(artworkTransferId = 8)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
+        attached.now(next); shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(before, transport.frames.size)
+        assertEquals(7, transport.frames.last().first.artworkTransferId)
+    }
+
     private fun attach(title: String?, artwork: Int? = null): Attached {
         val controller = mock(CarPlayController::class.java).also(controllers::add)
         `when`(controller.nowPlayingSnapshot()).thenReturn(if (title == null) CarPlayNowPlaying() else song(title, artwork))
