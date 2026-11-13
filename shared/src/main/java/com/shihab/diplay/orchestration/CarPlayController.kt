@@ -345,6 +345,12 @@ class CarPlayController(
             if (closed || session.isClosed) return
             lifecycle.sessionActive(true)
             wiredStartWatchdog?.sessionActive()
+            // Mark the wired enumeration only once a session actually became active. A failed
+            // attempt before AirPlay should not make the retry request another USB transition:
+            // on some iPhones that transition is unanswered and the device disappears until replug.
+            if (config.transport == CarPlayTransport.WIRED) {
+                wiredDeviceName?.let(WiredSessionMemory::started)
+            }
             if (currentCornerMask?.session !== session) currentCornerMask = null
             val previousSession = activeSession
             val replacement = previousSession !== session
@@ -1902,7 +1908,6 @@ class CarPlayController(
                         startWatchdog.startSessionSentAgain()
                     } else if (message.startsWith(START_SESSION_PROGRESS)) {
                         if (wiredStartSentAtNanos == null) lifecycle.startSent(System.nanoTime())
-                        wiredDeviceName?.let(WiredSessionMemory::started)
                         startWatchdog.startSessionSent()
                     }
                     debugLog("wired $message")

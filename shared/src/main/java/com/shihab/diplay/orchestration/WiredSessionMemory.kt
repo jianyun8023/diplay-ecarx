@@ -1,7 +1,7 @@
 package com.shihab.diplay.orchestration
 
 /**
- * The USB enumeration (device node) of the iPhone on which DiPlay last started a wired CarPlay session.
+ * The USB enumeration (device node) of the iPhone on which DiPlay last had a wired CarPlay session become active.
  *
  * After DiPlay ends that session itself, as Save and reconnect does, the iPhone stays in CarPlay mode on the
  * same node. A new session there passes iAP2 and StartSession, but the iPhone opens no AirPlay connection
