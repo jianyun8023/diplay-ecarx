@@ -26,7 +26,7 @@ class NavigationContentSettingsTest {
     @Test fun selectorRejectsUnsupportedOemModeAndBothTestButtonsFitTheHeadUnit() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
-        activity.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        activity.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         activity.javaClass.getDeclaredMethod("navigationContentControl", LinearLayout::class.java)
             .apply { isAccessible = true }.invoke(activity, panel)

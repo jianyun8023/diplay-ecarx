@@ -35,7 +35,7 @@ class ChooseIphoneBluetoothDialogTest {
         ShadowBluetoothAdapter.setIsBluetoothSupported(true)
         AppAppearanceRuntime.resetForTest()
         context.getSharedPreferences("diplay", 0).edit().clear().commit()
-        context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
     }
 
     private fun open(): DiPlayActivity =

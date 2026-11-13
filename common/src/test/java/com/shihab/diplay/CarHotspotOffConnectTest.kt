@@ -52,7 +52,7 @@ class CarHotspotOffConnectTest {
     }
 
     private fun clearSettings() {
-        for (name in listOf("diplay", "xcertplay_airplay", "diplay_car_hotspot")) {
+        for (name in listOf("diplay", "diplay_airplay", "diplay_car_hotspot")) {
             context.getSharedPreferences(name, 0).edit().clear().commit()
         }
     }

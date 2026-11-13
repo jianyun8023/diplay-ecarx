@@ -15,7 +15,7 @@ class ClusterTurnCardPersistenceTest {
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Before fun clearPreferences() {
-        context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().apply()
+        context.getSharedPreferences("diplay_airplay", 0).edit().clear().apply()
         AirPlayPersistence.overlaySettingsListener = null
     }
 
@@ -67,7 +67,7 @@ class ClusterTurnCardPersistenceTest {
     }
 
     @Test fun legacyLeftCentreRightMigrateToPercents() {
-        val prefs = context.getSharedPreferences("xcertplay_airplay", 0)
+        val prefs = context.getSharedPreferences("diplay_airplay", 0)
         prefs.edit().putString("cluster_turn_card_overlay_position", "LEFT").apply()
         assertEquals(20, AirPlayPersistence.loadClusterTurnCardOverlayXPercent(context))
         prefs.edit().putString("cluster_turn_card_overlay_position", "CENTER").apply()

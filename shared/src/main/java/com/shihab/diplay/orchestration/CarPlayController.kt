@@ -1965,7 +1965,7 @@ class CarPlayController(
     private fun pauseWifiScans(backend: WirelessHotspotBackend) = synchronized(wirelessResourceLock) {
         if (closed || !WifiScanPause.eligible(backend)) return@synchronized
         // Settings → Connection lets a driver keep the car's automatic joining, e.g. for the phone's hotspot (#755).
-        if (!appContext.getSharedPreferences("xcertplay_airplay", android.content.Context.MODE_PRIVATE)
+        if (!appContext.getSharedPreferences("diplay_airplay", android.content.Context.MODE_PRIVATE)
                 .getBoolean("wifi_direct_scan_pause", true)) {
             if (wifiScanPause == null) debugLog("Wi-Fi scan pause off in Settings; the car keeps searching and joining networks")
             return@synchronized

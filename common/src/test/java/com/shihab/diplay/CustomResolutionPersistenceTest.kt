@@ -14,7 +14,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], manifest = Config.NONE)
 class CustomResolutionPersistenceTest {
     private val context get() = RuntimeEnvironment.getApplication()
-    @Before fun clearPreferences() { context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().apply() }
+    @Before fun clearPreferences() { context.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE).edit().clear().apply() }
     @Test fun customPercentMigratesOldSettingsAndSurvivesLegacySettingsSave() {
         AirPlayPersistence.saveDisplayScaleTenths(context, 6)
         assertEquals(60, AirPlayPersistence.loadDisplayScalePercent(context))
@@ -35,7 +35,7 @@ class CustomResolutionPersistenceTest {
     }
 
     @Test fun directSavedValuesClampAndLegacyKeysRemainBounded() {
-        val prefs = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE)
         prefs.edit().putInt("display_scale_percent", Int.MAX_VALUE).apply()
         assertEquals(160, AirPlayPersistence.loadDisplayScalePercent(context))
         prefs.edit().putInt("display_scale_percent", Int.MIN_VALUE).apply()

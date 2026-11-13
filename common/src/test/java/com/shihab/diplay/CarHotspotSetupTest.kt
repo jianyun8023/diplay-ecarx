@@ -18,7 +18,7 @@ class CarHotspotSetupTest {
 
     @Before fun reset() {
         context.getSharedPreferences("diplay_car_hotspot", 0).edit().clear().commit()
-        context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
     }
 
     @Test fun carHotspotDefaultsOnAndPreservesExplicitOptOut() {

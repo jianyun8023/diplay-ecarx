@@ -29,7 +29,7 @@ class CarHotspotImportSaveTest {
     private val overwrite = "Overwrite the car hotspot settings?"
 
     @Before fun setup() {
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
         AirPlayPersistence.saveWirelessHotspotMode(app, WirelessHotspotMode.MANUAL)

@@ -30,7 +30,7 @@ class CenterMapLifecycleTest {
     private lateinit var lifecycle: CenterMapLifecycle
 
     @Before fun setUp() {
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().apply()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().apply()
         AirPlayPersistence.saveCenterMapOverlay(app, true)
         AirPlayPersistence.saveCenterMapFollowsDashboard(app, true)
         AirPlayPersistence.saveCenterMapAutoHide(app, false)

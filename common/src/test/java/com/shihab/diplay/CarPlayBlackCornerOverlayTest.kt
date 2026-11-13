@@ -77,7 +77,7 @@ class CarPlayBlackCornerOverlayTest {
         assertEquals(0, AirPlayPersistence.loadBlackCornerRadiusDp(context))
         AirPlayPersistence.saveBlackCornerRadiusDp(context, 36)
         assertEquals(36, AirPlayPersistence.loadBlackCornerRadiusDp(context))
-        context.getSharedPreferences("xcertplay_airplay", 0).edit()
+        context.getSharedPreferences("diplay_airplay", 0).edit()
             .putInt("black_corner_radius_dp", 9999).apply()
         assertEquals(0, AirPlayPersistence.loadBlackCornerRadiusDp(context))
         AirPlayPersistence.saveBlackCornerRadiusDp(context, CarPlayBlackCornerOverlay.IPHONE_MASK)

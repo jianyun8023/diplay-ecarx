@@ -339,7 +339,7 @@ class NcmUsbBridge internal constructor(
 
     companion object {
         /** The app's preferences file and the key of the native wired data path (enabled unless explicitly disabled). */
-        const val NATIVE_DATA_PATH_PREFS = "xcertplay_airplay"
+        const val NATIVE_DATA_PATH_PREFS = "diplay_airplay"
         const val NATIVE_DATA_PATH_KEY = "native_wired_data_path"
 
         private const val READ_CHUNK_BYTES = 32 * 1024

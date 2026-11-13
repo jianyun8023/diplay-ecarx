@@ -15,7 +15,7 @@ class NavigationAudioAttenuationSettingsTest {
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Test fun defaultIsUnchangedAndSavedValuesPersistWithinBounds() {
-        context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
         assertEquals(0, AirPlayPersistence.loadNavigationAudioAttenuationDb(context))
         AirPlayPersistence.saveNavigationAudioAttenuationDb(context, -13)
         assertEquals(-13, AirPlayPersistence.loadNavigationAudioAttenuationDb(context))

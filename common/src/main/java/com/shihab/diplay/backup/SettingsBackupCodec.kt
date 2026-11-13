@@ -61,8 +61,10 @@ object SettingsBackupCodec {
     private val PICTURE_KEYS = CarPlayPicture.keys.toSet()
     // The driver's choices only. "ignore_off_report" records what one car's firmware reports, so it stays out.
     private val CAR_HOTSPOT_KEYS = setOf("auto_enable", "config_write")
+    /** Old settings-document file key -> current prefs file, for backups saved before the rename. */
+    private val LEGACY_FILE_ALIASES = mapOf("xcertplay_airplay" to "diplay_airplay")
     private val FILES = mapOf(
-        "xcertplay_airplay" to Policy.Allow(AIRPLAY_KEYS, AIRPLAY_PREFIXES,
+        "diplay_airplay" to Policy.Allow(AIRPLAY_KEYS, AIRPLAY_PREFIXES,
             types = mapOf("navigation_usage_route_migrated" to KeyType.BOOLEAN,
                 "navigation_oem_content" to KeyType.BOOLEAN)),
         "diplay" to Policy.Allow(DIPLAY_KEYS),
@@ -125,13 +127,16 @@ object SettingsBackupCodec {
         var applied = 0
         var skipped = 0
         for (name in files.keys()) {
-            val policy = FILES[name]
+            // Accept backups written before the prefs file was renamed: route the old JSON key to the
+            // current file so an imported backup still lands in diplay_airplay.
+            val targetName = LEGACY_FILE_ALIASES[name] ?: name
+            val policy = FILES[targetName]
             val file = files.optJSONObject(name)
             if (policy == null || file == null) {
                 skipped += files.optJSONObject(name)?.length() ?: 1
                 continue
             }
-            val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences(targetName, Context.MODE_PRIVATE)
             val current = prefs.all
             val editor = prefs.edit()
             for (key in file.keys()) {

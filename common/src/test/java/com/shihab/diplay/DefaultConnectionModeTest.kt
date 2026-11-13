@@ -32,7 +32,7 @@ class DefaultConnectionModeTest {
 
     @Before fun clearPreferences() {
         app.getSharedPreferences("diplay", 0).edit().clear().commit()
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         CarPlayBackgroundSession.clear()
     }
 

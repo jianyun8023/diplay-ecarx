@@ -35,7 +35,7 @@ class LauncherIntentTest {
     @Before fun setup() {
         val app = RuntimeEnvironment.getApplication()
         app.getSharedPreferences("diplay", 0).edit().clear().commit()
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         app.getSharedPreferences("diplay_hy_compatibility", 0).edit().clear().commit()
         app.getSharedPreferences("diplay_external_siri", 0).edit().clear().commit()
         CarPlayBackgroundSession.clear()

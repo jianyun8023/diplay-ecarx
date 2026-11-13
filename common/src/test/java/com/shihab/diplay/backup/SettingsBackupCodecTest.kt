@@ -25,13 +25,13 @@ class SettingsBackupCodecTest {
     fun navigationPromptAudioFocusTravelsWithTheAudioFocusSettings() {
         AirPlayPersistence.saveNavigationPromptAudioFocus(context, true)
         val document = JSONObject(String(SettingsBackupCodec.export(context, "0.2.22")))
-        val airplay = document.getJSONObject("settings").getJSONObject("xcertplay_airplay")
+        val airplay = document.getJSONObject("settings").getJSONObject("diplay_airplay")
         assertTrue(airplay.getBoolean("navigation_prompt_audio_focus"))
     }
 
     @Test
     fun exportOmitsSensitiveAndNavigationKeys() {
-        prefs("xcertplay_airplay").edit()
+        prefs("diplay_airplay").edit()
             .putInt("display_fps", 60)
             .putInt("black_corner_radius_dp", 24)
             .putString("identity_private", "secret")
@@ -51,7 +51,7 @@ class SettingsBackupCodecTest {
         val document = JSONObject(String(SettingsBackupCodec.export(context, "0.2.17")))
         assertEquals(SettingsBackupCodec.FORMAT, document.getString("format"))
         assertEquals(SettingsBackupCodec.VERSION, document.getInt("version"))
-        val airplay = document.getJSONObject("settings").getJSONObject("xcertplay_airplay")
+        val airplay = document.getJSONObject("settings").getJSONObject("diplay_airplay")
         assertEquals(60, airplay.getInt("display_fps"))
         assertEquals(24, airplay.getInt("black_corner_radius_dp"))
         assertTrue(airplay.getBoolean("cluster_map_enabled"))
@@ -73,7 +73,7 @@ class SettingsBackupCodecTest {
     fun importAppliesKnownKeysAndSkipsUnknownOrForbidden() {
         val document = """
             {"format": "diplay-settings", "version": 1, "settings": {
-              "xcertplay_airplay": {"display_fps": 48, "brand_new_key": 7, "manual_hotspot_passphrase": "x",
+              "diplay_airplay": {"display_fps": 48, "brand_new_key": 7, "manual_hotspot_passphrase": "x",
                 "pairing.attacker": "00ff"},
               "diplay": {"auto_connect": true, "page": "about"},
               "carplay_picture": {"brightness": 66}
@@ -83,11 +83,11 @@ class SettingsBackupCodecTest {
         assertEquals(false, outcome.invalid)
         assertEquals(3, outcome.applied)
         assertEquals(4, outcome.skipped)
-        assertEquals(48, prefs("xcertplay_airplay").getInt("display_fps", 0))
-        assertFalse(prefs("xcertplay_airplay").contains("manual_hotspot_passphrase"))
+        assertEquals(48, prefs("diplay_airplay").getInt("display_fps", 0))
+        assertFalse(prefs("diplay_airplay").contains("manual_hotspot_passphrase"))
         // Only listed settings travel: an imported file cannot add an iPhone pairing key or any unknown key.
-        assertFalse(prefs("xcertplay_airplay").contains("pairing.attacker"))
-        assertFalse(prefs("xcertplay_airplay").contains("brand_new_key"))
+        assertFalse(prefs("diplay_airplay").contains("pairing.attacker"))
+        assertFalse(prefs("diplay_airplay").contains("brand_new_key"))
         assertEquals(true, prefs("diplay").getBoolean("auto_connect", false))
         assertFalse(prefs("diplay").contains("page"))
         assertEquals(66, prefs("carplay_picture").getInt("brightness", 0))
@@ -107,7 +107,7 @@ class SettingsBackupCodecTest {
         AirPlayPersistence.saveLauncherBubble(context, true)
         AirPlayPersistence.saveLauncherBubbleSize(context, 16)
         val document = SettingsBackupCodec.export(context, "0.2.21")
-        prefs("xcertplay_airplay").edit().clear().commit()
+        prefs("diplay_airplay").edit().clear().commit()
 
         assertFalse(SettingsBackupCodec.import(context, document).invalid)
 
@@ -194,18 +194,18 @@ class SettingsBackupCodecTest {
 
     @Test
     fun importMatchesTypesAgainstStoredValues() {
-        prefs("xcertplay_airplay").edit().putInt("display_fps", 60).putBoolean("hevc_enabled", false).apply()
+        prefs("diplay_airplay").edit().putInt("display_fps", 60).putBoolean("hevc_enabled", false).apply()
         val document = """
             {"format": "diplay-settings", "version": 1, "settings": {
-              "xcertplay_airplay": {"display_fps": "48", "hevc_enabled": true, "display_scale_tenths": 85}
+              "diplay_airplay": {"display_fps": "48", "hevc_enabled": true, "display_scale_tenths": 85}
             }}
         """.trimIndent()
         val outcome = SettingsBackupCodec.import(context, document.toByteArray())
         assertEquals(2, outcome.applied)
         assertEquals(1, outcome.skipped)
-        assertEquals(60, prefs("xcertplay_airplay").getInt("display_fps", 0))
-        assertEquals(true, prefs("xcertplay_airplay").getBoolean("hevc_enabled", true))
-        assertEquals(85, prefs("xcertplay_airplay").getInt("display_scale_tenths", 0))
+        assertEquals(60, prefs("diplay_airplay").getInt("display_fps", 0))
+        assertEquals(true, prefs("diplay_airplay").getBoolean("hevc_enabled", true))
+        assertEquals(85, prefs("diplay_airplay").getInt("display_scale_tenths", 0))
     }
 
     @Test
@@ -217,27 +217,27 @@ class SettingsBackupCodecTest {
 
     @Test
     fun importRejectsOutOfRangeOrFractionalNumbers() {
-        prefs("xcertplay_airplay").edit()
+        prefs("diplay_airplay").edit()
             .putLong("cluster_test_counter", 5L)
             .putFloat("ui_scale_percent", 1f)
             .putInt("display_fps", 60)
             .apply()
         val document = """
             {"format": "diplay-settings", "version": 1, "settings": {
-              "xcertplay_airplay": {"cluster_test_counter": 1.5, "ui_scale_percent": 1e300, "display_fps": 3000000000}
+              "diplay_airplay": {"cluster_test_counter": 1.5, "ui_scale_percent": 1e300, "display_fps": 3000000000}
             }}
         """.trimIndent()
         val outcome = SettingsBackupCodec.import(context, document.toByteArray())
         assertEquals(0, outcome.applied)
         assertEquals(3, outcome.skipped)
-        assertEquals(5L, prefs("xcertplay_airplay").getLong("cluster_test_counter", 0L))
-        assertEquals(1f, prefs("xcertplay_airplay").getFloat("ui_scale_percent", 0f))
-        assertEquals(60, prefs("xcertplay_airplay").getInt("display_fps", 0))
+        assertEquals(5L, prefs("diplay_airplay").getLong("cluster_test_counter", 0L))
+        assertEquals(1f, prefs("diplay_airplay").getFloat("ui_scale_percent", 0f))
+        assertEquals(60, prefs("diplay_airplay").getInt("display_fps", 0))
     }
 
     @Test
     fun exportImportRoundTripRestoresValues() {
-        prefs("xcertplay_airplay").edit()
+        prefs("diplay_airplay").edit()
             .putInt("display_fps", 60)
             .putBoolean("temporary_system_bars", true)
             .putBoolean("hevc_enabled", true)
@@ -246,7 +246,7 @@ class SettingsBackupCodecTest {
             .apply()
         prefs("diplay_car_hotspot").edit().putBoolean("auto_enable", true).apply()
         val document = SettingsBackupCodec.export(context, "0.2.17")
-        prefs("xcertplay_airplay").edit()
+        prefs("diplay_airplay").edit()
             .putInt("display_fps", 30)
             .putBoolean("temporary_system_bars", false)
             .putBoolean("hevc_enabled", false)
@@ -256,7 +256,7 @@ class SettingsBackupCodecTest {
         prefs("diplay_car_hotspot").edit().putBoolean("auto_enable", false).apply()
         val outcome = SettingsBackupCodec.import(context, document)
         assertEquals(false, outcome.invalid)
-        val airplay = prefs("xcertplay_airplay")
+        val airplay = prefs("diplay_airplay")
         assertEquals(60, airplay.getInt("display_fps", 0))
         assertTrue(airplay.getBoolean("temporary_system_bars", false))
         assertEquals(true, airplay.getBoolean("hevc_enabled", false))

@@ -32,7 +32,7 @@ class CarHotspotPreflightFallbackTest {
     private lateinit var activity: DiPlayActivity
 
     @Before fun setup() {
-        for (name in listOf("diplay", "xcertplay_airplay", "diplay_car_hotspot", "diplay_connection_decisions")) {
+        for (name in listOf("diplay", "diplay_airplay", "diplay_car_hotspot", "diplay_connection_decisions")) {
             app.getSharedPreferences(name, 0).edit().clear().commit()
         }
         ApState.enabled = null

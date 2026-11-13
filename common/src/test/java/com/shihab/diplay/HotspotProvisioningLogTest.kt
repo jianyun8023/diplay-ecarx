@@ -20,7 +20,7 @@ class HotspotProvisioningLogTest {
     private val app get() = RuntimeEnvironment.getApplication()
 
     @Before fun setup() {
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         ShadowLog.clear()
         CarHotspotSettings.setConfigWrite(app, true)
     }

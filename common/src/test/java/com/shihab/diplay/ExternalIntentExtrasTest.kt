@@ -36,7 +36,7 @@ class ExternalIntentExtrasTest {
 
     @Before fun reset() {
         app.getSharedPreferences("diplay", 0).edit().clear().commit()
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         app.getSharedPreferences("diplay_phone_wake", Context.MODE_PRIVATE).edit().clear().commit()
         CarPlayBackgroundSession.clear()
     }

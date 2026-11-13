@@ -39,7 +39,7 @@ class CarHotspotConfigCompletionTest {
     private val desired = HotspotCredentials("Updated car", "updated-password", ManualHotspotSecurity.WPA2)
 
     @Before fun setup() {
-        for (name in listOf("diplay", "xcertplay_airplay", "diplay_car_hotspot")) {
+        for (name in listOf("diplay", "diplay_airplay", "diplay_car_hotspot")) {
             app.getSharedPreferences(name, 0).edit().clear().commit()
         }
         WifiApi.reset()

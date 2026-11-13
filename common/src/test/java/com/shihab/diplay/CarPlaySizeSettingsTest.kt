@@ -27,7 +27,7 @@ import org.robolectric.shadows.ShadowAlertDialog
 class CarPlaySizeSettingsTest {
     private lateinit var activity: DiPlayActivity
     private val prefs get() = RuntimeEnvironment.getApplication()
-        .getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        .getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE)
 
     @Before fun setup() {
         prefs.edit().clear().commit()

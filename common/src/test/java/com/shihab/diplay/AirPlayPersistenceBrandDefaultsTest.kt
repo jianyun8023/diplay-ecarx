@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 class AirPlayPersistenceBrandDefaultsTest {
     private val preferences
         get() = RuntimeEnvironment.getApplication()
-            .getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+            .getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE)
 
     @Test
     fun missingAndLegacyDefaultValuesUseLynkCoBranding() {

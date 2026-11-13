@@ -46,7 +46,7 @@ class HomeLastConnectionProblemTest {
     }
 
     private fun clearSettings() {
-        for (name in listOf("diplay", "xcertplay_airplay", "diplay_car_hotspot", "diplay_last_problem")) {
+        for (name in listOf("diplay", "diplay_airplay", "diplay_car_hotspot", "diplay_last_problem")) {
             context.getSharedPreferences(name, 0).edit().clear().commit()
         }
     }

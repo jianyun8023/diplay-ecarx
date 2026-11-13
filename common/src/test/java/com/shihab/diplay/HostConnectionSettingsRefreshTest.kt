@@ -27,7 +27,7 @@ class HostConnectionSettingsRefreshTest {
     private val app get() = RuntimeEnvironment.getApplication()
 
     @Before fun setUp() {
-        app.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
         AirPlayPersistence.saveDirectVideoOutput(app, false)
     }
 

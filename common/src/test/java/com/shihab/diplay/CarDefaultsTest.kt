@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 class CarDefaultsTest {
     @Test fun bootAndDirectOutputDefaultOnButKeepSavedChoices() {
         val app = RuntimeEnvironment.getApplication()
-        app.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         app.createDeviceProtectedStorageContext()
             .getSharedPreferences("diplay_boot_startup", 0).edit().clear().commit()
 

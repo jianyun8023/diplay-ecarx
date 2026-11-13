@@ -5,6 +5,7 @@
     <!-- android:persistent is honoured only when the APK is preinstalled on /system/priv-app
          (FLAG_SYSTEM). Android clears the flag for ordinary /data/app installs. -->
     <application
+        android:name="com.shihab.diplay.DiPlayApplication"
         android:allowBackup="false"
         android:persistent="true"
         android:fullBackupContent="@xml/backup_rules"

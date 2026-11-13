@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], manifest = Config.NONE)
 class HotspotModeMigrationTest {
     private val context get() = RuntimeEnvironment.getApplication()
-    private val prefs get() = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+    private val prefs get() = context.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE)
 
     @Test fun oldLocalSelectionMigratesWithoutLosingCarHotspotDetails() {
         prefs.edit().putString("wireless_hotspot_mode", "LOCAL_ONLY_HOTSPOT").apply()

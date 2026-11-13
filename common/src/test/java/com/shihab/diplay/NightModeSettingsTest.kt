@@ -38,7 +38,7 @@ class NightModeSettingsTest {
         controller = Robolectric.buildActivity(DiPlayActivity::class.java)
         activity = controller.get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
-        activity.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        activity.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         CarPlayBackgroundSession.clear()
         controller.setup().visible()
     }

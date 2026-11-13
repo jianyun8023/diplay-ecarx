@@ -47,7 +47,7 @@ class EcarxClusterSafeAreaFlowTest {
     @Before fun setUp() {
         settings = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         settings.setTheme(android.R.style.Theme_Material_NoActionBar)
-        settings.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        settings.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         shadowOf(settings.packageManager).installPackage(PackageInfo().apply {
             packageName = "com.ecarx.xui.service"
         })
@@ -80,7 +80,7 @@ class EcarxClusterSafeAreaFlowTest {
     }
 
     @Test fun legacyMirrorPreferenceCannotDisableTheIndependentDisplay() {
-        settings.getSharedPreferences("xcertplay_airplay", 0).edit()
+        settings.getSharedPreferences("diplay_airplay", 0).edit()
             .putBoolean("cluster_mirror_main", true).commit()
         val controls = views(advancedSettings()).filterIsInstance<Switch>().toList()
         assertFalse(controls.any {
@@ -208,7 +208,7 @@ class EcarxClusterSafeAreaFlowTest {
         assertEquals(AirPlayInsets(top = 700, bottom = 0, left = 1900, right = 0), config().cluster!!.safeArea)
         AirPlayPersistence.saveClusterSafeAreaRect(settings, SafeAreaRect(301, 101, 1502, 620))
         assertEquals(AirPlayInsets(top = 101, bottom = 99, left = 301, right = 417), config().cluster!!.safeArea)
-        settings.getSharedPreferences("xcertplay_airplay", 0).edit()
+        settings.getSharedPreferences("diplay_airplay", 0).edit()
             .putString("cluster_safe_area_1920x720", "not a rectangle").commit()
         assertEquals(defaultInsets, config().cluster!!.safeArea)
     }

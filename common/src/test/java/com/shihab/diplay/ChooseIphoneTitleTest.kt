@@ -37,7 +37,7 @@ class ChooseIphoneTitleTest {
 
     private fun clearSettings() {
         context.getSharedPreferences("diplay", 0).edit().clear().commit()
-        context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
     }
 
     private fun open(page: String): DiPlayActivity = Robolectric.buildActivity(

@@ -18,7 +18,7 @@ class AudioFocusSettingsTest {
     @Test fun transientMuteIsOneDependentOptionAndRetainsPreferenceWhenFocusIsOff() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
-        activity.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        activity.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         assertFalse(AirPlayPersistence.loadDisableMediaKeyAudioFocus(activity))
         AirPlayPersistence.saveAudioFocusEnabled(activity, false)
         AirPlayPersistence.saveAudioFocusAutoYield(activity, false)
@@ -53,7 +53,7 @@ class AudioFocusSettingsTest {
     @Test fun audioRoutingAndFocusDefaultOnAndPreserveExplicitOptOut() {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
         activity.setTheme(android.R.style.Theme_Material_NoActionBar)
-        activity.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        activity.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         assertTrue(AirPlayPersistence.loadAdvancedAudioChannelMapping(activity))
         assertTrue(AirPlayPersistence.loadAudioFocusEnabled(activity))
         assertTrue(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))

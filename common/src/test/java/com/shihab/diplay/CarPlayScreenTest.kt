@@ -45,7 +45,7 @@ class CarPlayScreenTest {
         // The CarPlay screen must start without the private MFi identity used by real cars.
         bootstrapReady = ReflectionHelpers.getField(DiPlayBootstrap, "ready")
         ReflectionHelpers.setField(DiPlayBootstrap, "ready", true)
-        app.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
+        app.getSharedPreferences("diplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
         app.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit().clear().commit()
         CarPlayBackgroundSession.clear()
         ReflectionHelpers.setField(CarPlayScreen, "open", null)
@@ -189,7 +189,7 @@ class CarPlayScreenTest {
         AirPlayPersistence.saveCarPlaySameTask(app, true)
         val document = JSONObject(String(SettingsBackupCodec.export(app, "test"), Charsets.UTF_8))
 
-        assertTrue(document.getJSONObject("settings").getJSONObject("xcertplay_airplay").has("carplay_same_task"))
+        assertTrue(document.getJSONObject("settings").getJSONObject("diplay_airplay").has("carplay_same_task"))
     }
 
     @Test fun theDiagnosticReportSaysWhereCarPlayRuns() {

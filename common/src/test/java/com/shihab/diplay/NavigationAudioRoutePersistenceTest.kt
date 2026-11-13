@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [28], manifest = Config.NONE)
 class NavigationAudioRoutePersistenceTest {
     private val context get() = RuntimeEnvironment.getApplication()
-    private val prefs get() = context.getSharedPreferences("xcertplay_airplay", 0)
+    private val prefs get() = context.getSharedPreferences("diplay_airplay", 0)
 
     @Before fun clearSettings() { prefs.edit().clear().commit() }
 

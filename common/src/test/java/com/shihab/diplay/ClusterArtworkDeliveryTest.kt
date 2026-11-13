@@ -30,7 +30,7 @@ class ClusterArtworkDeliveryTest {
 
     @After fun clean() {
         CarPlayMediaSession.detach(controller)
-        context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().commit()
+        context.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
         context.getSharedPreferences(MediaSessionSettings.PREFS, 0).edit().clear().commit()
         set("lastHyPublication", null)
         idle()

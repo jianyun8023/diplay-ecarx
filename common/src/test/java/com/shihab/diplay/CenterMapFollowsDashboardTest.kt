@@ -30,7 +30,7 @@ class CenterMapFollowsDashboardTest {
     private val context get() = RuntimeEnvironment.getApplication()
 
     @Before fun clearPreferences() {
-        context.getSharedPreferences("xcertplay_airplay", 0).edit().clear().apply()
+        context.getSharedPreferences("diplay_airplay", 0).edit().clear().apply()
     }
 
     @Test fun defaultKeepsHomeScreenMapInSync() {
