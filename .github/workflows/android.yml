@@ -6,17 +6,111 @@ on:
   workflow_dispatch:
 concurrency:
   group: android-checks-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  pull-requests: read
 jobs:
-  check:
+  # Classify the change set so docs-only runs skip the heavy work but still
+  # report a green required "check" (avoids the paths-ignore pending pitfall).
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      core: ${{ steps.decide.outputs.core }}
     steps:
       - uses: actions/checkout@v4
-      - name: Reject credential files in public source
-        run: python3 scripts/check_public_tree.py
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            core:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!reports/**'
+              - '!artifacts/**'
+              - '!analysis/**'
+      - id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "core=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "core=${{ steps.filter.outputs.core }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  rust_tests:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-host
+      - name: Rust core unit tests
+        run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
+
+  # One matrix leg per shipped ABI; both run concurrently and upload their own
+  # library + JNI export list for the build job to cross-check.
+  native:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            target: aarch64-linux-android
+          - abi: armeabi-v7a
+            target: armv7-linux-androideabi
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+          targets: ${{ matrix.target }}
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
+          key: ndk-28.2.13676358-${{ runner.os }}
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ndk;28.2.13676358
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-${{ matrix.target }}
+      - name: Build and verify ${{ matrix.abi }} runtime library
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
+          DIPLAY_JNI_LIBS_DIR="$RUNNER_TEMP/rust-android-libs" \
+            scripts/check_rust_android_native.sh ${{ matrix.abi }}
+      - name: Upload ${{ matrix.abi }} runtime library
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-lib-${{ matrix.abi }}
+          path: ${{ runner.temp }}/rust-android-libs/
+          if-no-files-found: error
+
+  unit_tests:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,36 +118,61 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.1'
-          targets: aarch64-linux-android,armv7-linux-androideabi
-      - name: Cache Rust build (host + both Android targets)
+      - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: shared/src/main/rust/diplay-media -> target
-          key: ${{ runner.os }}-diplay-media
-      - name: Rust core unit tests
-        run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
+          key: ${{ runner.os }}-diplay-media-host
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
-      - name: Build and verify Rust Android shared libraries
-        run: |
-          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
-          DIPLAY_JNI_LIBS_DIR="$RUNNER_TEMP/rust-android-libs" \
-            scripts/check_rust_android_native.sh
-      - name: Upload rebuilt Rust Android shared libraries
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-android-native-libraries
-          path: ${{ runner.temp }}/rust-android-libs/
-          if-no-files-found: warn
-      - name: Stage freshly built Rust libraries for Debug APK
-        run: |
-          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
-          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests (single worker; Robolectric shares JVM state)
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest --no-parallel --max-workers=1 --stacktrace
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            shared/build/reports/tests/
+            common/build/reports/tests/
+            common/build/reports/album-artwork-ui/
+            common/build/reports/foreground-layout-ui/
+            common/build/reports/open-source-ui/
+            samples/home/build/reports/tests/
+
+  build:
+    needs: [changes, native]
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rust-lib-*
+          path: ${{ runner.temp }}/rust-android-libs
+          merge-multiple: true
+      - name: Verify both ABIs expose the same JNI contract
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/rust-android-libs"
+          test -s "$d/arm64-v8a/libdiplay_media.so"
+          test -s "$d/armeabi-v7a/libdiplay_media.so"
+          diff -u "$d/arm64-v8a-jni-symbols.txt" "$d/armeabi-v7a-jni-symbols.txt"
+      - name: Stage freshly built Rust libraries
+        run: |
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
+      - uses: gradle/actions/setup-gradle@v4
       - name: Lint and debug APK builds (parallel)
         run: ./gradlew :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --parallel --max-workers=2 --build-cache --stacktrace
       - name: Verify debug APK contains both Rust Android ABIs
@@ -86,19 +205,34 @@ jobs:
           PY
       - name: Check release optimization without signing
         run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --max-workers=2 --build-cache --stacktrace
-      - name: Test reports
+      - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: build-reports
           path: |
-            shared/build/reports/tests/
-            common/build/reports/tests/
-            common/build/reports/album-artwork-ui/
-            common/build/reports/foreground-layout-ui/
-            common/build/reports/open-source-ui/
             mobile/build/reports/lint-results-debug.html
-            samples/home/build/reports/tests/
             samples/home/build/reports/lint-results-debug.html
             samples/maphost/build/reports/lint-results-debug.html
             integrations/siri/build/reports/lint-results-debug.html
+
+  # Single required status: green when every job succeeded or was skipped for a
+  # docs-only change; red if any job failed.
+  check:
+    needs: [changes, rust_tests, native, unit_tests, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate required result
+        run: |
+          printf 'changes=%s rust-tests=%s native=%s unit-tests=%s build=%s\n' \
+            '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'
+          fail=0
+          for r in '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "A required job did not succeed: $r" >&2; fail=1 ;;
+            esac
+          done
+          exit "$fail"

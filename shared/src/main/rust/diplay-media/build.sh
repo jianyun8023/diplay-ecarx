@@ -1,5 +1,6 @@
 #!/bin/sh
-# Builds libdiplay_media.so into shared/src/main/jniLibs (or DIPLAY_JNI_LIBS_DIR) for both shipped ABIs.
+# Builds libdiplay_media.so into shared/src/main/jniLibs (or DIPLAY_JNI_LIBS_DIR) for the shipped ABIs.
+# With no arguments it builds both ABIs; pass one or more cargo target triples to build a subset.
 # Needs rustup targets aarch64-linux-android and armv7-linux-androideabi, and ANDROID_NDK_HOME.
 set -eu
 cd "$(dirname "$0")"
@@ -18,6 +19,18 @@ build() { # rust target, clang prefix, ABI directory
     mkdir -p "$OUT/$3"
     cp "$TARGET_DIR/$1/release/libdiplay_media.so" "$OUT/$3/"
 }
-build aarch64-linux-android aarch64-linux-android arm64-v8a
-# ring's ARM assembly needs ARMv7 with Thumb-2 spelled out.
-build armv7-linux-androideabi armv7a-linux-androideabi armeabi-v7a "-march=armv7-a -mthumb"
+if [ "$#" -eq 0 ]; then
+    set -- aarch64-linux-android armv7-linux-androideabi
+fi
+for target in "$@"; do
+    case "$target" in
+        aarch64-linux-android)
+            build aarch64-linux-android aarch64-linux-android arm64-v8a ;;
+        armv7-linux-androideabi)
+            # ring's ARM assembly needs ARMv7 with Thumb-2 spelled out.
+            build armv7-linux-androideabi armv7a-linux-androideabi armeabi-v7a "-march=armv7-a -mthumb" ;;
+        *)
+            echo "unsupported target: $target" >&2
+            exit 2 ;;
+    esac
+done

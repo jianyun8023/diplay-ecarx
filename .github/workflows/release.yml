@@ -29,6 +29,12 @@ jobs:
         with:
           workspaces: shared/src/main/rust/diplay-media -> target
           key: ${{ runner.os }}-diplay-media-release
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
+          key: ndk-28.2.13676358-${{ runner.os }}
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
