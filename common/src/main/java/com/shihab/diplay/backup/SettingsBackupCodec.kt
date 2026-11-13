@@ -2,6 +2,7 @@ package com.shihab.diplay.backup
 
 import android.content.Context
 import android.content.SharedPreferences.Editor
+import com.shihab.diplay.AirPlayPersistence
 import com.shihab.diplay.CarPlayPicture
 import org.json.JSONArray
 import org.json.JSONObject
@@ -96,6 +97,7 @@ object SettingsBackupCodec {
     }
 
     fun export(context: Context, appVersion: String): ByteArray {
+        AirPlayPersistence.preferences(context)
         val root = JSONObject()
         root.put("format", FORMAT)
         root.put("version", VERSION)
@@ -124,6 +126,7 @@ object SettingsBackupCodec {
         }
         val files = root.optJSONObject("settings")
             ?: return SettingsImportOutcome(0, 0, invalid = true)
+        AirPlayPersistence.preferences(context)
         var applied = 0
         var skipped = 0
         for (name in files.keys()) {

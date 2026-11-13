@@ -281,6 +281,11 @@ class SettingsBackupCodecTest {
     @Test
     fun importsLegacyXcertplayAirplayBackupIntoDiplayAirplay() {
         prefs("diplay_airplay").edit().clear().commit()
+        prefs("xcertplay_airplay").edit().clear()
+            .putString("identity_private", "0102")
+            .putString("identity_public", "0304")
+            .putString("pairing_id", "legacy-pairing")
+            .commit()
         val legacy = JSONObject(
             """{"format":"diplay-settings","version":1,"app":"0.2.20","settings":{""" +
                 """"xcertplay_airplay":{"display_fps":48,"hevc_enabled":true,"ambient_lux_threshold":120}}}""",
@@ -290,5 +295,8 @@ class SettingsBackupCodecTest {
         assertEquals(48, prefs("diplay_airplay").getInt("display_fps", 0))
         assertTrue(prefs("diplay_airplay").getBoolean("hevc_enabled", false))
         assertEquals(120, prefs("diplay_airplay").getInt("ambient_lux_threshold", 0))
+        // The backup path must migrate sensitive identity data before it writes the renamed file.
+        assertEquals("0102", prefs("diplay_airplay").getString("identity_private", null))
+        assertEquals("legacy-pairing", prefs("diplay_airplay").getString("pairing_id", null))
     }
 }

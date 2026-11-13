@@ -57,7 +57,10 @@ class BootReceiver : BroadcastReceiver() {
         // The user is unlocked here; make sure the renamed settings file has inherited the legacy
         // values before anything reads AirPlayPersistence (the Application's own unlock receiver may
         // not have run yet).
-        LegacyPreferences.ensureMigrated(context)
+        if (!LegacyPreferences.ensureMigrated(context)) {
+            Log.w(TAG, "AirPlay settings migration is not ready at user unlock")
+            return
+        }
         // ECARX starts its own services once its home screen has shown; CarPlay must not cover it first.
         if (com.shihab.diplay.hud.EcarxCapabilities.detect(context).identified) {
             EcarxLauncherStartup.afterFirstBatch(context) { waitedMs, seen ->
@@ -89,7 +92,10 @@ class BootReceiver : BroadcastReceiver() {
 
     private fun onBootCompleted(context: Context) {
         // BOOT_COMPLETED arrives after unlock, but guarantee the migration before the first read.
-        LegacyPreferences.ensureMigrated(context)
+        if (!LegacyPreferences.ensureMigrated(context)) {
+            Log.w(TAG, "AirPlay settings migration is not ready at BOOT_COMPLETED")
+            return
+        }
         // Unlock may already have started guidance; recover only while both navigation outputs are idle.
         // The restore enables the package at once but starts and confirms the service over the next
         // ~7 s on a worker looper. With auto-start off nothing else keeps this process alive, so hold
