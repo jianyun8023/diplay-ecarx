@@ -7,7 +7,7 @@ import com.shihab.diplay.iap2.message.Iap2Messages
 import com.shihab.diplay.iap2.trace.Iap2FrameFormatter
 import com.shihab.diplay.iap2.trace.Iap2TraceDirection
 import com.shihab.diplay.iap2.wire.Iap2Frame
-import com.shihab.diplay.logging.XCertplayTrace
+import com.shihab.diplay.logging.DiPlayTrace
 import com.shihab.diplay.transport.BlockingDuplexByteStream
 import com.shihab.diplay.transport.Iap2CsmChannel
 import com.shihab.diplay.transport.Iap2ArtworkTransfer
@@ -99,7 +99,7 @@ class Iap2Session private constructor(
                 direction = direction,
                 messageId = frame.messageId,
                 nowNs = System.nanoTime(),
-                detailed = XCertplayTrace.enabled,
+                detailed = DiPlayTrace.enabled,
             ) ?: return
             var message = Iap2FrameFormatter.format(
                 direction,

@@ -118,7 +118,7 @@ internal class LinuxI2cNativeException(
 
 private object NativeLinuxI2cBridge : LinuxI2cBridge {
     init {
-        System.loadLibrary("xcertplay_i2c")
+        System.loadLibrary("diplay_i2c")
     }
 
     override fun open(devicePath: String): Int = LinuxI2cNative.open(devicePath)

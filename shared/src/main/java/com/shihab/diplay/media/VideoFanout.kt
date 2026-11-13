@@ -329,7 +329,7 @@ internal class GlVideoFanout(width: Int, height: Int, private val report: (Strin
     }
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val CALL_TIMEOUT_MS = 2_000L
         // x, y, s, t for a full-viewport triangle strip.
         val QUAD = floatArrayOf(

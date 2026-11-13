@@ -25,7 +25,7 @@ class Iap2UsbMuxHost private constructor(
     private val loggedLargeWrites = AtomicInteger()
     private lateinit var readerThread: Thread
     private val receiveFrames = UsbMuxFrameBuffer { line ->
-        Log.w("xcertplay-usb", line)
+        Log.w("diplay-usb", line)
         runCatching { onDiagnostic(line) }
     }
 
@@ -92,13 +92,13 @@ class Iap2UsbMuxHost private constructor(
         flags: Int,
         payload: ByteArray,
     ) {
-        if (payload.size > 512 && loggedLargeWrites.incrementAndGet() <= LOGGED_RX_FRAMES) Log.i("xcertplay-usb", "usbmux TX source=$sourcePort destination=$destinationPort bytes=${payload.size} seq=$sequence ack=$acknowledgement")
+        if (payload.size > 512 && loggedLargeWrites.incrementAndGet() <= LOGGED_RX_FRAMES) Log.i("diplay-usb", "usbmux TX source=$sourcePort destination=$destinationPort bytes=${payload.size} seq=$sequence ack=$acknowledgement")
         sendFrame(NativeUsbMux.encodeTcp(sourcePort, destinationPort, sequence, acknowledgement, flags, payload))
     }
 
     internal fun sendSegment(tcp: ByteArray, fields: IntArray? = null) {
         if (fields != null && fields[0] > 512 && loggedLargeWrites.incrementAndGet() <= LOGGED_RX_FRAMES) {
-            Log.i("xcertplay-usb", "usbmux TX source=${fields[1]} destination=${fields[2]} bytes=${fields[0]} seq=${fields[3]} ack=${fields[4]}")
+            Log.i("diplay-usb", "usbmux TX source=${fields[1]} destination=${fields[2]} bytes=${fields[0]} seq=${fields[3]} ack=${fields[4]}")
         }
         sendFrame(tcp)
     }
@@ -132,9 +132,9 @@ class Iap2UsbMuxHost private constructor(
             if (decision == 0) break
             if (decision == 2) throw IphoneUsbException.Protocol(
                 "Invalid USBMUX version reply: proto=${reply.protocol} length=${reply.length} version=${reply.word8}")
-            Log.i("xcertplay-usb", "discarding stale usbmux TCP frame before version reply")
+            Log.i("diplay-usb", "discarding stale usbmux TCP frame before version reply")
         }
-        Log.i("xcertplay-usb", "usbmux version accepted: ${reply.word8}")
+        Log.i("diplay-usb", "usbmux version accepted: ${reply.word8}")
         // Optional reply padding is handled by the incremental framer. Retain a possible
         // fragmented/coalesced next frame instead of discarding the entire remainder.
         sendFrame(null)
@@ -154,7 +154,7 @@ class Iap2UsbMuxHost private constructor(
             // Diagnostic callbacks may stop the host; neither its lock nor a Rust borrow spans them.
             receiveFrames.takeFrame()?.let { frame ->
                 if (++receivedFrames <= LOGGED_RX_FRAMES) Log.i(
-                    "xcertplay-usb", "usbmux rx proto=${frame.protocol} length=${frame.length} word8=0x" + frame.word8.toUInt().toString(16))
+                    "diplay-usb", "usbmux rx proto=${frame.protocol} length=${frame.length} word8=0x" + frame.word8.toUInt().toString(16))
                 synchronized(stateLock) { if (!closed) NativeUsbMux.muxReceived(handle, frame.sequence) }
                 return frame
             }
@@ -206,7 +206,7 @@ class Iap2UsbMuxHost private constructor(
         val destination = fields[0]
         val flags = fields[1]
         if (payload.isEmpty() && (flags and TCP_SYN_FIN_RST != 0 || loggedControlFrames.incrementAndGet() <= LOGGED_RX_FRAMES)) {
-            Log.i("xcertplay-usb", "usbmux TCP control destination=$destination flags=$flags ack=${fields[3]} window=${fields[4]}")
+            Log.i("diplay-usb", "usbmux TCP control destination=$destination flags=$flags ack=${fields[3]} window=${fields[4]}")
         }
         val connection = synchronized(stateLock) { connections[destination] } ?: return
         connection.onPacket(flags, fields[2], payload)

@@ -455,10 +455,10 @@ class CarPlayVpnService : VpnService() {
     }
 
     companion object {
-        private const val TAG = "xcertplay-usb"
+        private const val TAG = "diplay-usb"
         private const val LINK_PREFIX = 64
         private const val LINK_LOCAL_ROUTE = "fe80::"
-        private const val SESSION_NAME = "xcertplay CarPlay"
+        private const val SESSION_NAME = "DiPlay CarPlay"
         private const val TUN_MTU = 1500
         private const val TUN_LOOKUP_ATTEMPTS = 10
         private const val TUN_LOOKUP_DELAY_MILLIS = 50L

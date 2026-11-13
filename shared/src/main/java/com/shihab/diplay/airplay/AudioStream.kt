@@ -170,7 +170,7 @@ class AudioStream(
     }
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val DATAGRAM_BYTES = 4_096
         const val AUDIO_RECEIVE_BUFFER_BYTES = 512 * 1024
     }

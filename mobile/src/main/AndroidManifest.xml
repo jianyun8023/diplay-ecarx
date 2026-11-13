@@ -15,7 +15,7 @@
         android:roundIcon="@drawable/ic_carplay"
         android:supportsRtl="true"
         android:resizeableActivity="true"
-        android:theme="@style/Theme.Xcertplay">
+        android:theme="@style/Theme.DiPlay">
 
         <meta-data
             android:name="android.allow_multiple_resumed_activities"

@@ -5581,7 +5581,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (!menuOpen) return
         if (menuSettingsSignature?.let { it != menuSettingsSignature() } == true) {
             // Follow the menu's light or dark palette, like DiPlay's other dialogs.
-            AlertDialog.Builder(this, if (appNight) R.style.Theme_Xcertplay_Dialog_Dark else R.style.Theme_Xcertplay_Dialog_Light)
+            AlertDialog.Builder(this, if (appNight) R.style.Theme_DiPlay_Dialog_Dark else R.style.Theme_DiPlay_Dialog_Light)
                 .setTitle(getString(R.string.settings_discard_pending_title))
                 .setMessage(getString(R.string.settings_discard_pending_message))
                 .setPositiveButton(getString(R.string.save_and_reconnect)) { _, _ -> saveSettingsAndReconnect() }
@@ -6254,7 +6254,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         const val PICTURE_COPY_WAIT_MILLIS = 150L
         /** Grace period for the settings menu to reach the screen before the watchdog reclaims it. */
         const val SETTINGS_MENU_VISIBLE_GRACE_MILLIS = 1_500L
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
         // On the teardown thread: bounded sequencing wait. Release notification retains ownership beyond

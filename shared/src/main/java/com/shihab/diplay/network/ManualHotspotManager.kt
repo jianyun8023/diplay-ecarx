@@ -422,7 +422,7 @@ class ManualHotspotManager(
     )
 
     internal companion object {
-        private const val TAG = "xcertplay-usb"
+        private const val TAG = "diplay-usb"
         private val FIVE_GHZ_SUFFIXES = listOf("_5G", "-5G")
 
         /**

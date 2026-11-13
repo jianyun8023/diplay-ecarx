@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 1.3 s after LOCKED_BOOT_COMPLETED, never resumed; on 11-06 it resumed at 1.7 s and sent batch 0).
  */
 internal object EcarxLauncherStartup {
-    private const val TAG = "xcertplay-boot"
+    private const val TAG = "diplay-boot"
     private const val ACTION_FIRST_BATCH = "com.ecarx.intent.action.EAS_LAUNCH_BAT_0ST"
     /** Covers the launcher's 1.7 s; past it the launch goes ahead as before. */
     const val WAIT_MILLIS = 5_000L

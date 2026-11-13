@@ -145,6 +145,6 @@ class ScreenStream(
     }
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
     }
 }

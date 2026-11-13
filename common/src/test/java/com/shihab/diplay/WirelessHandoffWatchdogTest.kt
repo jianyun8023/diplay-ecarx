@@ -130,7 +130,7 @@ class WirelessHandoffWatchdogTest {
         controller.wirelessRunForTest().javaClass.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation)
         assertTrue(closed.await(2, TimeUnit.SECONDS))
-        val handoff = Thread.getAllStackTraces().keys.single { it.name == "xcertplay-wireless-handoff" }
+        val handoff = Thread.getAllStackTraces().keys.single { it.name == "diplay-wireless-handoff" }
         release.countDown()
         handoff.join(2_000)
         assertFalse("Normal handoff did not finish", handoff.isAlive)
@@ -246,7 +246,7 @@ class WirelessHandoffWatchdogTest {
         controller.wirelessRunForTest().javaClass.getDeclaredMethod("keepBluetoothControlAlive", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(controller.wirelessRunForTest(), generation) as Boolean
     private fun awaitHandoff() {
-        for (thread in Thread.getAllStackTraces().keys.filter { it.name == "xcertplay-wireless-handoff" }) {
+        for (thread in Thread.getAllStackTraces().keys.filter { it.name == "diplay-wireless-handoff" }) {
             thread.join(2_000)
             assertFalse("Handoff worker did not finish", thread.isAlive)
         }

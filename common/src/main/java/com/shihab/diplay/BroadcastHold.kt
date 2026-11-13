@@ -33,6 +33,6 @@ internal class BroadcastHold(
     }
 
     private companion object {
-        const val TAG = "xcertplay-boot"
+        const val TAG = "diplay-boot"
     }
 }

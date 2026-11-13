@@ -203,7 +203,7 @@ internal class BufferedAudioStream(
     }
 
     companion object {
-        private const val TAG = "xcertplay-usb"
+        private const val TAG = "diplay-usb"
         const val STREAM_TYPE = 103
         /** Advertised and locally enforced; a full buffer applies TCP backpressure. */
         const val AUDIO_BUFFER_BYTES = 8 * 1024 * 1024

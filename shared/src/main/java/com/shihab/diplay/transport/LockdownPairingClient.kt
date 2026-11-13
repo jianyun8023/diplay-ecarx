@@ -65,16 +65,16 @@ class LockdownPairingClient internal constructor(
                             created.rootCertificatePem, created.systemBuid)
                         event = 4
                     }
-                    5 -> Log.i("xcertplay-usb", "lockdown UntrustedHostBUID set")
+                    5 -> Log.i("diplay-usb", "lockdown UntrustedHostBUID set")
                     6 -> {
                         val created = record!!
-                        Log.i("xcertplay-usb", "lockdown pair prepared hostId=uuid systemBuid=uuid " +
+                        Log.i("diplay-usb", "lockdown pair prepared hostId=uuid systemBuid=uuid " +
                             "deviceKey=${created.devicePublicKeyPem.size} deviceCert=${created.deviceCertificatePem.size} " +
                             "hostCert=${created.hostCertificatePem.size} rootCert=${created.rootCertificatePem.size}")
                     }
-                    7 -> Log.i("xcertplay-usb", "lockdown pair attempt=${meta[0]}")
+                    7 -> Log.i("diplay-usb", "lockdown pair attempt=${meta[0]}")
                     8 -> {
-                        Log.i("xcertplay-usb", "lockdown trust pending; keeping connection open")
+                        Log.i("diplay-usb", "lockdown trust pending; keeping connection open")
                         onTrustPending()
                     }
                     9 -> try { Thread.sleep(meta[0]) } catch (_: InterruptedException) {

@@ -38,7 +38,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    // The native sources in src/main/jni (local_hotspot_radio, speex_echo, xcertplay_i2c) are built
+    // The native sources in src/main/jni (local_hotspot_radio, speex_echo, diplay_i2c) are built
     // with ndk-build. Ordinary Gradle APK builds consume the prebuilt jniLibs instead of compiling
     // them; those libraries are rebuilt from these sources with NDK 28.2.13676358 (see
     // src/main/jniLibs/NOTICE.md for provenance and rebuild steps). Keep the build path ASCII-only

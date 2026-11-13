@@ -2,7 +2,7 @@ package com.shihab.diplay.airplay
 
 import android.util.Log
 import com.shihab.diplay.hud.NavigationOutputs
-import com.shihab.diplay.logging.XCertplayTrace
+import com.shihab.diplay.logging.DiPlayTrace
 import com.shihab.diplay.mfi.MfiAuthenticator
 import com.shihab.diplay.transport.BlockingDuplexByteStream
 import java.io.BufferedInputStream
@@ -530,7 +530,7 @@ class AirPlaySession(
                             !(request.method == "POST" && path.endsWith("/command"))
                     val rxMessage =
                         "airplay rx ${request.method} ${request.path} cseq=$cseq body=${request.body.size}"
-                    if (showInDebugOverlay) debugLog(rxMessage, true) else XCertplayTrace.log(rxMessage)
+                    if (showInDebugOverlay) debugLog(rxMessage, true) else DiPlayTrace.log(rxMessage)
                     if (showInDebugOverlay) debugLog(
                         AirPlayControlDiagnostics.request(request.method, request.path, request.body.size),
                         false,
@@ -554,7 +554,7 @@ class AirPlaySession(
                     if (showInDebugOverlay || (response.status ?: 200) != 200) {
                         debugLog(txMessage, showInDebugOverlay)
                     } else {
-                        XCertplayTrace.log(txMessage)
+                        DiPlayTrace.log(txMessage)
                     }
                     if (showInDebugOverlay) debugLog(
                         "airplay control response status=${response.status ?: 200} contentBytes=${response.body.size}",
@@ -810,8 +810,8 @@ class AirPlaySession(
         val params = asMap(body["params"]) ?: emptyMap()
         val commandPlan = AirPlayCommands.incoming(type, params)
         if (commandPlan.noisy) {
-            if (XCertplayTrace.enabled) {
-                XCertplayTrace.log("airplay command type=" + type + " keys=" + params.keys.sorted())
+            if (DiPlayTrace.enabled) {
+                DiPlayTrace.log("airplay command type=" + type + " keys=" + params.keys.sorted())
             }
         } else {
             debugLog("airplay command type=" + type + " keys=" + params.keys.sorted())
@@ -1069,7 +1069,7 @@ class AirPlaySession(
     }
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val PLIST_CONTENT_TYPE = "application/x-apple-binary-plist"
         const val PAIRING_CONTENT_TYPE = "application/pairing+tlv8"
         const val OCTET_CONTENT_TYPE = "application/octet-stream"

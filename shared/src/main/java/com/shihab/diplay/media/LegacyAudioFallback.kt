@@ -35,5 +35,5 @@ internal object LegacyAudioFallback {
         }
     }
 
-    private const val TAG = "xcertplay-usb"
+    private const val TAG = "diplay-usb"
 }

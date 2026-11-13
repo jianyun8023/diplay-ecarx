@@ -52,8 +52,8 @@ class AppDialogsTest {
     /** Android 9 and older drop a literal colour here, and dialogs showed through (#640, #617). */
     @Test fun windowBackgroundsAreResourcesThatAndroid9CanLoad() {
         for (theme in listOf(
-            R.style.Theme_Xcertplay, R.style.Theme_Xcertplay_Light,
-            R.style.Theme_Xcertplay_Dialog_Dark, R.style.Theme_Xcertplay_Dialog_Light,
+            R.style.Theme_DiPlay, R.style.Theme_DiPlay_Light,
+            R.style.Theme_DiPlay_Dialog_Dark, R.style.Theme_DiPlay_Dialog_Light,
         )) {
             val attributes = android.view.ContextThemeWrapper(context, theme).theme
                 .obtainStyledAttributes(intArrayOf(android.R.attr.windowBackground))

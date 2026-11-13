@@ -38,7 +38,7 @@ class Iap2LinkChannel private constructor(
     private var terminalFailure: Throwable? = null
     private var streamCloseStarted = false
 
-    private val worker = Thread(::runPump, "xcertplay-iap2-link").apply {
+    private val worker = Thread(::runPump, "diplay-iap2-link").apply {
         isDaemon = true
     }
 

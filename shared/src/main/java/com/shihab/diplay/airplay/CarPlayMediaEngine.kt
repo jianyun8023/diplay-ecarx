@@ -786,7 +786,7 @@ class CarPlayMediaEngine(
                 "coded=(null|-?\\d{1,10})x(null|-?\\d{1,10}) " +
                 "crop=(null|-?\\d{1,10}),(null|-?\\d{1,10}),(null|-?\\d{1,10}),(null|-?\\d{1,10})(?= |$)",
         )
-        private const val TAG = "xcertplay-usb"
+        private const val TAG = "diplay-usb"
         private const val MICROPHONE_SCHEDULER_IDLE_SECONDS = 5L
         private const val STREAM_TYPE_MAIN_SCREEN = 110
         private const val STREAM_TYPE_ALT_SCREEN = 111

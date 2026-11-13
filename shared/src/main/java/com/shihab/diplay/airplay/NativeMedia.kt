@@ -12,7 +12,7 @@ import java.nio.ByteBuffer
 internal object NativeMedia {
     private val load: Result<Unit> by lazy {
         runCatching { System.loadLibrary("diplay_media") }
-            .onFailure { runCatching { Log.w("xcertplay-usb", "native media library unavailable: $it") } }
+            .onFailure { runCatching { Log.w("diplay-usb", "native media library unavailable: $it") } }
     }
 
     val available: Boolean get() = load.isSuccess

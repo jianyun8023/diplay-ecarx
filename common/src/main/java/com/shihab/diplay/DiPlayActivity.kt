@@ -5535,7 +5535,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun rememberLaunchAppearance() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         val light = AirPlayPersistence.loadAppAppearance(this) == AppAppearance.LIGHT
-        splashScreen.setSplashScreenTheme(if (light) R.style.Theme_Xcertplay_Light else R.style.Theme_Xcertplay)
+        splashScreen.setSplashScreenTheme(if (light) R.style.Theme_DiPlay_Light else R.style.Theme_DiPlay)
     }
 
     private fun applyWindowAppearance() {

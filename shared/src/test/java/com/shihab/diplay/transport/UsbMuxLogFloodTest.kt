@@ -64,7 +64,7 @@ class UsbMuxLogFloodTest {
         val host = Iap2UsbMuxHost.open(pipe())
         awaitReads(63)
         host.close()
-        val control = ShadowLog.getLogsForTag("xcertplay-usb").map { it.msg }
+        val control = ShadowLog.getLogsForTag("diplay-usb").map { it.msg }
             .filter { it.startsWith("usbmux TCP control") }
         val acks = control.count { it.contains("flags=16 ") }
         println("control lines=${control.size} acks=$acks rst=${control.count { it.contains("flags=4 ") }} fin=${control.count { it.contains("flags=1 ") }}")
@@ -74,7 +74,7 @@ class UsbMuxLogFloodTest {
     }
 
     private fun lines(prefix: String) =
-        ShadowLog.getLogsForTag("xcertplay-usb").count { it.msg.startsWith(prefix) }
+        ShadowLog.getLogsForTag("diplay-usb").count { it.msg.startsWith(prefix) }
 
     private fun awaitReads(count: Int) {
         val deadline = System.nanoTime() + 5_000_000_000L

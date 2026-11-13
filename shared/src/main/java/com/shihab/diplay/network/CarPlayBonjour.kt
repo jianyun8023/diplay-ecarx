@@ -623,7 +623,7 @@ class CarPlayBonjour(
     }
 
     private companion object {
-        const val TAG = "xcertplay-bonjour"
+        const val TAG = "diplay-bonjour"
         const val WORKER_NAME = "carplay-bonjour"
         const val AIRPLAY_SERVICE_TYPE = "_airplay._tcp"
         const val CARPLAY_CONTROL_SERVICE_TYPE = "_carplay-ctrl._tcp"

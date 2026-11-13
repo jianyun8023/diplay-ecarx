@@ -218,7 +218,7 @@ class AndroidMediaSink(
         try {
             recoveryExecutor.execute {
                 try { videoRecoveryHandlers[type]?.invoke() }
-                catch (error: Exception) { Log.w("xcertplay-usb", "Video keyframe request failed", error) }
+                catch (error: Exception) { Log.w("diplay-usb", "Video keyframe request failed", error) }
                 finally { recoveryPending.set(false) }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) { recoveryPending.set(false) }
@@ -279,7 +279,7 @@ class AndroidMediaSink(
 
     private fun settleDetach(type: Int, decoder: VideoDecoder, request: SurfaceDetachRequest, deadline: Long): Boolean {
         if (decoder.awaitDetach(request, deadline)) return true
-        Log.w("xcertplay-usb", "Video detach not confirmed in time type=$type; closing that decoder")
+        Log.w("diplay-usb", "Video detach not confirmed in time type=$type; closing that decoder")
         videoDiagnosticHandlers[type]?.invoke("surface detach not confirmed; decoder closed")
         // The stream's next frame starts a fresh decoder on no surface, so it cannot compete for this one.
         retire(type, decoder)
@@ -545,7 +545,7 @@ class AndroidMediaSink(
                 restoreAudioMode(id)
             }
         } catch (error: Exception) {
-            Log.e("xcertplay-usb", "microphone start failed stream=$id", error)
+            Log.e("diplay-usb", "microphone start failed stream=$id", error)
             MicrophoneCaptureStats.reportStartFailure(config, error, onAudioDiagnostic)
             onMicrophoneStopped(id)
         }
@@ -587,7 +587,7 @@ class AndroidMediaSink(
             earpieceFallbackTried = false
             val speakerRequested = runCatching(callSpeakerphone).getOrDefault(false)
             if (speakerRequested) callSpeaker = CallSpeaker.on(manager)
-            Log.i("xcertplay-usb", "audio mode $before -> ${manager.mode} for communication stream=$id")
+            Log.i("diplay-usb", "audio mode $before -> ${manager.mode} for communication stream=$id")
             // The report, not just logcat: a head unit left in the voice path plays no media,
             // and that cannot be diagnosed from a car without adb. A failing report must not
             // disturb the mode, so it is the last thing done and it cannot throw out of here.
@@ -675,7 +675,7 @@ class AndroidMediaSink(
             listOf("hicar_enable=false", "AudioControlMode=01121000", "ASR_AEC=OFF")
         }) {
             runCatching { manager.setParameters(parameter) }.onFailure { error ->
-                Log.w("xcertplay-usb", "could not set $parameter", error)
+                Log.w("diplay-usb", "could not set $parameter", error)
                 runCatching {
                     onAudioDiagnostic("Audio: 820 mic parameter $parameter failed=${error.javaClass.simpleName}")
                 }
@@ -706,10 +706,10 @@ class AndroidMediaSink(
         val line = try {
             // MODE_NORMAL withdraws our request instead of retaining another process's old mode (#987).
             manager.mode = AudioManager.MODE_NORMAL
-            Log.i("xcertplay-usb", "audio mode restored to ${manager.mode}")
+            Log.i("diplay-usb", "audio mode restored to ${manager.mode}")
             "Audio: mode restored requested=${AudioManager.MODE_NORMAL} now=${manager.mode} stream=$id"
         } catch (error: RuntimeException) {
-            Log.w("xcertplay-usb", "could not restore audio mode", error)
+            Log.w("diplay-usb", "could not restore audio mode", error)
             val currentMode = runCatching { manager.mode.toString() }.getOrDefault("unknown")
             "Audio: mode restore failed requested=${AudioManager.MODE_NORMAL} now=$currentMode" +
                 " error=${error.javaClass.simpleName}"

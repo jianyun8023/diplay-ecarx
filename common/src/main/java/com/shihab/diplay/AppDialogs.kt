@@ -13,9 +13,9 @@ internal interface AppAppearanceOwner {
 internal fun Context.appDialogTheme(): Int = if (
     (this as? AppAppearanceOwner)?.currentAppNight ?: resolveAppNightNow()
 ) {
-    R.style.Theme_Xcertplay_Dialog_Dark
+    R.style.Theme_DiPlay_Dialog_Dark
 } else {
-    R.style.Theme_Xcertplay_Dialog_Light
+    R.style.Theme_DiPlay_Dialog_Light
 }
 
 internal fun Context.appDialogContext(): Context = ContextThemeWrapper(this, appDialogTheme())

@@ -14,7 +14,7 @@ import android.util.Log
  * interfaces: Apple USB Multiplexor (USBMUX) plus the NCM/Ethernet function CarPlay uses.
  */
 object IphoneCarPlayConfiguration {
-    const val TAG = "xcertplay-usb"
+    const val TAG = "diplay-usb"
 
     private const val USBMUX_CLASS = 0xff
     private const val USBMUX_SUBCLASS = 0xfe

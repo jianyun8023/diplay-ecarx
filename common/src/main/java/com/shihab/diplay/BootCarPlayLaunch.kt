@@ -24,7 +24,7 @@ import com.shihab.diplay.setup.SetupGuide
  * the driver about returns [Decision.HOME], and the boot opens the home screen as before.
  */
 internal object BootCarPlayLaunch {
-    private const val TAG = "xcertplay-boot"
+    private const val TAG = "diplay-boot"
 
     enum class Decision { CARPLAY, HOME }
 

@@ -2,7 +2,7 @@
 
 APK builds consume these `.so` files without compiling native code. All four libraries are rebuilt
 from the sources kept in this repository: the three C libraries from `shared/src/main/jni`
-(`local_hotspot_radio`, `speex_echo`, `xcertplay_i2c`) with NDK `28.2.13676358`, and
+(`local_hotspot_radio`, `speex_echo`, `diplay_i2c`) with NDK `28.2.13676358`, and
 `libdiplay_media.so` from the Rust source under `shared/src/main/rust/diplay-media`.
 
 ## Why the C libraries are checked in
@@ -34,13 +34,13 @@ ARM64 and ARMv7; x86_64 files remain for the source tree / emulator):
 |---|---|---:|---|
 | arm64-v8a | liblocal_hotspot_radio.so | 4,880 | `7d226e17f474678b1c0c8cb8de203b5f15df46e8939303443fc1df01fd925c70` |
 | arm64-v8a | libspeex_echo.so | 56,856 | `fadea4a56f1593d14d2bee1a7401441d14c4fddaf863d694c7de1591bbb67ab3` |
-| arm64-v8a | libxcertplay_i2c.so | 6,728 | `16fd9f81c63e5f239fb61eddffabceff712db2c3ffbc8c2fe047e9703630c009` |
+| arm64-v8a | libdiplay_i2c.so | 6,728 | `3c804d5fde1ab20407d1a56df3e324efa5a7de555db5e613b9918ccb296f2fcd` |
 | armeabi-v7a | liblocal_hotspot_radio.so | 3,532 | `2f927a99d46ace2fa7ddc51261d57ee71e9601a499cb1ef97ffc440c72235f7f` |
 | armeabi-v7a | libspeex_echo.so | 33,580 | `a2aada56c83ba5d89a6d8696bbd61b0ff564fb1602784c27dc852834c845bb04` |
-| armeabi-v7a | libxcertplay_i2c.so | 4,660 | `ce601eb4ca1dfb131f8bda993de58ed72963f327721097f6eadc318d776e7564` |
+| armeabi-v7a | libdiplay_i2c.so | 4,660 | `0c61f8374ae442043481116d6fb4333b4ed0b76cc95d5364e9e5488b8d9fdf69` |
 | x86_64 | liblocal_hotspot_radio.so | 4,848 | `cb4e90c3c6e0b8e8bb19fd562c5b6be417e2e54c7f5480d7a7b77b7700e50031` |
 | x86_64 | libspeex_echo.so | 72,712 | `541b9bd49607619182edc5ddc264837151c15e5375d57eb79987de515c5ec0cb` |
-| x86_64 | libxcertplay_i2c.so | 6,616 | `602d5bbd97823d628c03604b81395c5f9c3b48d15b8bcfa7f2c84baae52e105e` |
+| x86_64 | libdiplay_i2c.so | 6,616 | `a6fa3e8603b87547f3d503e2e40c912794f253d4104f0465f24f071001ac0cbc` |
 
 `libandroidx.graphics.path.so` is **not** copied: it ships inside the
 `androidx.graphics:graphics-path` AAR and is packaged by Gradle.
@@ -53,7 +53,7 @@ reproducible builds; these binaries are built from the in-repo sources listed ab
 NDK, so they are the corresponding source-built artifacts (they are no longer byte-identical to the
 old `DiPlay-0.2.15.apk` copies).
 
-`Android.mk` still declares only `xcertplay_i2c`, `local_hotspot_radio` and `speex_echo`.
+`Android.mk` still declares only `diplay_i2c`, `local_hotspot_radio` and `speex_echo`.
 
 SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source headers.
 The production APK ABI filters select ARM64 and ARMv7; x86_64 files remain in the source tree.

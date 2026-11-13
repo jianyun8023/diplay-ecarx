@@ -1391,7 +1391,7 @@ internal class VideoDecoder(
     }
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val MAX_INPUT_SIZE = 8 * 1024 * 1024
         // The output thread's wait for a decoded frame; a release waits at most this long for it to return.
         const val OUTPUT_TIMEOUT_US = 10_000L

@@ -128,7 +128,7 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     private companion object {
-        const val TAG = "xcertplay-boot"
+        const val TAG = "diplay-boot"
         /** 2 s service start + up to 5 × 1 s process checks, with margin; under the 10 s receiver budget. */
         const val RESTORE_HOLD_MILLIS = 9_000L
     }

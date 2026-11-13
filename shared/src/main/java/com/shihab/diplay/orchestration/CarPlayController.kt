@@ -33,7 +33,7 @@ import com.shihab.diplay.bluetooth.BluetoothAdapterRestore
 import com.shihab.diplay.bluetooth.CarBluetoothProfileGuard
 import com.shihab.diplay.hud.NavigationOutputs
 import com.shihab.diplay.iap2.session.Iap2Session
-import com.shihab.diplay.logging.XCertplayTrace
+import com.shihab.diplay.logging.DiPlayTrace
 import com.shihab.diplay.mfi.Iap2MfiAuthenticationClient
 import com.shihab.diplay.mfi.MfiAuthenticationClient
 import com.shihab.diplay.mfi.RemoteMfiAuthenticationClient
@@ -432,7 +432,7 @@ class CarPlayController(
         override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {
             // Never drop a command: suppress only repetitive diagnostic formatting.
             // Detailed parameters are available with the explicit trace switch.
-            if (XCertplayTrace.enabled) {
+            if (DiPlayTrace.enabled) {
                 val rendered = StringBuilder()
                 for ((key, value) in params) {
                     if (rendered.isNotEmpty()) rendered.append(',')
@@ -814,7 +814,7 @@ class CarPlayController(
                     teardownComplete.countDown()
                 }
             },
-            "xcertplay-controller-teardown",
+            "diplay-controller-teardown",
         ).apply {
             isDaemon = true
             start()
@@ -1352,7 +1352,7 @@ class CarPlayController(
             synchronized(wirelessResourceLock) {
                 if (run.acceptsProgress()) executor.execute { run.runWireless() }
             }
-        }, "xcertplay-wireless-start").apply {
+        }, "diplay-wireless-start").apply {
             isDaemon = true
             start()
         }
@@ -1369,7 +1369,7 @@ class CarPlayController(
                 expected.closeWirelessStack()
                 startWireless(generation)
             },
-            "xcertplay-wireless-restart",
+            "diplay-wireless-restart",
         ).apply {
             isDaemon = true
             start()
@@ -3122,7 +3122,7 @@ class CarPlayController(
                         onStatus(CarPlayStatus.WirelessActive, generation)
                     }
                 },
-                "xcertplay-wireless-handoff",
+                "diplay-wireless-handoff",
             ).apply {
                 isDaemon = true
                 start()
@@ -3142,7 +3142,7 @@ class CarPlayController(
                     debugLog("wireless handoff timed out waiting for tunnel iAP2 readiness")
                     Thread(
                         { handleWirelessHandoffTimeout(generation) },
-                        "xcertplay-wireless-handoff-timeout",
+                        "diplay-wireless-handoff-timeout",
                     ).apply {
                         isDaemon = true
                         start()

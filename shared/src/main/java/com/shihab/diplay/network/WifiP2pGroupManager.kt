@@ -122,7 +122,7 @@ class WifiP2pGroupManager(
             startAttempt = attempt
         }
 
-        val thread = HandlerThread("xcertplay-wifi-p2p").apply { start() }
+        val thread = HandlerThread("diplay-wifi-p2p").apply { start() }
         attempt.thread = thread
         val deadlineNanos = deadlineAfter(timeoutMillis)
         val credentials = randomCredentials()
@@ -960,7 +960,7 @@ class WifiP2pGroupManager(
     )
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val REMOVE_GROUP_TIMEOUT_MILLIS = 2_000L
         const val UNKNOWN_CHANNEL = 0

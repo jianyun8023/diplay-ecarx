@@ -62,7 +62,7 @@ class BluetoothRfcommDuplexStream internal constructor(
     private val input = acquireStream(BluetoothRfcommStreamException.Operation.INPUT_STREAM, socket::inputStream)
     private val output = acquireStream(BluetoothRfcommStreamException.Operation.OUTPUT_STREAM, socket::outputStream)
 
-    private val reader = Thread(::readLoop, "xcertplay-bluetooth-rfcomm-reader").apply {
+    private val reader = Thread(::readLoop, "diplay-bluetooth-rfcomm-reader").apply {
         isDaemon = true
     }
 

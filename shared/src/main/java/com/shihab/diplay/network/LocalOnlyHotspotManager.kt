@@ -826,7 +826,7 @@ class LocalOnlyHotspotManager(context: Context, private val onDiagnostic: (Strin
     )
 
     private companion object {
-        const val MULTICAST_LOCK_TAG = "xcertplay-local-only-hotspot-mdns"
+        const val MULTICAST_LOCK_TAG = "diplay-local-only-hotspot-mdns"
         const val NANOS_PER_MILLISECOND = 1_000_000L
         val INTERFACE_POLL_NANOS: Long = TimeUnit.MILLISECONDS.toNanos(100)
     }

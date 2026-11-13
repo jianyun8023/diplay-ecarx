@@ -80,7 +80,7 @@
             android:exported="true" android:launchMode="singleTop"
             android:resizeableActivity="true"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:theme="@style/Theme.Xcertplay">
+            android:theme="@style/Theme.DiPlay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -109,7 +109,7 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Xcertplay"
+            android:theme="@style/Theme.DiPlay"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
@@ -128,7 +128,7 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Xcertplay"
+            android:theme="@style/Theme.DiPlay"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
@@ -148,13 +148,13 @@
             android:name="com.shihab.diplay.CarPlayVideoActivity"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
-            android:theme="@style/Theme.Xcertplay" />
+            android:theme="@style/Theme.DiPlay" />
 
         <activity
             android:name="com.shihab.diplay.MainActivity"
             android:exported="false"
             android:resizeableActivity="true"
-            android:theme="@style/Theme.Xcertplay" />
+            android:theme="@style/Theme.DiPlay" />
 
         <!-- CarPlay navigation widget, for launchers that host standard widgets. -->
         <receiver

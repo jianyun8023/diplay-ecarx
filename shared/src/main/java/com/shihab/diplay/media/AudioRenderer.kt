@@ -1091,7 +1091,7 @@ internal class AudioRenderer(
     }
 
     private companion object {
-        const val TAG = "xcertplay-usb"
+        const val TAG = "diplay-usb"
         const val RTP_HEADER_BYTES = 12
         // Holds the largest decoder output seen in practice (1024 AAC frames, stereo, 16-bit is 4 KiB).
         const val PCM_BUFFER_BYTES = 64 * 1024
