@@ -40,6 +40,8 @@
     <uses-permission android:name="android.cevt.dimsupportservice.permission.DIM_MESSAGING" />
     <uses-permission android:name="ecarx.oem.permission.OPENAPI_NAVI_PERMISSION" />
     <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION" />
+    <!-- Read-only GEAR_SELECTION for PASCD; checked before advertising wheel-speed support. -->
+    <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" />
     <uses-permission android:name="android.car.permission.CAR_CONTROL_AUDIO_VOLUME" />
     <!--
       Signature-level on Android 9. This build is signed with the head unit's platform key, so the

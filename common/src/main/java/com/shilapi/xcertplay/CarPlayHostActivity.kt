@@ -210,7 +210,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             locationInformationEnabled = locationReportingEnabled,
             vehicleStatusEnabled = false,
             chargingConnectors = EvChargingConnectors.GB_T,
-            vehicleSpeedEnabled = false,
+            vehicleSpeedEnabled = locationReportingEnabled && com.shilapi.xcertplay.hud.EcarxVehicleSpeedSource.supported(this),
         ),
         label = "Lynk&Co",
         hostName = "lynkco-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
@@ -4832,8 +4832,13 @@ open class CarPlayHostActivity : ComponentActivity() {
             size
         }
         val airPlayConfig = createAirPlayConfig(effectiveSize)
-        val locationProvider: Iap2LocationProvider? =
-            if (!config.locationReportingEnabled) null else AndroidCarPlayLocationProvider(this)
+        val locationProvider: Iap2LocationProvider? = if (!config.locationReportingEnabled) null else {
+            val position = AndroidCarPlayLocationProvider(this)
+            if (config.identification.vehicleSpeedEnabled) {
+                com.shilapi.xcertplay.transport.VehicleSpeedLocationProvider(position,
+                    com.shilapi.xcertplay.hud.EcarxVehicleSpeedSource(this, ::appendLog), ::appendLog)
+            } else position
+        }
         appendLog(
             "Starting CarPlay controller at ${size.width}x${size.height} -> " +
                 "${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
@@ -4887,7 +4892,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
             locationProvider = locationProvider,
-            // No vehicle bus on this head unit, so there is nothing to report to the iPhone.
+            // The available fuel/range sensors do not supply the EV battery fields of 0xA101.
             vehicleStatusProvider = null,
         )
         controller = next

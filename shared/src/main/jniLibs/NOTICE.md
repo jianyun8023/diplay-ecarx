@@ -62,7 +62,7 @@ It owns audio receiver-to-renderer routing, AAC/PCM processing, output schedulin
 video timing/queues/codec policy, incremental playback state, hotspot address/readiness and Wi-Fi Direct retry policy,
 AirPlay info/control/video field schemas and Bonjour publication policy, HID/touch slots,
 EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
-Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path stays default-off. It is built from
+Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path is attempted by default unless explicitly disabled; if it cannot start, the Java I/O adapter still uses the Rust NCM core. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
 There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.

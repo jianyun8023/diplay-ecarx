@@ -617,6 +617,12 @@ class ShadowNativeVehicleIdentification {
 @Implements(className = "com.shilapi.xcertplay.transport.NativeVehicleSpeed", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeVehicleSpeed {
     companion object {
+        @JvmStatic @Implementation fun speedGear(state: LongArray, gear: Int): LongArray =
+            HostNative.call("transport.NativeVehicleSpeed", "speedGear", state, gear) as LongArray
+        @JvmStatic @Implementation fun speedSample(state: LongArray, elapsed: Long, speed: Double): LongArray =
+            HostNative.call("transport.NativeVehicleSpeed", "speedSample", state, elapsed, speed) as LongArray
+        @JvmStatic @Implementation fun speedSnapshot(state: LongArray): DoubleArray =
+            HostNative.call("transport.NativeVehicleSpeed", "speedSnapshot", state) as DoubleArray
         @JvmStatic @Implementation fun pascdEncode(gear: Int, formattedParts: Array<String>): String? =
             HostNative.call("transport.NativeVehicleSpeed", "pascdEncode", gear, formattedParts) as String?
     }

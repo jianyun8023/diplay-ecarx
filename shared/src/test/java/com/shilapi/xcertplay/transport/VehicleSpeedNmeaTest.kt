@@ -61,6 +61,19 @@ class VehicleSpeedNmeaTest {
         assertTrue(provider.latestNmea()!!.startsWith("\$PASCD,"))
     }
 
+    @Test fun repeatedRequestsStopSpeedWhenTheComponentIsRemoved() {
+        val speed = FakeSpeed()
+        val provider = VehicleSpeedLocationProvider(FakePosition("\$GPGGA\r\n"), speed)
+        provider.onRequested(setOf(4))
+        provider.start()
+        provider.start()
+        assertTrue(speed.started)
+        provider.onRequested(setOf(1, 2))
+        provider.start()
+        assertFalse(speed.started)
+        assertEquals("\$GPGGA\r\n", provider.latestNmea())
+    }
+
     // #807: in a tunnel the speed went after about two minutes, and the report could not say why.
     @Test
     fun summarisesWhatReachedTheIphoneOnceAMinute() {

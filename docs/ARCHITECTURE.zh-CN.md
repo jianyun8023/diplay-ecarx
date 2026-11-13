@@ -19,7 +19,7 @@
 1. 完成媒体闭环。音频接收器直入队列、逐包反馈、缓冲音乐锚点、SETRATE／FLUSH、PI 时钟、背压、输出门限、AAC 与 PCM／Opus 已接入 Rust；Java／NDK 视频的节拍、队列、参考链与 codec 策略也由 Rust 拥有。组合与实车验收仍需完成。
 2. 迁移协议编解码、配对与控制加密，优先对照现有 Rust 实现及黄金向量。RTSP、bplist、control／event、PairVerify、PairSetup／SRP、完整 MFiSAP、NTP、iAP2 body／link／握手／文件传输、USBMUX、Lockdown 与默认 NCM 路径已接入 Rust；平台存储、PKIX／JCA 硬件密钥及真实 MFi I/O 保留适配层。
 3. 迁移会话控制，统一代际、取消、恢复和资源关闭，平台结果携带所属代际。WirelessRunState、WirelessBootstrapRecovery 及 wired Iap2ControlDeadline 策略已迁移；wireless deadline、watchdog 决策、controller／VPN 代际和 AirPlay 流协商状态也已迁入 Rust；Kotlin 执行平台资源动作和调度。
-4. 迁移导航、车辆转换和输入协议；EV 0xA101、导航状态、HID／触摸槽、IdentificationInformation、PASCD、NMEA 及仪表／HUD 转换已接入 Rust，位置／EV 订阅与节流也由 Rust 拥有。Android／车机适配、Calendar／Formatter 保留 Kotlin；PASCD 尚无生产车速源装配点。
+4. 迁移导航、车辆转换和输入协议；EV 0xA101、导航状态、HID／触摸槽、IdentificationInformation、PASCD、NMEA 及仪表／HUD 转换已接入 Rust，位置／EV 订阅与节流也由 Rust 拥有。Android／车机适配、Calendar／Formatter 保留 Kotlin；PASCD 生产车速由 `EcarxVehicleSpeedSource` 从 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION` 采集后送入既有 Rust 编码，实车订阅验收仍待完成。
 
 验证覆盖范围与批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)；当前源码接入不等于整批验收。开发中运行定向回归，可交付批次最终运行完整 CI、双 ABI 构建和可执行的设备验证；实车待验收项保留在 issue 中。
 
@@ -171,7 +171,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 - `session::p2p_startup` 持有 remembered frequency、同频道／单 band／手动频道计划、BUSY 一次重试和 compatibility fallback；Kotlin 执行 Wi-Fi Direct 请求，保留外部异常身份与 SDK 前置互斥，不在结果不确定的 timeout 后重新创建。
 - `vehicle::route_guidance::lane_update` 复用共享 iAP2 body parser 解析完整 0x5204，保留 known-field duplicate 的精确长度、稳定 lane index 排序、角度 wire 顺序与 ±1000 unknown 值，空 body 才是清空。Glance／HUD 调用原 facade 获取不可变 DTO。
 - `protocols::airplay` 持有 `/info` 能力、固定 event／command、VideoInCar 和 Bonjour TXT／connect probe 编码。`media::audio::{routing, echo}` 持有路由与 speaker fallback、far-end PCM 和 capture clock；buffered owner 也持有 anchor／feedback 回复 schema 和 NTP 换算。Java bplist 数值／字符串转换与实际 SDK 执行继续保留。
-- 已迁协议、配对、媒体、导航／HUD、NTP、会话状态与恢复要求原生核心；旧算法只作为testCore对照。所有权和最新执行结果见[落地审计](RUST_CORE_REMAINING.zh-CN.md)与 issue #96。PASCD／VehicleSpeedLocationProvider 仍无生产SDK装配点，此批仅接入已有编码入口，不新增车速来源。
+- 已迁协议、配对、媒体、导航／HUD、NTP、会话状态与恢复要求原生核心；旧算法只作为testCore对照。所有权和最新执行结果见[落地审计](RUST_CORE_REMAINING.zh-CN.md)与 issue #96。PASCD／VehicleSpeedLocationProvider 的生产车速源已接入：`EcarxVehicleSpeedSource` 读取 ECARX `ISensor` 1048832（m/s）并经 VHAL `GEAR_SELECTION` 取得挡位，平台笔记已登记接口与单位；真实车机订阅、权限与断线恢复仍属实车验收。
 
 生产核心 facade 必须加载 Rust；独立旧算法只供测试对照，库加载失败显式上报。Bouncy Castle 已从 shared 生产依赖移除，仅作测试 oracle。AudioTrack、MediaCodec、AAudio 等真实硬件／SDK 能力回退保留。历史候选的双 ABI／设备结果仅适用于其构建源码；本轮整批 JNI／R8／设备验收另见[落地审计](RUST_CORE_REMAINING.zh-CN.md)，不能用历史记录替代。
 
@@ -183,7 +183,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 | UDP 音频 | Rust 接收、开封并默认直入 renderer Rust 队列；诊断 wiretap 保留原生包句柄交付。Opus 用 opus-pure 解码；AAC 保留系统 MediaCodec；LPCM 字节序、通话高通、有声检测、导航衰减与淡入在 Rust 处理。音乐和导航的 usage 路径尝试 AAudio；通话、Siri、旧式流类型及打开失败时使用 `AudioTrack`。 |
 | 缓冲音乐 | Rust 读长度前缀、开封并直接入有界队列，拥有锚点、SETRATE／FLUSH、暂停预填保留、填充节奏与 TCP 回压；Android worker 拉取核心发送步骤，串行执行平台开始／交付／停止。 |
 | 麦克风 | Kotlin 保留 `AudioRecord` 采集、音效会话与原有 Speex C/JNI 回声处理。可共享 socket FD 时 Rust 编码／RTP／封装／发送；不能共享时 Java DatagramSocket 执行发送，编码、packetizer 和密码仍要求 Rust。 |
-| 有线 | Kotlin 保留 USB 接口认领、VPN 与生命周期。默认 Java USB／tun I/O 适配也使用 Rust NCM framing／路由核心；实验开关开启后尝试 Rust usbdevfs 同步 bulk、NTB16 重组、邻居通告修补与 tun 转发，SDK／驱动能力不支持时保留 Java I/O。 |
+| 有线 | Kotlin 保留 USB 接口认领、VPN 与生命周期。未保存过原生数据通路选择时，默认尝试 Rust usbdevfs 同步 bulk、NTB16 重组、邻居通告修补与 tun 转发；显式关闭或原生引擎无法启动时使用 Java USB／tun I/O 适配，NCM framing／路由核心仍由 Rust 执行。 |
 
 ## 7. 分阶段与验收
 
@@ -197,7 +197,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 | 3 | 视频解码循环：NDK `AMediaCodec` 异步模式，回调只排队、专用喂帧线程调用编解码器；Rust 内节拍、关键帧门控与背压恢复 | `MediaCodec_loop` 与解码线程 CPU 下降；首帧、恢复、Surface 切换与停放行为不变 |
 | 4 | 音频输出：AAudio（按 usage 路由的音乐与导航），通话、Siri 与旧式流类型保留 `AudioTrack`；焦点压低音量改为 PCM 增益，时钟微调改为 Rust 重采样 | 实车各声道路由、焦点、欠载不变 |
 | 5 | 麦克风发送：opus-pure 编码、RTP、封装、`sendto` 一次调用；采集仍是 `AudioRecord`（车机麦克风策略与平台音效挂在它的会话上），Speex 回声消除仍是原 C 库 | Siri 与通话实车可用；同输入下上行包与 Kotlin 逐字节一致 |
-| 6 | 有线 NCM ↔ tun：usbdevfs 同步 bulk、NTB16 重组与重同步、邻居通告修补、流量计数全在 Rust；高级设置“有线数据通路原生化（实验性）”，默认关 | 有线连接、断开、重连实车可用；有线帧率与 CPU 对照 |
+| 6 | 有线 NCM ↔ tun：usbdevfs 同步 bulk、NTB16 重组与重同步、邻居通告修补、流量计数全在 Rust；高级设置“有线数据通路原生化（实验性）”未保存选择时默认开启，保留显式关闭和能力回退 | 有线连接、断开、重连实车可用；有线帧率与 CPU 对照 |
 
 阶段 0 / 1 结果（小米 8，Android 15，请求 60 fps，两路视频合计约 57 个接收消息/秒，并播放音乐；A/B/A/B 各 300 秒，2026-11-11）。两路均值约为 22 和 35，日志没有流 ID，不把合计值写成主屏帧率：
 

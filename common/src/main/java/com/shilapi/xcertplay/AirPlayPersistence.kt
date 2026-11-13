@@ -816,10 +816,10 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SMOOTH_VIDEO, enabled).apply()
     }
 
-    /** The experimental native wired data path (NcmUsbBridge.startNative); off by default, applied at the next wired connection. */
+    /** Native wired forwarding defaults on; an explicit opt-out applies at the next wired connection. */
     fun loadNativeWiredDataPath(context: Context): Boolean =
         context.getSharedPreferences(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_PREFS, Context.MODE_PRIVATE)
-            .getBoolean(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_KEY, false)
+            .getBoolean(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_KEY, true)
 
     fun saveNativeWiredDataPath(context: Context, enabled: Boolean) {
         context.getSharedPreferences(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_PREFS, Context.MODE_PRIVATE)
