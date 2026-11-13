@@ -1,29 +1,12 @@
-//! DiPlay's media data plane (see docs/ARCHITECTURE.zh-CN.md): the CarPlay media streams are
-//! received, opened and framed here, and Kotlin gets pooled packet handles (`NativeMedia`).
+//! CarPlay core owners and their JNI boundaries, grouped by functional responsibility.
+//! See docs/ARCHITECTURE.zh-CN.md for the Kotlin/platform boundary.
 
 // JNI references are opaque handles that the JVM checks; only the JVM calls the `Java_*` entry points.
 #![allow(clippy::not_unsafe_ptr_arg_deref, clippy::missing_safety_doc)]
 
-pub mod annexb;
-pub mod buffered;
-pub mod crypto;
-pub mod jvm;
-pub mod packet;
-pub mod stats;
-
-#[cfg(any(target_os = "android", target_os = "linux"))]
-pub mod audio;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-pub mod stream;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-pub mod video;
-
-/// Stops a stream started by `startVideo` or `startAudio` and gives up its handle. Safe from the
-/// stream's own callbacks; the receiver thread then ends by itself.
-#[cfg(any(target_os = "android", target_os = "linux"))]
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_stop(
-    _env: *mut jni_sys::JNIEnv, _class: jni_sys::jclass, handle: jni_sys::jlong,
-) {
-    stream::stop(handle)
-}
+pub mod media;
+pub mod platform;
+pub mod protocols;
+pub mod session;
+pub mod transport;
+pub mod vehicle;

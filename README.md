@@ -42,6 +42,8 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分界面改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。许可与第三方声明见 [LICENSE](LICENSE) 和 [相关说明](docs/THIRD_PARTY_NOTICES.md)。
 
+Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+
 CarPlay 及相关标识属于 Apple；本项目与 Apple、领克、亿咖通无隶属或背书关系。
 
 ## English

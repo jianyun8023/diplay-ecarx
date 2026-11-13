@@ -1,0 +1,144 @@
+name: Release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject credential files in public source
+        run: python3 scripts/check_public_tree.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      - name: Cache Rust build (both Android targets)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-release
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
+          key: ndk-28.2.13676358-${{ runner.os }}
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+      - name: Build and verify Rust Android shared libraries
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
+          DIPLAY_JNI_LIBS_DIR="$RUNNER_TEMP/rust-android-libs" \
+            scripts/check_rust_android_native.sh
+      - name: Stage freshly built Rust libraries for Release APK
+        run: |
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore Android signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          umask 077
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.p12"
+          printf 'ANDROID_KEYSTORE_PATH=%s/android-release.p12\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Build signed Release APK without MFi
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          unset DIPLAY_AUTH_ASSETS_DIR
+          ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --build-cache --stacktrace
+      - name: Verify APK and prepare licenses, source and R8 mapping
+        env:
+          # Through env, not ${{ }} in the script: the body is free text.
+          RELEASE_NOTES: ${{ github.event.release.body }}
+        run: |
+          apk=$(ls mobile/build/outputs/apk/release/DiPlay-v*-release.apk)
+          apk_name=$(basename "$apk")
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --min-sdk-version 28 "$apk"
+          # The in-app updater reads the tag as the versionCode, so a release tag must be v<versionCode>.
+          version_code=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          if [ "${{ github.event_name }}" = release ] && [ "${{ github.event.release.tag_name }}" != "v$version_code" ]; then
+            echo "Release tag ${{ github.event.release.tag_name }} must be v$version_code" >&2
+            exit 1
+          fi
+          if [ "$apk_name" != "DiPlay-v$version_code-release.apk" ]; then
+            echo "APK $apk_name must be named DiPlay-v$version_code-release.apk" >&2
+            exit 1
+          fi
+          mkdir -p release-apk
+          APK="$apk" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          apk = Path(os.environ['APK'])
+          with ZipFile(apk) as archive:
+              assert not any('offline-mfi/' in name or Path(name).suffix.lower() in {
+                  '.pk8', '.p7b', '.pem', '.key', '.p12', '.pfx', '.jks', '.keystore',
+              } for name in archive.namelist()), 'Release APK must contain no authentication credentials'
+              required = {
+                  'GPL-3.0.txt': Path('LICENSE'),
+                  'AGPL-3.0.txt': Path('docs/licenses/DiAuto-AGPL-3.0.txt'),
+                  'NOTICE.md': Path('NOTICE.md'),
+                  'THIRD_PARTY_NOTICES.md': Path('docs/THIRD_PARTY_NOTICES.md'),
+                  'SOURCE.txt': Path('docs/licenses/SOURCE.txt'),
+              }
+              for name, source in required.items():
+                  assert archive.read('assets/licenses/' + name) == source.read_bytes(), name
+              with ZipFile('release-apk/DiPlay-licenses.zip', 'w', ZIP_DEFLATED) as licenses:
+                  for name in sorted(archive.namelist()):
+                      if name.startswith('assets/licenses/') and not name.endswith('/'):
+                          licenses.writestr(name.removeprefix('assets/'), archive.read(name))
+          PY
+          cp "$apk" release-apk/
+          cp mobile/build/outputs/mapping/release/mapping.txt "release-apk/DiPlay-v$version_code-mapping.txt"
+          # The in-app updater reads this through releases/latest/download, which GitHub mirrors also serve.
+          UPDATE_TAG="v$version_code" APK_NAME="$apk_name" python3 - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, 'scripts')
+          from release_notes_plain import plain
+          # Installed apps show notes as text, and v143 shows them verbatim: no Markdown in the manifest.
+          manifest = {'tag': os.environ['UPDATE_TAG'], 'apk': os.environ['APK_NAME'], 'notes': plain(os.environ.get('RELEASE_NOTES', ''))}
+          with open('release-apk/update.json', 'w', encoding='utf-8') as output:
+              json.dump(manifest, output, ensure_ascii=False)
+          PY
+          git archive --format=tar.gz --prefix=DiPlay-source/ --output=release-apk/DiPlay-source.tar.gz HEAD
+          release_source_revision=$(git rev-parse HEAD)
+          printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$release_source_revision" > release-apk/SOURCE-REVISION.txt
+          cd release-apk
+          sha256sum "$apk_name" "DiPlay-v$version_code-mapping.txt" DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt update.json > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DiPlay-signed-release
+          path: release-apk/*
+          if-no-files-found: error
+      - name: Attach APK, licenses, source and R8 mapping to published Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload --clobber "$RELEASE_TAG" release-apk/*
+      - name: Remove signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/android-release.p12"

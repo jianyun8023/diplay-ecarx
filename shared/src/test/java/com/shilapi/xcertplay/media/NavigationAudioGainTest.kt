@@ -7,6 +7,7 @@ import android.media.AudioTrack
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioStreamId
+import com.shilapi.xcertplay.media.reference.KotlinNavigationAudioGain
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,23 +25,23 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [25, 28, 33], manifest = Config.NONE, shadows = [NavigationAudioGainTest.TrackGain::class])
 class NavigationAudioGainTest {
     @Test fun decibelsAreAmplitudeNotPercentAndOutOfRangeNeverBoosts() {
-        assertEquals(1f, NavigationAudioGain.linear(0), 0.0001f)
-        assertEquals(0.1f, NavigationAudioGain.linear(-20), 0.0001f)
-        assertEquals(0.501187f, NavigationAudioGain.linear(-6), 0.0001f)
-        assertEquals(0.1f, NavigationAudioGain.linear(-100), 0.0001f)
-        assertEquals(1f, NavigationAudioGain.linear(20), 0.0001f)
+        assertEquals(1f, KotlinNavigationAudioGain.linear(0), 0.0001f)
+        assertEquals(0.1f, KotlinNavigationAudioGain.linear(-20), 0.0001f)
+        assertEquals(0.501187f, KotlinNavigationAudioGain.linear(-6), 0.0001f)
+        assertEquals(0.1f, KotlinNavigationAudioGain.linear(-100), 0.0001f)
+        assertEquals(1f, KotlinNavigationAudioGain.linear(20), 0.0001f)
     }
 
     @Test fun pcmIsScaledInPlaceAndZeroDecibelsLeavesItAlone() {
         val pcm = pcm16(32767, -32768, 1000, -1000, 0)
-        NavigationAudioGain.scalePcm16(pcm, 0, pcm.size, -20)
+        KotlinNavigationAudioGain.scalePcm16(pcm, 0, pcm.size, -20)
         assertArrayEquals(pcm16(3277, -3277, 100, -100, 0), pcm)
         val untouched = pcm16(32767, -32768, 1234)
-        NavigationAudioGain.scalePcm16(untouched, 0, untouched.size, 0)
+        KotlinNavigationAudioGain.scalePcm16(untouched, 0, untouched.size, 0)
         assertArrayEquals(pcm16(32767, -32768, 1234), untouched)
         // Only the given range, and never half a sample.
         val part = pcm16(20000, 20000, 20000) + byteArrayOf(0x7f)
-        NavigationAudioGain.scalePcm16(part, 2, 3, -6)
+        KotlinNavigationAudioGain.scalePcm16(part, 2, 3, -6)
         assertArrayEquals(pcm16(20000, 10024, 20000) + byteArrayOf(0x7f), part)
     }
 
@@ -53,26 +54,26 @@ class NavigationAudioGainTest {
         val renderer = create.invoke(sink, AudioStreamId(96, "default"), format)
         val type = renderer.javaClass
         val track = track()
+        val native = RendererNativeFixture(renderer)
         try {
             type.getDeclaredField("mappedChannel").apply { isAccessible = true }.set(renderer, AudioChannel.NAVIGATION)
             type.getDeclaredField("track").apply { isAccessible = true }.set(renderer, track)
-            val attenuate = type.getDeclaredMethod("attenuateNavigation", ByteArray::class.java,
-                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).apply { isAccessible = true }
+            type.getDeclaredField("fadeApplied").apply { isAccessible = true }.set(renderer, true)
             type.getDeclaredMethod("setNavigationAttenuationDb", Int::class.javaPrimitiveType)
                 .apply { isAccessible = true }.invoke(renderer, -12)
             val pcm = pcm16(10000, -10000)
-            attenuate.invoke(renderer, pcm, 0, pcm.size)
+            native.write(pcm)
             assertArrayEquals(pcm16(2512, -2512), pcm)
             // A change applies to the next PCM written, on the audio worker.
             sink.setNavigationAttenuationDb(0)
             val next = pcm16(10000, -10000)
-            attenuate.invoke(renderer, next, 0, next.size)
+            native.write(next)
             assertArrayEquals(pcm16(10000, -10000), next)
             type.getDeclaredMethod("applyNavigationAttenuation").apply { isAccessible = true }.invoke(renderer)
             assertTrue(TrackGain.volumes[track].isNullOrEmpty())
         } finally {
             sink.close()
-            track.release()
+            native.close()
             TrackGain.volumes.clear()
         }
     }
@@ -83,18 +84,18 @@ class NavigationAudioGainTest {
         val streamBefore = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val sink = AndroidMediaSink()
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val constructor = type.declaredConstructors.single { it.parameterCount == 13 }
-            .apply { isAccessible = true }
-        val tracks = mutableListOf<AudioTrack>()
+        val fixtures = mutableListOf<RendererNativeFixture>()
         try {
             for (channel in AudioChannel.entries) {
-                val renderer = constructor.newInstance(
+                val renderer = AudioRenderer(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 96, "media"),
                     false, false, 0, 0, AudioFocusCoordinator(null, false, false), 0, 300,
                     { _: String -> }, false, null, false, false)
-                val track = track().also(tracks::add)
+                val track = track()
                 type.getDeclaredField("mappedChannel").apply { isAccessible = true }.set(renderer, channel)
                 type.getDeclaredField("track").apply { isAccessible = true }.set(renderer, track)
+                type.getDeclaredField("fadeApplied").apply { isAccessible = true }.set(renderer, true)
+                val native = RendererNativeFixture(renderer).also(fixtures::add)
                 type.getDeclaredMethod("setNavigationAttenuationDb", Int::class.javaPrimitiveType)
                     .apply { isAccessible = true }.invoke(renderer, 0)
                 type.getDeclaredMethod("applyNavigationAttenuation")
@@ -107,16 +108,14 @@ class NavigationAudioGainTest {
                     .apply { isAccessible = true }.invoke(renderer)
                 assertTrue("Unexpected track volume for $channel", TrackGain.volumes[track].isNullOrEmpty())
                 val pcm = pcm16(10000)
-                type.getDeclaredMethod("attenuateNavigation", ByteArray::class.java,
-                    Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-                    .apply { isAccessible = true }.invoke(renderer, pcm, 0, pcm.size)
+                native.write(pcm)
                 assertArrayEquals("Unexpected change to $channel",
                     pcm16(if (channel == AudioChannel.NAVIGATION) 1000 else 10000), pcm)
             }
             assertEquals(streamBefore, manager.getStreamVolume(AudioManager.STREAM_MUSIC))
         } finally {
             sink.close()
-            tracks.forEach(AudioTrack::release)
+            fixtures.forEach(RendererNativeFixture::close)
             TrackGain.volumes.clear()
         }
     }

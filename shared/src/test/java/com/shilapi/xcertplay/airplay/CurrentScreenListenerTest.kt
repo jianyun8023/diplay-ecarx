@@ -45,6 +45,25 @@ class CurrentScreenListenerTest {
     private val frame = byteArrayOf(0, 0, 0, 1, 0x65, 0x11)
     private val timedFrame = byteArrayOf(0, 0, 0, 1, 0x41, 0x22)
 
+    @Test fun nativeRouteAndReceivingNotificationOnlyReachTheCurrentStream() {
+        val routes = mutableListOf<NativeVideoRoute>()
+        val receiving = mutableListOf<Int>()
+        val sink = object : MediaSink {
+            override fun onNativeVideoRoute(type: Int, route: NativeVideoRoute) { routes += route }
+            override fun onVideoReceiving(type: Int) { receiving += type }
+        }
+        val current = AtomicBoolean(true)
+        val listener = currentScreenListener(111, sink) { current.get() }
+        val route = NativeVideoRoute(0)
+        listener.onNativeVideoRoute(route)
+        listener.onReceiving()
+        current.set(false)
+        listener.onNativeVideoRoute(NativeVideoRoute(0))
+        listener.onReceiving()
+        assertEquals(listOf(route), routes)
+        assertEquals(listOf(111), receiving)
+    }
+
     private fun ScreenStream.Listener.deliverAll(codec: VideoCodec = VideoCodec.H265) {
         onCodec(codec)
         onConfig(config)
@@ -144,9 +163,9 @@ class CurrentScreenListenerTest {
     }
 
     private fun withSharedSecret(session: AirPlaySession) {
-        // onScreen derives the stream key from the pair-verify secret; any 32 bytes will do for routing.
-        PairVerify::class.java.getDeclaredField("sharedSecret").apply { isAccessible = true }
-            .set(session.pairVerify, ByteArray(32) { it.toByte() })
+        session.pairVerify.handle(Tlv8Codec.encode(listOf(
+            Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, AirPlayCrypto.x25519Generate().publicKey),
+        )))
         assertTrue(session.sharedSecret != null)
     }
 

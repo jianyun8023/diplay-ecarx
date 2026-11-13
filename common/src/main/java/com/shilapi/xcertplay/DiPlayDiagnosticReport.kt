@@ -49,6 +49,7 @@ internal fun diagnosticReportText(appContext: Context, setupReady: Boolean): Str
     appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; ${AirPlayPersistence.loadFps(appContext)} fps")
     appendLine("Media-key audio focus: ${if (AirPlayPersistence.loadDisableMediaKeyAudioFocus(appContext)) "disabled" else "enabled"}")
     appendLine("MTK decoder tuning preference: ${if (AirPlayPersistence.loadMtkDecoderTuning(appContext)) "enabled" else "disabled"}")
+    appendLine("Native wired data path preference: ${if (AirPlayPersistence.loadNativeWiredDataPath(appContext)) "enabled" else "disabled"}")
     appendLine("CarPlay size: ${AirPlayPersistence.loadWidthPhysicalMm(appContext).let { mm -> "${com.shilapi.xcertplay.airplay.CarPlaySize.exact(mm)?.label ?: "Custom"}, $mm mm" }}")
     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
     appendLine(runCatching { CarWifiClientGuard.diagnostic(appContext) }.getOrElse { "Car Wi-Fi client: unavailable=${it.javaClass.simpleName}" })

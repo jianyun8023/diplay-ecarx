@@ -10,6 +10,10 @@ apply to the combination. The AGPL portions must not be relabeled as GPL.
 
 Upstream credits [LIVI](https://github.com/f-io/LIVI) and [Showcase](https://github.com/amineross/showcase) for protocol research. Existing source comments and attribution are preserved.
 
+Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
+
+The bplist, control-cipher, HID and pair-verify primitive tests reuse LIVI's protocol golden-vector data at revision `6ac88bab7351a39b0cffac20c5dcf92ca848319b`; their implementations are ported from this repository's Kotlin code. Pair-verify reuses HKDF, Ed25519, labelled ChaCha and TLV8 vectors, not a complete handshake transcript. LIVI is GPL-3.0-or-later, with the attribution requirement in its [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE). This notice is also packaged in the app's open-source notices.
+
 ## Home and settings UI
 
 `common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt` adapts the palette, visual arrangement and interface copy of the [DiAuto project](https://github.com/shihabal3amri/DiAuto). DiAuto's source is licensed under AGPL version 3. The UI file is marked AGPL-3.0-only; its license text is included in `docs/licenses/DiAuto-AGPL-3.0.txt`.
@@ -46,10 +50,11 @@ Their provenance and rights should be evaluated as such, separately from firmwar
 
 - AndroidX — Android Open Source Project; Apache License 2.0.
 - Kotlin standard library — JetBrains; Apache License 2.0.
-- Bouncy Castle 1.79 — The Legion of the Bouncy Castle Inc.; Bouncy Castle license (MIT-style).
 - JmDNS 3.6.3 — JmDNS contributors; Apache License 2.0.
 - SLF4J — QOS.ch; MIT license.
 - ZXing Core 3.5.3 — ZXing authors; Apache License 2.0. See [the upstream project](https://github.com/zxing/zxing).
+
+Bouncy Castle 1.79 (The Legion of the Bouncy Castle Inc.; MIT-style license) is retained only for independent tests, not the production runtime.
 
 Gradle dependency declarations and version catalog accompany the source. License files available in the resolved artifacts are included under `docs/licenses/dependencies/`.
 
@@ -59,17 +64,17 @@ DiPlay vendors a subset of [SpeexDSP 1.2.1](https://github.com/xiph/speexdsp/tre
 
 SpeexDSP uses a BSD-style three-clause license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored COPYING file](../shared/src/main/jni/speexdsp/COPYING). Component source headers retain their additional notices, including KISS FFT's Mark Borgerding attribution, also copied to [KISS-FFT-LICENSE.txt](licenses/dependencies/KISS-FFT-LICENSE.txt). The [vendoring notes](../shared/src/main/jni/speexdsp/README.md) identify the source version and build configuration.
 
-## Software Opus microphone encoder
+## Opus codec (opus-pure)
 
-On head units without a MediaCodec Opus encoder, DiPlay prefers prebuilt [libopus 1.5.2](https://opus-codec.org/)
-from the `io.voxkit:kopus-android:1.0.1` AAR, with a small app-owned JNI bridge. ARM64 and ARMv7 binaries
-are checked in and used directly by APK builds; no Opus compilation or additional runtime download is required.
-The full Opus license is retained in [COPYING](../shared/src/main/jni/opus/COPYING), and
-[native provenance](../shared/src/main/jniLibs/NOTICE.md) records the artifact URL, hashes and bridge rebuild command.
+Opus audio is decoded and the microphone is encoded by [opus-pure 0.2.3](https://github.com/stephenberry/opus-pure),
+Stephen Berry's pure-Rust port of the reference libopus (derived from rusty-opus and opus-rs), compiled into
+`libdiplay_media.so`. Its BSD-3-Clause license keeps the copyright notices of Xiph.Org, Skype Limited, Octasic,
+Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla and
+Amazon; the full text is in [Opus-COPYING.txt](licenses/dependencies/Opus-COPYING.txt).
 
-DiPlay also vendors [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors. It remains the fallback when the native encoder cannot load or initialize.
+DiPlay retains [Concentus](https://github.com/lostromb/concentus), Logan Stromberg's pure-Java port of the Opus reference library from Xiph.Org Foundation, Skype Limited, Microsoft Corporation and other contributors, only as an independent test oracle. It is excluded from production source sets; the production software Opus encoder uses Rust.
 
-Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/main/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/main/java/org/concentus/README.md) identify the source commit.
+Concentus uses the Opus BSD-style license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored LICENSE file](../shared/src/testCore/java/org/concentus/LICENSE). The [vendoring notes](../shared/src/testCore/java/org/concentus/README.md) identify the source commit.
 
 ## Media data plane (ring)
 
@@ -82,7 +87,27 @@ and getrandom, each dual-licensed MIT or Apache-2.0.
 ring's own code and `untrusted` use ISC-style licenses; code taken from BoringSSL keeps its Apache-2.0, ISC or
 OpenSSL notices. The full texts are in [the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt),
 and [native provenance](../shared/src/main/jniLibs/NOTICE.md) records the source, hashes and rebuild command.
-When the library cannot load, the Kotlin receivers and the platform cipher handle the same data.
+Migrated screen/protocol/crypto facades require the native core. Remaining audio fallback retirement is in progress; Android codec/output capability fallbacks are separate platform behavior.
+
+## Pairing and protocol cryptography
+
+`curve25519-dalek 5.0.0` supplies raw X25519 arithmetic under BSD-3-Clause; `subtle 2.6.1`
+uses BSD-3-Clause. SRP uses `num-bigint 0.5.1`, `num-integer 0.1.47` and `num-traits 0.2.19`
+under the MIT option of their dual licenses. The license bundle also retains MIT notices for
+build/target-specific dependencies `autocfg 1.5.1`, `cpufeatures 0.3.1`,
+`curve25519-dalek-derive 0.1.1`, `fiat-crypto 0.3.0`, `rustc_version 0.4.1` and `semver 1.0.28`.
+Verbatim notices from the locked crate versions are included in
+[the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt), packaged with the APK.
+
+The MfiSAP `/auth-setup` runtime uses RustCrypto [aes 0.8.4](https://github.com/RustCrypto/block-ciphers/tree/f2dbee516b4d0cf4cb4f3045d09e35b5fd80087b/aes)
+and [ctr 0.9.2](https://github.com/RustCrypto/block-modes/tree/65320945adb1b6f7290e61b033f9e04ccdb2581b/ctr)
+for AES-128-CTR. Their additional locked dependencies are `cipher 0.4.4`, `crypto-common 0.1.7`,
+`inout 0.1.4`, `generic-array 0.14.7`, `typenum 1.20.1`, `version_check 0.9.5` and
+`cpufeatures 0.2.17` (separate from the `cpufeatures 0.3.1` above; the set includes build/target-specific dependencies).
+These nine crate notices use MIT, choosing the MIT option where dual-licensed. Their unmodified
+upstream license texts and copyrights, source archive checksums and revision links are retained in
+[the same license bundle](licenses/dependencies/Rust-crates-LICENSES.txt); exact package versions and
+registry checksums are fixed in [Cargo.lock](../shared/src/main/rust/diplay-media/Cargo.lock).
 
 ## Experimental authentication data
 

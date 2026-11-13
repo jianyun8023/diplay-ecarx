@@ -28,4 +28,18 @@ class Iap2ControlDeadlineTest {
         now += 100_000_000L
         assertEquals(0L, deadline.remainingMillis())
     }
+
+    @Test fun authenticationInsideTheClockAffectsTheNextQueryOnly() {
+        var now = 0L
+        var authenticate = false
+        lateinit var deadline: Iap2ControlDeadline
+        deadline = Iap2ControlDeadline(Long.MAX_VALUE) {
+            if (authenticate) deadline.authenticated()
+            now
+        }
+        now = 60_000_000_000L
+        authenticate = true
+        assertEquals(0L, deadline.remainingMillis())
+        assertEquals(30_000L, deadline.remainingMillis())
+    }
 }

@@ -1,12 +1,10 @@
 package com.shilapi.xcertplay.mfi
 
 import java.io.File
-import java.math.BigInteger
 import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.CertificateFactory
-import org.bouncycastle.asn1.ASN1Integer
-import org.bouncycastle.asn1.DERSequence
+import com.shilapi.xcertplay.airplay.NativeCrypto
 
 /** ADB/app_process probe: exercises Android's local crypto without starting a CarPlay session. */
 object LocalMfiProbe {
@@ -21,10 +19,7 @@ object LocalMfiProbe {
                 val digest = ByteArray(32).also(SecureRandom()::nextBytes)
                 val raw = client.signChallenge(digest)
                 check(raw.size == 64)
-                val der = DERSequence(arrayOf(
-                    ASN1Integer(BigInteger(1, raw.copyOfRange(0, 32))),
-                    ASN1Integer(BigInteger(1, raw.copyOfRange(32, 64))),
-                )).encoded
+                val der = NativeCrypto.ecdsaRawToDer(raw)
                 val verifier = Signature.getInstance("NONEwithECDSA")
                 verifier.initVerify(certificate.publicKey)
                 verifier.update(digest)

@@ -1,11 +1,5 @@
 package com.shilapi.xcertplay.orchestration
 
-import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationException
-import com.shilapi.xcertplay.mfi.MfiException
-import com.shilapi.xcertplay.network.WirelessStartupException
-import com.shilapi.xcertplay.transport.Iap2IdentificationException
-import java.io.IOException
-import java.io.InterruptedIOException
 import java.util.concurrent.CancellationException
 
 /** Budgets belong to one wireless run, not to each phone or socket. No Wi-Fi resources live here. */
@@ -23,44 +17,52 @@ internal class WirelessBootstrapRecovery(
         ConnectionFailureException(reason, message, cause)
 
     class Attempt(private val current: () -> Boolean, val number: Int) {
-        @Volatile private var valid = true
-        @Volatile private var stall: Iap2BootstrapStall? = null
-        var stage = Stage.CONNECT
-        val isCurrent: Boolean get() = valid && current()
+        private var token = WirelessRecoveryCore.attemptCreate()
+        // Presentation metadata for the typed platform exception; validity/stage/timeout live in the token.
+        private var stall: Iap2BootstrapStall? = null
+        var stage: Stage
+            @Synchronized get() = Stage.entries[WirelessRecoveryCore.attemptQuery(token, 1)]
+            @Synchronized set(value) { token = WirelessRecoveryCore.attemptUpdate(token, value.ordinal + 2) }
+        val isCurrent: Boolean get() = synchronized(this) {
+            WirelessRecoveryCore.attemptQuery(token, 0) != 0
+        } && current()
         fun checkCurrent() {
             if (!isCurrent) throw failure(CancellationException("Stale wireless bootstrap attempt"))
         }
-        @Synchronized fun invalidate() { valid = false }
+        @Synchronized fun invalidate() { token = WirelessRecoveryCore.attemptUpdate(token, 0) }
 
         /** Called under the controller's owner lock, before closing this attempt's transport. */
         @Synchronized fun timeout(value: Iap2BootstrapStall): Boolean {
             if (!isCurrent) return false
+            token = WirelessRecoveryCore.attemptUpdate(token, 1, value.reached.ordinal)
             stall = value
-            valid = false
             return true
         }
 
         /** Closing a timed-out channel often surfaces as cancellation/EOF; retain the real stage. */
         fun failure(error: Throwable): Throwable {
-            if (error is Error) return error
-            stall?.let {
-                // Closing a timed-out channel can surface as EOF/cancellation, but a real
-                // permission, protocol or authentication rejection must remain terminal.
-                // Inspect the original error before hiding it in suppressed exceptions.
-                if (error is BootstrapFailure) return error
-                if (requiresUserAction(error) ||
-                    (error !is CancellationException && !retryable(error))) return error
-                return BootstrapFailure(it.cause, it.message()).apply { addSuppressed(error) }
+            val facts = if (error is Error) WirelessFailureFacts.TOP_ERROR else WirelessFailureFacts.from(error)
+            val decision: Int
+            val timeout: Iap2BootstrapStall?
+            synchronized(this) {
+                decision = WirelessRecoveryCore.attemptFailure(token, facts)
+                timeout = stall
             }
-            if (error !is BootstrapFailure && (stage == Stage.CSM || stage == Stage.BOOTSTRAP) && retryable(error)) {
-                return BootstrapFailure(
-                    if (stage == Stage.CSM) ConnectionFailureCause.WIRELESS_BLUETOOTH_LINK_FAILED
+            return when (decision) {
+                1, 4 -> requireNotNull(timeout).let { timeout ->
+                    BootstrapFailure(
+                        if (decision == 4) ConnectionFailureCause.WIRELESS_BLUETOOTH_LINK_FAILED
+                        else ConnectionFailureCause.WIRELESS_PHONE_NOT_RESPONDING,
+                        timeout.message(),
+                    ).apply { addSuppressed(error) }
+                }
+                2, 3 -> BootstrapFailure(
+                    if (decision == 2) ConnectionFailureCause.WIRELESS_BLUETOOTH_LINK_FAILED
                     else ConnectionFailureCause.WIRELESS_PHONE_NOT_RESPONDING,
-                    error.message ?: "Wireless iAP2 bootstrap failed at $stage",
-                    error,
+                    error.message ?: "Wireless iAP2 bootstrap failed at ${if (decision == 2) Stage.CSM else Stage.BOOTSTRAP}", error,
                 )
+                else -> error
             }
-            return error
         }
     }
 
@@ -72,10 +74,7 @@ internal class WirelessBootstrapRecovery(
         connectAndBootstrap: (T, Attempt) -> Unit,
     ) {
         var selected = target
-        var connectRetryUsed = false
-        var bootstrapRetryUsed = false
-        var fallbackUsed = false
-        var number = 0
+        var budget = WirelessRecoveryCore.budgetCreate()
         fun checkReady() {
             if (!isCurrent()) throw CancellationException("Stale wireless run")
             if (handoffStarted()) throw CancellationException("Wireless handoff already started")
@@ -85,7 +84,8 @@ internal class WirelessBootstrapRecovery(
         }
         while (true) {
             checkReady()
-            val attempt = Attempt(isCurrent, ++number)
+            budget = WirelessRecoveryCore.budgetAdvance(budget, -1)
+            val attempt = Attempt(isCurrent, WirelessRecoveryCore.budgetQuery(budget, 0))
             try {
                 connectAndBootstrap(selected, attempt)
                 return
@@ -94,31 +94,21 @@ internal class WirelessBootstrapRecovery(
                 if (!isCurrent() || handoffStarted() || !retryable(error)) throw error
                 // Recheck radio, permissions, pairing and retained Wi-Fi services *before* retrying.
                 checkReady()
-                val delay = when {
-                    attempt.stage == Stage.CONNECT && !connectRetryUsed -> {
-                        connectRetryUsed = true
-                        CONNECT_BACKOFF_MILLIS
-                    }
-                    attempt.stage == Stage.CONNECT && !fallbackUsed -> {
-                        val alternative = fallback(selected) ?: throw error
-                        selected = alternative
-                        fallbackUsed = true
-                        0L
-                    }
-                    (attempt.stage == Stage.CSM || attempt.stage == Stage.BOOTSTRAP) && !bootstrapRetryUsed -> {
-                        bootstrapRetryUsed = true
-                        BOOTSTRAP_BACKOFF_MILLIS
-                    }
-                    else -> throw error
+                budget = WirelessRecoveryCore.budgetAdvance(budget, attempt.stage.ordinal)
+                when (WirelessRecoveryCore.budgetQuery(budget, 1)) {
+                    0 -> throw error
+                    2 -> selected = fallback(selected) ?: throw error
                 }
-                log("local recovery stage=${attempt.stage} attempt=$number delayMs=$delay fallback=$fallbackUsed")
+                val delay = WirelessRecoveryCore.budgetQuery(budget, 3).toLong()
+                log("local recovery stage=${attempt.stage} attempt=${attempt.number} delayMs=$delay " +
+                    "fallback=${WirelessRecoveryCore.budgetQuery(budget, 2) != 0}")
                 // Short cancellable slices, including an infrastructure check after the backoff.
-                var remaining = delay
-                while (remaining > 0) {
+                while (true) {
+                    val slice = WirelessRecoveryCore.budgetQuery(budget, 4).toLong()
+                    if (slice <= 0) break
                     if (!isCurrent() || handoffStarted()) throw CancellationException("Wireless retry cancelled")
-                    val slice = minOf(remaining, 100L)
                     pause(slice)
-                    remaining -= slice
+                    budget = WirelessRecoveryCore.budgetAdvance(budget, -2)
                 }
             } finally {
                 attempt.invalidate()
@@ -148,31 +138,9 @@ internal class WirelessBootstrapRecovery(
 
         /** Do not let the host turn a terminal prerequisite/rejection into a full-stack retry loop. */
         internal fun requiresUserAction(error: Throwable): Boolean =
-            generateSequence(error) { it.cause }.take(8).any {
-                it is SecurityException || it is com.shilapi.xcertplay.mfi.MfiAuthenticationFailedException ||
-                    it.message?.contains(com.shilapi.xcertplay.transport.BluetoothRadioCheck.RADIO_OFF_MARK) == true ||
-                    it is Iap2IdentificationException ||
-                    it is Iap2MfiAuthenticationException && !it.retryable ||
-                    it is ConnectionFailureException && it.reason in setOf(
-                        ConnectionFailureCause.NO_PAIRED_IPHONE, ConnectionFailureCause.CHOSEN_IPHONE_NOT_PAIRED,
-                        ConnectionFailureCause.IPHONE_NOT_CHOSEN, ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE,
-                    )
-            }
+            WirelessRecoveryCore.classify(WirelessFailureFacts.from(error)) and 1 != 0
 
-        internal fun retryable(error: Throwable): Boolean {
-            if (requiresUserAction(error)) return false
-            val causes = generateSequence(error) { it.cause }.take(8).toList()
-            if (causes.any { it is Error || it is SecurityException || it is IllegalArgumentException ||
-                    it is IllegalStateException || it is InterruptedException || it is InterruptedIOException ||
-                    it is CancellationException || it is WirelessStartupException ||
-                    it is ConnectionFailureException && it !is BootstrapFailure || it is Iap2IdentificationException }) return false
-            // MFi timeouts can be wrapped by an IO/transport layer. Recognise a retryable
-            // Iap2MfiAuthenticationException anywhere in the cause chain so a silent phone still
-            // consumes one local bootstrap recovery instead of looking like a terminal rejection.
-            val mfiTimeouts = causes.filterIsInstance<Iap2MfiAuthenticationException>()
-            if (mfiTimeouts.isNotEmpty()) return mfiTimeouts.all { it.retryable }
-            if (causes.any { it is MfiException }) return false
-            return error is IOException
-        }
+        internal fun retryable(error: Throwable): Boolean =
+            WirelessRecoveryCore.classify(WirelessFailureFacts.from(error)) and 2 != 0
     }
 }

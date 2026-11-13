@@ -24,12 +24,13 @@ internal object AddressFamilyFlipGate {
      * @param familyReachable true when the iPhone answered on the current address family
      */
     fun mayFlip(phoneOnHotspot: Boolean, familyReachable: Boolean): Boolean =
-        phoneOnHotspot && familyReachable
+        NativeHotspotAddress.flipGate(phoneOnHotspot, familyReachable) == 0
 
     /** Human-readable reason for logs when [mayFlip] says no; `null` when a flip is allowed. */
-    fun withholdReason(phoneOnHotspot: Boolean, familyReachable: Boolean): String? = when {
-        !phoneOnHotspot -> "no associated iPhone on the hotspot"
-        !familyReachable -> "current address family not yet proven reachable"
+    fun withholdReason(phoneOnHotspot: Boolean, familyReachable: Boolean): String? = when (
+        NativeHotspotAddress.flipGate(phoneOnHotspot, familyReachable)) {
+        1 -> "no associated iPhone on the hotspot"
+        2 -> "current address family not yet proven reachable"
         else -> null
     }
 }

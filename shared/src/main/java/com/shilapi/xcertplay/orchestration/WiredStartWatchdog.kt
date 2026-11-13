@@ -19,53 +19,38 @@ internal class WiredStartWatchdog(
     private val onHold: () -> Unit = {},
     private val timeoutMillis: Long = TIMEOUT_MILLIS,
 ) {
-    private var armed = false
-    private var finished = false
-    private var rearmed = false
-    private var held = false
-    // The limit in force; a replaced timer that runs anyway finds a newer one and does nothing.
-    private var generation = 0
+    private val core = StartupWatchdogCore(0, timeout = timeoutMillis)
     private var cancelTimer: (() -> Unit)? = null
 
-    /** The first `carplay-start-session` starts the limit; a repeated one keeps it. */
     @Synchronized fun startSessionSent() {
-        if (armed || finished) return
-        armed = true
-        arm(timeoutMillis)
+        val result = core.event(1)
+        if (result.has(StartupWatchdogCore.ARM)) arm(result)
     }
 
-    /** DiPlay's own second request after a late USB network ([WiredStartAgain]) gets a full limit, once. */
     @Synchronized fun startSessionSentAgain() {
-        if (!armed || finished || rearmed) return
-        rearmed = true
+        val result = core.event(2)
+        if (!result.has(StartupWatchdogCore.ACCEPTED)) return
         cancel()
-        arm(timeoutMillis)
+        arm(core.event(15))
     }
 
-    @Synchronized fun sessionActive() {
-        finished = true
-        cancel()
-    }
+    @Synchronized fun sessionActive() { core.event(3); cancel() }
+    @Synchronized fun terminate() { core.event(3); cancel() }
 
-    @Synchronized fun terminate() {
-        finished = true
-        cancel()
-    }
-
-    private fun arm(delayMillis: Long) {
-        val armedGeneration = ++generation
-        cancelTimer = schedule(delayMillis) { expire(armedGeneration) }
+    private fun arm(result: StartupWatchdogCore.Step) {
+        val generation = result.generation
+        cancelTimer = schedule(result.delay) { expire(generation) }
     }
 
     private fun expire(armedGeneration: Int) {
         val holding = synchronized(this) {
-            if (finished || armedGeneration != generation) return
-            if (!held && !rearmed && secondRequestCanStillGoOut()) {
-                held = true
-                arm(HELD_TIMEOUT_MILLIS - timeoutMillis)
+            val decision = core.event(4, armedGeneration).flags
+            if (decision == 0) return
+            val result = core.event(5, condition = decision == 2 && secondRequestCanStillGoOut())
+            if (result.has(StartupWatchdogCore.HOLD)) {
+                arm(result)
                 true
             } else {
-                finished = true
                 cancelTimer = null
                 false
             }
@@ -73,10 +58,7 @@ internal class WiredStartWatchdog(
         if (holding) onHold() else onTimeout()
     }
 
-    private fun cancel() {
-        cancelTimer?.invoke()
-        cancelTimer = null
-    }
+    private fun cancel() { cancelTimer?.invoke(); cancelTimer = null }
 
     companion object {
         /** The same limit as the wireless first connection (WirelessStartupPolicy.FIRST_TCP_MILLIS). */

@@ -6,6 +6,10 @@ import com.shilapi.xcertplay.media.AudioChannelMapper
 import com.shilapi.xcertplay.media.AudioFocusCoordinator
 import com.shilapi.xcertplay.media.MediaAudioBuffer
 import com.shilapi.xcertplay.media.MediaClockTrim
+import com.shilapi.xcertplay.media.AudioRenderer
+import com.shilapi.xcertplay.media.NativeAudioQueue
+import com.shilapi.xcertplay.media.RendererNativeFixture
+import java.nio.ByteBuffer
 import java.io.DataOutputStream
 import java.math.BigInteger
 import java.net.InetAddress
@@ -13,7 +17,6 @@ import java.net.Socket
 import java.time.Duration
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.LinkedBlockingQueue
 import kotlin.math.abs
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -34,7 +37,7 @@ import org.robolectric.shadows.ShadowSystemClock
     instrumentedPackages = ["com.shilapi.xcertplay.media"])
 class BufferedMusicClockTrimTest {
     private val key = ByteArray(32) { (it + 1).toByte() }
-    private val format = AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, BufferedAudioStream.STREAM_TYPE, "media")
+    private val format = AudioFormat(AudioCodecKind.AAC_LC, 48_000, 2, KotlinBufferedAudioStream.STREAM_TYPE, "media")
 
     @Before @After fun forgetLearnedTrim() { MediaClockTrim.learnedTrim = 0.0 }
 
@@ -99,7 +102,7 @@ class BufferedMusicClockTrimTest {
         }
     }
 
-    private data class HeadUnit(val startMs: Int, val drift: Double = 0.0, val payloadType: Int = BufferedAudioStream.STREAM_TYPE)
+    private data class HeadUnit(val startMs: Int, val drift: Double = 0.0, val payloadType: Int = KotlinBufferedAudioStream.STREAM_TYPE)
 
     private class Second(val rate: Int, val levelMs: Long)
 
@@ -111,12 +114,16 @@ class BufferedMusicClockTrimTest {
     }
 
     private class RendererWithModelledDecoder(format: AudioFormat, startMs: Int, drift: Double, reports: MutableList<String>) {
-        private val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        private val renderer = type.declaredConstructors.single { it.parameterCount == 13 }.apply { isAccessible = true }
-            .newInstance(format, false, false, 0, 0, AudioFocusCoordinator(null, false), 0, startMs,
-                { line: String -> reports += line }, false, null, false, false)
+        private val renderer = AudioRenderer(format, false, false, 0, 0,
+            AudioFocusCoordinator(null, false), 0, startMs, { line: String -> reports += line })
+        private val type = renderer.javaClass
         private val createdMs = SystemClock.uptimeMillis()
-        private val packets: LinkedBlockingQueue<*>
+        private val native: RendererNativeFixture
+        private val packets: NativeAudioQueue
+        private val consumer: NativeAudioQueue.Consumer
+        private val packetInfo = LongArray(3)
+        private val pcm = ByteBuffer.allocateDirect(FRAME.toInt() * 4)
+        private val write = method("writePcm", ByteBuffer::class.java, Int::class.javaPrimitiveType!!)
         private val track: AudioTrack
         val output: HeadUnitTrack
         private var decodeCredit = 0.0
@@ -124,7 +131,10 @@ class BufferedMusicClockTrimTest {
         init {
             field("started").set(renderer, true)
             method("createTrack").invoke(renderer)
-            packets = field("queue").get(renderer) as LinkedBlockingQueue<*>
+            // Keep this head-unit SDK replay on AudioTrack, then install the real native PCM core.
+            native = RendererNativeFixture(renderer)
+            packets = native.queue
+            consumer = checkNotNull(packets.consumer())
             track = field("track").get(renderer) as AudioTrack
             output = Shadow.extract(track)
             output.drift = drift
@@ -140,11 +150,10 @@ class BufferedMusicClockTrimTest {
             output.advance(nowMs)
             if (nowMs >= createdMs + SETUP_MS) {
                 decodeCredit += DECODE_TIMES_REALTIME * 48.0 * STEP_MS
-                val write = method("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!)
-                while (decodeCredit >= FRAME && packets.isNotEmpty() && output.queuedFrames + FRAME <= HeadUnitTrack.capacityFrames) {
-                    packets.poll()
+                while (decodeCredit >= FRAME && packets.size > 0 && output.queuedFrames + FRAME <= HeadUnitTrack.capacityFrames) {
+                    (consumer.poll(packetInfo, 0) ?: break).release()
                     decodeCredit -= FRAME
-                    write.invoke(renderer, ByteArray(FRAME.toInt() * 4), 0, FRAME.toInt() * 4)
+                    write.invoke(renderer, pcm, FRAME.toInt() * 4)
                 }
                 decodeCredit = minOf(decodeCredit, FRAME.toDouble())
             }
@@ -152,8 +161,8 @@ class BufferedMusicClockTrimTest {
         }
 
         fun close() {
-            method("close").invoke(renderer)
-            track.release()
+            consumer.close()
+            native.close()
         }
 
         private fun field(name: String) = type.getDeclaredField(name).apply { isAccessible = true }
@@ -174,7 +183,7 @@ class BufferedMusicClockTrimTest {
 
         @Implementation fun play() { movesAtMs = SystemClock.uptimeMillis() + PLAY_LATENCY_MS }
         @Implementation fun pause() { movesAtMs = null }
-        @Implementation fun write(audioData: ByteArray, offsetInBytes: Int, sizeInBytes: Int, writeMode: Int): Int {
+        @Implementation fun write(audioData: ByteBuffer, sizeInBytes: Int, writeMode: Int): Int {
             writtenFrames += sizeInBytes / 4
             return sizeInBytes
         }
@@ -225,7 +234,9 @@ class BufferedMusicClockTrimTest {
             override fun onAudioStopped(id: AudioStreamId) { events += SinkEvent.Stopped }
         }
         val clock = VirtualClock()
-        val stream = BufferedAudioStream(key, format, sink, nanoTime = clock::nanoTime, pause = {})
+        val receiveLog = ConcurrentLinkedQueue<String>()
+        val stream = KotlinBufferedAudioStream(key, format, sink, log = { receiveLog += it },
+            nanoTime = clock::nanoTime, pause = {})
         val lock = privateField(stream, "lock") as Object
         val queue = privateField(stream, "queue") as ArrayDeque<*>
         val fed = privateField(stream, "fed") as ArrayDeque<*>
@@ -252,9 +263,19 @@ class BufferedMusicClockTrimTest {
                 out.flush()
                 val last = (BASE + (sent - 1) * FRAME) and 0xffff_ffffL
                 val deadline = System.nanoTime() + 5_000_000_000L
-                while (synchronized(lock) { ((queue.peekLast() ?: fed.peekLast()) as BufferedAudioStream.Frame?)?.timestamp } != last) {
-                    assertTrue("the stream did not receive frame $sent", System.nanoTime() < deadline)
-                    Thread.onSpinWait()
+                synchronized(lock) {
+                    while (((queue.peekLast() ?: fed.peekLast()) as KotlinBufferedAudioStream.Frame?)?.timestamp != last) {
+                        val remaining = deadline - System.nanoTime()
+                        assertTrue(
+                            "the stream did not receive frame $sent; queued=${queue.size}, fed=${fed.size}, " +
+                                "lastQueued=${(queue.peekLast() as KotlinBufferedAudioStream.Frame?)?.timestamp}, " +
+                                "lastFed=${(fed.peekLast() as KotlinBufferedAudioStream.Frame?)?.timestamp}, receiveLog=$receiveLog",
+                            remaining > 0,
+                        )
+                        // Reception already notifies this monitor after enqueue. Release it while
+                        // waiting rather than competing with the receiver in a hot polling loop.
+                        lock.wait(remaining / 1_000_000L, (remaining % 1_000_000L).toInt())
+                    }
                 }
             }
 
@@ -329,8 +350,8 @@ class BufferedMusicClockTrimTest {
         fun nanoTime(): Long = ns.also { if (Thread.currentThread() === feedThread) feedReads++ }
     }
 
-    private fun privateField(stream: BufferedAudioStream, name: String): Any =
-        BufferedAudioStream::class.java.getDeclaredField(name).apply { isAccessible = true }.get(stream)!!
+    private fun privateField(stream: KotlinBufferedAudioStream, name: String): Any =
+        KotlinBufferedAudioStream::class.java.getDeclaredField(name).apply { isAccessible = true }.get(stream)!!
 
     private fun seal(sequence: Int, timestamp: Long): ByteArray {
         val header = ByteArray(12)

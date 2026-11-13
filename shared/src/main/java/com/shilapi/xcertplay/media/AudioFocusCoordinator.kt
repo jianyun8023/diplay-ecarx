@@ -21,10 +21,16 @@ internal class AudioFocusCoordinator(
     private val muteMediaOnTransientLoss: Boolean = true,
     private val report: (String) -> Unit = {},
 ) {
-    private data class Entry(val channel: AudioChannel, val attributes: AudioAttributes, var appliedVolume: Float = FULL_VOLUME)
+    private data class Entry(
+        val channel: AudioChannel,
+        val attributes: AudioAttributes,
+        val setVolume: (Float) -> Boolean,
+        var appliedVolume: Float = FULL_VOLUME,
+    )
 
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-    private val active = LinkedHashMap<AudioTrack, Entry>()
+    // Keyed by the renderer's output (an AudioTrack or a native output).
+    private val active = LinkedHashMap<Any, Entry>()
     private var request: AudioFocusRequestCompat? = null
     private var requestedChannel: AudioChannel? = null
     private var mediaVolume = FULL_VOLUME
@@ -67,12 +73,16 @@ internal class AudioFocusCoordinator(
         }
     }
 
+    fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) =
+        acquire(track, channel, attributes) { volume -> track.setStereoVolume(volume, volume) == AudioTrack.SUCCESS }
+
+    /** [owner] plays on [channel]; [setVolume] applies the ducking gain to it. */
     @Synchronized
-    fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
+    fun acquire(owner: Any, channel: AudioChannel, attributes: AudioAttributes, setVolume: (Float) -> Boolean) {
         if (closed || !enabled || manager == null || channel == AudioChannel.NAVIGATION) return
-        active[track] = Entry(channel, attributes)
+        active[owner] = Entry(channel, attributes, setVolume)
         refreshRequest()
-        applyMediaVolume(track, active.getValue(track))
+        applyMediaVolume(active.getValue(owner))
     }
 
     /** CarPlay music holds granted focus now, so the car's audio controller already plays Android. */
@@ -80,8 +90,8 @@ internal class AudioFocusCoordinator(
     fun mediaHoldsFocus(): Boolean = request != null && requestedChannel == AudioChannel.MEDIA && focusGranted
 
     @Synchronized
-    fun release(track: AudioTrack) {
-        if (active.remove(track) != null) refreshRequest()
+    fun release(owner: Any) {
+        if (active.remove(owner) != null) refreshRequest()
     }
 
     fun onExternalFocusChange(change: Int) {
@@ -135,15 +145,15 @@ internal class AudioFocusCoordinator(
 
     private fun setMediaVolume(volume: Float) {
         mediaVolume = volume
-        active.forEach { (track, entry) -> applyMediaVolume(track, entry) }
+        active.values.forEach(::applyMediaVolume)
     }
 
-    private fun applyMediaVolume(track: AudioTrack, entry: Entry) {
+    private fun applyMediaVolume(entry: Entry) {
         // A rejected request silences its tracks; ordinary ducking affects only music.
         // This changes only the renderer's relative gain, never Android's user stream volume.
         val volume = if (!focusGranted) 0f else if (entry.channel == AudioChannel.MEDIA) mediaVolume else FULL_VOLUME
         if (entry.appliedVolume == volume) return
-        val applied = runCatching { track.setStereoVolume(volume, volume) == AudioTrack.SUCCESS }.getOrDefault(false)
+        val applied = runCatching { entry.setVolume(volume) }.getOrDefault(false)
         if (applied) entry.appliedVolume = volume
     }
 

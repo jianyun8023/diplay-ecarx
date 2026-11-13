@@ -12,6 +12,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -27,6 +28,9 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 @Config(sdk = [33], manifest = Config.NONE,
     shadows = [EvidenceUsbConnectionShadow::class, EvidenceUsbRequestShadow::class])
 class UsbMuxIssue100RegressionTest {
+    private val owners = ArrayList<Iap2UsbMuxHost>()
+    @After fun closeOwners() { owners.forEach { it.close() } }
+
     @Before fun resetReplay() { UsbEvidenceReplay.reset() }
 
     @Test fun fullHostHandshakeAndReaderAcceptBothCapturedPaddingReplies() {
@@ -50,7 +54,7 @@ class UsbMuxIssue100RegressionTest {
             }
             assertEquals(null, failure)
             assertEquals(listOf(20, 17), UsbEvidenceReplay.writes.map { it.size })
-            assertTrue(remainder(host).isEmpty())
+            assertEquals(0, frameBuffer(host).bufferedBytes)
             assertEquals(2, diagnostics.size)
             assertTrue(diagnostics[0].contains("previousProtocol=0 previousLength=20"))
             assertTrue(diagnostics[1].contains("previousProtocol=6 previousLength=36"))
@@ -61,15 +65,15 @@ class UsbMuxIssue100RegressionTest {
         val host = host()
         UsbEvidenceReplay.transfers.add(versionReplyWithPadding)
         assertEquals(20, frameLength(takeFrame(host)))
-        assertArrayEquals(byteArrayOf(0, 0, 0, 0), remainder(host))
+        assertEquals(4, frameBuffer(host).bufferedBytes)
 
         UsbEvidenceReplay.transfers.add(capturedSynAckWithPadding)
         assertEquals(36, frameLength(takeFrame(host)))
-        assertArrayEquals(hex("6d 43 6f 6e"), remainder(host))
+        assertEquals(4, frameBuffer(host).bufferedBytes)
 
         UsbEvidenceReplay.transfers.add(normalSynAck)
         assertArrayEquals(normalSynAck.copyOfRange(16, 36), framePayload(takeFrame(host)))
-        assertTrue(remainder(host).isEmpty())
+        assertEquals(0, frameBuffer(host).bufferedBytes)
     }
 
     @Test fun ordinaryVersionAndTcpFramesArePreserved() {
@@ -80,7 +84,7 @@ class UsbMuxIssue100RegressionTest {
         val frame = takeFrame(host)
         assertEquals(36, frameLength(frame))
         assertArrayEquals(normalSynAck.copyOfRange(16, 36), framePayload(frame))
-        assertTrue(remainder(host).isEmpty())
+        assertEquals(0, frameBuffer(host).bufferedBytes)
     }
 
     @Test fun fragmentedAndCoalescedValidFramesRemainIntact() {
@@ -90,9 +94,9 @@ class UsbMuxIssue100RegressionTest {
         UsbEvidenceReplay.transfers.add(normalSynAck.copyOfRange(8, 21))
         UsbEvidenceReplay.transfers.add(normalSynAck.copyOfRange(21, 36) + second)
         assertArrayEquals(normalSynAck.copyOfRange(16, 36), framePayload(takeFrame(host)))
-        assertArrayEquals(second, remainder(host))
+        assertEquals(second.size, frameBuffer(host).bufferedBytes)
         assertArrayEquals(second.copyOfRange(16, 36), framePayload(takeFrame(host)))
-        assertTrue(remainder(host).isEmpty())
+        assertEquals(0, frameBuffer(host).bufferedBytes)
         assertTrue(UsbEvidenceReplay.transfers.isEmpty())
         assertEquals(3, UsbEvidenceReplay.completedReads)
     }
@@ -102,8 +106,11 @@ class UsbMuxIssue100RegressionTest {
         UsbEvidenceReplay.transfers.add(capturedSynAckWithPadding.copyOfRange(0, 13))
         UsbEvidenceReplay.transfers.add(capturedSynAckWithPadding.copyOfRange(13, 40))
         assertArrayEquals(normalSynAck.copyOfRange(16, 36), framePayload(takeFrame(host)))
-        assertArrayEquals(hex("6d 43 6f 6e"), remainder(host))
+        assertEquals(4, frameBuffer(host).bufferedBytes)
         assertEquals(2, UsbEvidenceReplay.completedReads)
+        UsbEvidenceReplay.transfers.add(normalSynAck)
+        assertArrayEquals(normalSynAck.copyOfRange(16, 36), framePayload(takeFrame(host)))
+        assertEquals(0, frameBuffer(host).bufferedBytes)
     }
 
     @Test fun paddingWithoutANextFrameTimesOutWithoutDiscardingOrSpinning() {
@@ -111,11 +118,11 @@ class UsbMuxIssue100RegressionTest {
         UsbEvidenceReplay.transfers.add(versionReplyWithPadding)
         takeFrame(host)
         assertEquals(null, takeFrame(host, 20))
-        assertArrayEquals(byteArrayOf(0, 0, 0, 0), remainder(host))
+        assertEquals(4, frameBuffer(host).bufferedBytes)
         assertEquals(1, UsbEvidenceReplay.timedOutReads)
         UsbEvidenceReplay.transfers.add(normalSynAck)
         assertEquals(36, frameLength(takeFrame(host)))
-        assertTrue(remainder(host).isEmpty())
+        assertEquals(0, frameBuffer(host).bufferedBytes)
     }
 
     @Test fun payloadBearingTrailersPreserveReportedReplyLengthsThroughUsbReads() {
@@ -137,7 +144,7 @@ class UsbMuxIssue100RegressionTest {
             assertEquals(replies[index].size, frameLength(frame))
             assertArrayEquals(replies[index].copyOfRange(16, replies[index].size), framePayload(frame))
         }
-        assertTrue(remainder(host).isEmpty())
+        assertEquals(0, frameBuffer(host).bufferedBytes)
         assertEquals(6, UsbEvidenceReplay.completedReads)
     }
 
@@ -176,7 +183,7 @@ class UsbMuxIssue100RegressionTest {
             Iap2UsbSession::class.java, Long::class.javaPrimitiveType,
             kotlin.jvm.functions.Function1::class.java).apply {
             isAccessible = true
-        }.newInstance(pipe(), 1000L, { _: String -> })
+        }.newInstance(pipe(), 1000L, { _: String -> }).also { owners.add(it) }
     }
 
     private fun pipe(): Iap2UsbSession {
@@ -197,8 +204,6 @@ class UsbMuxIssue100RegressionTest {
         } catch (error: InvocationTargetException) { throw error.targetException }
     }
 
-    private fun remainder(host: Iap2UsbMuxHost): ByteArray =
-        ReflectionHelpers.getField(frameBuffer(host), "bytes")
     private fun frameBuffer(host: Iap2UsbMuxHost): UsbMuxFrameBuffer =
         ReflectionHelpers.getField(host, "receiveFrames")
     private fun frameLength(frame: Any?): Int = ReflectionHelpers.getField(frame!!, "length")

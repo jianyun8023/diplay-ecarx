@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.nio.ByteBuffer
 
@@ -65,6 +66,28 @@ class Iap2VehicleStatusTest {
         assertEquals(25_100, ByteBuffer.wrap(parameters.first(22)!!.payload).int)
         assertEquals(100_400, ByteBuffer.wrap(parameters.first(23)!!.payload).int)
         assertEquals(25_000, ByteBuffer.wrap(parameters.first(24)!!.payload).int)
+    }
+
+    @Test
+    fun conversionKeepsClampsRoundingAndTheFullUnsignedEnergyRange() {
+        val status = reading.copy(rangeKm = Int.MIN_VALUE, maxRangeKm = Int.MAX_VALUE,
+            currentChargeWh = Long.MIN_VALUE, maxChargeWh = 0xffff_ffffL, batteryPercent = Double.POSITIVE_INFINITY)
+        val parameters = Iap2VehicleStatus.update(status).body()
+        assertEquals(0, ByteBuffer.wrap(parameters.first(3)!!.payload).short.toInt())
+        assertEquals(0xffff, ByteBuffer.wrap(parameters.first(30)!!.payload).short.toInt() and 0xffff)
+        assertEquals(0, ByteBuffer.wrap(parameters.first(22)!!.payload).int)
+        assertEquals(0xffff_ffffL, ByteBuffer.wrap(parameters.first(23)!!.payload).int.toLong() and 0xffff_ffffL)
+        assertEquals(100_000, ByteBuffer.wrap(parameters.first(24)!!.payload).int)
+        val rounded = Iap2VehicleStatus.update(reading.copy(batteryPercent = 1.2345)).body()
+        assertEquals(1235, ByteBuffer.wrap(rounded.first(24)!!.payload).int)
+    }
+
+    @Test
+    fun invalidEnergyAndNanRemainRejectedInsteadOfWrappingOrBecomingAnEmptyBattery() {
+        for (status in listOf(reading.copy(currentChargeWh = 0x1_0000_0000L),
+            reading.copy(maxChargeWh = Long.MAX_VALUE), reading.copy(batteryPercent = Double.NaN))) {
+            assertThrows(IllegalArgumentException::class.java) { Iap2VehicleStatus.update(status) }
+        }
     }
 
     private fun connectors(choice: EvChargingConnectors): List<Int> {

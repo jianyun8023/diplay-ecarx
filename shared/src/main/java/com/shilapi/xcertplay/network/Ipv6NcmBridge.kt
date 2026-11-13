@@ -4,6 +4,7 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.shilapi.xcertplay.transport.EthernetIpv6Codec
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.transport.NcmIpv6Route
 import java.io.Closeable
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -29,8 +30,7 @@ class Ipv6NcmBridge(
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
     }
 
-    @Volatile
-    private var peerMac: ByteArray? = null
+    private val route = NcmIpv6Route()
     private var loggedInbound = false
     private var loggedOutbound = false
     private var loggedWaitingForPeer = false
@@ -65,8 +65,7 @@ class Ipv6NcmBridge(
         try {
             while (running.get()) {
                 val frame = ncm.recv(READ_TIMEOUT_MILLIS) ?: continue
-                val ipv6 = EthernetIpv6Codec.parseIpv6View(frame) ?: continue
-                peerMac = ipv6.sourceMac
+                val ipv6 = route.inbound(frame) ?: continue
                 if (!loggedInbound) {
                     loggedInbound = true
                     Log.i(
@@ -113,8 +112,8 @@ class Ipv6NcmBridge(
                     outboundLogBudget--
                     Log.i(TAG, "ncm outbound ${ipv6.summary(0)}")
                 }
-                val multicastMac = EthernetIpv6Codec.multicastDestinationMac(ipv6)
-                val mac = multicastMac ?: peerMac
+                val routeDetail = LongArray(1)
+                val mac = route.destination(ipv6, routeDetail)
                 if (mac == null) {
                     if (!loggedWaitingForPeer) {
                         loggedWaitingForPeer = true
@@ -126,7 +125,7 @@ class Ipv6NcmBridge(
                     loggedOutbound = true
                     Log.i(
                         TAG,
-                        "ncm first outbound ipv6 bytes=$length destination=${mac.macString()} multicast=${multicastMac != null}",
+                        "ncm first outbound ipv6 bytes=$length destination=${mac.macString()} multicast=${routeDetail[0] != 0L}",
                     )
                 }
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)

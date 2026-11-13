@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.iap2.wire
 
-import java.io.ByteArrayOutputStream
+import com.shilapi.xcertplay.airplay.NativeMedia
+
 import java.io.IOException
 
 /** An iAP2 CSM body parameter: `u16 length | u16 parameterId | payload`. */
@@ -61,17 +62,10 @@ class Iap2ParameterList private constructor(
 
     fun all(id: Int): List<Iap2Parameter> = parameters.filter { it.id == id }
 
-    fun encode(): ByteArray {
-        val encoded = ByteArrayOutputStream()
-        for (parameter in parameters) {
-            val next = Iap2CsmFramer.encodeParam(parameter.id, parameter.payloadView())
-            require(next.size <= MAX_BODY_BYTES - encoded.size()) {
-                "Encoded CSM parameters exceed the $MAX_BODY_BYTES-byte message body limit"
-            }
-            encoded.write(next)
-        }
-        return encoded.toByteArray()
-    }
+    fun encode(): ByteArray = NativeIap2Body.encode(
+        parameters.map { it.id }.toIntArray(),
+        parameters.map { it.payloadView() }.toTypedArray(),
+    )
 
     override fun equals(other: Any?): Boolean =
         other is Iap2ParameterList && parameters == other.parameters
@@ -79,9 +73,6 @@ class Iap2ParameterList private constructor(
     override fun hashCode(): Int = parameters.hashCode()
 
     companion object {
-        private const val MAX_BODY_BYTES =
-            Iap2CsmFramer.MAX_FRAME_BYTES - Iap2CsmFramer.HEADER_BYTES
-
         val EMPTY: Iap2ParameterList = Iap2ParameterList(emptyList())
 
         fun of(parameters: Iterable<Iap2Parameter>): Iap2ParameterList =
@@ -91,28 +82,8 @@ class Iap2ParameterList private constructor(
             of(parameters.asList())
 
         /** Parses a complete body and rejects truncated headers, invalid lengths, and trailing bytes. */
-        fun parse(encoded: ByteArray): Iap2ParameterList {
-            val parameters = ArrayList<Iap2Parameter>()
-            var offset = 0
-            while (offset < encoded.size) {
-                if (encoded.size - offset < Iap2Parameter.HEADER_BYTES) {
-                    throw Iap2ProtocolException("Truncated CSM parameter header")
-                }
-                val length = Iap2WireCodec.readU16(encoded, offset)
-                if (length < Iap2Parameter.HEADER_BYTES || length > encoded.size - offset) {
-                    throw Iap2ProtocolException("Invalid CSM parameter length $length")
-                }
-                parameters += Iap2Parameter(
-                    id = Iap2WireCodec.readU16(encoded, offset + 2),
-                    payload = encoded.copyOfRange(
-                        offset + Iap2Parameter.HEADER_BYTES,
-                        offset + length,
-                    ),
-                )
-                offset += length
-            }
-            return Iap2ParameterList(parameters)
-        }
+        fun parse(encoded: ByteArray): Iap2ParameterList =
+            Iap2ParameterList(NativeIap2Body.parse(encoded).toList())
     }
 }
 
@@ -149,3 +120,11 @@ class Iap2Frame(messageId: Int, payload: ByteArray) {
 
 /** A malformed, incomplete, or otherwise invalid iAP2 CSM value. */
 open class Iap2ProtocolException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/** Native CSM body parameter framing; order and repeated ids are preserved. */
+internal object NativeIap2Body {
+    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    @JvmStatic external fun validateBuilder(ids: IntArray, kinds: IntArray, specs: IntArray): IntArray?
+    @JvmStatic external fun encode(ids: IntArray, payloads: Array<ByteArray>): ByteArray
+    @JvmStatic external fun parse(encoded: ByteArray): Array<Iap2Parameter>
+}

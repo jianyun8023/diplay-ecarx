@@ -39,9 +39,7 @@ class AudioRebufferDiagnosticsTest {
             .build()
 
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
-            .apply { isAccessible = true }
-            .newInstance(
+        val renderer = AudioRenderer(
                 AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0,
                 AudioFocusCoordinator(null, false, false),
@@ -49,17 +47,16 @@ class AudioRebufferDiagnosticsTest {
             )
 
         fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
-        fun get(name: String) = type.getDeclaredField(name).apply { isAccessible = true }.get(renderer)
+        val native = RendererNativeFixture(renderer)
 
         try {
             set("track", track)
             set("mappedChannel", AudioChannel.MEDIA)
-            set("playbackStarted", true)
-            set("startThresholdBytes", threshold)
-            set("lastPcmWriteNs", System.nanoTime())
+            native.progress.configure(threshold, plan.trackBufferBytes, 4096)
+            native.progress.playback(true)
             set("bytesPerSecond", 48_000 * 4)
 
-            (get("bufferProgress") as AudioBufferProgress).written(TestTrack.queued)
+            native.progress.completedWrite(TestTrack.queued, System.nanoTime())
 
             // Trigger buffer maintenance rebuffering
             type.getDeclaredMethod("maintainPlaybackBuffer").apply { isAccessible = true }.invoke(renderer)
@@ -67,25 +64,26 @@ class AudioRebufferDiagnosticsTest {
             assertTrue(reports.any { it.contains("Audio: rebuffer paused audioType=media rebufferCount=1") })
 
             // Write PCM to recover playback
-            type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-                .apply { isAccessible = true }
-                .invoke(renderer, ByteArray(threshold), 0, threshold)
+            native.write(threshold)
 
             assertTrue(reports.any { it.contains("Audio: rebuffer recovered audioType=media rebufferCount=1") })
 
-            // Check queue full flag reset when queue is empty
-            set("droppedPacketsLogged", true)
-            val audioPacketClass = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
-            val packetConstructor = audioPacketClass.declaredConstructors.single().apply { isAccessible = true }
-            val dummyRtp = ByteArray(12 + 100)
-            val packetInstance = packetConstructor.newInstance(com.shilapi.xcertplay.airplay.HeapPacket(dummyRtp), 0, 0L)
-
-            type.getDeclaredMethod("handle", audioPacketClass).apply { isAccessible = true }.invoke(renderer, packetInstance)
-
-            assertFalse(get("droppedPacketsLogged") as Boolean)
+            // A real overflow sets the native warning latch. Draining the last packet re-arms it.
+            val event = LongArray(3)
+            native.fill()
+            native.queue.push(com.shilapi.xcertplay.airplay.HeapPacket(ByteArray(112)), 0, System.nanoTime())
+            assertTrue(native.queue.event(event))
+            assertEquals(2L, event[0])
+            assertEquals(1L, event[2])
+            native.drain()
+            native.fill()
+            native.queue.push(com.shilapi.xcertplay.airplay.HeapPacket(ByteArray(112)), 0, System.nanoTime())
+            assertTrue(native.queue.event(event))
+            assertEquals(2L, event[0])
+            assertFalse("queue overflow warning stayed suppressed after draining", event[2] == 0L)
 
         } finally {
-            track.release()
+            native.close()
         }
     }
 
@@ -112,9 +110,7 @@ class AudioRebufferDiagnosticsTest {
             .build()
 
         val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-        val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
-            .apply { isAccessible = true }
-            .newInstance(
+        val renderer = AudioRenderer(
                 AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0,
                 AudioFocusCoordinator(null, false, false),
@@ -123,30 +119,28 @@ class AudioRebufferDiagnosticsTest {
 
         fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
         fun get(name: String) = type.getDeclaredField(name).apply { isAccessible = true }.get(renderer)
+        val native = RendererNativeFixture(renderer)
 
         try {
             set("track", track)
             set("mappedChannel", AudioChannel.MEDIA)
-            set("startThresholdBytes", threshold)
+            native.progress.configure(threshold, plan.trackBufferBytes, 4096)
             set("bytesPerSecond", 48_000 * 4)
 
-            val bufferProgress = get("bufferProgress") as AudioBufferProgress
+            val bufferProgress = native.progress
 
             // Trigger 10 rebuffer pause and recovery cycles
             repeat(10) {
-                set("playbackStarted", true)
+                bufferProgress.playback(true)
                 set("underrunsAtPlaybackStart", 0)
-                set("lastPcmWriteNs", System.nanoTime())
-                bufferProgress.written(threshold)
+                bufferProgress.completedWrite(threshold, System.nanoTime())
 
                 // Simulate hardware underrun (head position equals written samples)
                 bufferProgress.queuedBytes(threshold / 4) // Advance head
 
                 type.getDeclaredMethod("maintainPlaybackBuffer").apply { isAccessible = true }.invoke(renderer)
 
-                type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-                    .apply { isAccessible = true }
-                    .invoke(renderer, ByteArray(threshold), 0, threshold)
+                native.write(threshold)
             }
 
             val pauseReports = reports.filter { it.contains("Audio: rebuffer paused") }
@@ -159,39 +153,20 @@ class AudioRebufferDiagnosticsTest {
             // Test queue full cap over 10 overflow/drain cycles
             set("started", true)
             set("running", true)
-            val audioPacketClass = Class.forName("com.shilapi.xcertplay.media.AudioRenderer\$AudioPacket")
-            val packetConstructor = audioPacketClass.declaredConstructors.single().apply { isAccessible = true }
-            val dummyRtp = ByteArray(12 + 100)
-            val packetInstance = packetConstructor.newInstance(com.shilapi.xcertplay.airplay.HeapPacket(dummyRtp), 0, 0L)
-
-            @Suppress("UNCHECKED_CAST")
-            val queue = get("queue") as java.util.concurrent.BlockingQueue<Any>
-
+            val dummyRtp = ByteArray(112)
             repeat(10) {
-                // Fill queue to capacity (MAX_QUEUED_PACKETS = 192)
-                while (queue.remainingCapacity() > 0) {
-                    queue.offer(packetInstance)
-                }
-
-                // Submit one packet that fails to offer because queue is full
+                native.fill()
+                // The actual renderer consumes the native queue event and applies its report cap.
                 type.getDeclaredMethod("submit", ByteArray::class.java, Int::class.javaPrimitiveType)
-                    .apply { isAccessible = true }
-                    .invoke(renderer, dummyRtp, 0)
-
-                // Drain queue
-                queue.clear()
-
-                // Process handle on an empty queue to reset droppedPacketsLogged
-                type.getDeclaredMethod("handle", audioPacketClass)
-                    .apply { isAccessible = true }
-                    .invoke(renderer, packetInstance)
+                    .apply { isAccessible = true }.invoke(renderer, dummyRtp, 0)
+                native.drain()
             }
 
             val queueFullReports = reports.filter { it.contains("Audio: queue full") }
             assertEquals(5, queueFullReports.size)
 
         } finally {
-            track.release()
+            native.close()
         }
     }
 
@@ -201,7 +176,7 @@ class AudioRebufferDiagnosticsTest {
         @Implementation fun getUnderrunCount() = 2
         @Implementation fun pause() { playing = false }
         @Implementation fun play() { playing = true }
-        @Implementation fun write(bytes: ByteArray, offset: Int, size: Int, mode: Int): Int {
+        @Implementation fun write(buffer: java.nio.ByteBuffer, size: Int, mode: Int): Int {
             if (!playing) queued += size
             return size
         }

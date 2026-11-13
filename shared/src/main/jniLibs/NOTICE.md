@@ -1,7 +1,7 @@
 # Prebuilt native libraries — provenance
 
 APK builds consume these `.so` files without compiling native code. The original three
-libraries below come from `DiPlay-0.2.15.apk`; the Opus libraries have separate provenance below.
+libraries below come from `DiPlay-0.2.15.apk`; `libdiplay_media.so` is built from our Rust source (below).
 
 ## Why
 
@@ -50,49 +50,55 @@ SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source 
 The production APK ABI filters select ARM64 and ARMv7; x86_64 files remain in the source tree.
 Keep the applicable licenses and corresponding source when redistributing native binaries.
 
-## Opus microphone encoder
+## Rust CarPlay core
 
-`libopus.so` is copied **byte for byte**, without rebuilding Opus, from the `jni/<abi>/` entries in
-[`io.voxkit:kopus-android:1.0.1`](https://repo.maven.apache.org/maven2/io/voxkit/kopus-android/1.0.1/kopus-android-1.0.1.aar).
-The AAR SHA-256 is `3ba435a7219d2c030590b91bfc5c8e525a1d367dbdca7059f7729727faf75c1c`,
-verified against its Maven Central `.aar.sha256`. Its exported version is `libopus 1.5.2` and its
-ELF Android note targets API 24 / NDK r28c. It needs only Android's libc, libm and libdl.
-The Kotlin wrapper and `libkopus.so` are not included: that wrapper does not expose the bitrate,
-complexity and signal controls required by the microphone uplink.
-
-`libopus_encoder.so` is our small JNI bridge, built once from `../jni/opus_encoder_jni.c` using
-NDK `28.2.13676358`, API 24 and `-O2`. It links to the prebuilt `libopus.so`; no Opus source is compiled.
-To regenerate just this bridge, run `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 bash scripts/build_opus_bridge.sh`
-from the repository root. This script is not part of Gradle or CI builds.
-
-| ABI | Library | SHA-256 |
-|---|---|---|
-| arm64-v8a | libopus.so | `7a35e438c5e906f64f721d3f4c4c60d61a404a8b351ab6712520a6026a4f50b5` |
-| armeabi-v7a | libopus.so | `debd799348d257081ac20493e2d61d4f3b3907faf6b76e3610059a86bfccdeb8` |
-| arm64-v8a | libopus_encoder.so | `a9e5559dba940e9b4b2688fce59118b9b3f8f5a3c4fb116d50fb5a817f49741c` |
-| armeabi-v7a | libopus_encoder.so | `6aa6745ffb695bf4b28ee9c5006ddebabe775fcddcbcd3024f7db07fff5ebe62` |
-
-The matching public C headers and BSD-style license are retained under `../jni/opus/`, taken from
-the [official Opus 1.5.2 source archive](https://downloads.xiph.org/releases/opus/opus-1.5.2.tar.gz).
-The JNI bridge is covered by this repository's GPL license. The original Java Concentus encoder
-remains available when native loading or initialization fails. See the [third-party notices](../../../../docs/THIRD_PARTY_NOTICES.md).
-
-## Media data plane
-
-`libdiplay_media.so` receives the CarPlay screen and audio streams, opens their ChaCha20-Poly1305 frames and
-packets in pooled buffers, and hands Kotlin packet handles (see `docs/ARCHITECTURE.zh-CN.md`). It is built from
+`libdiplay_media.so` contains the migrated CarPlay core (see `docs/ARCHITECTURE.zh-CN.md`): it receives and opens the CarPlay
+screen and audio streams, owns compressed audio queues, buffered-music anchors/controls/backpressure and music clock trim,
+runs the video decode loop, decodes and encodes Opus, processes PCM, plays through AAudio,
+frames/encodes RTSP and binary plists, owns PairVerify/PairSetup/SRP/MFiSAP, control/event encryption, NTP and route guidance,
+controller/VPN/wireless generations, recovery, watchdogs, AirPlay negotiation and iAP2 handshake/reporting state,
+USBMUX/Lockdown, iAP2 framing/body/link/file transfer, type130/tunnel queues and the default NCM core.
+It owns audio receiver-to-renderer routing, AAC/PCM processing, output scheduling, shared call PCM/capture clocks,
+video timing/queues/codec policy, incremental playback state, hotspot address/readiness and Wi-Fi Direct retry policy,
+AirPlay info/control/video field schemas and Bonjour publication policy, HID/touch slots,
+EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions, hardware keys,
+Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path stays default-off. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
-and Poly1305 come from BoringSSL's assembly, jni-sys and libc). `Cargo.lock` pins every crate.
+and Poly1305 come from BoringSSL's assembly; [opus-pure 0.2.3](https://crates.io/crates/opus-pure/0.2.3), a pure-Rust port of libopus; jni-sys and libc).
+There is no prebuilt Opus library any more. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
-it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. This script is not part
-of Gradle or CI builds; `cargo test` in that directory runs the host tests. With rustc 1.97.1 and NDK `28.2.13676358` two clean builds give identical bytes.
-When the library cannot load, the Kotlin receivers and the platform cipher (Conscrypt) handle the same data.
+it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. Gradle APK builds still package
+the checked-in Android libraries. The Android checks workflow runs `scripts/check_rust_android_native.sh`
+on every pull request and `main`／`dev` push: it cross-compiles both ABIs with the pinned Rust／NDK versions,
+checks ELF architecture, the 491 Java JNI exports, `JNI_OnLoad` and identical JNI export sets, then stages
+the freshly built libraries for Debug／Release APK packaging. The pair and source revision are retained as
+an Actions artifact. Checked-in hashes below identify the repository copies, not necessarily the CI-built
+APK payload; byte-level equality across build hosts is not required. `cargo test` in this directory runs the host tests. Both shipped ABIs were rebuilt on
+2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
+uncommitted migration batch based on `0c4820ae702eaadd2b7f422f38a4a1fa44771d27`; that base commit alone does not
+contain this batch. Its source manifest SHA-256 is
+`da94e9f0fd3a6e2fc48fb7ad3a1513f291798a739db7c261f8f2f42b74f2774d`.
+The digest is SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
+for the crate's Rust sources, manifests/lockfile, toolchain pin, build script and any crate Cargo configuration:
+
+```sh
+rg --files --hidden shared/src/main/rust/diplay-media \
+  -g '*.rs' -g 'Cargo.toml' -g 'Cargo.lock' -g 'build.sh' \
+  -g 'rust-toolchain.toml' -g '**/.cargo/config*' -g '!**/target/**' |
+  LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256
+```
+
+The source manifest was unchanged before and after rebuilding. The hashes below identify that build;
+each ABI exports the same 491 Java JNI methods plus JNI_OnLoad. ELF headers identify AArch64/ARM respectively,
+and both Android identification notes record API 28 (`0x1c`) and NDK r28c build `13676358`.
+A required-core load failure is explicit. Real SDK capability fallback, such as AudioTrack when AAudio cannot open,
+remains platform behavior; there is no production Kotlin protocol/DSP substitute.
 
 | ABI | Library | Bytes | SHA-256 |
 |---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 375816 | `a1fdac22c71c03e11652adc729513930314623df5262134768bd9a63b2c09bb8` |
-| armeabi-v7a | libdiplay_media.so | 264288 | `0bf9087777241adbd3b2f13f9ae4a92c7deca2b1b901875f43fd055d026479e7` |
+| arm64-v8a | libdiplay_media.so | 1949032 | `25744c462ac3e43751264dd5a476cfe8fdb5ed220cac2f1e79e833b5a81bc228` |
+| armeabi-v7a | libdiplay_media.so | 1319204 | `130eeaef17712420726f5be4b99f6b8e4cefe7a24a49f3867a424ea11a4ec342` |
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).

@@ -45,92 +45,80 @@ class Iap2WiredControlClient(
         }
         Iap2IdentificationClient(session).identify(identified, requireRemaining(deadlineNanos), onProgress)
         onProgress("iap2 identification accepted")
-        var stage = Iap2WiredControlStage.IDENTIFIED
-        mfi.run(session, requireRemaining(deadlineNanos), onProgress)
-        stage = Iap2WiredControlStage.AUTHENTICATED
-        onProgress("iap2 authentication accepted")
-        deadlineNanos.authenticated()
-
-        send(powerSourceUpdate(availableCurrentMilliAmps), deadlineNanos)
-        for (subscription in subscriptions()) send(subscription, deadlineNanos)
-        stage = Iap2WiredControlStage.SUBSCRIBED
-        onProgress("iap2 power/subscriptions sent availableCurrentMa=$availableCurrentMilliAmps")
-
-        var forwardedFrames = 0
+        val core = Iap2HandshakeCore(2)
+        setup@ while (true) when (core.setup) {
+            Iap2HandshakeCore.Setup.AUTHENTICATE -> {
+                mfi.run(session, requireRemaining(deadlineNanos), onProgress)
+                core.authenticated()
+                onProgress("iap2 authentication accepted")
+                deadlineNanos.authenticated()
+            }
+            Iap2HandshakeCore.Setup.POWER -> {
+                send(powerSourceUpdate(availableCurrentMilliAmps), deadlineNanos)
+                core.powerSent()
+            }
+            Iap2HandshakeCore.Setup.SUBSCRIBE -> {
+                for (subscription in subscriptions()) send(subscription, deadlineNanos)
+                core.subscribed()
+                onProgress("iap2 power/subscriptions sent availableCurrentMa=$availableCurrentMilliAmps")
+            }
+            Iap2HandshakeCore.Setup.COMPLETE -> break@setup
+        }
         val rxLog = Iap2RxLog()
-        var carPlayStartSessions = 0
-        var startAgainDecided = false
+        fun result(terminal: Iap2WiredControlTerminal) = Iap2WiredControlResult(
+            terminal, Iap2WiredControlStage.entries[core.stage], core.forwarded, core.starts,
+        )
         val location = Iap2LocationReporter(locationProvider, onProgress)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
             while (true) {
                 val remaining = remainingMillis(deadlineNanos)
                 if (remaining == 0L) {
-                    return Iap2WiredControlResult(Iap2WiredControlTerminal.TIMED_OUT, stage, forwardedFrames, carPlayStartSessions)
+                    return result(Iap2WiredControlTerminal.TIMED_OUT)
                 }
                 location.tick { send(it, deadlineNanos) }
                 vehicleStatus.tick { send(it, deadlineNanos) }
-                var startAgainPending = false
-                if (!startAgainDecided && stage == Iap2WiredControlStage.CARPLAY_START_SENT) {
-                    when (startSessionAgain()) {
-                        StartAgain.WAIT -> startAgainPending = true
-                        StartAgain.DONE -> startAgainDecided = true
-                        StartAgain.SEND -> {
-                            startAgainDecided = true
-                            send(carPlayStartSession(endpoint), deadlineNanos)
-                            carPlayStartSessions++
-                            onProgress(START_SESSION_AGAIN_PROGRESS)
-                        }
-                    }
+                core.beginIteration()
+                if (core.needsStartAgain && core.startAgain(startSessionAgain().ordinal)) {
+                    send(carPlayStartSession(endpoint), deadlineNanos)
+                    core.startSent()
+                    onProgress(START_SESSION_AGAIN_PROGRESS)
                 }
-                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining)).let {
-                    if (startAgainPending) minOf(it, START_AGAIN_POLL_MILLIS) else it
-                }
+                val pollTimeout = core.boundPoll(vehicleStatus.pollTimeout(location.pollTimeout(remaining)))
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
                     if (session.isClosed) {
-                        return Iap2WiredControlResult(
-                            Iap2WiredControlTerminal.CHANNEL_CLOSED,
-                            stage,
-                            forwardedFrames,
-                            carPlayStartSessions,
-                        )
+                        return result(Iap2WiredControlTerminal.CHANNEL_CLOSED)
                     }
                     if (remainingMillis(deadlineNanos) == 0L) {
-                        return Iap2WiredControlResult(
-                            Iap2WiredControlTerminal.TIMED_OUT,
-                            stage,
-                            forwardedFrames,
-                            carPlayStartSessions,
-                        )
+                        return result(Iap2WiredControlTerminal.TIMED_OUT)
                     }
                     continue
                 }
 
-                when (incoming.messageId) {
-                    CARPLAY_AVAILABILITY -> {
+                when (core.message(incoming.messageId)) {
+                    Iap2HandshakeCore.Action.CARPLAY_AVAILABLE -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
                         onProgress(carPlayAvailabilitySummary(incoming.payload))
                         // LIVI sends its wired answer on every availability notification; do not gate it on
                         // the phone's advertised availability boolean.
                         send(carPlayStartSession(endpoint), deadlineNanos)
-                        stage = Iap2WiredControlStage.CARPLAY_START_SENT
-                        carPlayStartSessions++
+                        core.startSent()
                         onProgress("iap2 tx=0x4301 carplay-start-session")
                     }
 
-                    Iap2LocationMessages.START_LOCATION_INFORMATION, Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
+                    Iap2HandshakeCore.Action.LOCATION -> {
                         location.handle(incoming) { send(it, deadlineNanos) }
                     }
 
-                    Iap2VehicleStatus.START_VEHICLE_STATUS_UPDATES, Iap2VehicleStatus.STOP_VEHICLE_STATUS_UPDATES -> {
+                    Iap2HandshakeCore.Action.VEHICLE -> {
                         vehicleStatus.handle(incoming) { send(it, deadlineNanos) }
                     }
 
                     else -> {
                         rxLog.line(incoming.messageId)?.let(onProgress)
                         onIncoming(incoming)
-                        forwardedFrames++
+                        core.forwarded()
                     }
                 }
             }
@@ -150,13 +138,8 @@ class Iap2WiredControlClient(
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
         const val START_SESSION_AGAIN_PROGRESS =
             "iap2 tx=0x4301 carplay-start-session again: no AirPlay connection since the USB network opened"
-        private const val START_AGAIN_POLL_MILLIS = 500L
-        private const val CARPLAY_AVAILABILITY = 0x4300
-        private const val CARPLAY_START_SESSION = 0x4301
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val MAX_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L
-        private const val MAX_RECV_TIMEOUT_MILLIS = 5 * 60 * 1_000L
-        private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Exact LIVI wired PowerSourceUpdate encoding: current and the charge-if-powered flag. */
         fun powerSourceUpdate(availableCurrentMilliAmps: Int): Iap2Frame =

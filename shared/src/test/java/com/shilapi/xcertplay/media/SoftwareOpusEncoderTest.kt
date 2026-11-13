@@ -95,22 +95,18 @@ class SoftwareOpusEncoderTest {
     }
 
     @Test
-    fun nativeSoftwareIsPreferredAndConcentusRemainsTheFallback() {
+    fun softwareFactoryRetainsTheRequiredNativeEncoderIncludingRefusal() {
         val native = FakeEncoder(available = true)
-        assertSame(native, MicrophoneOpusEncoders.createSoftware(48_000,
-            native = { native }, concentus = { error("unused") }))
-
-        val missing = FakeEncoder(available = false)
-        val fallback = FakeEncoder(available = true)
-        assertSame(fallback, MicrophoneOpusEncoders.createSoftware(48_000,
-            native = { missing }, concentus = { fallback }))
-        assertTrue(missing.closed)
+        assertSame(native, MicrophoneOpusEncoders.createSoftware(48_000, native = { native }))
+        val refused = FakeEncoder(available = false)
+        assertSame(refused, MicrophoneOpusEncoders.createSoftware(48_000, native = { refused }))
+        assertFalse(refused.closed)
     }
 
     @Test
-    fun missingNativeLibraryStillProducesDecodablePacketsOnTheJvm() {
+    fun bundledRustEncoderProducesDecodablePackets() {
         MicrophoneOpusEncoders.createSoftware(48_000).use { encoder ->
-            assertEquals("software", encoder.implementation)
+            assertEquals("opus-pure", encoder.implementation)
             val packet = encoder.encode(toneFrame(0)).single()
             val pcm = ShortArray(960)
             assertEquals(960, OpusDecoder(48_000, 1).decode(packet, 0, packet.size, pcm, 0, 960, false))
@@ -118,15 +114,16 @@ class SoftwareOpusEncoderTest {
     }
 
     @Test
-    fun unavailableNativeEncoderReportsWhyBeforeTheFallbackIsChosen() {
+    fun refusedNativeConfigurationReportsWhyAndNeverChoosesAnotherAlgorithm() {
         val reports = mutableListOf<Pair<String, Throwable>>()
-        NativeOpusEncoder(48_000, onError = { message, error -> reports += message to error }).use { encoder ->
+        NativeOpusEncoder(0, onError = { message, error -> reports += message to error }).use { encoder ->
             assertFalse(encoder.available)
             assertTrue(encoder.encode(toneFrame(0)).isEmpty())
         }
         val (message, error) = reports.single()
         assertEquals("native Opus encoder unavailable", message)
-        assertTrue(error.toString(), error is UnsatisfiedLinkError)
+        assertTrue(error.toString(), error is IllegalStateException)
+        assertEquals("opus encoder refused bitrate=0", error.message)
     }
 
     private fun toneFrame(index: Int): ByteArray {

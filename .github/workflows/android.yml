@@ -4,154 +4,235 @@ on:
     branches: [main, dev]
   pull_request:
   workflow_dispatch:
-  release:
-    types: [published]
+concurrency:
+  group: android-checks-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  pull-requests: read
 jobs:
-  check:
+  # Classify the change set so docs-only runs skip the heavy work but still
+  # report a green required "check" (avoids the paths-ignore pending pitfall).
+  changes:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      core: ${{ steps.decide.outputs.core }}
     steps:
       - uses: actions/checkout@v4
-      - name: Reject credential files in public source
-        run: python3 scripts/check_public_tree.py
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            core:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!reports/**'
+              - '!artifacts/**'
+              - '!analysis/**'
+      - id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "core=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "core=${{ steps.filter.outputs.core }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  rust_tests:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-host
+      - name: Rust core unit tests
+        run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
+
+  # One matrix leg per shipped ABI; both run concurrently and upload their own
+  # library + JNI export list for the build job to cross-check.
+  native:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            target: aarch64-linux-android
+          - abi: armeabi-v7a
+            target: armv7-linux-androideabi
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+          targets: ${{ matrix.target }}
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: /usr/local/lib/android/sdk/ndk/28.2.13676358
+          key: ndk-28.2.13676358-${{ runner.os }}
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ndk;28.2.13676358
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-${{ matrix.target }}
+      - name: Build and verify ${{ matrix.abi }} runtime library
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
+          DIPLAY_JNI_LIBS_DIR="$RUNNER_TEMP/rust-android-libs" \
+            scripts/check_rust_android_native.sh ${{ matrix.abi }}
+      - name: Upload ${{ matrix.abi }} runtime library
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-lib-${{ matrix.abi }}
+          path: ${{ runner.temp }}/rust-android-libs/
+          if-no-files-found: error
+
+  unit_tests:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '25'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-host
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests, lint and source-only debug build
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --no-parallel --max-workers=1 --stacktrace
-      - name: Check release optimization without signing
-        run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --no-parallel --max-workers=1 --stacktrace
-      - name: Test reports
+      - name: Unit tests (single worker; Robolectric shares JVM state)
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest --no-parallel --max-workers=1 --stacktrace
+      - name: Upload unit test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: unit-test-reports
           path: |
             shared/build/reports/tests/
             common/build/reports/tests/
             common/build/reports/album-artwork-ui/
             common/build/reports/foreground-layout-ui/
             common/build/reports/open-source-ui/
-            mobile/build/reports/lint-results-debug.html
             samples/home/build/reports/tests/
-            samples/home/build/reports/lint-results-debug.html
-            samples/maphost/build/reports/lint-results-debug.html
-            integrations/siri/build/reports/lint-results-debug.html
-  release:
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    needs: check
+
+  build:
+    needs: [changes, native]
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '25'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rust-lib-*
+          path: ${{ runner.temp }}/rust-android-libs
+          merge-multiple: true
+      - name: Verify both ABIs expose the same JNI contract
+        run: |
+          set -euo pipefail
+          d="$RUNNER_TEMP/rust-android-libs"
+          test -s "$d/arm64-v8a/libdiplay_media.so"
+          test -s "$d/armeabi-v7a/libdiplay_media.so"
+          diff -u "$d/arm64-v8a-jni-symbols.txt" "$d/armeabi-v7a-jni-symbols.txt"
+      - name: Stage freshly built Rust libraries
+        run: |
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
+          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
-      - name: Restore Android signing keystore
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      - name: Lint and debug APK builds (parallel)
+        run: ./gradlew :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --parallel --max-workers=2 --build-cache --stacktrace
+      - name: Verify debug APK contains both Rust Android ABIs
         run: |
-          umask 077
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.p12"
-          printf 'ANDROID_KEYSTORE_PATH=%s/android-release.p12\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Build signed Release APK without MFi
-        env:
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          test -n "$ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ANDROID_KEY_ALIAS"
-          test -n "$ANDROID_KEY_PASSWORD"
-          unset DIPLAY_AUTH_ASSETS_DIR
-          ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --stacktrace
-      - name: Verify APK and prepare licenses, source and R8 mapping
-        env:
-          # Through env, not ${{ }} in the script: the body is free text.
-          RELEASE_NOTES: ${{ github.event.release.body }}
-        run: |
-          apk=$(ls mobile/build/outputs/apk/release/DiPlay-v*-release.apk)
-          apk_name=$(basename "$apk")
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --min-sdk-version 28 "$apk"
-          # The in-app updater reads the tag as the versionCode, so a release tag must be v<versionCode>.
-          version_code=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
-          if [ "${{ github.event_name }}" = release ] && [ "${{ github.event.release.tag_name }}" != "v$version_code" ]; then
-            echo "Release tag ${{ github.event.release.tag_name }} must be v$version_code" >&2
-            exit 1
-          fi
-          if [ "$apk_name" != "DiPlay-v$version_code-release.apk" ]; then
-            echo "APK $apk_name must be named DiPlay-v$version_code-release.apk" >&2
-            exit 1
-          fi
-          mkdir -p release-apk
-          APK="$apk" python3 - <<'PY'
-          import os
+          python3 - <<'PY'
           from pathlib import Path
-          from zipfile import ZipFile, ZIP_DEFLATED
+          from zipfile import ZipFile
 
-          apk = Path(os.environ['APK'])
-          with ZipFile(apk) as archive:
-              assert not any('offline-mfi/' in name or Path(name).suffix.lower() in {
-                  '.pk8', '.p7b', '.pem', '.key', '.p12', '.pfx', '.jks', '.keystore',
-              } for name in archive.namelist()), 'Release APK must contain no authentication credentials'
-              required = {
-                  'GPL-3.0.txt': Path('LICENSE'),
-                  'AGPL-3.0.txt': Path('docs/licenses/DiAuto-AGPL-3.0.txt'),
-                  'NOTICE.md': Path('NOTICE.md'),
-                  'THIRD_PARTY_NOTICES.md': Path('docs/THIRD_PARTY_NOTICES.md'),
-                  'SOURCE.txt': Path('docs/licenses/SOURCE.txt'),
-              }
-              for name, source in required.items():
-                  assert archive.read('assets/licenses/' + name) == source.read_bytes(), name
-              with ZipFile('release-apk/DiPlay-licenses.zip', 'w', ZIP_DEFLATED) as licenses:
-                  for name in sorted(archive.namelist()):
-                      if name.startswith('assets/licenses/') and not name.endswith('/'):
-                          licenses.writestr(name.removeprefix('assets/'), archive.read(name))
+          apk_dir = Path("mobile/build/outputs/apk/debug")
+          apks = sorted(apk_dir.glob("*.apk"))
+          assert apks, f"No mobile debug APK found in {apk_dir}"
+          expected = {
+              "lib/arm64-v8a/libdiplay_media.so": 183,  # EM_AARCH64
+              "lib/armeabi-v7a/libdiplay_media.so": 40,  # EM_ARM
+          }
+          for apk in apks:
+              with ZipFile(apk) as archive:
+                  names = set(archive.namelist())
+                  for path, expected_machine in expected.items():
+                      assert path in names, f"{apk}: missing {path}"
+                      data = archive.read(path)
+                      assert data[:4] == b"\x7fELF", f"{apk}: {path} is not ELF"
+                      byte_order = {1: "little", 2: "big"}.get(data[5])
+                      assert byte_order, f"{apk}: {path} has invalid ELF byte order"
+                      machine = int.from_bytes(data[18:20], byte_order)
+                      assert machine == expected_machine, (
+                          f"{apk}: {path} has e_machine={machine}, expected {expected_machine}"
+                      )
+              print(f"Verified both Rust Android ABIs in {apk}")
           PY
-          cp "$apk" release-apk/
-          cp mobile/build/outputs/mapping/release/mapping.txt "release-apk/DiPlay-v$version_code-mapping.txt"
-          # The in-app updater reads this through releases/latest/download, which GitHub mirrors also serve.
-          UPDATE_TAG="v$version_code" APK_NAME="$apk_name" python3 - <<'PY'
-          import json, os, sys
-          sys.path.insert(0, 'scripts')
-          from release_notes_plain import plain
-          # Installed apps show notes as text, and v143 shows them verbatim: no Markdown in the manifest.
-          manifest = {'tag': os.environ['UPDATE_TAG'], 'apk': os.environ['APK_NAME'], 'notes': plain(os.environ.get('RELEASE_NOTES', ''))}
-          with open('release-apk/update.json', 'w', encoding='utf-8') as output:
-              json.dump(manifest, output, ensure_ascii=False)
-          PY
-          git archive --format=tar.gz --prefix=DiPlay-source/ --output=release-apk/DiPlay-source.tar.gz HEAD
-          release_source_revision=$(git rev-parse HEAD)
-          printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
-            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$release_source_revision" > release-apk/SOURCE-REVISION.txt
-          cd release-apk
-          sha256sum "$apk_name" "DiPlay-v$version_code-mapping.txt" DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt update.json > SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DiPlay-signed-release
-          path: release-apk/*
-          if-no-files-found: error
-      - name: Attach APK, licenses, source and R8 mapping to published Release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload --clobber "$RELEASE_TAG" release-apk/*
-      - name: Remove signing keystore
+      - name: Check release optimization without signing
+        run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --max-workers=2 --build-cache --stacktrace
+      - name: Upload build reports
         if: always()
-        run: rm -f "$RUNNER_TEMP/android-release.p12"
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: |
+            mobile/build/reports/lint-results-debug.html
+            samples/home/build/reports/lint-results-debug.html
+            samples/maphost/build/reports/lint-results-debug.html
+            integrations/siri/build/reports/lint-results-debug.html
+
+  # Single required status: green when every job succeeded or was skipped for a
+  # docs-only change; red if any job failed.
+  check:
+    needs: [changes, rust_tests, native, unit_tests, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate required result
+        run: |
+          printf 'changes=%s rust-tests=%s native=%s unit-tests=%s build=%s\n' \
+            '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'
+          fail=0
+          for r in '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "A required job did not succeed: $r" >&2; fail=1 ;;
+            esac
+          done
+          exit "$fail"

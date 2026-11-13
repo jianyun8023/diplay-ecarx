@@ -32,10 +32,10 @@ internal object CarHotspotReturn {
             }
             if (!waiting) log("car hotspot still off; waiting for the car to turn it back on budgetMs=$timeoutMillis")
             waiting = true
-            val remaining = timeoutMillis - (nowMillis() - started)
+            val remaining = NativeHotspotRecovery.returnWait(started, timeoutMillis, nowMillis())
             if (remaining <= 0) return Outcome.TIMED_OUT
             try {
-                pause(minOf(POLL_MILLIS, remaining))
+                pause(remaining)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return Outcome.CANCELLED
@@ -43,7 +43,6 @@ internal object CarHotspotReturn {
         }
     }
 
-    private const val POLL_MILLIS = 500L
 }
 
 /**
@@ -53,14 +52,16 @@ internal object CarHotspotReturn {
  * driver stops CarPlay, and it lapses with the wait budget.
  */
 object CarRadioOutage {
-    @Volatile private var markedAt = 0L
+    private val state = NativeHotspotRecovery.outageCreate()
 
-    fun mark(nowMillis: Long = android.os.SystemClock.elapsedRealtime()) { markedAt = nowMillis.coerceAtLeast(1L) }
+    @Synchronized fun mark(nowMillis: Long = android.os.SystemClock.elapsedRealtime()) {
+        NativeHotspotRecovery.outageEvent(state, 0, nowMillis, 0)
+    }
 
-    fun clear() { markedAt = 0L }
+    @Synchronized fun clear() { NativeHotspotRecovery.outageEvent(state, 1, 0, 0) }
 
-    fun active(nowMillis: Long = android.os.SystemClock.elapsedRealtime(), budgetMillis: Long = BUDGET_MILLIS): Boolean =
-        markedAt > 0L && nowMillis - markedAt < budgetMillis
+    @Synchronized fun active(nowMillis: Long = android.os.SystemClock.elapsedRealtime(), budgetMillis: Long = BUDGET_MILLIS): Boolean =
+        NativeHotspotRecovery.outageEvent(state, 2, nowMillis, budgetMillis)
 
     /** Matches the controller's 30-minute radio-return wait. */
     const val BUDGET_MILLIS = 30 * 60_000L

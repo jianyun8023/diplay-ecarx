@@ -23,6 +23,8 @@ data class AudioStreamId(val type: Int, val audioType: String)
 interface MediaSink {
     fun onVideoCodec(type: Int, codec: VideoCodec) {}
     fun onVideoConfig(type: Int, codecData: ByteArray) {}
+    fun onNativeVideoRoute(type: Int, route: NativeVideoRoute) {}
+    fun onVideoReceiving(type: Int) {}
     fun onVideoFrame(type: Int, naluBytes: ByteArray) {}
     /** A frame with the iPhone's frame time and its arrival time (System.nanoTime); see [ScreenStream.Listener]. */
     fun onVideoFrame(type: Int, naluBytes: ByteArray, senderNanos: Long, arrivalNanos: Long) =
@@ -38,6 +40,8 @@ interface MediaSink {
     fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {}
     fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {}
     fun onScreenStreamActive(type: Int, active: Boolean) {}
+    fun onNativeAudioRoute(id: AudioStreamId, format: AudioFormat, route: NativeAudioRoute) { route.disconnect() }
+    fun onAudioQueueEvent(id: AudioStreamId, kind: Int, value: Long, extra: Long) {}
     fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {}
     fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {}
     /** An RTP packet the sink now owns and releases once done with it; see [MediaPacket]. */
@@ -68,6 +72,10 @@ interface MediaSink {
  * connects after SETUP returns the port, which is after the stream is registered as current.
  */
 internal fun currentScreenListener(type: Int, sink: MediaSink, isCurrent: () -> Boolean) = object : ScreenStream.Listener {
+    override fun onNativeVideoRoute(route: NativeVideoRoute) {
+        if (isCurrent()) sink.onNativeVideoRoute(type, route) else route.disconnect()
+    }
+    override fun onReceiving() { if (isCurrent()) sink.onVideoReceiving(type) }
     override fun onCodec(codec: VideoCodec) { if (isCurrent()) sink.onVideoCodec(type, codec) }
     override fun onConfig(codecData: ByteArray) { if (isCurrent()) sink.onVideoConfig(type, codecData) }
     override fun onFrame(naluBytes: ByteArray) { if (isCurrent()) sink.onVideoFrame(type, naluBytes) }
@@ -98,7 +106,7 @@ class CarPlayMediaEngine(
         @Volatile var firstSample: Int? = null,
         @Volatile var originNs: Long? = null,
     ) {
-        val position = FeedbackPositionMonitor(format.rtpClockRate)
+        @Volatile var route: NativeAudioRoute? = null
     }
 
     private data class PendingIapTunnel(
@@ -182,9 +190,9 @@ class CarPlayMediaEngine(
             if (streams[streamKey] === screen) {
                 // The cluster asks for a keyframe of its own screen; the plain command is the main screen's.
                 val command = if (type == STREAM_TYPE_ALT_SCREEN) {
-                    mapOf("type" to "forceKeyFrame", "params" to mapOf("uuid" to AirPlayInfoPlist.ALT_UUID))
+                    AirPlayCommands.keyFrame(AirPlayInfoPlist.ALT_UUID)
                 } else {
-                    mapOf("type" to "forceKeyFrame")
+                    AirPlayCommands.keyFrame()
                 }
                 val sent = session.sendCommand(command)
                 session.logDebug("Video recovery: requested keyframe sent=$sent")
@@ -253,38 +261,44 @@ class CarPlayMediaEngine(
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[streamKey] = capture
-        val clockProbe = RtpClockProbe()
         val microphoneStart = microphone?.let { config -> MicrophoneStart { sink.onMicrophoneStarted(streamId, config) } }
-        // Packet capture records the wire bytes, which only the Kotlin receiver keeps.
-        val audio = AudioStream(key, type, session::logDebug, preferNative = capture == null)
-        val (dataPort, controlPort) = audio.listen(
+        // Native wiretap keeps capture bytes while disabling direct queue delivery.
+        val audio = AudioStream(key, type, session::logDebug, preferNative = capture == null, clockRate = format.rtpClockRate)
+        meta.route = audio.route
+        streams[streamKey] = audio
+        audioMeta[streamKey] = meta
+        var listening = false
+        val (dataPort, controlPort) = try { audio.listen(
             object : AudioStream.Listener {
+                private fun current(): Boolean = streams[streamKey] === audio
+
                 override fun onStarted(firstSample: Int) {
+                    if (!current()) return
                     meta.firstSample = firstSample
                     meta.originNs = System.nanoTime()
                     sink.onAudioStarted(streamId, format, firstSample)
+                    sink.onNativeAudioRoute(streamId, format, audio.route)
                     microphoneStart?.onDownlink()
                 }
 
                 override fun onRtp(rtp: ByteArray, sample: Int) {
-                    observe(sample)
-                    sink.onAudioRtp(streamId, format, rtp, sample)
+                    if (current()) sink.onAudioRtp(streamId, format, rtp, sample)
                 }
 
-                private fun observe(sample: Int) {
-                    meta.position.observeRtp(sample)
-                    clockProbe.observe(sample, System.nanoTime())?.let { hz ->
-                        session.logDebug(
-                            "Audio: rtp clock type=$type audioType=$audioType " +
-                                "audioFormat=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
-                                "measuredHz=$hz microphoneClockHz=${microphone?.rtpClockRate ?: "none"}",
-                        )
-                    }
+                override fun onClock(hz: Int) {
+                    if (current()) session.logDebug(
+                        "Audio: rtp clock type=$type audioType=$audioType " +
+                            "audioFormat=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
+                            "measuredHz=$hz microphoneClockHz=${microphone?.rtpClockRate ?: "none"}",
+                    )
+                }
+
+                override fun onQueueEvent(kind: Int, value: Long, extra: Long) {
+                    if (current()) sink.onAudioQueueEvent(streamId, kind, value, extra)
                 }
 
                 override fun onPacket(rtp: MediaPacket, sample: Int) {
-                    observe(sample)
-                    sink.onAudioPacket(streamId, format, rtp, sample)
+                    if (current()) sink.onAudioPacket(streamId, format, rtp, sample) else rtp.release()
                 }
 
                 override fun onPacket(
@@ -293,12 +307,18 @@ class CarPlayMediaEngine(
                     sample: Int?,
                     error: Throwable?,
                 ) {
-                    capture?.record(wire, rtp, sample, error)
+                    if (current()) capture?.record(wire, rtp, sample, error)
                 }
             },
-        )
-        streams[streamKey] = audio
-        audioMeta[streamKey] = meta
+        ).also { listening = true } } finally {
+            if (!listening) {
+                streams.remove(streamKey, audio)
+                audioMeta.remove(streamKey, meta)
+                if (capture != null) audioCaptures.remove(streamKey, capture)
+                capture?.close()
+                audio.close()
+            }
+        }
         if (microphoneStart != null && MicrophoneStart.startsWithoutDownlink(audioType)) {
             microphoneStart.scheduleSilentStart(microphoneScheduler, MicrophoneStart.SILENT_START_MILLIS) { startNow ->
                 // Atomic with TEARDOWN, which removes the pending entry before it stops the microphone.
@@ -561,8 +581,10 @@ class CarPlayMediaEngine(
                 entry["timestamp"] = session.syncedNtp()
                 entry["timestampRawNs"] = nowNs
                 entry["sampleTime"] = sampleTime
-                meta.position.onFeedback(meta.type, entry["streamConnectionID"], sampleTime, nowNs)
-                    ?.let(session::logDebug)
+                meta.route?.feedback(sampleTime, nowNs)?.let { row ->
+                    session.logDebug("Audio: feedback type=${meta.type} id=${entry["streamConnectionID"] ?: 0} " +
+                        "reported=$sampleTime received=${row[0]} aheadMs=${row[1]}" + if (row[2] != 0L) " overrun=true" else "")
+                }
             }
             entry
         } + listOfNotNull(buffered?.let { it.stream.feedback(session.syncedNtp(), it.connectionId) })

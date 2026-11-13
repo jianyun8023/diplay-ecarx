@@ -30,37 +30,42 @@ interface VehicleNightSource {
 
 /** Pure code tables shared by the vehicle day/night source and its tests. */
 object EcarxDayNightMapping {
+    init { com.shilapi.xcertplay.airplay.NativeMedia.requireAvailable() }
     /**
      * ECARX XUI AdaptAPI `IDayNightMode.getDayNight()` / `onDayNightChanged(int)`:
      * 1 = day, 2 = night, 0/unknown invalid. Contract recovered from the bytecode of the
      * `com.ecarx.xcvehicle` app shipped on this head unit.
      */
-    fun fromAdaptapiDayNight(value: Int): Boolean? = when (value) {
-        1 -> false
-        2 -> true
-        else -> null
-    }
+    fun fromAdaptapiDayNight(value: Int): Boolean? =
+        native(NativeDayNight.fromAdaptapi(value))
 
     /**
      * Car AMap standard broadcast `AUTONAVI_STANDARD_BROADCAST_SEND` with `KEY_TYPE` 10019:
      * `EXTRA_STATE` 30 = day, 32 = night. The same feed the OEM projection widget normalizes.
      */
-    fun fromAmapState(state: Int): Boolean? = when (state) {
-        30 -> false
-        32 -> true
-        else -> null
-    }
+    fun fromAmapState(state: Int): Boolean? =
+        native(NativeDayNight.fromAmap(state))
 
     /**
      * Vehicle property `0x21400305` (`TwliBriSts`, body twilight sensor): 1 = day, 0 = night.
      * Observed on the target head unit: each change is followed within milliseconds by the
      * AdaptAPI `onDayNightChanged` with the same decision.
      */
-    fun fromTwilightProperty(value: Int): Boolean? = when (value) {
-        1 -> false
-        0 -> true
+    fun fromTwilightProperty(value: Int): Boolean? =
+        native(NativeDayNight.fromTwilight(value))
+
+    private fun native(code: Int): Boolean? = when (code) {
+        0 -> false
+        1 -> true
         else -> null
     }
+}
+
+/** The native day/night tables; the AdaptAPI/broadcast adapters stay Kotlin. */
+internal object NativeDayNight {
+    @JvmStatic external fun fromAdaptapi(value: Int): Int
+    @JvmStatic external fun fromAmap(state: Int): Int
+    @JvmStatic external fun fromTwilight(value: Int): Int
 }
 
 /**

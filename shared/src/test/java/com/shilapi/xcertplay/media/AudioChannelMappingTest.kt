@@ -1,10 +1,26 @@
 package com.shilapi.xcertplay.media
 
 import android.media.AudioManager
+import com.shilapi.xcertplay.media.reference.KotlinAudioChannelMapper
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AudioChannelMappingTest {
+    @Test fun nativeRoutesMatchTheIndependentKotlinReference() {
+        for (mode in AudioChannelMappingMode.entries) {
+            for (audioType in listOf("telephony", "speechRecognition", "media", "default", "alert", "compatibility", "", "MEDIA", "unknown", "未知😀")) {
+                for (payload in listOf(100, 102, -1)) {
+                    for (navigation in listOf(0, 3, 7, 14)) {
+                        val expected = KotlinAudioChannelMapper.map(audioType, payload, mode, navigation)
+                        val actual = AudioChannelMapper.map(audioType, payload, mode, navigation)
+                        assertEquals(expected, actual)
+                        assertEquals(KotlinAudioChannelMapper.playCallOnSpeaker(expected), AudioChannelMapper.playCallOnSpeaker(actual))
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun mobileCompatibleMappingMatchesTheOriginalRouting() {
         assertMapped(

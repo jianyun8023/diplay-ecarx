@@ -1,35 +1,47 @@
 package com.shilapi.xcertplay.airplay
 
-/**
- * Keeps each finger in one touch report slot from press to release (#444). Contacts arrive with
- * Android pointer ids, which stay with a finger while the pointer index of the others changes. A
- * finger that is gone, and every finger when the list is empty, is released where it last was: a
- * release at (0,0) drags it to the corner first. A finger beyond the free slots is left out.
- */
-internal class AirPlayTouchSlots(private val slots: Int) {
-    private val pointers = arrayOfNulls<Int>(slots)
-    private val held = arrayOfNulls<AirPlayContact>(slots)
+import com.shilapi.xcertplay.airplay.NativeMedia
+import java.io.Closeable
 
-    /** The contacts to report, each with its slot as id; empty slots are left out. */
-    fun assign(contacts: List<AirPlayContact>): List<AirPlayContact> {
-        val report = arrayOfNulls<AirPlayContact>(slots)
-        for (contact in contacts) {
-            val slot = pointers.indexOf(contact.id).takeIf { it >= 0 }
-                ?: pointers.indexOf(null).takeIf { it >= 0 && contact.down }
-                ?: continue
-            pointers[slot] = contact.id
-            report[slot] = contact.copy(id = slot)
+/**
+ * Keeps each finger in one touch report slot from press to release (#444). Rust owns the slot state
+ * and the HID report; Kotlin keeps the Android pointer ids and the display size.
+ */
+internal class AirPlayTouchSlots(private val slots: Int) : Closeable {
+    init { NativeMedia.requireAvailable() }
+    private var handle = NativeTouchSlots.create(slots).also { check(it != 0L) }
+    private var closed = false
+
+    /** The 12-byte HID report for contacts carrying Android pointer ids, scaled to the display. */
+    @Synchronized
+    fun report(contacts: List<AirPlayContact>, widthPixels: Int, heightPixels: Int): ByteArray? {
+        if (closed) return null
+        val ids = IntArray(contacts.size)
+        val xs = DoubleArray(contacts.size)
+        val ys = DoubleArray(contacts.size)
+        val down = BooleanArray(contacts.size)
+        contacts.forEachIndexed { index, contact ->
+            ids[index] = contact.id
+            xs[index] = contact.x
+            ys[index] = contact.y
+            down[index] = contact.down
         }
-        for (slot in 0 until slots) {
-            if (report[slot] == null) report[slot] = held[slot]?.copy(down = false)
-            val sent = report[slot]
-            if (sent?.down == true) {
-                held[slot] = sent
-            } else {
-                held[slot] = null
-                pointers[slot] = null
-            }
-        }
-        return report.filterNotNull()
+        return NativeTouchSlots.assignReport(handle, ids, xs, ys, down, widthPixels, heightPixels)
     }
+
+    @Synchronized
+    override fun close() {
+        closed = true
+        if (handle != 0L) NativeTouchSlots.destroy(handle)
+        handle = 0L
+    }
+}
+
+internal object NativeTouchSlots {
+    @JvmStatic external fun create(slots: Int): Long
+    @JvmStatic external fun destroy(handle: Long)
+    @JvmStatic external fun assignReport(
+        handle: Long, ids: IntArray, xs: DoubleArray, ys: DoubleArray, down: BooleanArray,
+        widthPixels: Int, heightPixels: Int,
+    ): ByteArray
 }

@@ -15,33 +15,18 @@ package com.shilapi.xcertplay.media
  */
 internal class PacingDelay(
     initialNanos: Long,
-    private val minNanos: Long = 30_000_000L,
-    private val maxNanos: Long = 200_000_000L,
-    private val window: Int = 120,
-    private val percentile: Int = 90,
-    private val refreshEvery: Int = 15,
-    private val marginNanos: Long = 20_000_000L,
-    private val risePerFrame: Long = 1_000_000L,
-    private val fallPerFrame: Long = 500_000L,
+    minNanos: Long = 30_000_000L,
+    maxNanos: Long = 200_000_000L,
+    window: Int = 120,
+    percentile: Int = 90,
+    refreshEvery: Int = 15,
+    marginNanos: Long = 20_000_000L,
+    risePerFrame: Long = 1_000_000L,
+    fallPerFrame: Long = 500_000L,
 ) {
-    private val needs = LongArray(window)
-    private var count = 0
-    private var next = 0
-    private var frames = 0
+    private val owner = NativeVideoTiming.delayCreate(initialNanos, minNanos, maxNanos, window, percentile, refreshEvery, marginNanos, risePerFrame, fallPerFrame)
 
-    var nanos: Long = initialNanos.coerceIn(minNanos, maxNanos)
-        private set
-    private var goal = nanos
+    val nanos: Long get() = NativeVideoTiming.delayNanos(owner)
 
-    /** Records that a frame came out of the decoder [neededNanos] after its local time. */
-    fun onFrame(neededNanos: Long) {
-        needs[next] = neededNanos.coerceIn(0L, maxNanos)
-        next = (next + 1) % window
-        if (count < window) count++
-        if (++frames % refreshEvery == 0) {
-            val sorted = needs.copyOf(count).also { it.sort() }
-            goal = (sorted[(count - 1) * percentile / 100] + marginNanos).coerceIn(minNanos, maxNanos)
-        }
-        nanos += (goal - nanos).coerceIn(-fallPerFrame, risePerFrame)
-    }
+    fun onFrame(neededNanos: Long) = NativeVideoTiming.delayFrame(owner, neededNanos)
 }

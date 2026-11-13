@@ -5,8 +5,63 @@ import com.shilapi.xcertplay.orchestration.ConnectionFailureCause
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
+import com.shilapi.xcertplay.network.reference.KotlinP2pStartupRecovery
 
 class P2pStartupRecoveryTest {
+    @Test fun nativePlansMatchTheIndependentReferenceAcrossBandsCapabilitiesAndRememberedValues() {
+        val preferred = listOf(null, P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT),
+            P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT, 0),
+            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5745),
+            P2pCreationRequest(P2pCreationMode.FIXED_2_GHZ, 2437),
+            P2pCreationRequest(P2pCreationMode.FIXED_5_GHZ, 5500))
+        for (station in listOf(null, 0, 2412, 2422, 2437, 2472, 5180, 5200, 5500, 5955)) {
+            for (remembered in preferred) for (channel in listOf(0, -5, -2, 6, 149)) {
+                for (band in listOf(false, true)) for (five in listOf(false, true)) {
+                    assertEquals("station=$station preferred=$remembered channel=$channel band=$band five=$five",
+                        KotlinP2pStartupRecovery.plan(station, remembered, channel, band, five),
+                        P2pStartupRecovery.plan(station, remembered, channel, band, five))
+                }
+            }
+        }
+    }
+
+    @Test fun nativeRetryActionsPreserveCallbackOrderAndTheOriginalFailureObjects() {
+        val error = P2pCreateRejected(WifiP2pManager.ERROR, "error")
+        val busy = P2pCreateRejected(WifiP2pManager.BUSY, "busy")
+        val permission = P2pCreateRejected(WifiP2pManager.NO_PERMISSION, "permission")
+        val compatibility = P2pConfigBuildCompatibilityFailure(NoSuchMethodError("vendor framework"))
+        val timeout = IOException("uncertain timeout")
+        val scripts = listOf(emptyList(), listOf(error), listOf(busy), listOf(busy, busy),
+            List(20) { busy }, List(20) { error }, listOf(permission), listOf(timeout),
+            listOf(compatibility), listOf(compatibility, error), listOf(error, compatibility))
+        for (script in scripts) for (channel in listOf(0, -5, 149)) {
+            val expectedEvents = mutableListOf<String>()
+            val actualEvents = mutableListOf<String>()
+            fun run(native: Boolean, events: MutableList<String>): Result<P2pCreationRequest> {
+                var attempt = 0
+                val guard = { events += "guard"; Unit }
+                val request: (P2pCreationRequest) -> Unit = {
+                    events += "request:${it.mode}:${it.frequencyMHz}"
+                    script.getOrNull(attempt++)?.let { failure -> throw failure }
+                }
+                return runCatching {
+                    if (native) P2pStartupRecovery.create(5200, guard, preferredChannel = channel, request = request)
+                    else KotlinP2pStartupRecovery.create(5200, guard, preferredChannel = channel, request = request)
+                }
+            }
+            val expected = run(false, expectedEvents)
+            val actual = run(true, actualEvents)
+            assertEquals(expectedEvents, actualEvents)
+            assertEquals(expected.getOrNull(), actual.getOrNull())
+            val expectedFailure = expected.exceptionOrNull()
+            val actualFailure = actual.exceptionOrNull()
+            assertEquals(expectedFailure?.javaClass, actualFailure?.javaClass)
+            assertEquals(expectedFailure?.message, actualFailure?.message)
+            if (expectedFailure is P2pChannelUnavailableException) assertSame(expectedFailure.cause, actualFailure?.cause)
+            else assertSame(expectedFailure, actualFailure)
+        }
+    }
+
     @Test fun manualChannelOverridesStationAndRememberedConfiguration() {
         val remembered = P2pCreationRequest(P2pCreationMode.SYSTEM_DEFAULT)
         for ((channel, frequency) in listOf(1 to 2412, 6 to 2437, 11 to 2462,

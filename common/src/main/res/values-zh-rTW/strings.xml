@@ -668,6 +668,8 @@
     <string name="settings_mtk_decoder_tuning_description">偵測到所選影片格式可使用 %1$s。有專用 MTK 低延遲解碼器時優先使用；舊版 OMX 解碼器則先嘗試無重新排序加低延遲，再嘗試僅低延遲。解碼器拒絕設定或執行失敗時會自動回退。它可能降低畫面延遲，但部分韌體可能卡頓或解碼失敗。下次連線至 CarPlay 時生效。</string>
     <string name="settings_direct_video_output">直接影片輸出（實驗性）</string>
     <string name="settings_direct_video_output_description">將 CarPlay 畫面直接交給車機的系統合成器，而不是在 DiPlay 視窗內繪製。可將延遲降低約一次螢幕更新。畫面調整不適用。會重新連線至 CarPlay。</string>
+    <string name="settings_native_wired_data_path">有線資料通路原生化（實驗性）</string>
+    <string name="settings_native_wired_data_path_description">有線 CarPlay 的 USB 資料在 iPhone 與 Android 之間改由 DiPlay 原生程式庫搬運，不再經過 Java。下次有線連線時生效。尚未實車驗證：有線 CarPlay 連不上時請關閉。</string>
     <string name="settings_low_latency_decoder">高通低延遲解碼（實驗性）</string>
     <string name="settings_low_latency_decoder_description">請求高通私有低延遲模式，支援在 Android 9 上嘗試。設定或解碼失敗時，自動移除私有參數重試。診斷記錄區分請求、驅動程式報告值與實際輸出影格，但無法證明硬體模式已生效。如有破圖或卡頓請關閉。下次 CarPlay 連線時生效。</string>
     <string name="settings_fps_counter">FPS 計數器</string>

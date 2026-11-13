@@ -100,7 +100,7 @@ class ClusterContentTest {
     }
 
     private fun commands(event: EventSocket): List<Map<String, Any?>> {
-        val plaintext = ControlCipher(ByteArray(32), ByteArray(32)).decrypt(event.bytes.toByteArray()).data
+        val plaintext = ControlCipher(ByteArray(32), ByteArray(32)).use { it.decrypt(event.bytes.toByteArray()).data }
         return RtspMessage.parseMessages(plaintext).messages.map { BplistCodec.decode(it.body) as Map<String, Any?> }
     }
 

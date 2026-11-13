@@ -15,45 +15,35 @@ package com.shilapi.xcertplay.media
  * [maxEarlyNanos] after it arrived.
  */
 internal class FramePacer(
-    private val window: Int = 240,
-    private val percentile: Int = 5,
-    private val refreshEvery: Int = 30,
-    private val slewPerSecond: Double = 0.002,
-    private val resetNanos: Long = 500_000_000L,
-    private val maxEarlyNanos: Long = 100_000_000L,
+    window: Int = 240,
+    percentile: Int = 5,
+    refreshEvery: Int = 30,
+    slewPerSecond: Double = 0.002,
+    resetNanos: Long = 500_000_000L,
+    maxEarlyNanos: Long = 100_000_000L,
 ) {
-    private val residuals = ArrayDeque<Long>()
-    private var frames = 0
-    private var candidate = 0L
-    private var offset = Long.MIN_VALUE
-    private var lastArrivalNanos = 0L
+    private val owner = NativeVideoTiming.pacerCreate(window, percentile, refreshEvery, slewPerSecond, resetNanos, maxEarlyNanos)
 
-    /**
-     * The local time of a frame stamped [senderNanos] that arrived at [arrivalNanos]: its sender time on
-     * System.nanoTime plus the link's base delay. 0 when that is implausible (far behind or ahead of its
-     * arrival), so the frame is shown as soon as it is decoded.
-     */
-    fun localTime(senderNanos: Long, arrivalNanos: Long): Long {
-        residuals.addLast(arrivalNanos - senderNanos)
-        if (residuals.size > window) residuals.removeFirst()
-        val warmingUp = frames < refreshEvery
-        if (warmingUp || frames % refreshEvery == 0) {
-            val sorted = residuals.toLongArray().also { it.sort() }
-            candidate = sorted[(sorted.size - 1) * percentile / 100]
-        }
-        frames++
-        if (offset == Long.MIN_VALUE || warmingUp || candidate - offset > resetNanos || offset - candidate > maxEarlyNanos) {
-            offset = candidate
-        } else {
-            val step = ((arrivalNanos - lastArrivalNanos).coerceAtLeast(0) * slewPerSecond).toLong()
-            offset += (candidate - offset).coerceIn(-step, step)
-        }
-        lastArrivalNanos = arrivalNanos
-        val local = senderNanos + offset
-        return if (local - arrivalNanos in -ONE_SECOND..maxEarlyNanos) local else 0L
-    }
+    fun frameTime(enabled: Boolean, senderNanos: Long, arrivalNanos: Long): Long =
+        NativeVideoTiming.pacerFrame(owner, enabled, senderNanos, arrivalNanos)
 
-    private companion object {
-        const val ONE_SECOND = 1_000_000_000L
-    }
+    fun localTime(senderNanos: Long, arrivalNanos: Long): Long =
+        NativeVideoTiming.pacerLocal(owner, senderNanos, arrivalNanos)
+}
+
+/** Pure shared timing owners; values are GC-managed and never contain native handles. */
+internal object NativeVideoTiming {
+    init { com.shilapi.xcertplay.airplay.NativeMedia.requireAvailable() }
+    @JvmStatic external fun pacerCreate(window: Int, percentile: Int, refreshEvery: Int, slew: Double, resetNanos: Long, maxEarlyNanos: Long): LongArray
+    @JvmStatic external fun pacerFrame(owner: LongArray, enabled: Boolean, sender: Long, arrival: Long): Long
+    @JvmStatic external fun outputCreate(initialDelay: Long): LongArray
+    @JvmStatic external fun outputQueued(owner: LongArray, presentation: Long, local: Long, now: Long)
+    @JvmStatic external fun outputPlan(owner: LongArray, presentation: Long, now: Long, shown: Boolean): LongArray
+    @JvmStatic external fun outputValue(owner: LongArray, field: Int): Long
+    @JvmStatic external fun pacerLocal(owner: LongArray, senderNanos: Long, arrivalNanos: Long): Long
+    @JvmStatic external fun delayCreate(initial: Long, min: Long, max: Long, window: Int, percentile: Int, refreshEvery: Int, margin: Long, rise: Long, fall: Long): LongArray
+    @JvmStatic external fun delayFrame(owner: LongArray, neededNanos: Long)
+    @JvmStatic external fun delayNanos(owner: LongArray): Long
+    @JvmStatic external fun backlogCreate(): LongArray
+    @JvmStatic external fun backlogEvent(owner: LongArray, event: Int, nowNanos: Long, receivedNanos: Long, pending: Int, newestNanos: Long, hasNewest: Boolean): Boolean
 }

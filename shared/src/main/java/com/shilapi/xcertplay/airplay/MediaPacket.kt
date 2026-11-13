@@ -53,6 +53,12 @@ internal class NativePacket(handle: Long, override val size: Int, override val f
 
     private fun live(): Long = handle.get().also { check(it != 0L) { "media packet used after release" } }
 
+    /** The handle native calls read the packet through; valid until [release]. */
+    fun nativeHandle(): Long = live()
+
+    /** Hands this reference to native code, which releases it; this wrapper is spent. */
+    fun detach(): Long = handle.getAndSet(0L).also { check(it != 0L) { "media packet used after release" } }
+
     override fun copyInto(target: ByteBuffer, offset: Int, length: Int) {
         require(offset >= 0 && length >= 0 && offset <= size - length)
         val position = target.position()

@@ -816,6 +816,16 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_SMOOTH_VIDEO, enabled).apply()
     }
 
+    /** The experimental native wired data path (NcmUsbBridge.startNative); off by default, applied at the next wired connection. */
+    fun loadNativeWiredDataPath(context: Context): Boolean =
+        context.getSharedPreferences(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_KEY, false)
+
+    fun saveNativeWiredDataPath(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(com.shilapi.xcertplay.transport.NcmUsbBridge.NATIVE_DATA_PATH_KEY, enabled).apply()
+    }
+
     /** MediaTek's legacy low-latency/no-reorder decoder path; opt-in and applied at reconnect. */
     fun loadMtkDecoderTuning(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MTK_DECODER_TUNING, false)

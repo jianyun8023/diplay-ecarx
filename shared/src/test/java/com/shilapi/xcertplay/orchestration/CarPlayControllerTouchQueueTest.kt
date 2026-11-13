@@ -69,8 +69,9 @@ class CarPlayControllerTouchQueueTest {
 
         /** Reports in send order, one string per report: the slots that are down or have a position. */
         fun reports(): List<String> {
-            val decoder = ControlCipher(ByteArray(32) { 2 }, ByteArray(32) { 1 })
-            val plain = decoder.decrypt(synchronized(wire.bytes) { wire.bytes.toByteArray() }).data
+            val plain = ControlCipher(ByteArray(32) { 2 }, ByteArray(32) { 1 }).use {
+                it.decrypt(synchronized(wire.bytes) { wire.bytes.toByteArray() }).data
+            }
             return RtspMessage.parseMessages(plain).messages.map { request ->
                 val report = (BplistCodec.decode(request.body) as Map<*, *>)["hidReport"] as ByteArray
                 (0 until AirPlayHid.TOUCH_CONTACTS).mapNotNull { slot ->

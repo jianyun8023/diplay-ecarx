@@ -11,8 +11,185 @@
 # libdiplay_media calls these from its receiver threads by name (see NativeMedia).
 -keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeStreamCallbacks {
     void onPacket(long, int, int, long, long);
+    void onAudioStarted(int);
+    void onAudioWire(byte[], byte[], long, int);
+    void onAudioClock(int);
+    void onAudioQueueEvent(int, long, long);
     void onConfig(byte[]);
+    void onReceiving();
     void onLog(int, java.lang.String);
     void onReport(java.lang.String);
     void onEnded(java.lang.String);
 }
+-keepclassmembers class * extends com.shilapi.xcertplay.airplay.NativeVideoCallbacks {
+    void onEvent(int, java.lang.String);
+}
+
+# The wired deadline passes opaque values through these JNI entry points.
+-keep class com.shilapi.xcertplay.transport.NativeControlDeadline {
+    native <methods>;
+}
+
+# Opaque recovery tokens use these primitive JNI entry points.
+-keep class com.shilapi.xcertplay.orchestration.NativeWirelessRecovery {
+    native <methods>;
+}
+
+# The route JNI boundary owns a handle and constructs the existing maneuver DTO.
+-keep class com.shilapi.xcertplay.hud.NativeRouteGuidance {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.hud.AppleManeuver {
+    public <init>(int, int, int, java.lang.String, java.lang.Long, java.lang.Long, java.lang.Long, java.lang.Long);
+}
+
+# Pair-verify calls the live platform store and returns its existing key DTO.
+-keep class com.shilapi.xcertplay.airplay.NativePairVerify {
+    native <methods>;
+    public static byte[] lookup(com.shilapi.xcertplay.airplay.PairingStore, byte[]);
+}
+-keepnames class com.shilapi.xcertplay.airplay.PairingStore
+-keep class com.shilapi.xcertplay.airplay.PairVerify$ControlKeys {
+    public <init>(byte[], byte[]);
+}
+
+# The control cipher JNI returns the existing plaintext/rest DTO.
+-keep class com.shilapi.xcertplay.airplay.ControlCipher$Decrypted {
+    public <init>(byte[], byte[]);
+}
+# The RTSP JNI codec constructs the existing request/result DTOs directly.
+-keep class com.shilapi.xcertplay.airplay.RtspMessage$Request {
+    public <init>(java.lang.String, java.lang.String, java.lang.String, java.util.Map, byte[]);
+}
+-keep class com.shilapi.xcertplay.airplay.RtspMessage$Parsed {
+    public <init>(java.util.List, byte[]);
+}
+
+# Input/vehicle conversion and platform-output accounting use primitive JNI entry points.
+-keep class com.shilapi.xcertplay.airplay.NativeTouchSlots {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.transport.NativeVehicleSpeed {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.media.NativeAudioScheduler {
+    native <methods>;
+}
+
+# HUD/cluster pure conversion tables (adapters stay Kotlin).
+-keep class com.shilapi.xcertplay.hud.NativeClusterArrow {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.hud.NativeLaneIcon {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.hud.NativeDayNight {
+    native <methods>;
+}
+
+# IdentificationInformation vehicle components pure TLV encoder.
+-keep class com.shilapi.xcertplay.transport.NativeVehicleIdentification {
+    native <methods>;
+}
+
+# iAP2 body parameter framing and the DTO its native parser constructs.
+-keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Csm {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.iap2.wire.Iap2Frame {
+    public <init>(int, byte[]);
+}
+-keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Body {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.iap2.wire.Iap2Parameter {
+    public <init>(int, byte[]);
+}
+-keep class com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException {
+    public <init>(java.lang.String, java.lang.Throwable);
+}
+
+-keep class com.shilapi.xcertplay.transport.NativeIap2Link { native <methods>; }
+
+-keep class com.shilapi.xcertplay.iap2.wire.NativeIap2Wire { native <methods>; }
+
+# PairSetup keeps the live platform save callback and the store's binary class name.
+-keep class com.shilapi.xcertplay.airplay.NativePairSetup {
+    native <methods>;
+    public static void save(com.shilapi.xcertplay.airplay.PairingStore, byte[], byte[]);
+}
+
+# Native stateless crypto/DER bridge. Byte-array results need no obfuscated DTO constructors.
+-keep class com.shilapi.xcertplay.airplay.NativeCrypto { native <methods>; }
+
+-keep class com.shilapi.xcertplay.airplay.NativeNtpTiming { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeAirPlayNegotiation { native <methods>; }
+
+-keep class com.shilapi.xcertplay.media.NativeVideoPolicy { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeVideoTiming { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeVideoFlow { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeScreenCodec { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeMicrophonePacketizer { native <methods>; }
+
+-keep class com.shilapi.xcertplay.orchestration.NativeCarPlayController { native <methods>; }
+-keep class com.shilapi.xcertplay.transport.NativeIap2Handshake { native <methods>; }
+-keep class com.shilapi.xcertplay.orchestration.NativeStartupWatchdog { native <methods>; }
+
+# USBMUX bridges return only bootstrap arrays/strings; protocol exception has a String-only ctor.
+-keep class com.shilapi.xcertplay.transport.NativeUsbMux { native <methods>; }
+-keep class com.shilapi.xcertplay.transport.NativeNcm { native <methods>; }
+-keep class com.shilapi.xcertplay.transport.IphoneUsbException$Protocol {
+    public <init>(java.lang.String);
+}
+-keep class com.shilapi.xcertplay.transport.NativeLockdown { native <methods>; }
+-keepclassmembers class com.shilapi.xcertplay.transport.LockdownXmlTokens {
+    public java.lang.Object[] next(int);
+    public long[] integer(java.lang.String);
+    public java.lang.String data(java.lang.String);
+}
+-keepclassmembers class com.shilapi.xcertplay.transport.LockdownXmlInput {
+    public java.lang.Object[] next();
+}
+-keepclassmembers class com.shilapi.xcertplay.transport.LockdownIo {
+    public long now();
+    public void verify();
+    public byte[] recv(int, long);
+}
+-keep class com.shilapi.xcertplay.transport.NativeIap2FileTransfer { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeDataStream { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeMfiSap { native <methods>; }
+-keep class com.shilapi.xcertplay.airplay.NativeIapStreamQueue { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeAac { native <methods>; }
+-keepclassmembers class com.shilapi.xcertplay.airplay.MfiSapPlatform {
+    public int kind();
+    public byte[] certificate();
+    public int major();
+    public byte[] sign(byte[]);
+    public byte[][] baa();
+}
+
+-keep class com.shilapi.xcertplay.transport.NativeIap2ReportSubscription {
+    native <methods>;
+}
+-keep class com.shilapi.xcertplay.transport.NativeNmeaLocation {
+    native <methods>;
+}
+
+-keep class com.shilapi.xcertplay.media.NativePlaybackCore { *; }
+-keep class com.shilapi.xcertplay.media.CarPlayNowPlaying {
+    public <init>(java.lang.String, java.lang.String, java.lang.String, java.lang.Integer, java.lang.String, java.lang.Long, java.lang.Long, boolean);
+}
+
+# Shared call PCM/clock ownership and CarPlay-to-platform route decisions.
+-keep class com.shilapi.xcertplay.media.NativeEchoReference { native <methods>; }
+-keep class com.shilapi.xcertplay.media.NativeAudioRouting { native <methods>; }
+-keep class com.shilapi.xcertplay.network.NativeP2pStartup { native <methods>; }
+
+-keep class com.shilapi.xcertplay.network.NativeHotspotAddress { native <methods>; }
+
+# AirPlay capability declarations and event/control bodies use this JNI boundary.
+-keep class com.shilapi.xcertplay.airplay.NativeAirPlayProtocol { native <methods>; }
+
+-keep class com.shilapi.xcertplay.network.NativeHotspotRecovery { native <methods>; }
+
+-keep class com.shilapi.xcertplay.iap2.message.NativeLaneGuidance { native <methods>; }

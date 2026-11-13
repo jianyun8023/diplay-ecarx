@@ -4,10 +4,12 @@ import com.shilapi.xcertplay.iap2.catalog.Iap2Endpoint
 import com.shilapi.xcertplay.iap2.catalog.Iap2FieldSpec
 import com.shilapi.xcertplay.iap2.catalog.Iap2WireType
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
+import com.shilapi.xcertplay.iap2.wire.Iap2CsmFramer
 import com.shilapi.xcertplay.iap2.wire.Iap2Parameter
 import com.shilapi.xcertplay.iap2.wire.Iap2ParameterList
 import com.shilapi.xcertplay.iap2.wire.Iap2ProtocolException
 import com.shilapi.xcertplay.iap2.wire.Iap2WireCodec
+import com.shilapi.xcertplay.iap2.wire.NativeIap2Body
 
 /**
  * Ordered, schema-aware builder for one CSM body.
@@ -80,6 +82,14 @@ class Iap2BodyBuilder private constructor(
         return this
     }
 
+    /** Adds a group whose child TLV bytes were encoded elsewhere (Rust) without re-parsing them. */
+    internal fun groupEncoded(id: Int, payload: ByteArray): Iap2BodyBuilder {
+        require(payload.size <= Iap2CsmFramer.MAX_BODY_BYTES) {
+            "Encoded CSM parameters exceed the ${Iap2CsmFramer.MAX_BODY_BYTES}-byte message body limit"
+        }
+        return add(id, payload, Iap2WireType.GROUP)
+    }
+
     fun optionalVoid(id: Int, present: Boolean): Iap2BodyBuilder =
         if (present) void(id) else this
 
@@ -134,35 +144,33 @@ class Iap2BodyBuilder private constructor(
     private fun schemaField(id: Int): Iap2FieldSpec? = fields.firstOrNull { it.id == id }
 
     private fun validate(specs: List<Iap2FieldSpec>) {
-        val byId = specs.associateBy(Iap2FieldSpec::id)
-        for (entry in entries) {
-            val spec = byId[entry.parameter.id]
-                ?: throw Iap2ProtocolException(
-                    "Unknown body parameter 0x${entry.parameter.id.toString(16).padStart(4, '0')}",
-                )
-            if (!wireTypeMatches(spec.type, entry.wireType)) {
-                throw Iap2ProtocolException(
-                    "Body parameter 0x${spec.id.toString(16).padStart(4, '0')} expected ${spec.type}, " +
-                        "got ${entry.wireType}",
-                )
-            }
-            if (!spec.repeatable && entries.count { it.parameter.id == spec.id } > 1) {
-                throw Iap2ProtocolException(
-                    "Body parameter 0x${spec.id.toString(16).padStart(4, '0')} is not repeatable",
-                )
-            }
+        val rows = IntArray(specs.size * 3)
+        specs.forEachIndexed { index, spec ->
+            rows[index * 3] = spec.id
+            rows[index * 3 + 1] = spec.type.ordinal
+            rows[index * 3 + 2] = (if (spec.required) 1 else 0) or (if (spec.repeatable) 2 else 0)
         }
-        for (spec in specs.filter { it.required }) {
-            if (entries.none { it.parameter.id == spec.id }) {
-                throw Iap2ProtocolException(
-                    "Missing required body parameter 0x${spec.id.toString(16).padStart(4, '0')} (${spec.name})",
-                )
-            }
+        val error = NativeIap2Body.validateBuilder(
+            entries.map { it.parameter.id }.toIntArray(),
+            entries.map { it.wireType.ordinal }.toIntArray(),
+            rows,
+        ) ?: return
+        // Keep names as platform UTF-16; Rust returns the rule and its original input index.
+        if (error[0] == 3) {
+            val spec = specs[error[1]]
+            throw Iap2ProtocolException(
+                "Missing required body parameter 0x${spec.id.toString(16).padStart(4, '0')} (${spec.name})",
+            )
         }
+        val entry = entries[error[1]]
+        val id = entry.parameter.id.toString(16).padStart(4, '0')
+        val message = when (error[0]) {
+            0 -> "Unknown body parameter 0x$id"
+            1 -> "Body parameter 0x$id expected ${specs.last { it.id == entry.parameter.id }.type}, got ${entry.wireType}"
+            else -> "Body parameter 0x$id is not repeatable"
+        }
+        throw Iap2ProtocolException(message)
     }
-
-    private fun wireTypeMatches(expected: Iap2WireType, actual: Iap2WireType): Boolean =
-        expected == Iap2WireType.OPAQUE || expected == actual
 
     companion object {
         fun of(endpoint: Iap2Endpoint): Iap2BodyBuilder =

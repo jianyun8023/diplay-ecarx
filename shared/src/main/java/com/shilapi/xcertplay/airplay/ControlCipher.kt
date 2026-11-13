@@ -7,54 +7,28 @@ package com.shilapi.xcertplay.airplay
  * header is the AEAD associated data and each direction uses an 8-byte little-endian nonce
  * counter plus its own key.
  */
-class ControlCipher(private val readKey: ByteArray, private val writeKey: ByteArray) {
+class ControlCipher(readKey: ByteArray, writeKey: ByteArray) : java.io.Closeable {
     data class Decrypted(val data: ByteArray, val rest: ByteArray)
 
-    private var readCounter = 0L
-    private var writeCounter = 0L
+    init { NativeMedia.requireAvailable() }
 
-    fun decrypt(buffer: ByteArray): Decrypted {
-        val output = ArrayList<ByteArray>()
-        var offset = 0
-        while (buffer.size - offset >= HEADER_SIZE) {
-            val length = readU16Le(buffer, offset)
-            val frameEnd = offset + HEADER_SIZE + length + TAG_SIZE
-            if (buffer.size < frameEnd) break
-            output.add(AirPlayCrypto.chachaOpen(
-                readKey, AirPlayCrypto.nonce64(readCounter), buffer, buffer,
-                offset = offset + HEADER_SIZE, length = length + TAG_SIZE,
-                aadOffset = offset, aadLength = HEADER_SIZE,
-            ))
-            readCounter++
-            offset = frameEnd
-        }
-        return Decrypted(
-            if (output.size == 1) output[0] else concatBytes(*output.toTypedArray()),
-            if (offset == 0) buffer else buffer.copyOfRange(offset, buffer.size),
-        )
+    private var handle = NativeControlCipher.create(readKey, writeKey).also { check(it != 0L) }
+    private var closed = false
+
+    @Synchronized fun decrypt(buffer: ByteArray): Decrypted {
+        check(!closed) { "ControlCipher is closed" }
+        return NativeControlCipher.decrypt(handle, buffer)
     }
 
-    fun encrypt(plaintext: ByteArray): ByteArray {
-        val output = ArrayList<ByteArray>()
-        var offset = 0
-        do {
-            val chunk = plaintext.copyOfRange(offset, minOf(offset + MAX_PAYLOAD, plaintext.size))
-            val header = byteArrayOf(chunk.size.toByte(), (chunk.size ushr 8).toByte())
-            val ciphertextAndTag = AirPlayCrypto.chachaSeal(writeKey, AirPlayCrypto.nonce64(writeCounter), chunk, header)
-            output.add(header)
-            output.add(ciphertextAndTag)
-            writeCounter++
-            offset += MAX_PAYLOAD
-        } while (offset < plaintext.size)
-        return concatBytes(*output.toTypedArray())
+    @Synchronized fun encrypt(plaintext: ByteArray): ByteArray {
+        check(!closed) { "ControlCipher is closed" }
+        return NativeControlCipher.encrypt(handle, plaintext)
     }
 
-    private fun readU16Le(source: ByteArray, offset: Int): Int =
-        (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
-
-    private companion object {
-        const val HEADER_SIZE = 2
-        const val TAG_SIZE = 16
-        const val MAX_PAYLOAD = 0x4000
+    @Synchronized override fun close() {
+        if (closed) return
+        NativeControlCipher.destroy(handle)
+        handle = 0L
+        closed = true
     }
 }

@@ -18,8 +18,7 @@ def licenseAssets = tasks.register('prepareLicenseAssets', LicenseAssetsTask) {
         from(rootProject.file('docs/licenses/dependencies'))
         from(rootProject.file('docs/licenses/SOURCE.txt'))
         from('src/main/jni/speexdsp/COPYING') { rename { 'SpeexDSP-COPYING.txt' } }
-        from('src/main/java/org/concentus/LICENSE') { rename { 'Concentus-LICENSE.txt' } }
-        from('src/main/jni/opus/COPYING') { rename { 'Opus-COPYING.txt' } }
+        from('src/testCore/java/org/concentus/LICENSE') { rename { 'Concentus-LICENSE.txt' } }
         from('src/main/jniLibs/NOTICE.md') { rename { 'NATIVE-NOTICE.md' } }
     }
 }
@@ -70,7 +69,6 @@ androidComponents {
 }
 dependencies {
     implementation libs.androidx.annotation
-    implementation libs.bouncycastle
     implementation libs.jmdns
     testImplementation libs.junit
     testImplementation 'org.robolectric:robolectric:4.17'

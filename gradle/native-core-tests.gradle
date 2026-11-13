@@ -1,0 +1,46 @@
+// Only JVM Test tasks build the host core. Android APKs continue consuming the shipped ABIs.
+def coreDirectory = rootProject.file('shared/src/main/rust/diplay-media')
+def hostTarget = rootProject.layout.buildDirectory.dir('native-core-tests')
+def hostLibrary = hostTarget.map { it.file('debug/' + System.mapLibraryName('diplay_media')) }
+def prepareHostCore = rootProject.tasks.register('prepareHostCoreForTests', Exec) {
+    inputs.files(rootProject.fileTree(coreDirectory) { include 'src/**/*.rs', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml' })
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.property('rustFlags', rootProject.providers.environmentVariable('RUSTFLAGS').orElse(''))
+    inputs.property('rustCompiler', rootProject.providers.environmentVariable('RUSTC').orElse('rustc'))
+    outputs.file(hostLibrary)
+    workingDir coreDirectory
+    environment 'CARGO_TARGET_DIR', hostTarget.get().asFile.absolutePath
+    commandLine 'cargo', 'build', '--locked', '--lib'
+}
+
+def configureCoreTests = { Project project ->
+    def android = project.extensions.getByName('android')
+    android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCore/kotlin'))
+    android.sourceSets.getByName('test').java.srcDir(rootProject.file('shared/src/testCore/java'))
+    android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreShadows/kotlin'))
+    android.sourceSets.getByName('test').resources.srcDir(rootProject.file('shared/src/testCoreShadows/resources'))
+    if (project.path == ':shared') {
+        // These contracts use shared's internal owners; common/home only need the shared JNI shadows.
+        android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreInternal/kotlin'))
+        android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCoreInternal/kotlin'))
+        android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCore/kotlin'))
+        android.sourceSets.getByName('androidTest').java.srcDir(rootProject.file('shared/src/testCore/java'))
+    }
+    // The old crypto algorithms are test oracles, never a production dependency.
+    def libraries = rootProject.extensions.getByType(VersionCatalogsExtension).named('libs')
+    project.dependencies.add('testImplementation', libraries.findLibrary('bouncycastle').get())
+    if (project.path == ':shared') project.dependencies.add('androidTestImplementation', libraries.findLibrary('bouncycastle').get())
+    if (project.path == ':home') project.dependencies.add('testImplementation', project.dependencies.project(path: ':shared'))
+    project.tasks.withType(Test).configureEach {
+        dependsOn prepareHostCore
+        inputs.file(hostLibrary)
+        systemProperty 'java.library.path', hostTarget.get().dir('debug').asFile.absolutePath
+    }
+}
+
+subprojects { project ->
+    if (project.path in [':shared', ':common', ':home']) {
+        project.plugins.withId('com.android.library') { configureCoreTests(project) }
+        project.plugins.withId('com.android.application') { configureCoreTests(project) }
+    }
+}

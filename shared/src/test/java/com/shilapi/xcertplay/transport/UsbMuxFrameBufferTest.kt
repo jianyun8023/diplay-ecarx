@@ -5,8 +5,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.After
 
 class UsbMuxFrameBufferTest {
+    private val owners = ArrayList<UsbMuxFrameBuffer>()
+    @After fun closeOwners() { owners.forEach { it.close() } }
+    private fun framer(diagnostic: (String) -> Unit = {}): UsbMuxFrameBuffer =
+        UsbMuxFrameBuffer(diagnostic).also { owners.add(it) }
+
     @Test fun versionPaddingWorksAcrossEveryTransferSplit() {
         assertEverySplitPreservesFrames(version, zeroPadding, tcp(data = data))
     }
@@ -17,7 +23,7 @@ class UsbMuxFrameBufferTest {
 
     @Test fun unpaddedFramesAndUnknownNormalProtocolsArePreserved() {
         val unknown = mux(73, byteArrayOf(1, 2, 3), magic = 9)
-        val buffer = UsbMuxFrameBuffer()
+        val buffer = framer()
         buffer.append(version + synAck + unknown + tcp(data = data))
         assertEquals(0, buffer.takeFrame()!!.protocol)
         assertEquals(6, buffer.takeFrame()!!.protocol)
@@ -30,7 +36,7 @@ class UsbMuxFrameBufferTest {
     }
 
     @Test fun coalescedPaddedAndUnpaddedRepliesKeepAllFollowingPayloads() {
-        val buffer = UsbMuxFrameBuffer()
+        val buffer = framer()
         buffer.append(version + zeroPadding + synAck + capturedPadding + tcp(data = data) + tcp(data = data))
         assertEquals(20, buffer.takeFrame()!!.length)
         assertEquals(36, buffer.takeFrame()!!.length)
@@ -119,7 +125,7 @@ class UsbMuxFrameBufferTest {
     }
 
     @Test fun arbitraryLeadingJunkDoesNotTriggerResynchronization() {
-        val buffer = UsbMuxFrameBuffer()
+        val buffer = framer()
         buffer.append(capturedPadding + tcp(data = data))
         assertProtocolFailure { buffer.takeFrame() }
     }
@@ -155,7 +161,7 @@ class UsbMuxFrameBufferTest {
             tcp(data = ByteArray(360) { (it % 251).toByte() }), tcp(data = lastPayload))
         val wire = replies.reduce { all, next -> all + reportedPadding + next }
         for (split in 0..wire.size) {
-            val buffer = UsbMuxFrameBuffer()
+            val buffer = framer()
             val parsed = mutableListOf<UsbMuxFrame>()
             fun drain() { while (true) parsed.add(buffer.takeFrame() ?: break) }
             buffer.append(wire.copyOfRange(0, split)); drain()
@@ -228,7 +234,7 @@ class UsbMuxFrameBufferTest {
 
     @Test fun invalidLengthWithoutAnEligibleReplyStillFails() {
         val invalid = ByteArray(16)
-        val buffer = UsbMuxFrameBuffer()
+        val buffer = framer()
         buffer.append(invalid)
         assertProtocolFailure { buffer.takeFrame() }
     }
@@ -248,7 +254,7 @@ class UsbMuxFrameBufferTest {
 
     @Test fun paddingDiagnosticsAreCappedAndContainOnlyFramingMetadata() {
         val reports = mutableListOf<String>()
-        val buffer = UsbMuxFrameBuffer(reports::add)
+        val buffer = framer(reports::add)
         repeat(10) {
             buffer.append(synAck + capturedPadding + tcp(data = data))
             buffer.takeFrame(); buffer.takeFrame()
@@ -273,7 +279,7 @@ class UsbMuxFrameBufferTest {
         assertEverySplitPreservesFrames(capturedTcpTransfer.copyOfRange(0, 183),
             capturedTcpTransfer.copyOfRange(183, 187), capturedDiagnostic)
 
-        val buffer = UsbMuxFrameBuffer()
+        val buffer = framer()
         buffer.append(capturedTcpTransfer + capturedDiagnosticTransfer)
         assertEquals(6, buffer.takeFrame()!!.protocol)
         val diagnostic = buffer.takeFrame()!!
@@ -291,7 +297,7 @@ class UsbMuxFrameBufferTest {
             secondCapturedDiagnostic, following)
         val wire = capturedTcpTransfer + capturedDiagnosticTransfer + secondCapturedDiagnosticTransfer + following
         for (split in 0..wire.size) {
-            val buffer = UsbMuxFrameBuffer()
+            val buffer = framer()
             val parsed = mutableListOf<UsbMuxFrame>()
             fun drain() { while (true) parsed.add(buffer.takeFrame() ?: break) }
             buffer.append(wire.copyOfRange(0, split)); drain()
@@ -307,7 +313,7 @@ class UsbMuxFrameBufferTest {
 
     @Test fun incompleteDiagnosticDoesNotConsumeTrailerOrAnyPayloadBytes() {
         val reports = mutableListOf<String>()
-        val buffer = UsbMuxFrameBuffer(reports::add)
+        val buffer = framer(reports::add)
         buffer.append(capturedTcpTransfer)
         buffer.takeFrame()
         capturedDiagnostic.forEachIndexed { index, byte ->
@@ -349,7 +355,7 @@ class UsbMuxFrameBufferTest {
         rejectAfter(mux(73, data), reportedPadding + capturedDiagnostic)
         rejectAfter(tcp(data = data), zeroPadding + capturedPadding + capturedDiagnostic)
         rejectAfter(capturedDiagnostic, reportedPadding + mux(7, ByteArray(20)))
-        val buffer = UsbMuxFrameBuffer()
+        val buffer = framer()
         buffer.append(reportedPadding + capturedDiagnostic)
         assertProtocolFailure { buffer.takeFrame() }
     }
@@ -376,7 +382,7 @@ class UsbMuxFrameBufferTest {
 
     @Test fun diagnosticPaddingReportsOnlyFramingMetadata() {
         val reports = mutableListOf<String>()
-        val buffer = UsbMuxFrameBuffer(reports::add)
+        val buffer = framer(reports::add)
         buffer.append(capturedTcpTransfer + capturedDiagnosticTransfer + tcp(data = data))
         repeat(3) { buffer.takeFrame() }
         assertEquals(2, reports.size)
@@ -415,7 +421,7 @@ class UsbMuxFrameBufferTest {
     private fun assertEverySplitPreservesFrames(first: ByteArray, padding: ByteArray, next: ByteArray) {
         val wire = first + padding + next
         for (split in 0..wire.size) {
-            val buffer = UsbMuxFrameBuffer()
+            val buffer = framer()
             val frames = mutableListOf<UsbMuxFrame>()
             fun drain() { while (true) frames.add(buffer.takeFrame() ?: break) }
             buffer.append(wire.copyOfRange(0, split)); drain()
@@ -427,7 +433,7 @@ class UsbMuxFrameBufferTest {
         }
     }
 
-    private fun after(frame: ByteArray): UsbMuxFrameBuffer = UsbMuxFrameBuffer().also {
+    private fun after(frame: ByteArray): UsbMuxFrameBuffer = framer().also {
         it.append(frame); assertEquals(frame.size, it.takeFrame()!!.length)
     }
 

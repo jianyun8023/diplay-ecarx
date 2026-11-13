@@ -29,27 +29,23 @@ class AudioRebufferCapacityTest {
                     .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_STEREO).build())
                 .setBufferSizeInBytes(plan.trackBufferBytes).build()
             val type = Class.forName("com.shilapi.xcertplay.media.AudioRenderer")
-            val renderer = type.declaredConstructors.single { it.parameterCount == 13 }
-                .apply { isAccessible = true }.newInstance(
+            val renderer = AudioRenderer(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"), false, false, 0, 0,
                     AudioFocusCoordinator(null, false, false), 0, millis, { _: String -> }, false, null, false, false)
             fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
-            fun get(name: String) = type.getDeclaredField(name).apply { isAccessible = true }.get(renderer)
+            val native = RendererNativeFixture(renderer)
             try {
                 set("track", track)
                 set("mappedChannel", AudioChannel.MEDIA)
-                set("playbackStarted", true)
-                set("startThresholdBytes", threshold)
-                set("lastPcmWriteNs", System.nanoTime())
-                (get("bufferProgress") as AudioBufferProgress).written(CapacityTrack.queued)
+                native.progress.configure(threshold, plan.trackBufferBytes, 4096)
+                native.progress.playback(true)
+                native.progress.completedWrite(CapacityTrack.queued, System.nanoTime())
                 type.getDeclaredMethod("maintainPlaybackBuffer").apply { isAccessible = true }.invoke(renderer)
                 assertFalse(CapacityTrack.playing)
-                type.getDeclaredMethod("writePcm", ByteArray::class.java, Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType).apply { isAccessible = true }
-                    .invoke(renderer, ByteArray(threshold), 0, threshold)
+                native.write(threshold)
                 assertFalse("${millis}ms buffer blocked before play()", CapacityTrack.blocked)
                 assertTrue("${millis}ms buffer never resumed", CapacityTrack.playing)
-            } finally { track.release() }
+            } finally { native.close() }
         }
     }
 
@@ -59,7 +55,7 @@ class AudioRebufferCapacityTest {
         @Implementation fun getUnderrunCount() = 1
         @Implementation fun pause() { playing = false }
         @Implementation fun play() { playing = true }
-        @Implementation fun write(bytes: ByteArray, offset: Int, size: Int, mode: Int): Int {
+        @Implementation fun write(buffer: java.nio.ByteBuffer, size: Int, mode: Int): Int {
             if (!playing && queued + size > capacity) {
                 blocked = true
                 return 0 // A real blocking AudioTrack.write waits here indefinitely.

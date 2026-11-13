@@ -7,9 +7,6 @@ import java.util.Date
 import java.util.GregorianCalendar
 import java.util.Locale
 import java.util.TimeZone
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 
 /** One Android location sample converted into the fields carried by the NMEA pair. */
 data class CarPlayLocationFix(
@@ -63,64 +60,26 @@ object NmeaLocationEncoder {
             timestamp.year % 100,
         )
 
-        val latitude = degreesToNmea(fix.latitudeDegrees, latitude = true)
-        val longitude = degreesToNmea(fix.longitudeDegrees, latitude = false)
-        val hdop = fix.accuracyMeters
-            ?.takeIf { it.isFinite() && it > 0 }
-            ?.let { min(50.0, max(0.5, it / 5.0)) }
-            ?: 1.0
-        val altitude = fix.altitudeMeters
-            ?.takeIf { it.isFinite() }
-            ?.let { format("%.1f", it) }
-            ?: "0.0"
-
-        val ggaBody = "GPGGA,$time,${latitude.value},${latitude.hemisphere}," +
-            "${longitude.value},${longitude.hemisphere},1,08,${format("%.1f", hdop)}," +
-            "$altitude,M,0.0,M,,"
-        val speedKnots = fix.speedMetersPerSecond
-            ?.takeIf { it.isFinite() && it >= 0 }
-            ?.let { format("%.2f", it * KNOTS_PER_METER_PER_SECOND) }
-            ?: "0.00"
-        // Without a GPS direction (for example while parked) the course stays empty: 0.00 would say north.
-        val course = fix.bearingDegrees
-            ?.takeIf { it.isFinite() }
-            ?.let { format("%.2f", it) }
-            .orEmpty()
-        val rmcBody = "GPRMC,$time,A,${latitude.value},${latitude.hemisphere}," +
-            "${longitude.value},${longitude.hemisphere},$speedKnots,$course,$date,,"
-
-        return "$${ggaBody}*${checksum(ggaBody)}\r\n$${rmcBody}*${checksum(rmcBody)}\r\n"
-    }
-
-    private fun degreesToNmea(value: Double, latitude: Boolean): NmeaCoordinate {
-        val absolute = abs(value)
-        var degrees = absolute.toInt()
-        var minutes = (absolute - degrees) * MINUTES_PER_DEGREE
-        if (minutes >= MINUTES_PER_DEGREE - MINUTE_ROUNDING_TOLERANCE) {
-            degrees += 1
-            minutes = 0.0
-        }
-        val degreeText = if (latitude) format("%02d", degrees) else format("%03d", degrees)
-        val hemisphere = if (latitude) {
-            if (value >= 0) "N" else "S"
-        } else {
-            if (value >= 0) "E" else "W"
-        }
-        return NmeaCoordinate("$degreeText${format("%07.4f", minutes)}", hemisphere)
-    }
-
-    private fun checksum(body: String): String {
-        var value = 0
-        for (character in body) value = value xor character.code
-        return format("%02X", value)
+        val presence = (if (fix.altitudeMeters != null) 1 else 0) or
+            (if (fix.bearingDegrees != null) 2 else 0) or
+            (if (fix.speedMetersPerSecond != null) 4 else 0) or
+            (if (fix.accuracyMeters != null) 8 else 0)
+        val plan = NativeNmeaLocation.prepare(fix.latitudeDegrees, fix.longitudeDegrees,
+            fix.altitudeMeters ?: 0.0, fix.bearingDegrees ?: 0.0,
+            fix.speedMetersPerSecond ?: 0.0, fix.accuracyMeters ?: 0.0, presence)
+        val flags = plan[8].toInt()
+        // Keep Android Formatter's decimal rounding, signed zero and Infinity spelling.
+        return NativeNmeaLocation.frame(arrayOf(time, date,
+            format("%02d", plan[0].toInt()), format("%07.4f", plan[1]),
+            format("%03d", plan[2].toInt()), format("%07.4f", plan[3]),
+            format("%.1f", plan[4]), format("%.1f", plan[5]),
+            format("%.2f", plan[6]), if (flags and 4 != 0) format("%.2f", plan[7]) else ""), flags)
     }
 
     private fun ofEpochMilli(millis: Long): Timestamp = Timestamp(millis)
 
     private fun format(format: String, vararg arguments: Any): String =
         String.format(Locale.US, format, *arguments)
-
-    private data class NmeaCoordinate(val value: String, val hemisphere: String)
 
     private class Timestamp(millis: Long) {
         // java.time needs API 26; a proleptic Gregorian calendar in UTC gives the same fields.
@@ -137,9 +96,6 @@ object NmeaLocationEncoder {
         val year: Int = fields.get(Calendar.YEAR)
     }
 
-    private const val KNOTS_PER_METER_PER_SECOND = 1.94384449
-    private const val MINUTES_PER_DEGREE = 60.0
-    private const val MINUTE_ROUNDING_TOLERANCE = 0.00005
 }
 
 /**
@@ -152,9 +108,7 @@ class Iap2LocationReporter(
     private val onProgress: (String) -> Unit,
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
-    private var active = false
-    private var sentLogged = false
-    private var lastAttemptNanos = 0L
+    private val subscription = NativeIap2ReportSubscription.create(vehicleStatus = false)
 
     /** Handles 0xFFFA/0xFFFC; returns false for any other message. */
     fun handle(frame: Iap2Frame, send: (Iap2Frame) -> Unit): Boolean = when (frame.messageId) {
@@ -167,8 +121,7 @@ class Iap2LocationReporter(
         }
         Iap2LocationMessages.STOP_LOCATION_INFORMATION -> {
             onProgress("iap2 rx=0xfffc stop-location-information")
-            active = false
-            sentLogged = false
+            NativeIap2ReportSubscription.stop(subscription)
             provider?.stop()
             true
         }
@@ -177,20 +130,19 @@ class Iap2LocationReporter(
 
     /** Sends the latest fix once a second while this link has an active request. */
     fun tick(send: (Iap2Frame) -> Unit) {
-        if (active && sinceAttemptMillis() >= POLL_INTERVAL_MILLIS) sendLatest(send)
+        if (NativeIap2ReportSubscription.active(subscription) &&
+            NativeIap2ReportSubscription.due(subscription, nanoTime())) sendLatest(send)
     }
 
     /** Wakes the loop when the next requested fix is due. */
     fun pollTimeout(remainingMillis: Long): Long =
-        if (active) min(remainingMillis, (POLL_INTERVAL_MILLIS - sinceAttemptMillis()).coerceAtLeast(1))
+        if (NativeIap2ReportSubscription.active(subscription))
+            NativeIap2ReportSubscription.timeout(subscription, remainingMillis, nanoTime())
         else remainingMillis
 
-    private fun sinceAttemptMillis() = (nanoTime() - lastAttemptNanos) / 1_000_000
-
     private fun start(send: (Iap2Frame) -> Unit) {
-        active = startProvider()
-        sentLogged = false
-        if (active) sendLatest(send)
+        NativeIap2ReportSubscription.start(subscription, startProvider())
+        if (NativeIap2ReportSubscription.active(subscription)) sendLatest(send)
     }
 
     private fun startProvider(): Boolean {
@@ -204,18 +156,14 @@ class Iap2LocationReporter(
     }
 
     private fun sendLatest(send: (Iap2Frame) -> Unit) {
-        lastAttemptNanos = nanoTime()
+        NativeIap2ReportSubscription.mark(subscription, nanoTime())
         val sentence = provider?.latestNmea() ?: return
         send(Iap2LocationMessages.locationInformation(sentence))
-        if (!sentLogged) {
-            sentLogged = true
+        if (NativeIap2ReportSubscription.firstSent(subscription)) {
             onProgress("iap2 tx=0xfffb location-information")
         }
     }
 
-    private companion object {
-        const val POLL_INTERVAL_MILLIS = 1_000L
-    }
 }
 
 object Iap2LocationMessages {

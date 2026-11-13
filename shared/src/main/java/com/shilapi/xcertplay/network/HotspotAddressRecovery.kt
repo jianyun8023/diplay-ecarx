@@ -18,25 +18,28 @@ internal class HotspotAddressRecovery(
         timeoutMillis: Long = WirelessStartupPolicy.HOTSPOT_READY_MILLIS,
     ): List<InetAddress> {
         require(timeoutMillis >= 0)
-        val started = nowMillis()
-        val deadline = started + timeoutMillis
+        val deadline = NativeHotspotAddress.deadline(nowMillis(), timeoutMillis)
         var candidates = initial
-        if (preferredFamily == HotspotAddressPolicy.FAMILY_IPV6 && !candidates.any(::scopedLinkLocal)) {
+        val preferIpv6 = preferredFamily == HotspotAddressPolicy.FAMILY_IPV6
+        if (NativeHotspotAddress.readiness(preferIpv6, HotspotAddressPolicy.facts(candidates)) == 2) {
             log("wireless address waiting preference=IPv6 timeoutMs=$timeoutMillis")
         }
         while (true) {
             checkActive()
-            if (preferredFamily != HotspotAddressPolicy.FAMILY_IPV6) return candidates
-            if (candidates.any(::scopedLinkLocal)) {
-                log("wireless address preference=IPv6 ready elapsedMs=${nowMillis() - started}")
-                return candidates.filter { it !is Inet6Address || !it.isLinkLocalAddress || scopedLinkLocal(it) }
+            val facts = HotspotAddressPolicy.facts(candidates)
+            when (NativeHotspotAddress.readiness(preferIpv6, facts)) {
+                0 -> return candidates
+                1 -> {
+                    log("wireless address preference=IPv6 ready elapsedMs=${NativeHotspotAddress.time(deadline, true, nowMillis())}")
+                    return NativeHotspotAddress.filter(facts).map(candidates::get)
+                }
             }
-            val remaining = deadline - nowMillis()
+            val remaining = NativeHotspotAddress.time(deadline, false, nowMillis())
             if (remaining <= 0) {
-                log("wireless address preference=IPv6 unavailable elapsedMs=${nowMillis() - started}; using available family")
+                log("wireless address preference=IPv6 unavailable elapsedMs=${NativeHotspotAddress.time(deadline, true, nowMillis())}; using available family")
                 return candidates
             }
-            pause(minOf(WirelessStartupPolicy.INTERFACE_POLL_MILLIS, remaining))
+            pause(remaining)
             checkActive()
             candidates = sample()
             checkActive()
@@ -46,9 +49,9 @@ internal class HotspotAddressRecovery(
     /** Re-sample at timeout; a missing alternate at group creation is not a single-family AP. */
     fun nextFamily(published: InetAddress): String? {
         if (cancelled()) return null
-        val candidates = sample().filter { it !is Inet6Address || scopedLinkLocal(it) }
+        val candidates = sample()
         if (cancelled()) return null
-        if (HotspotAddressPolicy.alternateFamilyCandidate(candidates, published) == null) return null
+        if (HotspotAddressPolicy.alternate(candidates, published, scopedOnly = true) == null) return null
         return HotspotAddressPolicy.flipFamily(
             if (published is Inet6Address) HotspotAddressPolicy.FAMILY_IPV6 else HotspotAddressPolicy.FAMILY_IPV4,
         )
@@ -58,6 +61,4 @@ internal class HotspotAddressRecovery(
         if (cancelled()) throw InterruptedIOException("Hotspot address recovery cancelled")
     }
 
-    private fun scopedLinkLocal(address: InetAddress): Boolean =
-        address is Inet6Address && address.isLinkLocalAddress && address.scopeId != 0
 }

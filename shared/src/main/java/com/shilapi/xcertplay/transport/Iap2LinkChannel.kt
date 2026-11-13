@@ -143,27 +143,28 @@ class Iap2LinkChannel private constructor(
     }
 
     private fun runPump() {
-        val engine = Iap2LinkEngine(linkConfig)
         try {
-            engine.start(wiredInitiator = initiateNegotiation, nowMillis = nowMillis())
-            while (!isClosing()) {
-                drainCommands(engine)
-                engine.advanceTime(nowMillis())
-                flush(engine)
-                if (!drainEvents(engine)) return
-                if (isClosing()) return
+            Iap2LinkEngine(linkConfig).use { engine ->
+                engine.start(wiredInitiator = initiateNegotiation, nowMillis = nowMillis())
+                while (!isClosing()) {
+                    drainCommands(engine)
+                    engine.advanceTime(nowMillis())
+                    flush(engine)
+                    if (!drainEvents(engine)) return
+                    if (isClosing()) return
 
-                val next = engine.nextDeadlineMillis()
-                val waitMillis = min(
-                    RECEIVE_POLL_MILLIS,
-                    next?.let { (it - nowMillis()).coerceAtLeast(0) } ?: RECEIVE_POLL_MILLIS,
-                ).coerceAtLeast(MINIMUM_RECEIVE_POLL_MILLIS)
-                val received = underlying.recv(RECEIVE_CHUNK_BYTES, waitMillis)
-                if (isClosing()) return
-                when {
-                    received == null -> Unit
-                    received.isEmpty() -> engine.feedEof()
-                    else -> engine.feed(received, nowMillis())
+                    val next = engine.nextDeadlineMillis()
+                    val waitMillis = min(
+                        RECEIVE_POLL_MILLIS,
+                        next?.let { (it - nowMillis()).coerceAtLeast(0) } ?: RECEIVE_POLL_MILLIS,
+                    ).coerceAtLeast(MINIMUM_RECEIVE_POLL_MILLIS)
+                    val received = underlying.recv(RECEIVE_CHUNK_BYTES, waitMillis)
+                    if (isClosing()) return
+                    when {
+                        received == null -> Unit
+                        received.isEmpty() -> engine.feedEof()
+                        else -> engine.feed(received, nowMillis())
+                    }
                 }
             }
             finish(null)

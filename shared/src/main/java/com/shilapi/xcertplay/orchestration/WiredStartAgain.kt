@@ -22,13 +22,7 @@ internal object WiredStartAgain {
         linkOpenedAtNanos: Long?,
         sessionActive: Boolean,
         connectionAttemptSinceLinkOpened: Boolean,
-    ): StartAgain = when {
-        sessionActive || connectionAttemptSinceLinkOpened -> StartAgain.DONE
-        linkOpenedAtNanos == null -> StartAgain.WAIT
-        linkOpenedAtNanos - startSentAtNanos < 0 -> StartAgain.DONE
-        nowNanos - linkOpenedAtNanos < QUIET_MILLIS * NANOS_PER_MILLI -> StartAgain.WAIT
-        else -> StartAgain.SEND
-    }
-
-    private const val NANOS_PER_MILLI = 1_000_000L
+    ): StartAgain = StartAgain.entries[StartupWatchdogCore.startAgain(
+        nowNanos, startSentAtNanos, linkOpenedAtNanos, sessionActive, connectionAttemptSinceLinkOpened,
+    )]
 }

@@ -109,4 +109,4 @@ data class AirPlayConfig(
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */
 internal val AirPlayConfig.bufferedAudioOutputEnabled: Boolean
-    get() = mainBufferedAudio && !disableAudioOutput
+    get() = NativeAirPlayProtocol.bufferedEnabled(mainBufferedAudio, disableAudioOutput)

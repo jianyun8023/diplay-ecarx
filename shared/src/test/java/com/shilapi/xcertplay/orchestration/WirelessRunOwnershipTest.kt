@@ -6,8 +6,6 @@ import com.shilapi.xcertplay.network.WirelessHotspotInfo
 import com.shilapi.xcertplay.network.WirelessHotspotManager
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -75,8 +73,8 @@ class WirelessRunOwnershipTest {
         val current = run(2)
         runType.getDeclaredMethod("onWirelessTunnelReady", Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(old, 1)
-        assertFalse((field(old, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
-        assertFalse((field(current, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
+        assertFalse((field(old, "state") as WirelessRunState).addressFamilyReachable)
+        assertFalse((field(current, "state") as WirelessRunState).addressFamilyReachable)
         runType.getDeclaredMethod("onStatus", CarPlayStatus::class.java, Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.invoke(old, CarPlayStatus.WirelessActive, 1)
         shadowOf(Looper.getMainLooper()).idle()
@@ -138,7 +136,7 @@ class WirelessRunOwnershipTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(1, statuses.size)
         assertTrue(statuses.single() is CarPlayStatus.Failed)
-        assertFalse((field(run, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
+        assertFalse((field(run, "state") as WirelessRunState).addressFamilyReachable)
         assertEquals(WirelessRunState.Lifecycle.RETIRED, (field(run, "state") as WirelessRunState).lifecycle)
     }
 
@@ -151,7 +149,7 @@ class WirelessRunOwnershipTest {
             .apply { isAccessible = true }.invoke(run, 1)
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(statuses.isEmpty())
-        assertFalse((field(run, "wirelessAddressFamilyReachable") as AtomicBoolean).get())
+        assertFalse((field(run, "state") as WirelessRunState).addressFamilyReachable)
         assertEquals(WirelessRunState.Lifecycle.CLOSED, (field(run, "state") as WirelessRunState).lifecycle)
     }
 
@@ -173,7 +171,7 @@ class WirelessRunOwnershipTest {
         val old = run(1)
         val state = field(old, "state") as WirelessRunState
         runType.getDeclaredMethod("retire").apply { isAccessible = true }.invoke(old)
-        val restartGeneration = (field(controller, "wirelessGeneration") as AtomicInteger).incrementAndGet()
+        val restartGeneration = lifecycle().beginWireless()
         if (lifecycle != "retired") state.beginClose()
         if (lifecycle == "closed") state.finishClose()
 
@@ -221,16 +219,14 @@ class WirelessRunOwnershipTest {
         field(controller, "wirelessRun")?.let {
             runType.getDeclaredMethod("retire").apply { isAccessible = true }.invoke(it)
         }
+        assertEquals(generation, lifecycle().beginWireless())
         val run = runType.getDeclaredConstructor(CarPlayController::class.java, Int::class.javaPrimitiveType)
             .apply { isAccessible = true }.newInstance(controller, generation)
         field(controller, "wirelessRun", run)
-        (field(controller, "wirelessGeneration") as AtomicInteger).set(generation)
-        controller.javaClass.getDeclaredField("phase").apply {
-            isAccessible = true
-            set(controller, requireNotNull(type.enumConstants).single { (it as Enum<*>).name == "WIRELESS" })
-        }
         return run
     }
+
+    private fun lifecycle(): ControllerLifecycleCore = field(controller, "lifecycle") as ControllerLifecycleCore
 
     private fun closeRun(run: Any) = runType.getDeclaredMethod(
         "closeWirelessStack", CarPlayVpnService::class.java, Int::class.javaObjectType,
