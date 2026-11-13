@@ -75,3 +75,5 @@ dependencies {
     androidTestImplementation libs.junit
     androidTestImplementation 'androidx.test:runner:1.7.0'
 }
+
+apply from: "rust-android-inputs.gradle"

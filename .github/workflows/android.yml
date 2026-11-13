@@ -54,6 +54,8 @@ jobs:
         with:
           workspaces: shared/src/main/rust/diplay-media -> target
           key: ${{ runner.os }}-diplay-media-host
+      - name: Rust Android provenance regression tests
+        run: python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'
       - name: Rust core unit tests
         run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
 
@@ -190,12 +192,8 @@ jobs:
             test -s "$d/$abi/libdiplay_media.so"
             diff -u "$d/arm64-v8a-jni-symbols.txt" "$d/$abi-jni-symbols.txt"
           done
-      - name: Stage freshly built Rust libraries
-        run: |
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/$abi/libdiplay_media.so" \
-              "shared/src/main/jniLibs/$abi/libdiplay_media.so"
-          done
+      - name: Select verified Rust Android inputs for Gradle
+        run: echo "DIPLAY_JNI_LIBS_DIR=$RUNNER_TEMP/rust-android-libs" >> "$GITHUB_ENV"
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0

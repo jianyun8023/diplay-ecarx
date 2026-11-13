@@ -1,0 +1,38 @@
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+// Every Android variant packages exactly this generated, verified JNI tree.
+// JVM-only tests do not need Android Rust artifacts.
+abstract class StageRustAndroidInputs extends DefaultTask {
+    @Internal
+    abstract DirectoryProperty getRepositoryDirectory()
+    @Input abstract Property<String> getNativeInputsPath()
+    @OutputDirectory abstract DirectoryProperty getOutputDirectory()
+    @Inject abstract ExecOperations getExecOperations()
+
+    @TaskAction
+    void stage() {
+        execOperations.exec {
+            commandLine 'python3', new File(repositoryDirectory.get().asFile, 'scripts/rust_android_inputs.py'),
+                'stage', '--root', repositoryDirectory.get().asFile,
+                '--inputs', nativeInputsPath.get(), '--output', outputDirectory.get().asFile
+        }
+    }
+}
+
+def stagedRustInputs = tasks.register('stageRustAndroidInputs', StageRustAndroidInputs) {
+    repositoryDirectory.set(rootProject.layout.projectDirectory)
+    def repoPath = rootProject.projectDir.absolutePath
+    nativeInputsPath.set(providers.environmentVariable('DIPLAY_JNI_LIBS_DIR')
+        .map { new File(it).isAbsolute() ? it : new File(repoPath, it).absolutePath }
+        .orElse(rootProject.file('.native/rust-android').absolutePath))
+    outputDirectory.set(layout.buildDirectory.dir('generated/verifiedJniLibs'))
+    // Always recheck external artifact bytes and current source, even on incremental builds.
+    outputs.upToDateWhen { false }
+}
+android.sourceSets.main.jniLibs.setSrcDirs([])
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.jniLibs.addGeneratedSourceDirectory(stagedRustInputs) { task -> task.outputDirectory }
+    }
+}

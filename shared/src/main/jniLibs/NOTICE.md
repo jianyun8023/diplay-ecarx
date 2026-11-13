@@ -1,9 +1,9 @@
 # Prebuilt native libraries — provenance
 
-APK builds consume these `.so` files without compiling native code. All four libraries are rebuilt
-from the sources kept in this repository: the three C libraries from `shared/src/main/jni`
-(`local_hotspot_radio`, `speex_echo`, `diplay_i2c`) with NDK `28.2.13676358`, and
-`libdiplay_media.so` from the Rust source under `shared/src/main/rust/diplay-media`.
+APK builds consume the three C libraries from this directory without compiling C code.
+They are rebuilt from `shared/src/main/jni` (`local_hotspot_radio`, `speex_echo`, `diplay_i2c`)
+with NDK `28.2.13676358`. Historical Rust `libdiplay_media.so` copies here are excluded
+from Gradle packaging. Rust artifacts must be built and verified from the current source.
 
 ## Why the C libraries are checked in
 
@@ -76,14 +76,16 @@ Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TU
 and Poly1305 come from BoringSSL's assembly; [libopus](https://github.com/xiph/opus) 1.5 series, vendored through [libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3) and compiled statically with its NEON/SSE assembly; libopus_sys (MIT), jni-sys and libc).
 The C libopus is compiled into this same `.so` from vendored sources; no separate `libopus.so` is shipped. `Cargo.lock` pins every crate.
 Build it from the repository root with
-`ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 shared/src/main/rust/diplay-media/build.sh`;
-it needs rustup targets `aarch64-linux-android` and `armv7-linux-androideabi`. Gradle APK builds still package
-the checked-in Android libraries. The Android checks workflow runs `scripts/check_rust_android_native.sh`
-on every pull request and `main`／`dev` push: it cross-compiles both ABIs with the pinned Rust／NDK versions,
-checks ELF architecture, the 494 Java JNI exports, `JNI_OnLoad` and identical JNI export sets, then stages
-the freshly built libraries for Debug／Release APK packaging. The pair and source revision are retained as
-an Actions artifact. checked in hashes below identify the repository copies, not necessarily the CI-built
-APK payload; byte-level equality across build hosts is not required. `cargo test` in this directory runs the host tests. Both shipped ABIs were rebuilt on
+`ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 scripts/check_rust_android_native.sh`;
+it needs Rust 1.97.1 and rustup targets `aarch64-linux-android`, `armv7-linux-androideabi`
+and `x86_64-linux-android`. The script checks ELF architecture, the 494 Java JNI exports,
+`JNI_OnLoad` and identical JNI export sets, then writes content-bound per-ABI provenance receipts.
+Gradle stages all three verified artifacts from `.native/rust-android` (or `DIPLAY_JNI_LIBS_DIR`)
+and the C prebuilts into a generated JNI directory. Missing, stale or mismatched Rust inputs
+fail before APK/AAR packaging. Android checks, Release and source-only builds use this same contract.
+See `BUILD.md` for local setup. `cargo test` in the crate directory runs the host tests.
+
+The historical checked-in ARM binaries below are not used in APKs. They were rebuilt on
 2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
 #100 package-rename batch based on `70733a9b`; that base commit alone does not contain this batch. Its
 source manifest SHA-256 is
