@@ -4,6 +4,9 @@ on:
     branches: [main, dev]
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: android-checks-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -22,6 +25,11 @@ jobs:
         with:
           toolchain: '1.97.1'
           targets: aarch64-linux-android,armv7-linux-androideabi
+      - name: Cache Rust build (host + both Android targets)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media
       - name: Rust core unit tests
         run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
       - uses: android-actions/setup-android@v3
@@ -44,8 +52,10 @@ jobs:
           install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
           install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests, lint and debug APK builds
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --no-parallel --max-workers=1 --stacktrace
+      - name: Unit tests (single worker; Robolectric shares JVM state)
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest --no-parallel --max-workers=1 --stacktrace
+      - name: Lint and debug APK builds (parallel)
+        run: ./gradlew :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --parallel --max-workers=2 --build-cache --stacktrace
       - name: Verify debug APK contains both Rust Android ABIs
         run: |
           python3 - <<'PY'
@@ -75,7 +85,7 @@ jobs:
               print(f"Verified both Rust Android ABIs in {apk}")
           PY
       - name: Check release optimization without signing
-        run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --no-parallel --max-workers=1 --stacktrace
+        run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --max-workers=2 --build-cache --stacktrace
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

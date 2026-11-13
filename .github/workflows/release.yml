@@ -3,6 +3,9 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 permissions:
   contents: write
 jobs:
@@ -21,6 +24,11 @@ jobs:
         with:
           toolchain: '1.97.1'
           targets: aarch64-linux-android,armv7-linux-androideabi
+      - name: Cache Rust build (both Android targets)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-release
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;28.2.13676358
@@ -52,7 +60,7 @@ jobs:
           test -n "$ANDROID_KEY_ALIAS"
           test -n "$ANDROID_KEY_PASSWORD"
           unset DIPLAY_AUTH_ASSETS_DIR
-          ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --stacktrace
+          ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --build-cache --stacktrace
       - name: Verify APK and prepare licenses, source and R8 mapping
         env:
           # Through env, not ${{ }} in the script: the body is free text.
