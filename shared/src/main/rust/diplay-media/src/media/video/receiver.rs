@@ -17,7 +17,7 @@ const OP_VIDEO_CONFIG: u8 = 1;
 const MAX_BODY: usize = 8 * 1024 * 1024;
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_startVideo(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_startVideo(
     env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, callbacks: jobject, route: jlong,
 ) -> jlong {
     let e = Env(env);

@@ -40,7 +40,7 @@ unsafe fn readiness(env: *mut JNIEnv, token: jlongArray) -> Option<Readiness> {
     Some(Readiness { words })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRecovery_readinessCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotRecovery_readinessCreate(
     env: *mut JNIEnv,
     _: jclass,
     now: jlong,
@@ -49,7 +49,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRe
     array(env, &[now.wrapping_add(timeout), 0, -1, 0])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRecovery_readinessSample(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotRecovery_readinessSample(
     env: *mut JNIEnv,
     _: jclass,
     token: jlongArray,
@@ -66,7 +66,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRe
     result as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRecovery_readinessTime(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotRecovery_readinessTime(
     env: *mut JNIEnv,
     _: jclass,
     token: jlongArray,
@@ -76,7 +76,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRe
     readiness(env, token).map_or(0, |state| state.time(expired != 0, now))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRecovery_returnWait(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotRecovery_returnWait(
     _: *mut JNIEnv,
     _: jclass,
     start: jlong,
@@ -86,14 +86,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRe
     return_wait(start, timeout, now)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRecovery_outageCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotRecovery_outageCreate(
     env: *mut JNIEnv,
     _: jclass,
 ) -> jlongArray {
     array(env, &[0])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotRecovery_outageEvent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotRecovery_outageEvent(
     env: *mut JNIEnv,
     _: jclass,
     token: jlongArray,

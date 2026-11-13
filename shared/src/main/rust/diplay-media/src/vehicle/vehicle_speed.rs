@@ -64,7 +64,7 @@ unsafe fn speed_array(env: *mut JNIEnv, words: &[i64]) -> jlongArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleSpeed_speedGear(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleSpeed_speedGear(
     env: *mut JNIEnv, _: jclass, state: jlongArray, gear: jint,
 ) -> jlongArray {
     let Some(words) = speed_read(env, state) else { return std::ptr::null_mut(); };
@@ -72,7 +72,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicle
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleSpeed_speedSample(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleSpeed_speedSample(
     env: *mut JNIEnv, _: jclass, state: jlongArray, elapsed: jlong, speed: jdouble,
 ) -> jlongArray {
     let Some(words) = speed_read(env, state) else { return std::ptr::null_mut(); };
@@ -80,7 +80,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicle
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleSpeed_speedSnapshot(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleSpeed_speedSnapshot(
     env: *mut JNIEnv, _: jclass, state: jlongArray,
 ) -> jdoubleArray {
     let Some(words) = speed_read(env, state) else { return std::ptr::null_mut(); };
@@ -94,7 +94,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicle
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleSpeed_pascdEncode(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleSpeed_pascdEncode(
     env: *mut JNIEnv, _class: jclass, gear: jint, formatted_parts: jobjectArray,
 ) -> jstring {
     if formatted_parts.is_null() { return std::ptr::null_mut(); }

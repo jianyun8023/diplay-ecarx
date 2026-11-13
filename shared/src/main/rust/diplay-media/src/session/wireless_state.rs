@@ -69,7 +69,7 @@ impl RunState {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunCreate(
     _env: *mut JNIEnv, _class: jclass,
 ) -> jlong { RunState::default().encode(false) }
 
@@ -94,7 +94,7 @@ pub(super) fn decision(token: i64, operation: i32, facts: i32) -> i32 {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunQuery(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunQuery(
     _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
 ) -> jint {
     let Some(state) = RunState::decode(token) else { return -1; };
@@ -117,7 +117,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_wir
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunTransition(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunTransition(
     _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
 ) -> jlong {
     let Some(mut state) = RunState::decode(token) else { return -1; };
@@ -204,21 +204,21 @@ mod tests {
         unsafe {
             let env = std::ptr::null_mut();
             let class = std::ptr::null_mut();
-            assert_eq!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunCreate(env, class), 0);
+            assert_eq!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunCreate(env, class), 0);
             for bits in 0..64 {
                 for accepted in [0, 0x100] {
                     let token = bits | accepted;
                     assert_eq!(RunState::decode(token).unwrap().encode(accepted != 0), token);
-                    for field in 0..8 { assert!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunQuery(env, class, token, field) >= 0); }
-                    for event in 1..9 { assert!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunTransition(env, class, token, event) >= 0); }
+                    for field in 0..8 { assert!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunQuery(env, class, token, field) >= 0); }
+                    for event in 1..9 { assert!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunTransition(env, class, token, event) >= 0); }
                 }
             }
             for token in [-1, 0x1000, 0x2000, i64::MAX] {
-                assert_eq!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunQuery(env, class, token, 0), -1);
-                assert_eq!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunTransition(env, class, token, 1), -1);
+                assert_eq!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunQuery(env, class, token, 0), -1);
+                assert_eq!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunTransition(env, class, token, 1), -1);
             }
-            assert_eq!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunQuery(env, class, 0, 13), -1);
-            assert_eq!(Java_com_shilapi_xcertplay_airplay_NativeMedia_wirelessRunTransition(env, class, 0, 0), -1);
+            assert_eq!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunQuery(env, class, 0, 13), -1);
+            assert_eq!(Java_com_shihab_diplay_airplay_NativeMedia_wirelessRunTransition(env, class, 0, 0), -1);
         }
     }
 }

@@ -55,11 +55,11 @@
     </queries>
     <application>
         <provider
-            android:name="com.shilapi.xcertplay.CrashRecordInstaller"
+            android:name="com.shihab.diplay.CrashRecordInstaller"
             android:authorities="${applicationId}.crash-record"
             android:exported="false" />
         <provider
-            android:name="com.shilapi.xcertplay.DiagnosticReportProvider"
+            android:name="com.shihab.diplay.DiagnosticReportProvider"
             android:authorities="${applicationId}.diagnostic-reports"
             android:exported="false"
             android:grantUriPermissions="true">
@@ -68,7 +68,7 @@
                 android:resource="@xml/diagnostic_report_paths" />
         </provider>
         <provider
-            android:name="com.shilapi.xcertplay.update.UpdateApkProvider"
+            android:name="com.shihab.diplay.update.UpdateApkProvider"
             android:authorities="${applicationId}.update-apks"
             android:exported="false"
             android:grantUriPermissions="true">
@@ -76,21 +76,21 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_apk_paths" />
         </provider>
-        <activity android:name="com.shilapi.xcertplay.DiPlayActivity"
+        <activity android:name="com.shihab.diplay.DiPlayActivity"
             android:exported="true" android:launchMode="singleTop"
             android:resizeableActivity="true"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:theme="@style/Theme.Xcertplay">
+            android:theme="@style/Theme.DiPlay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
+        <service android:name="com.shihab.diplay.DiPlaySessionService"
             android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
 
         <activity
-            android:name="com.shilapi.xcertplay.SiriActionActivity"
+            android:name="com.shihab.diplay.SiriActionActivity"
             android:exported="true"
             android:taskAffinity=""
             android:excludeFromRecents="true"
@@ -102,14 +102,14 @@
         </activity>
 
         <activity
-            android:name="com.shilapi.xcertplay.CarPlayHostActivity"
+            android:name="com.shihab.diplay.CarPlayHostActivity"
             android:taskAffinity="${applicationId}.carplay"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Xcertplay"
+            android:theme="@style/Theme.DiPlay"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
@@ -122,17 +122,17 @@
         <!-- The same CarPlay screen in DiPlay's own task, declared as it was up to 0.2.11, for launchers that show
              that task in a card or picture-in-picture window (#463). CarPlayScreen chooses between the two. -->
         <activity
-            android:name="com.shilapi.xcertplay.SameTaskCarPlayHostActivity"
+            android:name="com.shihab.diplay.SameTaskCarPlayHostActivity"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:screenOrientation="fullSensor"
-            android:theme="@style/Theme.Xcertplay"
+            android:theme="@style/Theme.DiPlay"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name="com.shilapi.xcertplay.AdbClusterActivity"
+            android:name="com.shihab.diplay.AdbClusterActivity"
             android:label="@string/adb_cluster_activity_label"
             android:icon="@drawable/ic_dp_navigation"
             android:taskAffinity="${applicationId}.cluster"
@@ -145,20 +145,20 @@
         </activity>
 
         <activity
-            android:name="com.shilapi.xcertplay.CarPlayVideoActivity"
+            android:name="com.shihab.diplay.CarPlayVideoActivity"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
-            android:theme="@style/Theme.Xcertplay" />
+            android:theme="@style/Theme.DiPlay" />
 
         <activity
-            android:name="com.shilapi.xcertplay.MainActivity"
+            android:name="com.shihab.diplay.MainActivity"
             android:exported="false"
             android:resizeableActivity="true"
-            android:theme="@style/Theme.Xcertplay" />
+            android:theme="@style/Theme.DiPlay" />
 
         <!-- CarPlay navigation widget, for launchers that host standard widgets. -->
         <receiver
-            android:name="com.shilapi.xcertplay.NavigationWidget"
+            android:name="com.shihab.diplay.NavigationWidget"
             android:exported="false"
             android:label="@string/navigation_widget_label">
             <intent-filter>
@@ -171,7 +171,7 @@
 
         <!-- The live dashboard map for launchers that embed it (docs/LAUNCHER_INTEGRATION.md). -->
         <service
-            android:name="com.shilapi.xcertplay.MapEmbedService"
+            android:name="com.shihab.diplay.MapEmbedService"
             android:exported="true"
             tools:ignore="ExportedService">
             <intent-filter>
@@ -181,7 +181,7 @@
 
         <!-- Optional: steering-wheel keys for the dashboard map zoom. -->
         <service
-            android:name="com.shilapi.xcertplay.WheelKeyService"
+            android:name="com.shihab.diplay.WheelKeyService"
             android:exported="true"
             android:label="@string/wheel_key_service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
@@ -194,7 +194,7 @@
         </service>
 
         <receiver
-            android:name="com.shilapi.xcertplay.BootReceiver"
+            android:name="com.shihab.diplay.BootReceiver"
             android:directBootAware="true"
             android:enabled="true"
             android:exported="true">
@@ -205,7 +205,7 @@
         </receiver>
 
         <service
-            android:name="com.shilapi.xcertplay.UsbAutoConfirmService"
+            android:name="com.shihab.diplay.UsbAutoConfirmService"
             android:exported="true"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

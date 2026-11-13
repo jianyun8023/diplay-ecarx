@@ -219,47 +219,47 @@ mod tests {
     }
 }
 
-// ---- JNI boundary: `com.shilapi.xcertplay.media.NativeAudioScheduler` ----
+// ---- JNI boundary: `com.shihab.diplay.media.NativeAudioScheduler` ----
 
 use jni_sys::{jboolean, jclass, jint, jintArray, jlong, JNIEnv};
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_create(
     _env: *mut JNIEnv, _class: jclass, frame_bytes: jint,
 ) -> jlong {
     Box::into_raw(Box::new(AudioBufferProgress::new(frame_bytes))) as jlong
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_destroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle != 0 { drop(Box::from_raw(handle as *mut AudioBufferProgress)); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_reset(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_reset(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle != 0 { (&mut *(handle as *mut AudioBufferProgress)).reset(); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_written(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_written(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, bytes: jint,
 ) {
     if handle != 0 { (&mut *(handle as *mut AudioBufferProgress)).written(bytes); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_queuedBytes(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_queuedBytes(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, raw_head: jint,
 ) -> jlong {
     if handle == 0 { 0 } else { (&mut *(handle as *mut AudioBufferProgress)).queued_bytes(raw_head) }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_shouldRebuffer(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_shouldRebuffer(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, is_media: jboolean, playing: jboolean,
     underrun_since_start: jboolean, compressed_queue_empty: jboolean, raw_head: jint, floor_bytes: jlong,
 ) -> jboolean {
@@ -270,87 +270,87 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioSchedu
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_startBytesFor(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_startBytesFor(
     _env: *mut JNIEnv, _class: jclass, planned_start_bytes: jint, actual_capacity_bytes: jint, write_chunk_bytes: jint,
 ) -> jint {
     start_bytes_for(planned_start_bytes, actual_capacity_bytes, write_chunk_bytes)
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_configure(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_configure(
     _: *mut JNIEnv, _: jclass, handle: jlong, planned: jint, capacity: jint, chunk: jint,
 ) {
     if handle != 0 { (&mut *(handle as *mut AudioBufferProgress)).configure(planned, capacity, chunk); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_outputState(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_outputState(
     _: *mut JNIEnv, _: jclass, handle: jlong, field: jint,
 ) -> jlong {
     if handle == 0 { 0 } else { (&*(handle as *const AudioBufferProgress)).output_state(field) }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_writeLimit(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_writeLimit(
     _: *mut JNIEnv, _: jclass, handle: jlong, remaining: jint, chunk: jint,
 ) -> jint {
     if handle == 0 { 0 } else { (&*(handle as *const AudioBufferProgress)).write_limit(remaining, chunk) }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_completedWrite(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_completedWrite(
     _: *mut JNIEnv, _: jclass, handle: jlong, bytes: jint, now: jlong,
 ) -> jboolean {
     if handle == 0 { 0 } else { (&mut *(handle as *mut AudioBufferProgress)).completed_write(bytes, now) as jboolean }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_playback(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_playback(
     _: *mut JNIEnv, _: jclass, handle: jlong, playing: jboolean,
 ) {
     if handle != 0 { (&mut *(handle as *mut AudioBufferProgress)).playback(playing != 0); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_retainAfterPause(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_retainAfterPause(
     _: *mut JNIEnv, _: jclass, handle: jlong, head: jint, now: jlong,
 ) {
     if handle != 0 { (&mut *(handle as *mut AudioBufferProgress)).retain_after_pause(head, now); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_needsRebuffer(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_needsRebuffer(
     _: *mut JNIEnv, _: jclass, handle: jlong, media: jboolean, underrun: jboolean, empty: jboolean, head: jint,
 ) -> jboolean {
     if handle == 0 { 0 } else { (&mut *(handle as *mut AudioBufferProgress)).needs_rebuffer(media != 0, underrun != 0, empty != 0, head) as jboolean }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_waitingForTail(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_waitingForTail(
     _: *mut JNIEnv, _: jclass, handle: jlong, empty: jboolean,
 ) -> jboolean {
     if handle == 0 { 0 } else { (&*(handle as *const AudioBufferProgress)).waiting_for_tail(empty != 0) as jboolean }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_tailReady(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_tailReady(
     _: *mut JNIEnv, _: jclass, handle: jlong, now: jlong, wait: jlong,
 ) -> jboolean {
     if handle == 0 { 0 } else { (&*(handle as *const AudioBufferProgress)).tail_ready(now, wait) as jboolean }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_writeDisposition(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_writeDisposition(
     _: *mut JNIEnv, _: jclass, count: jint, native: jboolean,
 ) -> jint { write_disposition(count, native != 0) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_sanitizeDelay(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_sanitizeDelay(
     _: *mut JNIEnv, _: jclass, millis: jint, mode: jint,
 ) -> jint { sanitize_delay(millis, mode) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_bufferPlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_bufferPlan(
     env: *mut JNIEnv, _: jclass, media: jboolean, rate: jint, channels: jint, minimum: jint, millis: jint,
 ) -> jintArray {
     let f = &**env;
@@ -360,6 +360,6 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioSchedu
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioScheduler_navigationRoute(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_navigationRoute(
     _: *mut JNIEnv, _: jclass, follows: jboolean, configured: jint, ducking: jboolean,
 ) -> jint { navigation_route(follows != 0, configured, ducking != 0) }

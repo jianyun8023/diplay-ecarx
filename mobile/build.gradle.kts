@@ -7,7 +7,7 @@ val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSET
     .orNull?.let { file(it).canonicalFile }
 
 android {
-    namespace = "com.shilapi.xcertplay"
+    namespace = "com.shihab.diplay"
     compileSdk {
         version = release(37)
     }
@@ -19,7 +19,7 @@ android {
         // ECARX release sequence; upstream baseline is v0.2.22.
         versionCode = 149
         versionName = "0.2"
-        testInstrumentationRunner = "com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation"
+        testInstrumentationRunner = "com.shihab.diplay.BluetoothMediaProbeInstrumentation"
 
     }
 

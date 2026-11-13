@@ -40,7 +40,7 @@ unsafe fn read_name(env: *mut JNIEnv, value: jbyteArray) -> Option<Vec<u8>> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleIdentification_group20(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleIdentification_group20(
     env: *mut JNIEnv, _class: jclass, name_payload: jbyteArray, connectors: jintArray,
 ) -> jbyteArray {
     let Some(name) = read_name(env, name_payload) else { return std::ptr::null_mut() };
@@ -56,7 +56,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicle
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeVehicleIdentification_group21(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleIdentification_group21(
     env: *mut JNIEnv, _class: jclass, name_payload: jbyteArray,
 ) -> jbyteArray {
     let Some(name) = read_name(env, name_payload) else { return std::ptr::null_mut() };

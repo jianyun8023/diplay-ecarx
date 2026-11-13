@@ -215,7 +215,7 @@ pub fn recv_exact(fd: c_int, out: *mut u8, len: usize) -> Result<bool, std::io::
 /// stream's own callbacks; the receiver thread then ends by itself.
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_stop(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_stop(
     _env: *mut jni_sys::JNIEnv, _class: jni_sys::jclass, handle: jni_sys::jlong,
 ) {
     stop(handle)

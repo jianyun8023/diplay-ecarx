@@ -99,13 +99,13 @@ mod tests {
     }
 }
 
-// ---- JNI boundary: `com.shilapi.xcertplay.airplay.NativeTouchSlots` ----
+// ---- JNI boundary: `com.shihab.diplay.airplay.NativeTouchSlots` ----
 
 use crate::platform::jvm::Env;
 use jni_sys::{jbooleanArray, jbyteArray, jclass, jdoubleArray, jint, jintArray, jlong, JNIEnv};
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeTouchSlots_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeTouchSlots_create(
     _env: *mut JNIEnv, _class: jclass, slots: jint,
 ) -> jlong {
     if !(1..=8).contains(&slots) { return 0; }
@@ -113,14 +113,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeTouchSlot
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeTouchSlots_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeTouchSlots_destroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle != 0 { drop(Box::from_raw(handle as *mut TouchSlots)); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeTouchSlots_assignReport(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeTouchSlots_assignReport(
     env: *mut JNIEnv, _class: jclass, handle: jlong, ids: jintArray, xs: jdoubleArray, ys: jdoubleArray,
     down: jbooleanArray, width: jint, height: jint,
 ) -> jbyteArray {

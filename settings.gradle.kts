@@ -22,7 +22,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "xcertplay"
+rootProject.name = "diplay"
 include(":common")
 include(":mobile")
 include(":shared")

@@ -62,7 +62,6 @@ class DiPlayMapPanelTest {
 
     @Test fun bindsTheDebugBuild() = assertBinds("com.shihab.diplay.hudtest")
 
-    @Test fun bindsTheAutomotiveBuild() = assertBinds("com.shilapi.xcertplay")
 
     @Test @Config(sdk = [28])
     fun legacyHomeBindsTheMapWithoutAutomaticallyOpeningCarPlay() {
@@ -80,7 +79,7 @@ class DiPlayMapPanelTest {
         assertNull(shadowOf(app).nextStartedActivity)
         panel.openCarPlay()
         assertEquals(
-            ComponentName("com.shihab.diplay", "com.shilapi.xcertplay.CarPlayHostActivity"),
+            ComponentName("com.shihab.diplay", "com.shihab.diplay.CarPlayHostActivity"),
             shadowOf(app).nextStartedActivity.component,
         )
     }

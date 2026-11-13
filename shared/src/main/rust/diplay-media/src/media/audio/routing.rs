@@ -23,7 +23,7 @@ unsafe fn selection(env: *mut JNIEnv, values: [i32; 3]) -> jintArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioRouting_map(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioRouting_map(
     env: *mut JNIEnv, _: jclass, audio_type: jstring, payload: jint, mode: jint, navigation: jint,
 ) -> jintArray {
     let f = &**env;
@@ -35,7 +35,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioRoutin
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAudioRouting_speaker(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioRouting_speaker(
     env: *mut JNIEnv, _: jclass, channel: jint, content: jint, stream: jint,
 ) -> jintArray { selection(env, speaker(channel, content, stream)) }
 

@@ -319,7 +319,7 @@ pub unsafe fn retain_route(handle: jlong) -> Option<Arc<Route>> {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRouteCreate(
+pub extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_videoRouteCreate(
     _env: *mut JNIEnv, _class: jclass,
 ) -> jlong {
     Box::into_raw(Box::new(Arc::new(Route(Mutex::new(None))))) as jlong
@@ -327,7 +327,7 @@ pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRoute
 
 /// The caller transfers separately retained references, never the worker's original pipe handles.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRouteSetTargets(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_videoRouteSetTargets(
     env: *mut JNIEnv, _class: jclass, handle: jlong, targets: jlongArray,
 ) {
     let count = ((**env).GetArrayLength.unwrap())(env, targets) as usize;
@@ -340,7 +340,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_vid
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoRouteDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_videoRouteDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     let route = Box::from_raw(handle as *mut Arc<Route>);
@@ -348,17 +348,17 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_vid
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeRetain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRetain(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jlong { Box::into_raw(Box::new(pipe(handle).clone())) as jlong }
 
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoTouchSent(
+pub extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_videoTouchSent(
     _env: *mut JNIEnv, _class: jclass, sent_at: jlong,
 ) { crate::media::video::flow::touch_sent(sent_at); }
 
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_videoTouchFrame(
+pub extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_videoTouchFrame(
     _env: *mut JNIEnv, _class: jclass, now: jlong,
 ) -> jlong { touch_latency(now).unwrap_or(-1) }
 
@@ -441,7 +441,7 @@ fn run_events(pipe: Arc<Pipe>, callbacks: jobject, on_event: jmethodID) {
 
 /// A pipe for one screen stream; `pacing_delay_nanos` > 0 paces frames by the iPhone's frame times.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCreate(
     env: *mut JNIEnv, _class: jclass, callbacks: jobject, pacing_delay_nanos: jlong, track_touches: jboolean,
 ) -> jlong {
     let e = Env(env);
@@ -493,7 +493,7 @@ fn status_text(phase: &str, status: media_status_t) -> String { format!("{phase}
 /// renders to `surface`. 0 on success, or -1 create / -2 configure / -3 start / -4 async, with the
 /// detail in `detail_out[0]`. Integer keys come from Kotlin's format policy.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeConfigure(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeConfigure(
     env: *mut JNIEnv, _class: jclass, handle: jlong, name: jstring, mime: jstring, width: jint, height: jint,
     keys: jobjectArray, values: jintArray, csd0: jbyteArray, csd1: jbyteArray, surface: jobject, hevc: jboolean,
     report_vendor_format: jboolean, detail_out: jobjectArray,
@@ -589,7 +589,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 
 /// Stops and frees the decoder, if any. The pipe keeps its frames' policy (a keyframe is needed next).
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeRelease(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRelease(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     let pipe = pipe(handle);
@@ -620,7 +620,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 
 /// Moves the running decoder to `surface`; `shown` false for the parking consumer. 0 on success.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeSetSurface(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSetSurface(
     env: *mut JNIEnv, _class: jclass, handle: jlong, surface: jobject, shown: jboolean,
 ) -> jint {
     let pipe = pipe(handle);
@@ -645,7 +645,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 /// Whether frames are kept for a decoder (Kotlin has a configuration and a surface); a change resets
 /// the reference chain, as a new configuration or surface does in `VideoDecoder`.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeSetAccepting(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSetAccepting(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, accepting: jboolean, reset_chain: jboolean,
 ) {
     let mut inner = pipe(handle).inner.lock().unwrap();
@@ -660,7 +660,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 /// drops the queued chain and feeds nothing until Kotlin has acted on it. False lets frames through
 /// again: the configuration was unchanged, or no decoder could be made and the next keyframe retries.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeHold(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeHold(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, hold: jboolean,
 ) {
     let pipe = pipe(handle);
@@ -686,7 +686,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 
 /// Takes ownership of a frame from the receiver.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeSubmit(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSubmit(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, frame: jlong, size: jint, flags: jint,
     sender_nanos: jlong, arrival_nanos: jlong,
 ) {
@@ -741,7 +741,7 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
 
 /// Live counters for the FPS overlay: received, rendered, decode ns, decode samples.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeLive(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeLive(
     env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray,
 ) {
     let pipe = pipe(handle);
@@ -755,7 +755,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 /// Moves the five-second stats into Kotlin's `VideoStats`: `out` gets rendered, recoveries, late,
 /// pacing delay, held samples, held max; `decode` the decode times in microseconds. Returns their count.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeTakeStats(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeTakeStats(
     env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, decode: jintArray,
 ) -> jint {
     let (stats, input) = {
@@ -772,11 +772,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pip
 
 /// Releases the decoder and every queued frame, and ends the event thread; the handle is gone.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeDestroy(
     env: *mut JNIEnv, class: jclass, handle: jlong,
 ) {
     if handle == 0 { return; }
-    Java_com_shilapi_xcertplay_airplay_NativeMedia_pipeRelease(env, class, handle);
+    Java_com_shihab_diplay_airplay_NativeMedia_pipeRelease(env, class, handle);
     let pipe = Box::from_raw(handle as *mut Arc<Pipe>);
     {
         let mut inner = pipe.inner.lock().unwrap();

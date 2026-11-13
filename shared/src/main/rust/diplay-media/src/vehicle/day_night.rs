@@ -48,23 +48,23 @@ mod tests {
     }
 }
 
-// ---- JNI boundary: `com.shilapi.xcertplay.hud.NativeDayNight` (-1 unknown, 0 day, 1 night) ----
+// ---- JNI boundary: `com.shihab.diplay.hud.NativeDayNight` (-1 unknown, 0 day, 1 night) ----
 
 use jni_sys::{jclass, jint, JNIEnv};
 
 fn code(value: Option<bool>) -> jint { match value { None => -1, Some(false) => 0, Some(true) => 1 } }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeDayNight_fromAdaptapi(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeDayNight_fromAdaptapi(
     _env: *mut JNIEnv, _class: jclass, value: jint,
 ) -> jint { code(from_adaptapi_day_night(value)) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeDayNight_fromAmap(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeDayNight_fromAmap(
     _env: *mut JNIEnv, _class: jclass, state: jint,
 ) -> jint { code(from_amap_state(state)) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeDayNight_fromTwilight(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeDayNight_fromTwilight(
     _env: *mut JNIEnv, _class: jclass, value: jint,
 ) -> jint { code(from_twilight_property(value)) }

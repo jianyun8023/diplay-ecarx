@@ -82,7 +82,7 @@ unsafe fn number(env: *mut JNIEnv, body: impl FnOnce(&Env) -> Option<jint>) -> j
     value
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStreamQueue_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeIapStreamQueue_create(
     env: *mut JNIEnv,
     _: jclass,
 ) -> jobjectArray {
@@ -97,7 +97,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStream
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStreamQueue_offer(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeIapStreamQueue_offer(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,
@@ -134,7 +134,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStream
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStreamQueue_take(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeIapStreamQueue_take(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,
@@ -166,7 +166,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStream
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStreamQueue_status(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeIapStreamQueue_status(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,
@@ -174,7 +174,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStream
     number(env, |e| Some(e.read(state)?.2.flags))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStreamQueue_fail(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeIapStreamQueue_fail(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,
@@ -187,7 +187,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStream
     }) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeIapStreamQueue_close(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeIapStreamQueue_close(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,

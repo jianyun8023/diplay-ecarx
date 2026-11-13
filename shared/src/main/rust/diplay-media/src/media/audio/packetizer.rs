@@ -42,7 +42,7 @@ unsafe fn bytes(env: *mut JNIEnv, value: &[u8]) -> jbyteArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_counters(env: *mut JNIEnv, _: jclass, sequence: jint, timestamp: jint, nonce: jlong) -> jlongArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_counters(env: *mut JNIEnv, _: jclass, sequence: jint, timestamp: jint, nonce: jlong) -> jlongArray {
     let f = &**env;
     let result = (f.NewLongArray.unwrap())(env, 3);
     if !result.is_null() { (f.SetLongArrayRegion.unwrap())(env, result, 0, 3, [sequence as i64, timestamp as i64, nonce].as_ptr()); }
@@ -50,7 +50,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophon
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_counter(env: *mut JNIEnv, _: jclass, owner: jlongArray, field: jint, write: jboolean, value: jlong) -> jlong {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_counter(env: *mut JNIEnv, _: jclass, owner: jlongArray, field: jint, write: jboolean, value: jlong) -> jlong {
     let f = &**env;
     if !(0..3).contains(&field) {
         let class = (f.FindClass.unwrap())(env, c"java/lang/IllegalArgumentException".as_ptr());
@@ -64,7 +64,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophon
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_seal(env: *mut JNIEnv, _: jclass, owner: jlongArray, key: jbyteArray, payload_type: jint, body: jbyteArray, samples: jint) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_seal(env: *mut JNIEnv, _: jclass, owner: jlongArray, key: jbyteArray, payload_type: jint, body: jbyteArray, samples: jint) -> jbyteArray {
     let f = &**env;
     let Some(key) = read(env, key) else { return null_mut() };
     let Ok(key) = UnboundKey::new(&CHACHA20_POLY1305, &key) else {
@@ -92,14 +92,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophon
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_wirePcm(env: *mut JNIEnv, _: jclass, pcm: jbyteArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_wirePcm(env: *mut JNIEnv, _: jclass, pcm: jbyteArray) -> jbyteArray {
     let Some(mut pcm) = read(env, pcm) else { return null_mut() };
     for pair in pcm.chunks_exact_mut(2) { pair.swap(0, 1); }
     bytes(env, &pcm)
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_plan(env: *mut JNIEnv, _: jclass, opus: jboolean, rate: jint, channels: jint, millis: jint, clock: jint) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_plan(env: *mut JNIEnv, _: jclass, opus: jboolean, rate: jint, channels: jint, millis: jint, clock: jint) -> jintArray {
     let f = &**env;
     let result = (f.NewIntArray.unwrap())(env, 4);
     if !result.is_null() { (f.SetIntArrayRegion.unwrap())(env, result, 0, 4, plan(opus != 0, rate, channels, millis, clock).as_ptr()); }
@@ -107,10 +107,10 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophon
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_opusClockRate(_: *mut JNIEnv, _: jclass, bits: jlong) -> jint { opus_clock(bits) }
+pub extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_opusClockRate(_: *mut JNIEnv, _: jclass, bits: jlong) -> jint { opus_clock(bits) }
 
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMicrophonePacketizer_pcmFrameMillis(_: *mut JNIEnv, _: jclass, rate: jint, channels: jint) -> jint { frame_millis(rate, channels) }
+pub extern "system" fn Java_com_shihab_diplay_airplay_NativeMicrophonePacketizer_pcmFrameMillis(_: *mut JNIEnv, _: jclass, rate: jint, channels: jint) -> jint { frame_millis(rate, channels) }
 
 #[cfg(test)]
 mod tests {

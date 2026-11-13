@@ -94,7 +94,7 @@ impl ClockTrim {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clockCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_clockCreate(
     _env: *mut JNIEnv, _class: jclass, sample_rate: jint, target: jlong, integral: jdouble, measures_target: jboolean,
 ) -> jlong {
     if sample_rate <= 0 || !integral.is_finite() { return 0; }
@@ -102,13 +102,13 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clo
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clockSample(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_clockSample(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, queued: jlong, now_ns: jlong,
     compressed: jlong, head_moving: jboolean, arrived_frame_ns: jdouble,
 ) { if handle != 0 { (&mut *(handle as *mut ClockTrim)).sample(queued, now_ns, compressed, head_moving != 0, arrived_frame_ns); } }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clockRateDue(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_clockRateDue(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, now_ns: jlong,
 ) -> jint {
     if handle == 0 { return 0; }
@@ -116,7 +116,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clo
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clockQuery(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_clockQuery(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, what: jint,
 ) -> jlong {
     if handle == 0 { return 0; }
@@ -125,7 +125,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clo
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clockLearned(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_clockLearned(
     _env: *mut JNIEnv, _class: jclass, set: jboolean, value: jdouble,
 ) -> jdouble {
     if set != 0 && value.is_finite() { LEARNED_TRIM.store(value.clamp(-MAX_TRIM, MAX_TRIM).to_bits(), Ordering::Relaxed); }
@@ -133,7 +133,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clo
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_clockDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_clockDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) { if handle != 0 { drop(Box::from_raw(handle as *mut ClockTrim)); } }
 

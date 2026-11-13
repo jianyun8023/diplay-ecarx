@@ -91,12 +91,12 @@ BOOT_COMPLETED → BootReceiver 读取设置 → 请求打开 DiPlay
 
 ## 7. 实现与复核入口
 
-- [权限检查快照](../common/src/main/java/com/shilapi/xcertplay/PermissionDiagnosticSnapshot.kt)：权限页面与导出报告共用的只读检查。
+- [权限检查快照](../common/src/main/java/com/shihab/diplay/PermissionDiagnosticSnapshot.kt)：权限页面与导出报告共用的只读检查。
 - [公共 Manifest](../common/src/main/AndroidManifest.xml)、[共享 Manifest](../shared/src/main/AndroidManifest.xml)：权限声明。
-- [权限配置](../common/src/main/java/com/shilapi/xcertplay/UsbPermissionSetup.kt)、[方向盘服务](../common/src/main/java/com/shilapi/xcertplay/WheelKeyService.kt)：自身授权、服务名单保护及恢复。
-- [USB 原生授权](../shared/src/main/java/com/shilapi/xcertplay/transport/IphoneUsbGrant.kt)、[VPN 原生授权](../common/src/main/java/com/shilapi/xcertplay/VpnPreConsent.kt)：目标边界和写后验证。
-- [Wi-Fi 扫描控制](../shared/src/main/java/com/shilapi/xcertplay/network/WifiScanPause.kt)、[恢复状态](../shared/src/main/java/com/shilapi/xcertplay/network/WifiScanPauseSession.kt)：暂停、租约、恢复责任。
-- [系统热点](../shared/src/main/java/com/shilapi/xcertplay/network/CarHotspotTethering.kt)、[开机诊断](../common/src/main/java/com/shilapi/xcertplay/StartupDiagnosticSnapshot.kt)：自启与连接阶段分离。
+- [权限配置](../common/src/main/java/com/shihab/diplay/UsbPermissionSetup.kt)、[方向盘服务](../common/src/main/java/com/shihab/diplay/WheelKeyService.kt)：自身授权、服务名单保护及恢复。
+- [USB 原生授权](../shared/src/main/java/com/shihab/diplay/transport/IphoneUsbGrant.kt)、[VPN 原生授权](../common/src/main/java/com/shihab/diplay/VpnPreConsent.kt)：目标边界和写后验证。
+- [Wi-Fi 扫描控制](../shared/src/main/java/com/shihab/diplay/network/WifiScanPause.kt)、[恢复状态](../shared/src/main/java/com/shihab/diplay/network/WifiScanPauseSession.kt)：暂停、租约、恢复责任。
+- [系统热点](../shared/src/main/java/com/shihab/diplay/network/CarHotspotTethering.kt)、[开机诊断](../common/src/main/java/com/shihab/diplay/StartupDiagnosticSnapshot.kt)：自启与连接阶段分离。
 - 根 `build.gradle.kts` 限制所有应用的 ABI，`shared/build.gradle` 限制预编译库；最终以 APK 的 `lib/` 内容复核，不能只看库模块配置。
 
 ## 8. 包体与验收记录

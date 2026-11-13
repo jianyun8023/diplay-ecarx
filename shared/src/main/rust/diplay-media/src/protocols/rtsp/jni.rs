@@ -58,7 +58,7 @@ unsafe fn throw(env: *mut JNIEnv, class: &[u8], message: &str) {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeRtsp_parse(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeRtsp_parse(
     env: *mut JNIEnv, _class: jclass, buffer: jbyteArray,
 ) -> jobject {
     if buffer.is_null() { throw(env, b"java/lang/IllegalArgumentException\0", "RTSP buffer is null"); return null_mut(); }
@@ -78,7 +78,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeRtsp_pars
         let (map_class, map_init) = constructor(env, b"java/util/HashMap\0", b"()V\0")?;
         let put = (f.GetMethodID.unwrap())(env, map_class, c"put".as_ptr(), c"(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".as_ptr());
         if put.is_null() { return None; }
-        let (request_class, request_init) = constructor(env, b"com/shilapi/xcertplay/airplay/RtspMessage$Request\0",
+        let (request_class, request_init) = constructor(env, b"com/shihab/diplay/airplay/RtspMessage$Request\0",
             b"(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;[B)V\0")?;
         for request in parsed.messages {
             if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return None; }
@@ -104,7 +104,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeRtsp_pars
             (f.DeleteLocalRef.unwrap())(env, request);
             if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
         }
-        let (class, init) = constructor(env, b"com/shilapi/xcertplay/airplay/RtspMessage$Parsed\0", b"(Ljava/util/List;[B)V\0")?;
+        let (class, init) = constructor(env, b"com/shihab/diplay/airplay/RtspMessage$Parsed\0", b"(Ljava/util/List;[B)V\0")?;
         let result = (f.NewObjectA.unwrap())(env, class, init, [jvalue { l: list }, jvalue { l: bytes(env, parsed.rest)? }].as_ptr());
         (!result.is_null()).then_some(result)
     })();
@@ -112,7 +112,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeRtsp_pars
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeRtsp_response(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeRtsp_response(
     env: *mut JNIEnv, _class: jclass, protocol: jstring, status: jint, reason: jstring, cseq: jstring,
     headers: jobjectArray, body: jbyteArray,
 ) -> jbyteArray {

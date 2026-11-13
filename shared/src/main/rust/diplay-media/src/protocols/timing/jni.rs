@@ -41,7 +41,7 @@ unsafe fn bytes(env: *mut JNIEnv, value: &[u8]) -> jbyteArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeNtpTiming_create(
     env: *mut JNIEnv, _class: jclass, mono: jlong, wall: jlong,
 ) -> jlongArray {
     let f = &**env;
@@ -51,7 +51,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming_synced(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeNtpTiming_synced(
     env: *mut JNIEnv, _class: jclass, token: jlongArray, mono: jlong,
 ) -> jbyteArray {
     let Some(clock) = clock(env, token) else { return null_mut(); };
@@ -59,7 +59,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming_request(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeNtpTiming_request(
     env: *mut JNIEnv, _class: jclass, token: jlongArray, mono: jlong,
 ) -> jbyteArray {
     let Some(mut clock) = clock(env, token) else { return null_mut(); };
@@ -70,14 +70,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming_action(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeNtpTiming_action(
     env: *mut JNIEnv, _class: jclass, message: jbyteArray, from_peer: jboolean,
 ) -> jint {
     packet(env, message).map(|message| action(&message, from_peer != 0)).unwrap_or(0)
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming_reply(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeNtpTiming_reply(
     env: *mut JNIEnv, _class: jclass, token: jlongArray, message: jbyteArray, receive_ns: jlong, send_ns: jlong,
 ) -> jbyteArray {
     let Some(clock) = clock(env, token) else { return null_mut(); };
@@ -86,7 +86,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeNtpTiming_sample(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeNtpTiming_sample(
     env: *mut JNIEnv, _class: jclass, token: jlongArray, message: jbyteArray, mono: jlong,
 ) {
     let Some(mut clock) = clock(env, token) else { return; };

@@ -65,24 +65,24 @@ use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jobjectArray, jvalue, J
 use std::ptr::null_mut;
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm_create(_: *mut JNIEnv, _: jclass) -> jlong {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Csm_create(_: *mut JNIEnv, _: jclass) -> jlong {
     Box::into_raw(Box::new(Framer::default())) as jlong
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm_destroy(_: *mut JNIEnv, _: jclass, handle: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Csm_destroy(_: *mut JNIEnv, _: jclass, handle: jlong) {
     if handle != 0 { drop(Box::from_raw(handle as *mut Framer)); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm_offer(env: *mut JNIEnv, _: jclass, handle: jlong, chunk: jbyteArray) -> jobjectArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Csm_offer(env: *mut JNIEnv, _: jclass, handle: jlong, chunk: jbyteArray) -> jobjectArray {
     if handle == 0 { return null_mut(); }
     let Some(bytes) = read_bytes(env, chunk) else { return null_mut(); };
     let frames = (&mut *(handle as *mut Framer)).offer(&bytes);
     let f = &**env;
     if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
     let result = (|| {
-        let class = (f.FindClass.unwrap())(env, c"com/shilapi/xcertplay/iap2/wire/Iap2Frame".as_ptr());
+        let class = (f.FindClass.unwrap())(env, c"com/shihab/diplay/iap2/wire/Iap2Frame".as_ptr());
         if class.is_null() { return None; }
         let init = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(), c"(I[B)V".as_ptr());
         if init.is_null() { return None; }
@@ -105,7 +105,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm_encode(env: *mut JNIEnv, _: jclass, parameter: jboolean, id: jint, payload: jbyteArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Csm_encode(env: *mut JNIEnv, _: jclass, parameter: jboolean, id: jint, payload: jbyteArray) -> jbyteArray {
     let Some(bytes) = read_bytes(env, payload) else { return null_mut(); };
     match encode(parameter != 0, id, &bytes) {
         Ok(out) => byte_array(env, &out),
@@ -114,7 +114,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Csm_split(env: *mut JNIEnv, _: jclass, frame: jbyteArray, chunk_size: jint) -> jobjectArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Csm_split(env: *mut JNIEnv, _: jclass, frame: jbyteArray, chunk_size: jint) -> jobjectArray {
     let Some(bytes) = read_bytes(env, frame) else { return null_mut(); };
     let chunks = match split(&bytes, chunk_size) {
         Ok(chunks) => chunks,

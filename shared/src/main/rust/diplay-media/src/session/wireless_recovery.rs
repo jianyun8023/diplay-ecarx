@@ -105,41 +105,41 @@ fn classify(facts: i32) -> i32 {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetCreate(
     _env: *mut JNIEnv, _class: jclass,
 ) -> jlong { Budget::default().encode() }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetAdvance(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetAdvance(
     _env: *mut JNIEnv, _class: jclass, token: jlong, stage: jint,
 ) -> jlong {
     let Some(mut budget) = Budget::decode(token) else { return -1; };
     if budget.advance(stage) { budget.encode() } else { -1 }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetQuery(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetQuery(
     _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
 ) -> jint { Budget::decode(token).map(|budget| budget.query(field)).unwrap_or(-1) }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptCreate(
     _env: *mut JNIEnv, _class: jclass,
 ) -> jlong { Attempt { valid: true, stage: 0, timed_out: false, timeout_link: false }.encode() }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptUpdate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptUpdate(
     _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint, phase: jint,
 ) -> jlong {
     let Some(mut attempt) = Attempt::decode(token) else { return -1; };
     if attempt.update(event, phase) { attempt.encode() } else { -1 }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptQuery(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptQuery(
     _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
 ) -> jint { Attempt::decode(token).map(|attempt| attempt.query(field)).unwrap_or(-1) }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_classify(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_classify(
     _env: *mut JNIEnv, _class: jclass, facts: jint,
 ) -> jint { classify(facts) }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptFailure(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptFailure(
     _env: *mut JNIEnv, _class: jclass, token: jlong, facts: jint,
 ) -> jint { Attempt::decode(token).map(|attempt| attempt.failure(facts)).unwrap_or(-1) }
 
@@ -225,28 +225,28 @@ mod tests {
     fn primitive_jni_tokens_reject_invalid_values_without_retaining_native_allocations() {
         unsafe {
             let env = std::ptr::null_mut(); let class = std::ptr::null_mut();
-            assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetCreate(env, class), 0);
-            assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptCreate(env, class), 1);
+            assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetCreate(env, class), 0);
+            assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptCreate(env, class), 1);
             for token in 0..32 {
                 assert_eq!(Attempt::decode(token).unwrap().encode(), token);
                 for event in 0..6 {
-                    assert!((0..32).contains(&Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptUpdate(env, class, token, event, 0)));
+                    assert!((0..32).contains(&Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptUpdate(env, class, token, event, 0)));
                 }
             }
             for number in 0..5 { for flags in 0..8 { for action in 0..4 {
                 let token = number << 8 | action << 4 | flags;
                 assert_eq!(Budget::decode(token).unwrap().encode(), token);
-                for field in 0..4 { assert!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetQuery(env, class, token, field) >= 0); }
+                for field in 0..4 { assert!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetQuery(env, class, token, field) >= 0); }
             } } }
             for token in [-1, 32, i64::MAX] {
-                assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptUpdate(env, class, token, 0, 0), -1);
-                assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptFailure(env, class, token, 0), -1);
+                assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptUpdate(env, class, token, 0, 0), -1);
+                assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptFailure(env, class, token, 0), -1);
             }
             for token in [-1, 8, 64, 2048, i64::MAX] {
-                assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetAdvance(env, class, token, 0), -1);
+                assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetAdvance(env, class, token, 0), -1);
             }
-            assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_budgetQuery(env, class, 0, 5), -1);
-            assert_eq!(Java_com_shilapi_xcertplay_orchestration_NativeWirelessRecovery_attemptQuery(env, class, 1, 2), -1);
+            assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_budgetQuery(env, class, 0, 5), -1);
+            assert_eq!(Java_com_shihab_diplay_orchestration_NativeWirelessRecovery_attemptQuery(env, class, 1, 2), -1);
         }
     }
 }

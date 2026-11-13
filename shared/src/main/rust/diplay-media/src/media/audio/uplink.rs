@@ -83,7 +83,7 @@ unsafe fn uplink<'a>(handle: jlong) -> &'a mut Uplink { &mut *(handle as *mut Up
 /// A sender on `fd` (a duplicate the uplink owns) to `address` (4 or 16 bytes) and `port`. With
 /// `opus_bitrate` > 0 frames are encoded as 20 ms 48 kHz mono Opus. 0 when an argument is wrong.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_uplinkCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_uplinkCreate(
     env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, payload_type: jint, address: jbyteArray,
     scope_id: jint, port: jint, opus_bitrate: jint, rtp_samples_per_packet: jint,
 ) -> jlong {
@@ -127,7 +127,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
 /// Sends one captured frame (`length` bytes of 16-bit little-endian PCM). Returns the packets sent
 /// (0 when the encoder produced nothing), -1 when encoding failed, or -errno when the send failed.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_uplinkSend(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_uplinkSend(
     env: *mut JNIEnv, _class: jclass, handle: jlong, frame: jbyteArray, length: jint,
 ) -> jint {
     let e = Env(env);
@@ -166,7 +166,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_uplinkClose(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_uplinkClose(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle == 0 { return; }
@@ -177,7 +177,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_upl
 
 /// A standalone 48 kHz mono VoIP encoder (Kotlin's `NativeOpusEncoder`); 0 when the bitrate is refused.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_opusEncoderCreate(
     _env: *mut JNIEnv, _class: jclass, bitrate: jint,
 ) -> jlong {
     voice_encoder(bitrate).map(|encoder| encoder as jlong).unwrap_or(0)
@@ -186,7 +186,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opu
 /// Encodes 960 samples of 16-bit little-endian PCM from `pcm` into `output`; the packet length, or
 /// a negative value on failure (the encoder is then reset).
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_opusEncode(
     env: *mut JNIEnv, _class: jclass, handle: jlong, pcm: jbyteArray, output: jbyteArray,
 ) -> jint {
     let e = Env(env);
@@ -207,7 +207,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opu
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_opusEncoderDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle != 0 { unsafe { opus_encoder_destroy(handle as *mut OpusEncoder) }; }
@@ -256,7 +256,7 @@ mod tests {
             let mut env = &functions as JNIEnv;
             let class = std::ptr::null_mut();
             for bitrate in [24_000, 48_000, 64_000, 96_000] {
-                let handle = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderCreate(&mut env, class, bitrate);
+                let handle = Java_com_shihab_diplay_airplay_NativeMedia_opusEncoderCreate(&mut env, class, bitrate);
                 assert_ne!(handle, 0);
                 let mut pcm: Vec<u8> = (0..960).flat_map(|n| {
                     let sample = ((n as f64 * 2.0 * std::f64::consts::PI * 300.0 / 48_000.0).sin() * 8000.0) as i16;
@@ -265,15 +265,15 @@ mod tests {
                 let mut output = vec![0u8; 1275];
                 let input = &mut pcm as *mut Vec<u8> as jbyteArray;
                 let out = &mut output as *mut Vec<u8> as jbyteArray;
-                let first = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(&mut env, class, handle, input, out);
+                let first = Java_com_shihab_diplay_airplay_NativeMedia_opusEncode(&mut env, class, handle, input, out);
                 let first_packet = output[..first.max(0) as usize].to_vec();
                 let invalid: Vec<_> = [0, 1918, 1922, 3840].into_iter().map(|length| {
                     let mut bad = vec![0u8; length];
-                    Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(&mut env, class, handle,
+                    Java_com_shihab_diplay_airplay_NativeMedia_opusEncode(&mut env, class, handle,
                         &mut bad as *mut Vec<u8> as jbyteArray, out)
                 }).collect();
-                let second = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncode(&mut env, class, handle, input, out);
-                Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderDestroy(&mut env, class, handle);
+                let second = Java_com_shihab_diplay_airplay_NativeMedia_opusEncode(&mut env, class, handle, input, out);
+                Java_com_shihab_diplay_airplay_NativeMedia_opusEncoderDestroy(&mut env, class, handle);
                 assert!((1..=1275).contains(&first), "20 ms / {bitrate} bps with Kotlin's 1275-byte output returned {first}");
                 assert_eq!(invalid, vec![-1; 4]);
                 assert!((1..=1275).contains(&second));
@@ -283,8 +283,8 @@ mod tests {
                 assert!(decoded.iter().any(|&sample| sample != 0));
             }
             for bitrate in [0, -1] {
-                let handle = Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderCreate(&mut env, class, bitrate);
-                Java_com_shilapi_xcertplay_airplay_NativeMedia_opusEncoderDestroy(&mut env, class, handle);
+                let handle = Java_com_shihab_diplay_airplay_NativeMedia_opusEncoderCreate(&mut env, class, bitrate);
+                Java_com_shihab_diplay_airplay_NativeMedia_opusEncoderDestroy(&mut env, class, handle);
                 assert_eq!(handle, 0);
             }
         }

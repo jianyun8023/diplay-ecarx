@@ -111,7 +111,7 @@ static BUFFERED_POOL: OnceLock<Arc<Pool>> = OnceLock::new();
 pub fn shared_pool() -> &'static Arc<Pool> { BUFFERED_POOL.get_or_init(Pool::new) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetRetain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetRetain(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     retain(handle);
@@ -122,7 +122,7 @@ pub unsafe fn retain(handle: jlong) {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetRelease(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetRelease(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     release(handle);
@@ -131,7 +131,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pac
 /// Copies `length` bytes from `offset` into the direct buffer `target` at `position`.
 /// Returns the bytes copied, or -1 when the target is not direct or a bound does not hold.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetCopyInto(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetCopyInto(
     env: *mut JNIEnv, _class: jclass, handle: jlong, offset: jint, length: jint, target: jobject, position: jint,
 ) -> jint {
     if handle == 0 || offset < 0 || length < 0 || position < 0 { return -1; }
@@ -146,7 +146,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pac
 
 /// Copies `length` bytes from `offset` into `out` at `out_offset`; false when a bound does not hold.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetRead(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetRead(
     env: *mut JNIEnv, _class: jclass, handle: jlong, offset: jint, length: jint, out: jbyteArray, out_offset: jint,
 ) -> jni_sys::jboolean {
     if handle == 0 || offset < 0 || length < 0 || out_offset < 0 { return 0; }
@@ -170,7 +170,7 @@ mod tests {
         unsafe { first.set_len(3) };
         let handle = first.into_handle();
         unsafe {
-            Java_com_shilapi_xcertplay_airplay_NativeMedia_packetRetain(std::ptr::null_mut(), std::ptr::null_mut(), handle);
+            Java_com_shihab_diplay_airplay_NativeMedia_packetRetain(std::ptr::null_mut(), std::ptr::null_mut(), handle);
             release(handle);
             assert_eq!(pool.outstanding(), 1);
             release(handle);

@@ -65,7 +65,7 @@ Wired USB results belong to their diagnostic run. Reject and release stale Conne
 
 The Settings screen is grouped by driver goal, not by implementation.
 `SettingsCategory`, `SettingsSection` and `SettingsInformationArchitecture` in
-`common/src/main/java/com/shilapi/xcertplay/SettingsInformationArchitecture.kt` define the groups.
+`common/src/main/java/com/shihab/diplay/SettingsInformationArchitecture.kt` define the groups.
 `SettingsLayoutPolicyTest` fails when a section has no category or has more than one.
 
 ### Choose the category

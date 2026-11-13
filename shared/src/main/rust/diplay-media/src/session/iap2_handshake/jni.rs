@@ -117,7 +117,7 @@ unsafe fn wait(env: *mut JNIEnv, token: jlongArray) -> Option<TransportWait> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_create(
     env: *mut JNIEnv,
     _class: jclass,
     kind: jint,
@@ -129,7 +129,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     long_array(env, &state.encode())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_query(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_query(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -138,7 +138,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     read(env, owner).map(|s| s.query(field)).unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_event(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_event(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -156,7 +156,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     save(env, owner, &state);
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_message(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_message(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -170,7 +170,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     action
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_omitted(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_omitted(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -182,7 +182,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     int_array(env, &omitted)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_rejected(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_rejected(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -207,7 +207,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     accepted as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_wifiPlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_wifiPlan(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -215,7 +215,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     read(env, owner).map(|s| s.wifi_plan()).unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_startAgain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_startAgain(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -233,7 +233,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     send as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_boundPoll(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_boundPoll(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -250,7 +250,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_challengeValid(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_challengeValid(
     _env: *mut JNIEnv,
     _class: jclass,
     length: jint,
@@ -258,7 +258,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     (1..=128).contains(&length) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_rejectionMetadata(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_rejectionMetadata(
     env: *mut JNIEnv,
     _class: jclass,
     ids: jintArray,
@@ -316,7 +316,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     array
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_omittable(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_omittable(
     env: *mut JNIEnv,
     _class: jclass,
     parameters: jintArray,
@@ -337,7 +337,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
         .unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_deadlinePrepare(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_deadlinePrepare(
     env: *mut JNIEnv,
     _class: jclass,
     kind: jint,
@@ -350,7 +350,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     long_array(env, &[value.kind as i64, value.flags as i64, value.value])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_deadlineNeedsStart(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_deadlineNeedsStart(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -360,7 +360,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
         .unwrap_or(false) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_deadlineStart(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_deadlineStart(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -377,7 +377,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     save_deadline(env, token, &value);
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_deadlinePlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_deadlinePlan(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -392,7 +392,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     long_array(env, &value.plan())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_deadlineAt(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_deadlineAt(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -408,7 +408,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     long_array(env, &value.at(now))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_deadlineKeepAlive(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_deadlineKeepAlive(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -427,7 +427,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     remaining
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_waitCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_waitCreate(
     env: *mut JNIEnv,
     _class: jclass,
     millis: jlong,
@@ -436,7 +436,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
     long_array(env, &[millis, now])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_waitNeedsClock(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_waitNeedsClock(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -448,7 +448,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
         .unwrap_or(false) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_waitExpired(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_waitExpired(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -461,7 +461,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Han
         .unwrap_or(false) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Handshake_waitBound(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Handshake_waitBound(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,

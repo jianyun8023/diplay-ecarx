@@ -109,7 +109,7 @@ unsafe fn pair(env: *mut JNIEnv, token: jlongArray) -> Option<[i64; 2]> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_create(
     env: *mut JNIEnv,
     _class: jclass,
     wireless: jboolean,
@@ -118,7 +118,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     long_array(env, &Controller::new(wireless != 0, location != 0).encode())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_query(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_query(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -130,7 +130,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_event(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_event(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -146,7 +146,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_decide(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_decide(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -167,7 +167,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_key(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_key(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -193,7 +193,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     result as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_wirelessDecision(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_wirelessDecision(
     _env: *mut JNIEnv,
     _class: jclass,
     token: jlong,
@@ -203,7 +203,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     crate::session::wireless_state::decision(token, operation, facts)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_timingPolicy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_timingPolicy(
     _env: *mut JNIEnv,
     _class: jclass,
     field: jint,
@@ -211,7 +211,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     timing_policy(field)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_permissionDeadline(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_permissionDeadline(
     _env: *mut JNIEnv,
     _class: jclass,
     now: jlong,
@@ -219,7 +219,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     now.wrapping_add(timing_policy(0).wrapping_mul(1_000_000))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_permissionExpired(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_permissionExpired(
     _env: *mut JNIEnv,
     _class: jclass,
     deadline: jlong,
@@ -228,7 +228,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     (now >= deadline) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_teardownPlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_teardownPlan(
     env: *mut JNIEnv,
     _class: jclass,
     owner: jobjectArray,
@@ -239,7 +239,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     int_array(env, &state.teardown_plan())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_wirelessClosePlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_wirelessClosePlan(
     env: *mut JNIEnv,
     _class: jclass,
     current: jboolean,
@@ -247,7 +247,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     int_array(env, &wireless_close_plan(current != 0))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_handoff(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_handoff(
     _env: *mut JNIEnv,
     _class: jclass,
     requested: jboolean,
@@ -257,7 +257,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     handoff_in_progress(requested != 0, tunnel != 0, session != 0) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_expectedControlClose(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_expectedControlClose(
     _env: *mut JNIEnv,
     _class: jclass,
     stage: jint,
@@ -266,7 +266,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     expected_control_close(stage, facts) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_configuration(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_configuration(
     _env: *mut JNIEnv,
     _class: jclass,
     found: jboolean,
@@ -278,7 +278,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     configuration(found != 0, mode != 0, started != 0, tried, maximum)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_configurationFallback(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_configurationFallback(
     _env: *mut JNIEnv,
     _class: jclass,
     found: jboolean,
@@ -288,14 +288,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     (found != 0 && (mode == 0 || started != 0)) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_vpnCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_vpnCreate(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jlongArray {
     long_array(env, &[0, 0])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_vpnQuery(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_vpnQuery(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -315,7 +315,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_vpnEvent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_vpnEvent(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -345,14 +345,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCar
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_proofCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_proofCreate(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jlongArray {
     long_array(env, &[-1, 0])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeCarPlayController_proofEvent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_proofEvent(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,

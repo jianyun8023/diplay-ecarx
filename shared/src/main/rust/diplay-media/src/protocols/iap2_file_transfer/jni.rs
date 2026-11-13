@@ -75,7 +75,7 @@ unsafe fn export(env: *mut JNIEnv, body: impl FnOnce(&Env) -> Option<jobject>) -
     ((**env).PopLocalFrame.unwrap())(env, value)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2FileTransfer_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2FileTransfer_create(
     env: *mut JNIEnv,
     _: jclass,
     maximum: jint,
@@ -91,7 +91,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Fil
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2FileTransfer_clear(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2FileTransfer_clear(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,
@@ -107,7 +107,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Fil
     });
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2FileTransfer_accept(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2FileTransfer_accept(
     env: *mut JNIEnv,
     _: jclass,
     state: jobjectArray,

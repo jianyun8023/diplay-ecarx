@@ -116,7 +116,7 @@ unsafe fn random(env: *mut JNIEnv) -> Option<[u8; 32]> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x25519Generate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_x25519Generate(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jobjectArray {
@@ -128,7 +128,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x2
     pair(env, &private, &public)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x25519Shared(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_x25519Shared(
     env: *mut JNIEnv,
     _class: jclass,
     private: jbyteArray,
@@ -151,7 +151,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_x2
     bytes(env, &shared)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed25519Generate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_ed25519Generate(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jobjectArray {
@@ -162,7 +162,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed
     pair(env, &seed, key.public_key().as_ref())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed25519Sign(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_ed25519Sign(
     env: *mut JNIEnv,
     _class: jclass,
     seed: jbyteArray,
@@ -183,7 +183,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed
     )
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed25519Verify(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_ed25519Verify(
     env: *mut JNIEnv,
     _class: jclass,
     public: jbyteArray,
@@ -212,7 +212,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ed
         .is_ok() as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_hkdfSha512(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_hkdfSha512(
     env: *mut JNIEnv,
     _class: jclass,
     input: jbyteArray,
@@ -259,7 +259,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_hk
     bytes(env, &out)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_sha512(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_sha512(
     env: *mut JNIEnv,
     _class: jclass,
     parts: jobjectArray,
@@ -284,7 +284,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_sh
     bytes(env, hash.finish().as_ref())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_chachaSeal(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_chachaSeal(
     env: *mut JNIEnv,
     _class: jclass,
     key: jbyteArray,
@@ -325,7 +325,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ch
 
 /// Existing hot-path ABI: Kotlin validates ranges, key/nonce sizes and output capacity.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_chachaOpen(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_chachaOpen(
     env: *mut JNIEnv,
     _class: jclass,
     key: jbyteArray,
@@ -385,7 +385,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_cha
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ecdsaDerToRaw(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_ecdsaDerToRaw(
     env: *mut JNIEnv,
     _class: jclass,
     der: jbyteArray,
@@ -406,7 +406,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ec
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeCrypto_ecdsaRawToDer(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_ecdsaRawToDer(
     env: *mut JNIEnv,
     _class: jclass,
     raw: jbyteArray,
