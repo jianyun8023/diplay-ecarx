@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds and verifies the Rust Android libraries.
 # Usage: scripts/check_rust_android_native.sh [abi ...]
-#   no abi  -> build + verify both shipped ABIs and require identical JNI exports
-#   one abi -> build + verify just that ABI (arm64-v8a / armeabi-v7a)
+#   no abi  -> build + verify every shipped ABI and require identical JNI exports
+#   one abi -> build + verify just that ABI (arm64-v8a / armeabi-v7a / x86_64)
+#   ARM64 is the default production package; ARMv7 is the fallback; x86_64 is test-only (emulator).
 # Needs ANDROID_NDK_HOME (NDK 28.2.13676358), Rust 1.97.1 and the Android rust targets.
 set -euo pipefail
 
@@ -18,7 +19,7 @@ fi
 
 HOST_TAG="$(uname -s | tr '[:upper:]' '[:lower:]')-x86_64"
 BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$HOST_TAG/bin"
-for compiler in aarch64-linux-android28-clang armv7a-linux-androideabi28-clang; do
+for compiler in aarch64-linux-android28-clang armv7a-linux-androideabi28-clang x86_64-linux-android28-clang; do
   if [[ ! -x "$BIN/$compiler" ]]; then
     echo "Missing Android NDK compiler: $BIN/$compiler" >&2
     exit 1
@@ -36,11 +37,18 @@ abi_target() {
   case "$1" in
     arm64-v8a) echo aarch64-linux-android ;;
     armeabi-v7a) echo armv7-linux-androideabi ;;
+    x86_64) echo x86_64-linux-android ;;
     *) return 1 ;;
   esac
 }
-abi_class() { case "$1" in arm64-v8a) echo ELF64 ;; armeabi-v7a) echo ELF32 ;; esac; }
-abi_machine() { case "$1" in arm64-v8a) echo AArch64 ;; armeabi-v7a) echo ARM ;; esac; }
+abi_class() { case "$1" in arm64-v8a) echo ELF64 ;; armeabi-v7a) echo ELF32 ;; x86_64) echo ELF64 ;; esac; }
+abi_machine() {
+  case "$1" in
+    arm64-v8a) echo AArch64 ;;
+    armeabi-v7a) echo ARM ;;
+    x86_64) echo "Advanced Micro Devices X86-64" ;;
+  esac
+}
 
 ARGS=()
 while [[ "$#" -gt 0 ]]; do
@@ -48,14 +56,14 @@ while [[ "$#" -gt 0 ]]; do
     --abi)
       [[ "$#" -ge 2 ]] || { echo "--abi needs a value" >&2; exit 2; }
       ARGS+=("$2"); shift 2 ;;
-    arm64-v8a|armeabi-v7a)
+    arm64-v8a|armeabi-v7a|x86_64)
       ARGS+=("$1"); shift ;;
     *)
       echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 if [[ "${#ARGS[@]}" -eq 0 ]]; then
-  SELECTED_ABIS=(arm64-v8a armeabi-v7a)
+  SELECTED_ABIS=(arm64-v8a armeabi-v7a x86_64)
 else
   SELECTED_ABIS=("${ARGS[@]}")
 fi
@@ -138,11 +146,15 @@ for abi in "${SELECTED_ABIS[@]}"; do
 done
 
 if [[ "${#SELECTED_ABIS[@]}" -gt 1 ]]; then
-  if ! cmp -s "$VERIFY_TMP/arm64-v8a-jni-symbols.txt" "$VERIFY_TMP/armeabi-v7a-jni-symbols.txt"; then
-    echo "ARM64 and ARMv7 JNI export sets differ" >&2
-    diff -u "$VERIFY_TMP/arm64-v8a-jni-symbols.txt" "$VERIFY_TMP/armeabi-v7a-jni-symbols.txt" || true
-    exit 1
-  fi
+  # Every ABI must expose exactly the same Java JNI contract; compare each against the first.
+  reference="${SELECTED_ABIS[0]}"
+  for abi in "${SELECTED_ABIS[@]:1}"; do
+    if ! cmp -s "$VERIFY_TMP/$reference-jni-symbols.txt" "$VERIFY_TMP/$abi-jni-symbols.txt"; then
+      echo "$reference and $abi JNI export sets differ" >&2
+      diff -u "$VERIFY_TMP/$reference-jni-symbols.txt" "$VERIFY_TMP/$abi-jni-symbols.txt" || true
+      exit 1
+    fi
+  done
 fi
 
 git -C "$ROOT" rev-parse HEAD > "$OUTPUT_DIR/SOURCE-REVISION.txt"

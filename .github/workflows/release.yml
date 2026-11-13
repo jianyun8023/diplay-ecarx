@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.1'
-          targets: aarch64-linux-android,armv7-linux-androideabi
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
       - name: Cache Rust build (both Android targets)
         uses: Swatinem/rust-cache@v2
         with:
@@ -43,10 +43,12 @@ jobs:
           ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
           DIPLAY_JNI_LIBS_DIR="$RUNNER_TEMP/rust-android-libs" \
             scripts/check_rust_android_native.sh
-      - name: Stage freshly built Rust libraries for Release APK
+      - name: Stage freshly built Rust libraries for Release APKs
         run: |
-          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/arm64-v8a/libdiplay_media.so" shared/src/main/jniLibs/arm64-v8a/libdiplay_media.so
-          install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/armeabi-v7a/libdiplay_media.so" shared/src/main/jniLibs/armeabi-v7a/libdiplay_media.so
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            install -D -m 0644 "$RUNNER_TEMP/rust-android-libs/$abi/libdiplay_media.so" \
+              "shared/src/main/jniLibs/$abi/libdiplay_media.so"
+          done
       - uses: gradle/actions/setup-gradle@v4
       - name: Restore Android signing keystore
         env:
@@ -67,35 +69,64 @@ jobs:
           test -n "$ANDROID_KEY_PASSWORD"
           unset DIPLAY_AUTH_ASSETS_DIR
           ./gradlew :mobile:lintRelease :mobile:assembleRelease --no-parallel --max-workers=1 --build-cache --stacktrace
-      - name: Verify APK and prepare licenses, source and R8 mapping
+      - name: Verify APKs and prepare licenses, source and R8 mapping
         env:
           # Through env, not ${{ }} in the script: the body is free text.
           RELEASE_NOTES: ${{ github.event.release.body }}
         run: |
-          apk=$(ls mobile/build/outputs/apk/release/DiPlay-v*-release.apk)
-          apk_name=$(basename "$apk")
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --min-sdk-version 28 "$apk"
-          # The in-app updater reads the tag as the versionCode, so a release tag must be v<versionCode>.
-          version_code=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          set -euo pipefail
+          ABIS="arm64-v8a armeabi-v7a x86_64"
+          # ARM64 is the default production package and stays the top-level `apk` of update.json.
+          DEFAULT_ABI=arm64-v8a
+          version_code=""
+          mkdir -p release-apk
+          for abi in $ABIS; do
+            # The split APK name carries the versionCode; discover it per ABI and require it to match.
+            apk=$(ls "mobile/build/outputs/apk/release/DiPlay-v"*"-${abi}-release.apk")
+            apk_name=$(basename "$apk")
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --min-sdk-version 28 "$apk"
+            # The in-app updater reads the tag as the versionCode, so a release tag must be v<versionCode>.
+            this_code=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$apk" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+            if [ -z "$version_code" ]; then version_code="$this_code"; fi
+            if [ "$this_code" != "$version_code" ]; then
+              echo "APK $apk_name has versionCode $this_code but $version_code was seen first" >&2
+              exit 1
+            fi
+            if [ "$apk_name" != "DiPlay-v$version_code-$abi-release.apk" ]; then
+              echo "APK $apk_name must be named DiPlay-v$version_code-$abi-release.apk" >&2
+              exit 1
+            fi
+            # Each package must carry exactly its own ABI (and the Rust media library for it).
+            APK="$apk" ABI="$abi" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          apk = Path(os.environ['APK'])
+          abi = os.environ['ABI']
+          with ZipFile(apk) as archive:
+              names = archive.namelist()
+              assert not any('offline-mfi/' in name or Path(name).suffix.lower() in {
+                  '.pk8', '.p7b', '.pem', '.key', '.p12', '.pfx', '.jks', '.keystore',
+              } for name in names), 'Release APK must contain no authentication credentials'
+              lib_abis = {name.split('/')[1] for name in names if name.startswith('lib/') and '/' in name}
+              assert lib_abis == {abi}, f'{apk}: expected only lib/{abi}, found {sorted(lib_abis)}'
+              assert f'lib/{abi}/libdiplay_media.so' in names, f'{apk}: missing lib/{abi}/libdiplay_media.so'
+          PY
+            cp "$apk" release-apk/
+          done
           if [ "${{ github.event_name }}" = release ] && [ "${{ github.event.release.tag_name }}" != "v$version_code" ]; then
             echo "Release tag ${{ github.event.release.tag_name }} must be v$version_code" >&2
             exit 1
           fi
-          if [ "$apk_name" != "DiPlay-v$version_code-release.apk" ]; then
-            echo "APK $apk_name must be named DiPlay-v$version_code-release.apk" >&2
-            exit 1
-          fi
-          mkdir -p release-apk
-          APK="$apk" python3 - <<'PY'
+          # Licenses come from the ARM64 package's assets; the assets are identical across ABIs.
+          APK="mobile/build/outputs/apk/release/DiPlay-v$version_code-$DEFAULT_ABI-release.apk" python3 - <<'PY'
           import os
           from pathlib import Path
           from zipfile import ZipFile, ZIP_DEFLATED
 
           apk = Path(os.environ['APK'])
           with ZipFile(apk) as archive:
-              assert not any('offline-mfi/' in name or Path(name).suffix.lower() in {
-                  '.pk8', '.p7b', '.pem', '.key', '.p12', '.pfx', '.jks', '.keystore',
-              } for name in archive.namelist()), 'Release APK must contain no authentication credentials'
               required = {
                   'GPL-3.0.txt': Path('LICENSE'),
                   'AGPL-3.0.txt': Path('docs/licenses/DiAuto-AGPL-3.0.txt'),
@@ -110,15 +141,23 @@ jobs:
                       if name.startswith('assets/licenses/') and not name.endswith('/'):
                           licenses.writestr(name.removeprefix('assets/'), archive.read(name))
           PY
-          cp "$apk" release-apk/
           cp mobile/build/outputs/mapping/release/mapping.txt "release-apk/DiPlay-v$version_code-mapping.txt"
           # The in-app updater reads this through releases/latest/download, which GitHub mirrors also serve.
-          UPDATE_TAG="v$version_code" APK_NAME="$apk_name" python3 - <<'PY'
+          # `apks` lets each device download the package built for its own ABI; `apk` stays the ARM64 default.
+          UPDATE_TAG="v$version_code" DEFAULT_ABI="$DEFAULT_ABI" ABIS="$ABIS" python3 - <<'PY'
           import json, os, sys
           sys.path.insert(0, 'scripts')
           from release_notes_plain import plain
           # Installed apps show notes as text, and v143 shows them verbatim: no Markdown in the manifest.
-          manifest = {'tag': os.environ['UPDATE_TAG'], 'apk': os.environ['APK_NAME'], 'notes': plain(os.environ.get('RELEASE_NOTES', ''))}
+          tag = os.environ['UPDATE_TAG']
+          abis = os.environ['ABIS'].split()
+          apks = {abi: f'DiPlay-{tag}-{abi}-release.apk' for abi in abis}
+          manifest = {
+              'tag': tag,
+              'apk': apks[os.environ['DEFAULT_ABI']],
+              'apks': apks,
+              'notes': plain(os.environ.get('RELEASE_NOTES', '')),
+          }
           with open('release-apk/update.json', 'w', encoding='utf-8') as output:
               json.dump(manifest, output, ensure_ascii=False)
           PY
@@ -127,7 +166,7 @@ jobs:
           printf 'Repository: %s\nCommit: %s\nSource archive: DiPlay-source.tar.gz\n' \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$release_source_revision" > release-apk/SOURCE-REVISION.txt
           cd release-apk
-          sha256sum "$apk_name" "DiPlay-v$version_code-mapping.txt" DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt update.json > SHA256SUMS.txt
+          sha256sum DiPlay-v"$version_code"-*-release.apk "DiPlay-v$version_code-mapping.txt" DiPlay-licenses.zip DiPlay-source.tar.gz SOURCE-REVISION.txt update.json > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: DiPlay-signed-release

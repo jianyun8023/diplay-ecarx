@@ -45,6 +45,7 @@ internal class BackgroundUpdateWorker(context: Context, parameters: WorkerParame
                 installedBuild = PackageInfoCompat.getLongVersionCode(packageInfo),
                 userAgent = "DiPlay/${packageInfo.versionName}",
                 routes = UpdateAvailability.routes(applicationContext),
+                abi = UpdateCatalog.platformAbi(android.os.Build.SUPPORTED_ABIS.toList()),
                 openConnection = network::openConnection,
             )
             UpdateAvailability.recordWorkingRoute(applicationContext, lookup.route)

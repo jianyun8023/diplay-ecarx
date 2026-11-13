@@ -26,6 +26,20 @@ android {
 
     localAuthenticationAssets?.let { sourceSets.getByName("main").assets.srcDir(it) }
 
+    // One standalone APK per shipped ABI. ARM64 is the default production package; ARMv7 is the
+    // fallback; x86_64 is test-only (emulator). Each APK carries exactly one native ABI, so the
+    // in-app updater selects the package that matches the device's own ABI.
+    // splits.abi owns the ABI selection here, so the inherited ndk.abiFilters must be cleared first.
+    defaultConfig.ndk.abiFilters.clear()
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     signingConfigs {
         create("release") {
             storeFile = file(

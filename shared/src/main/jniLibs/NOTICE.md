@@ -27,8 +27,8 @@ path ASCII-only. Alternatively the `externalNativeBuild` block can be put back i
 
 ## Integrity
 
-Rebuilt from the retained sources on 2026-11-13 with NDK `28.2.13676358` (production ABI filters are
-ARM64 and ARMv7; x86_64 files remain for the source tree / emulator):
+Rebuilt from the retained sources on 2026-11-13 with NDK `28.2.13676358` (shipped ABIs are
+ARM64 default, ARMv7 fallback, and x86_64 test-only for the emulator):
 
 | ABI | File | Bytes | SHA-256 |
 |---|---|---:|---|
@@ -56,7 +56,7 @@ old `DiPlay-0.2.15.apk` copies).
 `Android.mk` still declares only `diplay_i2c`, `local_hotspot_radio` and `speex_echo`.
 
 SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source headers.
-The production APK ABI filters select ARM64 and ARMv7; x86_64 files remain in the source tree.
+Release builds ship one APK per ABI: ARM64 (default), ARMv7 (fallback) and x86_64 (test-only).
 Keep the applicable licenses and corresponding source when redistributing native binaries.
 
 ## Rust CarPlay core
