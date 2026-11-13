@@ -277,4 +277,18 @@ class SettingsBackupCodecTest {
         SettingsBackupCodec.import(context, exported)
         assertFalse(prefs("diplay_media_session").getBoolean("hy_artwork_broadcast", true))
     }
+
+    @Test
+    fun importsLegacyXcertplayAirplayBackupIntoDiplayAirplay() {
+        prefs("diplay_airplay").edit().clear().commit()
+        val legacy = JSONObject(
+            """{"format":"diplay-settings","version":1,"app":"0.2.20","settings":{""" +
+                """"xcertplay_airplay":{"display_fps":48,"hevc_enabled":true,"ambient_lux_threshold":120}}}""",
+        )
+        val outcome = SettingsBackupCodec.import(context, legacy.toString().toByteArray())
+        assertFalse(outcome.invalid)
+        assertEquals(48, prefs("diplay_airplay").getInt("display_fps", 0))
+        assertTrue(prefs("diplay_airplay").getBoolean("hevc_enabled", false))
+        assertEquals(120, prefs("diplay_airplay").getInt("ambient_lux_threshold", 0))
+    }
 }
