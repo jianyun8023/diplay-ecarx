@@ -835,6 +835,10 @@ class MediaOutputRoutingTest {
         val session = spy(field(CarPlayMediaSession, "session").get(CarPlayMediaSession) as MediaSession)
         field(CarPlayMediaSession, "session").set(CarPlayMediaSession, session)
         val published = ArgumentCaptor.forClass(MediaMetadata::class.java)
+        // Establish a position for "First" so a later restart is recognisable as a new track.
+        val first = song("First", 7).copy(elapsedMillis = 30_000)
+        `when`(attached.controller.nowPlayingSnapshot()).thenReturn(first)
+        attached.now(first); shadowOf(Looper.getMainLooper()).idle()
         attached.cover(7, png(Color.RED)); awaitArtwork()
         verify(session, atLeastOnce()).setMetadata(published.capture())
         val oldArt = published.value.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)!!
@@ -842,7 +846,7 @@ class MediaOutputRoutingTest {
         assertEquals(2, updates().size)
 
         // HY polls duration and rowBytes, not bitmap content. New title arrives before its cover.
-        val next = song("Second", 8).copy(playing = false)
+        val next = song("Second", 8).copy(playing = false, elapsedMillis = 0)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(next)
         attached.now(next); shadowOf(Looper.getMainLooper()).idle()
         verify(session, atLeastOnce()).setMetadata(published.capture())
@@ -943,7 +947,7 @@ class MediaOutputRoutingTest {
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(resumed)
         attached.now(resumed); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(4, hyUpdates().size)
-        val progress = resumed.copy(elapsedMillis = 3_000)
+        val progress = resumed.copy(elapsedMillis = 60_000)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(progress)
         attached.now(progress); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(4, hyUpdates().size)
@@ -954,7 +958,7 @@ class MediaOutputRoutingTest {
         attached.cover(8, png(Color.RED)); awaitArtwork()
         assertEquals(4, hyUpdates().size)
         attached.now(third)
-        val fourth = song("Fourth", 10)
+        val fourth = song("Fourth", 10).copy(elapsedMillis = 0)
         `when`(attached.controller.nowPlayingSnapshot()).thenReturn(fourth)
         attached.now(fourth)
         attached.cover(9, png(Color.RED)); awaitArtwork()

@@ -44,9 +44,10 @@ class InitialAlbumRecoveryTest {
     @Test fun artworkReferenceChangesDoNotResetTheTrackRecoveryBudget() {
         val recovery = InitialAlbumRecovery()
         val token = begin(recovery)
+        // A rotating artwork reference for the same media is not a new track: it must not cancel
+        // the pending request, and the same token still claims the send.
         assertFalse(recovery.observe(media(id = 130), false))
         assertEquals(token, recovery.pendingToken)
-        assertTrue(recovery.beginRequest(token, media(id = 130), false))
         assertTrue(recovery.claimSend(token, media(id = 130), false))
         assertFalse(recovery.observe(media(id = 131), false))
         assertEquals(token, recovery.pendingToken)
