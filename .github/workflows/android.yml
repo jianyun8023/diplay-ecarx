@@ -115,9 +115,9 @@ jobs:
   # The suite used to run every module in one serial job (~9-11 min, the pipeline's
   # critical path). Split it into parallel legs so the slowest module alone bounds the
   # time: `common` (largest UI/Robolectric suite) runs alone, `shared`+`home` (fast)
-  # share the other leg. Each leg keeps tests serial inside a module (--max-workers=1;
-  # Robolectric shares JVM state within a module), but legs run concurrently. Build and
-  # configuration caches are enabled so repeated compiles are reused across runs.
+  # share the other leg. Each leg runs its test classes in two forked JVMs (TEST_FORKS;
+  # Robolectric sandboxes each class, forks are isolated processes) while legs run
+  # concurrently. Build cache is enabled so repeated compiles are reused across runs.
   unit_tests:
     needs: changes
     if: needs.changes.outputs.core == 'true'
@@ -149,10 +149,13 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests (${{ matrix.leg }}; single worker per module)
+      - name: Unit tests (${{ matrix.leg }}; forked JVMs)
+        env:
+          # Two forked JVMs let the large common suite use the runner's cores.
+          TEST_FORKS: '2'
         run: >
           ./gradlew ${{ matrix.tasks }}
-          --no-parallel --max-workers=1 --build-cache --stacktrace
+          --no-parallel --max-workers=2 --build-cache --stacktrace
       - name: Upload unit test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -200,8 +203,13 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
-      - name: Lint and debug APK builds (parallel)
-        run: ./gradlew :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug --parallel --max-workers=2 --build-cache --configuration-cache --stacktrace
+      - name: Lint, debug APKs and release optimization (parallel)
+        run: >
+          ./gradlew
+          :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug
+          :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
+          :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8
+          --parallel --max-workers=4 --build-cache --configuration-cache --stacktrace
       - name: Verify each debug APK carries exactly its own Rust Android ABI
         run: |
           python3 - <<'PY'
@@ -235,8 +243,6 @@ jobs:
                   )
               print(f"Verified {abi} debug APK carries only its own ABI in {apk}")
           PY
-      - name: Check release optimization without signing
-        run: ./gradlew :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8 --max-workers=2 --build-cache --configuration-cache --stacktrace
       - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
