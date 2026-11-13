@@ -1075,7 +1075,7 @@ class MediaOutputRoutingTest {
         attached.now(next); shadowOf(Looper.getMainLooper()).idle()
 
         assertEquals(before, transport.frames.size)
-        assertNull(transport.frames.last().first.artworkTransferId)
+        assertEquals(7, transport.frames.last().first.artworkTransferId)
     }
 
     private fun attach(title: String?, artwork: Int? = null): Attached {
