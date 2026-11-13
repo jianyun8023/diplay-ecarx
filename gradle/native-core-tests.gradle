@@ -35,6 +35,11 @@ def configureCoreTests = { Project project ->
         dependsOn prepareHostCore
         inputs.file(hostLibrary)
         systemProperty 'java.library.path', hostTarget.get().dir('debug').asFile.absolutePath
+        // Run test classes in separate forked JVMs. Robolectric sandboxes each test class with its own
+        // classloader, and forks are isolated processes, so this is safe; CI raises TEST_FORKS to
+        // shorten the long common suite. Local runs stay single-fork unless the variable is set.
+        def forks = (System.getenv('TEST_FORKS') ?: '1') as int
+        if (forks > 1) maxParallelForks = forks
     }
 }
 
