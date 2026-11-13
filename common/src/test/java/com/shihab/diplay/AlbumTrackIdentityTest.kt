@@ -6,7 +6,8 @@ import org.junit.Test
 
 class AlbumTrackIdentityTest {
     private val track = CarPlayNowPlaying(title = "song", artist = "artist", album = "album",
-        durationMillis = 180_000, artworkTransferId = 1, elapsedMillis = 60_000, playing = true)
+        sourceApp = "Music", durationMillis = 180_000, artworkTransferId = 1,
+        elapsedMillis = 60_000, playing = true)
 
     @Test fun titleAndArtistLyricUpdatesDoNotChangeTrackIdentity() {
         repeat(200) {

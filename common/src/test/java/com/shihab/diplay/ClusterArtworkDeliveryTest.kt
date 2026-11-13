@@ -73,6 +73,7 @@ class ClusterArtworkDeliveryTest {
         val cachedUri = android.net.Uri.parse("http://127.0.0.1:12345/cover-8.png")
         field<MutableMap<Int, Bitmap?>>("artworkCache")[8] = cached
         field<MutableMap<Int, android.net.Uri>>("clusterArtworkUris")[8] = cachedUri
+        field<MutableMap<Int, Int?>>("ambientColorCache")[8] = null
         `when`(controller.nowPlayingSnapshot()).thenReturn(song.copy(artworkTransferId = 8))
         call("onNowPlayingChanged", controller); idle()
         assertSame(owner, field<Any>("artworkOwner"))
