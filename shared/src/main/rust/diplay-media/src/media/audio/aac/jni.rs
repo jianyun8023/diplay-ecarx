@@ -34,7 +34,7 @@ unsafe fn array(env: *mut JNIEnv, body: impl FnOnce(&Env) -> Option<jbyteArray>)
     ((**env).PopLocalFrame.unwrap())(env, out)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_frequencyIndex(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAac_frequencyIndex(
     _env: *mut JNIEnv,
     _: jclass,
     rate: jint,
@@ -42,7 +42,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_frequen
     super::frequency_index(rate) as i32
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_writeAdtsHeader(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAac_writeAdtsHeader(
     env: *mut JNIEnv,
     _: jclass,
     target: jbyteArray,
@@ -72,7 +72,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_writeAd
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_audioSpecificConfig(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAac_audioSpecificConfig(
     env: *mut JNIEnv,
     _: jclass,
     rate: jint,
@@ -83,7 +83,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_audioSp
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeAac_accessUnit(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAac_accessUnit(
     env: *mut JNIEnv,
     _: jclass,
     payload: jbyteArray,

@@ -22,12 +22,12 @@
             android:value="true" />
 
         <receiver
-            android:name="com.shilapi.xcertplay.BootReceiver"
+            android:name="com.shihab.diplay.BootReceiver"
             android:enabled="true"
             tools:replace="android:enabled" />
 
         <receiver
-            android:name="com.shilapi.xcertplay.PhoneBluetoothReceiver"
+            android:name="com.shihab.diplay.PhoneBluetoothReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

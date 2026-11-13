@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <linux/wireless.h>
 
-JNIEXPORT jintArray JNICALL Java_com_shilapi_xcertplay_network_LegacyHotspotNative_query(JNIEnv *env, jobject self, jstring interface_name) {
+JNIEXPORT jintArray JNICALL Java_com_shihab_diplay_network_LegacyHotspotNative_query(JNIEnv *env, jobject self, jstring interface_name) {
     (void) self;
     jint values[3] = { EINVAL, 0, 0 };
     if (interface_name == NULL) goto result;

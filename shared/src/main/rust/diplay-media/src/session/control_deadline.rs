@@ -55,7 +55,7 @@ unsafe fn read(env: *mut JNIEnv, token: jlongArray) -> Option<Deadline> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeControlDeadline_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeControlDeadline_create(
     env: *mut JNIEnv, _class: jclass, timeout: jlong, started: jlong,
 ) -> jlongArray {
     let f = &**env;
@@ -66,7 +66,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeControl
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeControlDeadline_authenticated(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeControlDeadline_authenticated(
     env: *mut JNIEnv, _class: jclass, token: jlongArray,
 ) -> jlongArray {
     let Some(state) = read(env, token) else { return null_mut(); };
@@ -74,12 +74,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeControl
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeControlDeadline_needsClock(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeControlDeadline_needsClock(
     env: *mut JNIEnv, _class: jclass, token: jlongArray,
 ) -> jboolean { read(env, token).is_some_and(Deadline::needs_clock) as jboolean }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeControlDeadline_remainingMillis(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeControlDeadline_remainingMillis(
     env: *mut JNIEnv, _class: jclass, token: jlongArray, now: jlong,
 ) -> jlong { read(env, token).map(|state| state.remaining(now)).unwrap_or(0) }
 

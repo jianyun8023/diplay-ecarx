@@ -43,7 +43,7 @@ unsafe fn owner<'a>(handle: jlong) -> &'a mut Owner {
     &mut *(handle as *mut Owner)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStream_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeDataStream_create(
     _: *mut JNIEnv,
     _: jclass,
     mode: jint,
@@ -55,7 +55,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStrea
     }))) as jlong
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStream_begin(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeDataStream_begin(
     _: *mut JNIEnv,
     _: jclass,
     handle: jlong,
@@ -63,7 +63,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStrea
     owner(handle).begin() as i64
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStream_append(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeDataStream_append(
     env: *mut JNIEnv,
     _: jclass,
     handle: jlong,
@@ -75,7 +75,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStrea
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStream_next(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeDataStream_next(
     env: *mut JNIEnv,
     _: jclass,
     handle: jlong,
@@ -141,7 +141,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStrea
     ((**env).PopLocalFrame.unwrap())(env, result)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStream_end(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeDataStream_end(
     _: *mut JNIEnv,
     _: jclass,
     handle: jlong,
@@ -150,7 +150,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStrea
     owner(handle).connections.remove(&(id as u64));
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeDataStream_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeDataStream_destroy(
     _: *mut JNIEnv,
     _: jclass,
     handle: jlong,

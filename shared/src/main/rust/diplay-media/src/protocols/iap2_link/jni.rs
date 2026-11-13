@@ -28,7 +28,7 @@ unsafe fn int_array(env: *mut JNIEnv, values: &[i32]) -> jintArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_create(env: *mut JNIEnv, _: jclass, values: jintArray) -> jlong {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_create(env: *mut JNIEnv, _: jclass, values: jintArray) -> jlong {
     let Some(v) = ints(env, values) else { return 0; };
     if v.len() != 9 { throw(env, "java/lang/IllegalArgumentException", "iAP2 link configuration needs 9 values"); return 0; }
     // Values are supplied by the validated Iap2LinkConfig constructor.
@@ -40,32 +40,32 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Lin
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_destroy(_: *mut JNIEnv, _: jclass, handle: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_destroy(_: *mut JNIEnv, _: jclass, handle: jlong) {
     if handle != 0 { drop(Box::from_raw(handle as *mut Engine)); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_state(_: *mut JNIEnv, _: jclass, handle: jlong) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_state(_: *mut JNIEnv, _: jclass, handle: jlong) -> jint {
     (*(handle as *const Engine)).state as jint
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_writable(_: *mut JNIEnv, _: jclass, handle: jlong) -> jboolean {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_writable(_: *mut JNIEnv, _: jclass, handle: jlong) -> jboolean {
     (*(handle as *const Engine)).writable as jboolean
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_synchronization(env: *mut JNIEnv, _: jclass, handle: jlong) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_synchronization(env: *mut JNIEnv, _: jclass, handle: jlong) -> jintArray {
     int_array(env, &sync_values(&(*(handle as *const Engine)).peer))
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_takeOutput(env: *mut JNIEnv, _: jclass, handle: jlong) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_takeOutput(env: *mut JNIEnv, _: jclass, handle: jlong) -> jbyteArray {
     byte_array(env, &std::mem::take(&mut (*(handle as *mut Engine)).output))
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_pollEvent(env: *mut JNIEnv, _: jclass, handle: jlong) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_pollEvent(env: *mut JNIEnv, _: jclass, handle: jlong) -> jbyteArray {
     let Some(event) = (*(handle as *mut Engine)).events.pop_front() else { return null_mut(); };
     let (mut prefix, payload) = match event {
         Event::Control(bytes) => (vec![0], bytes), Event::Session(id, bytes) => (vec![1, id], bytes),
@@ -77,7 +77,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Lin
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_nextDeadlineMillis(env: *mut JNIEnv, _: jclass, handle: jlong) -> jobject {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_nextDeadlineMillis(env: *mut JNIEnv, _: jclass, handle: jlong) -> jobject {
     let Some(deadline) = (*(handle as *const Engine)).next_deadline() else { return null_mut(); };
     let f = &**env;
     let class = (f.FindClass.unwrap())(env, c"java/lang/Long".as_ptr());
@@ -91,33 +91,33 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Lin
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_start(_: *mut JNIEnv, _: jclass, handle: jlong, wired: jboolean, now: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_start(_: *mut JNIEnv, _: jclass, handle: jlong, wired: jboolean, now: jlong) {
     (*(handle as *mut Engine)).start(wired != 0, now);
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_feed(env: *mut JNIEnv, _: jclass, handle: jlong, bytes: jbyteArray, now: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_feed(env: *mut JNIEnv, _: jclass, handle: jlong, bytes: jbyteArray, now: jlong) {
     if let Some(bytes) = read_bytes(env, bytes) { (*(handle as *mut Engine)).feed(&bytes, now); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_feedEof(_: *mut JNIEnv, _: jclass, handle: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_feedEof(_: *mut JNIEnv, _: jclass, handle: jlong) {
     (*(handle as *mut Engine)).die(None);
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_advanceTime(_: *mut JNIEnv, _: jclass, handle: jlong, now: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_advanceTime(_: *mut JNIEnv, _: jclass, handle: jlong, now: jlong) {
     (*(handle as *mut Engine)).advance(now);
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_sendSession(env: *mut JNIEnv, _: jclass, handle: jlong, session: jint, bytes: jbyteArray, now: jlong) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_sendSession(env: *mut JNIEnv, _: jclass, handle: jlong, session: jint, bytes: jbyteArray, now: jlong) {
     let Some(bytes) = read_bytes(env, bytes) else { return; };
     if let Err(message) = (*(handle as *mut Engine)).send_session(session, &bytes, now) { throw(env, "java/lang/IllegalArgumentException", &message); }
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_encodeSynchronization(env: *mut JNIEnv, _: jclass, values: jintArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_encodeSynchronization(env: *mut JNIEnv, _: jclass, values: jintArray) -> jbyteArray {
     let Some(v) = ints(env, values) else { return null_mut(); };
     if v.len() < 6 || (v.len() - 6) % 3 != 0 { throw(env, "java/lang/IllegalArgumentException", "invalid iAP2 synchronization values"); return null_mut(); }
     let sync = Synchronization {
@@ -129,7 +129,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Lin
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Link_decodeSynchronization(env: *mut JNIEnv, _: jclass, bytes: jbyteArray) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2Link_decodeSynchronization(env: *mut JNIEnv, _: jclass, bytes: jbyteArray) -> jintArray {
     let Some(bytes) = read_bytes(env, bytes) else { return null_mut(); };
     Synchronization::decode(&bytes).map_or(null_mut(), |sync| int_array(env, &sync_values(&sync)))
 }

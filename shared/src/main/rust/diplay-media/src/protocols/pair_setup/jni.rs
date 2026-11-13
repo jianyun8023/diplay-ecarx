@@ -40,7 +40,7 @@ unsafe fn bytes(env: *mut JNIEnv, value: &[u8]) -> Option<jbyteArray> {
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairSetup_create(
     env: *mut JNIEnv,
     _class: jclass,
     seed: jbyteArray,
@@ -54,7 +54,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup
     .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup_handle(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairSetup_handle(
     env: *mut JNIEnv,
     class: jclass,
     handle: jlong,
@@ -80,7 +80,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup
                     env,
                     class,
                     c"save".as_ptr(),
-                    c"(Lcom/shilapi/xcertplay/airplay/PairingStore;[B[B)V".as_ptr(),
+                    c"(Lcom/shihab/diplay/airplay/PairingStore;[B[B)V".as_ptr(),
                 );
                 if save.is_null() {
                     return None;
@@ -115,7 +115,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup
     (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup_complete(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairSetup_complete(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -123,7 +123,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup
     (&*(handle as *const Owner)).lock().unwrap().complete as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairSetup_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairSetup_destroy(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,

@@ -173,7 +173,7 @@ pub unsafe fn consume_reference(handle: jlong) -> Option<std::sync::Arc<QueueOwn
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueCreate(
     _env: *mut JNIEnv, _class: jclass, clock_rate: jint, media: jboolean,
 ) -> jlong {
     if clock_rate <= 0 { return 0; }
@@ -181,7 +181,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueRetain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueRetain(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jlong {
     if handle != 0 { std::sync::Arc::increment_strong_count(handle as *const QueueOwner); }
@@ -189,12 +189,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueRelease(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueRelease(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) { drop(consume_reference(handle)); }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueuePush(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueuePush(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, packet: jlong, sample: jint, arrived_ns: jlong,
 ) -> jint {
     if packet == 0 { return 0; }
@@ -205,7 +205,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueuePoll(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueuePoll(
     env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, timeout_ms: jlong,
 ) -> jlong {
     let len = Env(env).array_len(out);
@@ -219,7 +219,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueEvent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueEvent(
     env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray,
 ) -> jboolean {
     if Env(env).array_len(out) < 3 { return 0; }
@@ -229,7 +229,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueStats(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueStats(
     env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, reset: jboolean,
 ) {
     if Env(env).array_len(out) < 5 { return; }
@@ -244,12 +244,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueSize(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueSize(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jint { owner(handle).map_or(0, |o| o.state.lock().unwrap().queue.packets.len() as jint) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueuePending(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueuePending(
     env: *mut JNIEnv, _class: jclass, handle: jlong, dropped: jlongArray,
 ) -> jlong {
     let Some(owner) = owner(handle) else { return 0 };
@@ -263,7 +263,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueArrivals(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueArrivals(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, since_ns: jlong, now_ns: jlong, sample_rate: jint,
 ) -> f64 {
     if sample_rate <= 0 { return 0.0; }
@@ -271,7 +271,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioQueueDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueDestroy(
     env: *mut JNIEnv, _class: jclass, handle: jlong, stats: jlongArray,
 ) {
     if let Some(owner) = consume_reference(handle) {

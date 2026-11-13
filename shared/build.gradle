@@ -24,7 +24,7 @@ def licenseAssets = tasks.register('prepareLicenseAssets', LicenseAssetsTask) {
 }
 
 android {
-    namespace = 'com.shilapi.xcertplay.shared'
+    namespace = 'com.shihab.diplay.shared'
     compileSdk = 37
 
     defaultConfig {

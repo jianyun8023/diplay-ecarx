@@ -73,7 +73,7 @@ unsafe fn bytes(env: *mut JNIEnv, bytes: &[u8]) -> Option<jbyteArray> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCipher_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeControlCipher_create(
     env: *mut JNIEnv,
     _class: jclass,
     read: jbyteArray,
@@ -88,7 +88,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCi
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCipher_encrypt(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeControlCipher_encrypt(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -107,7 +107,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCi
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCipher_decrypt(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeControlCipher_decrypt(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -130,7 +130,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCi
     let result = (|| -> Option<jobject> {
         let class = (f.FindClass.unwrap())(
             env,
-            c"com/shilapi/xcertplay/airplay/ControlCipher$Decrypted".as_ptr(),
+            c"com/shihab/diplay/airplay/ControlCipher$Decrypted".as_ptr(),
         );
         if class.is_null() {
             return None;
@@ -161,7 +161,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCi
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeControlCipher_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeControlCipher_destroy(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,

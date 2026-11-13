@@ -85,7 +85,7 @@ unsafe fn corner_mask(env: *mut JNIEnv, value: jobject, depth: i32) -> jobject {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_cornerMask(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_cornerMask(
     env: *mut JNIEnv,
     _class: jclass,
     value: jobject,
@@ -288,7 +288,7 @@ unsafe fn object(
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_info(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_info(
     env: *mut JNIEnv,
     _class: jclass,
     facts: jobject,
@@ -298,7 +298,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_features(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_features(
     _env: *mut JNIEnv,
     _class: jclass,
     disable_audio: jboolean,
@@ -306,7 +306,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     info::features(disable_audio != 0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_bufferedEnabled(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_bufferedEnabled(
     _env: *mut JNIEnv,
     _class: jclass,
     buffered: jboolean,
@@ -315,7 +315,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     info::buffered_enabled(buffered != 0, disable_audio != 0) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_viewArea(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_viewArea(
     env: *mut JNIEnv,
     _class: jclass,
     index: jint,
@@ -329,7 +329,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     (f.PopLocalFrame.unwrap())(env, result)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_video(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_video(
     env: *mut JNIEnv,
     _class: jclass,
     operation: jint,
@@ -340,7 +340,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_control(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_control(
     env: *mut JNIEnv,
     _class: jclass,
     operation: jint,
@@ -349,7 +349,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     object(env, arguments, |args| control::command(operation, &args))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_bonjour(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_bonjour(
     env: *mut JNIEnv,
     _class: jclass,
     operation: jint,
@@ -360,14 +360,14 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_probeCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_probeCreate(
     _env: *mut JNIEnv,
     _class: jclass,
 ) -> jlong {
     Box::into_raw(Box::new(bonjour::ProbeLine { bytes: Vec::new() })) as jlong
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_probeRetryCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_probeRetryCreate(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jlongArray {
@@ -379,7 +379,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     token
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_probeRetry(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_probeRetry(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -408,7 +408,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_probeDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_probeDestroy(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -418,7 +418,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_probeFeed(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_probeFeed(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -450,7 +450,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     (f.PopLocalFrame.unwrap())(env, result)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_availabilityCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_availabilityCreate(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jlongArray {
@@ -462,7 +462,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayPr
     token
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayProtocol_availability(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_availability(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,

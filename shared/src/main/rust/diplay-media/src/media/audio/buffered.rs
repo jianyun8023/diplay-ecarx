@@ -31,7 +31,7 @@ const NONCE_LEN: usize = 8;
 /// a 12-byte RTP v2 header, ciphertext and tag sealed with `key` (timestamp and SSRC as associated
 /// data), then an 8-byte nonce.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_openRtp(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_openRtp(
     env: *mut JNIEnv, _class: jclass, key: jbyteArray, body: jbyteArray, length: jint,
 ) -> jlong {
     let e = Env(env);
@@ -51,7 +51,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ope
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedCreate(
     _env: *mut JNIEnv, _class: jclass, sample_rate: jint,
 ) -> jlong {
     if sample_rate <= 0 { return 0; }
@@ -69,7 +69,7 @@ unsafe fn write_longs(env: *mut JNIEnv, out: jni_sys::jlongArray, values: &[i64]
 
 /// The step's separately retained packet remains valid across a reentrant platform callback.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedNext(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedNext(
     env: *mut JNIEnv, _class: jclass, handle: jlong, now_ns: jlong, out: jni_sys::jlongArray,
 ) -> jlong {
     if handle == 0 || Env(env).array_len(out) < 3 { return 0; }
@@ -82,7 +82,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedCommit(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedCommit(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, generation: jlong,
 ) -> jni_sys::jboolean {
     (handle != 0 && owner(handle).state.lock().unwrap().commit(generation)) as u8
@@ -90,7 +90,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
 
 /// op 0 GETANCHOR, 1 SETRATE, 2 FLUSH, 3 feedback. All times are sampled by the caller once.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedControl(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedControl(
     env: *mut JNIEnv, _class: jclass, handle: jlong, op: jint, timestamp: jlong, rate: jint,
     ntp_seconds: jlong, ntp_fraction: jlong, now_ns: jlong, out: jni_sys::jlongArray,
 ) {
@@ -129,7 +129,7 @@ unsafe fn replace_reply_value(env: *mut JNIEnv, map: jni_sys::jobject, name: &st
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedAnchor(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedAnchor(
     env: *mut JNIEnv, _: jclass, snapshot: jni_sys::jlongArray,
 ) -> jni_sys::jobject {
     let f = &**env;
@@ -149,7 +149,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedFeedback(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedFeedback(
     env: *mut JNIEnv, _: jclass, stream_type: jint, rate: jint, position: jlong,
     connection: jni_sys::jobject, ntp: jni_sys::jobject, now: jlong,
 ) -> jni_sys::jobject {
@@ -175,7 +175,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jni_sys::jboolean {
     if handle == 0 { return 0; }
@@ -187,7 +187,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_bufferedStart(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedStart(
     env: *mut JNIEnv, _class: jclass, handle: jlong, fd: jint, key: jbyteArray, callbacks: jni_sys::jobject,
 ) -> jlong {
     use crate::platform::stream::{self, Callbacks, Control};
@@ -258,7 +258,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_buf
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetSize(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetSize(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jint {
     packet::size(handle) as jint
@@ -267,7 +267,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pac
 /// A pooled packet holding a copy of `length` bytes of `bytes`, for a Kotlin receiver's packet that
 /// native code must read (Opus decoding); 0 on bad arguments.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_packetWrap(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetWrap(
     env: *mut JNIEnv, _class: jclass, bytes: jbyteArray, length: jint,
 ) -> jlong {
     let e = Env(env);

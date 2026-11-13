@@ -87,61 +87,61 @@ unsafe fn write_state(env: *mut JNIEnv, input: jlongArray, v: &[i64; 15]) {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_decoderAttempts(env: *mut JNIEnv, _: jclass, rate: jint, software: jboolean, low: jboolean, mode: jint) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_decoderAttempts(env: *mut JNIEnv, _: jclass, rate: jint, software: jboolean, low: jboolean, mode: jint) -> jintArray {
     if !(0..=2).contains(&mode) { invalid(env); return null_mut(); }
     ints(env, &attempts(rate, software != 0, low != 0, mode))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_nameFlags(env: *mut JNIEnv, _: jclass, name: jstring, advertised: jboolean) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_nameFlags(env: *mut JNIEnv, _: jclass, name: jstring, advertised: jboolean) -> jint {
     let f = &**env; let len = (f.GetStringLength.unwrap())(env, name) as usize;
     let chars = (f.GetStringChars.unwrap())(env, name, null_mut()); if chars.is_null() { return 0; }
     let result = name_flags(std::slice::from_raw_parts(chars, len), advertised != 0);
     (f.ReleaseStringChars.unwrap())(env, name, chars); result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_mtkMode(env: *mut JNIEnv, _: jclass, mode: jint, op: jint) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_mtkMode(env: *mut JNIEnv, _: jclass, mode: jint, op: jint) -> jintArray {
     if !(0..=2).contains(&mode) || !(0..=2).contains(&op) { invalid(env); return null_mut(); }
     let values = match op { 0 => vec![(mode - 1).max(0)], 1 => (0..=mode).rev().collect(), _ => (0..mode).collect() };
     ints(env, &values)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_mtkSelect(env: *mut JNIEnv, _: jclass, flags: jintArray, mode: jint) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_mtkSelect(env: *mut JNIEnv, _: jclass, flags: jintArray, mode: jint) -> jint {
     let Some(flags) = read_ints(env, flags) else { return -1; };
     let low = flags.iter().position(|f| f & 16 != 0).map_or(-1, |i| i as i32);
     let legacy = if flags.first().is_some_and(|f| f & 8 != 0) { 0 } else { -1 };
     match mode { 0 => if low >= 0 { low } else { legacy }, 1 => low, 2 => legacy, _ => { invalid(env); -1 } }
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_appliedMtkMode(_: *mut JNIEnv, _: jclass, mode: jint, legacy: jboolean) -> jint {
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_appliedMtkMode(_: *mut JNIEnv, _: jclass, mode: jint, legacy: jboolean) -> jint {
     if legacy != 0 { mode } else { 0 }
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_operatingRate(_: *mut JNIEnv, _: jclass, stream_type: jint, labelled: jboolean, frame_rate: jint) -> jint {
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_operatingRate(_: *mut JNIEnv, _: jclass, stream_type: jint, labelled: jboolean, frame_rate: jint) -> jint {
     if stream_type == 110 && labelled == 0 && frame_rate > 0 { frame_rate } else { 0 }
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_nextOperatingRate(_: *mut JNIEnv, _: jclass, requested: jint, used: jboolean, used_rate: jint) -> jint {
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_nextOperatingRate(_: *mut JNIEnv, _: jclass, requested: jint, used: jboolean, used_rate: jint) -> jint {
     if requested > 0 && used != 0 && used_rate == 0 { 0 } else { requested }
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_keepLowLatency(_: *mut JNIEnv, _: jclass, requested: jboolean, used: jboolean, same: jboolean) -> jboolean {
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_keepLowLatency(_: *mut JNIEnv, _: jclass, requested: jboolean, used: jboolean, same: jboolean) -> jboolean {
     (requested != 0 && !(used != 0 && same == 0)) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_lowLatency(env: *mut JNIEnv, _: jclass, flags: jintArray) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_lowLatency(env: *mut JNIEnv, _: jclass, flags: jintArray) -> jint {
     let Some(v) = read_ints(env, flags) else { return -1; };
     v.iter().position(|f| f & 7 == 5).map_or(-1, |i| i as i32)
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_workerWait(_: *mut JNIEnv, _: jclass, drains: jboolean, last: jlong, now: jlong) -> jlong {
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_workerWait(_: *mut JNIEnv, _: jclass, drains: jboolean, last: jlong, now: jlong) -> jlong {
     if drains != 0 && last != 0 && now.wrapping_sub(last) < 500_000_000 { 5 } else { 50 }
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_prefersSoftware(_: *mut JNIEnv, _: jclass, sdk: jint, hevc: jboolean, requested: jboolean) -> jboolean {
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_prefersSoftware(_: *mut JNIEnv, _: jclass, sdk: jint, hevc: jboolean, requested: jboolean) -> jboolean {
     (sdk >= 29 && hevc != 0 && requested != 0) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_defaultDecoder(env: *mut JNIEnv, _: jclass, flags: jintArray, software: jboolean, hardware_failed: jboolean) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_defaultDecoder(env: *mut JNIEnv, _: jclass, flags: jintArray, software: jboolean, hardware_failed: jboolean) -> jint {
     let Some(flags) = read_ints(env, flags) else { return -1; };
     if software != 0 {
         if let Some(index) = flags.iter().position(|f| f & 1 != 0) { return index as i32; }
@@ -149,12 +149,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy
     if hardware_failed != 0 { -1 } else { super::select_decoder(&flags, false) }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_firstSoftware(env: *mut JNIEnv, _: jclass, flags: jintArray) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_firstSoftware(env: *mut JNIEnv, _: jclass, flags: jintArray) -> jint {
     let Some(flags) = read_ints(env, flags) else { return -1; };
     flags.iter().position(|f| f & 1 != 0).map_or(-1, |i| i as i32)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_softwareOutcome(env: *mut JNIEnv, _: jclass, state: jlongArray, hardware: jboolean, software: jboolean, preferred: jboolean, same_hardware: jboolean) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_softwareOutcome(env: *mut JNIEnv, _: jclass, state: jlongArray, hardware: jboolean, software: jboolean, preferred: jboolean, same_hardware: jboolean) -> jint {
     let Some(mut v) = read_state(env, state) else { return 0; };
     if hardware == 0 || software == 0 || preferred != 0 {
         if hardware != 0 && same_hardware != 0 { v[12] = 2_000; write_state(env, state, &v); }
@@ -162,13 +162,13 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy
     } else { 1 }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_configurationCreate(env: *mut JNIEnv, _: jclass, rate: jint, mtk: jboolean, vendor_refused: jboolean) -> jlongArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_configurationCreate(env: *mut JNIEnv, _: jclass, rate: jint, mtk: jboolean, vendor_refused: jboolean) -> jlongArray {
     let mut v = [0; 15]; v[0] = rate as i64; v[2] = if mtk != 0 { 2 } else { 0 };
     v[7] = (vendor_refused != 0) as i64; v[12] = 2_000; v[13] = (mtk != 0) as i64;
     let out = ((**env).NewLongArray.unwrap())(env, 15); if !out.is_null() { write_state(env, out, &v); } out
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_configurationQuery(env: *mut JNIEnv, _: jclass, state: jlongArray, field: jint, capability: jboolean) -> jlong {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_configurationQuery(env: *mut JNIEnv, _: jclass, state: jlongArray, field: jint, capability: jboolean) -> jlong {
     let Some(v) = read_state(env, state) else { return 0; };
     match field {
         0..=14 => v[field as usize],
@@ -179,18 +179,18 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_configurationEvent(env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, a: jint, b: jint, c: jint, flags: jint) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_configurationEvent(env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, a: jint, b: jint, c: jint, flags: jint) -> jint {
     let Some(mut v) = read_state(env, state) else { return 0; };
     if !(0..=16).contains(&event) { invalid(env); return 0; }
     let result = configure_event(&mut v, event, a, b, c, flags); write_state(env, state, &v); result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_attemptAllowed(env: *mut JNIEnv, _: jclass, state: jlongArray, default_decoder: jboolean, software: jboolean, sdk: jint) -> jboolean {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_attemptAllowed(env: *mut JNIEnv, _: jclass, state: jlongArray, default_decoder: jboolean, software: jboolean, sdk: jint) -> jboolean {
     let Some(v) = read_state(env, state) else { return 0; };
     (!(default_decoder != 0 && v[11] != 0) && !(sdk < 29 && v[11] == 0 && software != 0)) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoPolicy_formatFlags(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoPolicy_formatFlags(
     env: *mut JNIEnv, _: jclass, state: jlongArray, tuned: jboolean, at_once: jboolean, vendor_requested: jboolean,
     sdk: jint, advertised_low_latency: jboolean, picture_listed: jboolean, name_flags: jint,
 ) -> jint {

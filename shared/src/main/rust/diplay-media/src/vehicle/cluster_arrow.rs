@@ -117,26 +117,26 @@ mod tests {
     }
 }
 
-// ---- JNI boundary: `com.shilapi.xcertplay.hud.NativeClusterArrow` ----
+// ---- JNI boundary: `com.shihab.diplay.hud.NativeClusterArrow` ----
 
 use jni_sys::{jclass, jint, JNIEnv};
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeClusterArrow_amapToEcarx(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_amapToEcarx(
     _env: *mut JNIEnv, _class: jclass, icon_id: jint, around_num: jint,
 ) -> jint { amap_to_ecarx(icon_id, around_num) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeClusterArrow_ecarxToAmap(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_ecarxToAmap(
     _env: *mut JNIEnv, _class: jclass, arrow_id: jint,
 ) -> jint { ecarx_to_amap(arrow_id) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeClusterArrow_appleToAmap(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_appleToAmap(
     _env: *mut JNIEnv, _class: jclass, maneuver_type: jint, driving_side: jint,
 ) -> jint { apple_to_amap(maneuver_type, driving_side) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeClusterArrow_arrowId(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_arrowId(
     _env: *mut JNIEnv, _class: jclass, maneuver_type: jint, driving_side: jint,
 ) -> jint { arrow_id(maneuver_type, driving_side) }

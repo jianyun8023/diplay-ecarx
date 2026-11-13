@@ -181,7 +181,7 @@ unsafe fn build_result(env: *mut JNIEnv, result: Result<Vec<u8>, &'static str>) 
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_valueCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_valueCreate(
     env: *mut JNIEnv,
     _class: jclass,
     kind: jint,
@@ -197,7 +197,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_val
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ntbBuild(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ntbBuild(
     env: *mut JNIEnv,
     _class: jclass,
     frame: jbyteArray,
@@ -209,7 +209,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ntb
     build_result(env, platform_core::build(&frame, sequence))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ntbParse(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ntbParse(
     env: *mut JNIEnv,
     _class: jclass,
     block: jbyteArray,
@@ -234,7 +234,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ntb
     arrays(env, &frames)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ethernetParse(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ethernetParse(
     env: *mut JNIEnv,
     _class: jclass,
     frame: jbyteArray,
@@ -248,7 +248,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_eth
     arrays(env, &[&source, &frame[..6], payload])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ethernetView(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ethernetView(
     env: *mut JNIEnv,
     _class: jclass,
     frame: jbyteArray,
@@ -261,7 +261,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_eth
         .unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ethernetBuild(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ethernetBuild(
     env: *mut JNIEnv,
     _class: jclass,
     source: jbyteArray,
@@ -292,7 +292,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_eth
     byte_array(env, &ethernet_frame(&source, &destination, &payload))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ethernetMulticast(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ethernetMulticast(
     env: *mut JNIEnv,
     _class: jclass,
     ipv6: jbyteArray,
@@ -305,7 +305,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_eth
         .unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_ethernetFixNa(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_ethernetFixNa(
     env: *mut JNIEnv,
     _class: jclass,
     ipv6: jbyteArray,
@@ -326,7 +326,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_eth
         .unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_trafficHeader(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_trafficHeader(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -343,7 +343,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_tra
     port
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_trafficTime(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_trafficTime(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -361,7 +361,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_tra
     save(env, token, &state.encode());
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_trafficSent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_trafficSent(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -373,7 +373,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_tra
     save(env, token, &state.encode());
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_trafficSummary(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_trafficSummary(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -385,7 +385,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_tra
     string(env, &state.summary(u16::try_from(port).ok()))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_trafficAttempt(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_trafficAttempt(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -398,7 +398,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_tra
     u16::try_from(port).is_ok_and(|port| state.attempt_since(port, since)) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txSequence(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_txSequence(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -411,7 +411,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txS
     sequence as jint
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txTimeout(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_txTimeout(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -422,7 +422,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txT
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txBegin(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_txBegin(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -439,7 +439,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txB
     long_array(env, &result)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txOpened(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_txOpened(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -452,7 +452,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txO
     save(env, token, &state.encode());
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txOpenedAt(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_txOpenedAt(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -463,7 +463,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txO
     long_array(env, &state.opened_at().into_iter().collect::<Vec<_>>())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txFinish(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_txFinish(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -478,7 +478,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_txF
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_receiveCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_receiveCreate(
     env: *mut JNIEnv,
     _class: jclass,
     packet_size: jint,
@@ -490,7 +490,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_rec
     Box::into_raw(Box::new(ReceiveCore::new(packet_size as usize))) as jlong
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_receiveAppend(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_receiveAppend(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -506,7 +506,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_rec
     state.append(&chunk);
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_receiveStep(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_receiveStep(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -538,7 +538,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_rec
     code
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_receivePoll(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_receivePoll(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -552,7 +552,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_rec
         .unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_receiveClose(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_receiveClose(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -562,7 +562,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_rec
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_routeInbound(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_routeInbound(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -584,7 +584,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_rou
     int_array(env, &view(&frame).unwrap())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNcm_routeDestination(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNcm_routeDestination(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,

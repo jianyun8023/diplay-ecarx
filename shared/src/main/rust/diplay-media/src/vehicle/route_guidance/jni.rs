@@ -22,12 +22,12 @@ unsafe fn boxed(env: *mut JNIEnv, value: Option<i64>) -> Option<jobject> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_create(
     _env: *mut JNIEnv, _class: jclass, stale_ns: jlong, empty_ns: jlong, keep: jboolean,
 ) -> jlong { Box::into_raw(Box::new(RouteGuidance::new(stale_ns, empty_ns, keep != 0))) as jlong }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_accept(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_accept(
     env: *mut JNIEnv, _class: jclass, handle: jlong, id: jint, payload: jbyteArray,
     now: jlong, wall: jlong, live: jboolean,
 ) -> jint {
@@ -41,7 +41,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_current(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_current(
     env: *mut JNIEnv, _class: jclass, handle: jlong, now: jlong, live: jboolean, dim: jboolean,
 ) -> jobject {
     let state = &*(handle as *const RouteGuidance);
@@ -49,7 +49,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
     let f = &**env;
     if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
     let result = (|| -> Option<jobject> {
-        let class = (f.FindClass.unwrap())(env, c"com/shilapi/xcertplay/hud/AppleManeuver".as_ptr());
+        let class = (f.FindClass.unwrap())(env, c"com/shihab/diplay/hud/AppleManeuver".as_ptr());
         if class.is_null() { return None; }
         let init = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(),
             c"(IIILjava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V".as_ptr());
@@ -65,7 +65,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_query(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_query(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, field: jint,
 ) -> jlong {
     let state = &*(handle as *const RouteGuidance);
@@ -79,17 +79,17 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_phoneStateAge(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_phoneStateAge(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, now: jlong,
 ) -> jlong { (&*(handle as *const RouteGuidance)).phone_age_ms(now) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_expired(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_expired(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, now: jlong, live: jboolean,
 ) -> jboolean { (&*(handle as *const RouteGuidance)).expired(now, live != 0) as jboolean }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_text(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_text(
     env: *mut JNIEnv, _class: jclass, handle: jlong, field: jint, now: jlong, live: jboolean,
 ) -> jstring {
     let state = &*(handle as *const RouteGuidance);
@@ -101,7 +101,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_clear(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_clear(
     env: *mut JNIEnv, _class: jclass, handle: jlong, reason: jstring,
 ) -> jboolean {
     let f = &**env;
@@ -114,12 +114,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeRouteGuidance_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeRouteGuidance_destroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) { if handle != 0 { drop(Box::from_raw(handle as *mut RouteGuidance)); } }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_message_NativeLaneGuidance_parse(
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_message_NativeLaneGuidance_parse(
     env: *mut JNIEnv, _: jclass, payload: jbyteArray,
 ) -> jni_sys::jobjectArray {
     let f = &**env;

@@ -22,7 +22,7 @@ const BATCH: usize = 8;
 const THREAD_PRIORITY_AUDIO: jint = -16;
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_startAudio(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_startAudio(
     env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, stream_type: jint, callbacks: jobject, route_handle: jlong,
 ) -> jlong {
     let e = Env(env);

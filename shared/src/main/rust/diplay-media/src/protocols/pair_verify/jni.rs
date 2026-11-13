@@ -42,7 +42,7 @@ unsafe fn bytes(env: *mut JNIEnv, bytes: &[u8]) -> Option<jbyteArray> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_create(
     env: *mut JNIEnv,
     _class: jclass,
     seed: jbyteArray,
@@ -58,7 +58,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_handle(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_handle(
     env: *mut JNIEnv,
     class: jclass,
     handle: jlong,
@@ -76,7 +76,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
                 env,
                 class,
                 c"lookup".as_ptr(),
-                c"(Lcom/shilapi/xcertplay/airplay/PairingStore;[B)[B".as_ptr(),
+                c"(Lcom/shihab/diplay/airplay/PairingStore;[B)[B".as_ptr(),
             );
             if method.is_null() {
                 return None;
@@ -102,7 +102,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_shared(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_shared(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -115,7 +115,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_controllerId(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_controllerId(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -128,7 +128,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_verified(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_verified(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -137,7 +137,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_keys(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_keys(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -152,7 +152,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
     let result = (|| -> Option<jobject> {
         let class = (f.FindClass.unwrap())(
             env,
-            c"com/shilapi/xcertplay/airplay/PairVerify$ControlKeys".as_ptr(),
+            c"com/shihab/diplay/airplay/PairVerify$ControlKeys".as_ptr(),
         );
         if class.is_null() {
             return None;
@@ -180,7 +180,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerif
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativePairVerify_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativePairVerify_destroy(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,

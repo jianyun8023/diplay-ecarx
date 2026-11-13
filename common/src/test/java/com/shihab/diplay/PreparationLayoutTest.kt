@@ -1,0 +1,55 @@
+package com.shihab.diplay
+
+import android.view.View
+import android.util.TypedValue
+import android.widget.LinearLayout
+import android.widget.FrameLayout
+import android.widget.TextView
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], manifest = Config.NONE)
+class PreparationLayoutTest {
+    @Test fun currentHeadUnitFitsWithoutScrolling() {
+        // Attach without onCreate: avoid starting sensors, networking or CarPlay sessions.
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val method = CarPlayHostActivity::class.java.getDeclaredMethod("buildContentView")
+        method.isAccessible = true
+        val root = method.invoke(activity) as android.widget.FrameLayout
+        // The viewport is named; a video-only overlay can be inserted before it.
+        val viewport = CarPlayHostActivity::class.java.getDeclaredField("connectionPanel")
+            .apply { isAccessible = true }.get(activity) as FrameLayout
+        val panel = viewport.getChildAt(0) as LinearLayout
+        val heightDp = 1080
+        run {
+            val width = 1920
+            val height = 1080
+            repeat(3) {
+                // This detached view has no ViewRoot to schedule the next traversal.
+                fun invalidateMeasurement(view: View) {
+                    view.forceLayout()
+                    if (view is android.view.ViewGroup) {
+                        for (index in 0 until view.childCount) invalidateMeasurement(view.getChildAt(index))
+                    }
+                }
+                invalidateMeasurement(root)
+                root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, width, height)
+            }
+            val last = panel.getChildAt(panel.childCount - 1)
+            assertTrue("height=$heightDp bottom=${last.bottom} padding=${panel.paddingBottom} panel=${panel.height}", last.bottom + panel.paddingBottom <= panel.height)
+            assertEquals(0, viewport.scrollY)
+            val top = panel.top + panel.height * (1f - panel.scaleY) / 2f
+            assertTrue("top=$top height=$heightDp", top >= -1f)
+            assertTrue("bottom height=$heightDp", top + panel.height * panel.scaleY <= viewport.height + 1f)
+        }
+        assertEquals(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 34f, activity.resources.displayMetrics),
+            (panel.getChildAt(1) as TextView).textSize, 0.01f)
+    }
+}

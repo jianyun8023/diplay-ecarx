@@ -34,7 +34,7 @@ fn direct(env: *mut JNIEnv, buffer: jobject) -> Option<&'static mut [u8]> {
 
 /// 0 on bad arguments (or an Opus rate the codec does not take); the renderer then keeps MediaCodec.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pcmCreate(
     _env: *mut JNIEnv, _class: jclass, sample_rate: jint, channels: jint, voice_filter: jboolean, opus_decoder: jboolean,
 ) -> jlong {
     if sample_rate <= 0 || !(1..=2).contains(&channels) { return 0; }
@@ -59,7 +59,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pcmDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle == 0 { return; }
@@ -71,7 +71,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
 /// Decodes `length` bytes at `offset` of a packet into `out` (from its start). Returns the PCM bytes
 /// written, or -1 when the packet does not decode (-100 for bad arguments or a buffer that is not direct).
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmDecodeOpus(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pcmDecodeOpus(
     env: *mut JNIEnv, _class: jclass, handle: jlong, packet_handle: jlong, offset: jint, length: jint, out: jobject,
 ) -> jint {
     if handle == 0 || packet_handle == 0 || offset < 0 || length <= 0 { return -100; }
@@ -97,7 +97,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
 
 /// Wired LPCM: copies `length` big-endian bytes at `offset` of a packet into `out` as little-endian.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmCopySwapped(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pcmCopySwapped(
     env: *mut JNIEnv, _class: jclass, packet_handle: jlong, offset: jint, length: jint, out: jobject,
 ) -> jint {
     if packet_handle == 0 || offset < 0 || length < 0 { return -1; }
@@ -112,7 +112,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcm
 /// call high-pass, sound detection, attenuation, fade-in. Returns 1 when [DETECT_AUDIBLE] found sound,
 /// 0 when not, -1 on bad arguments.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_pcmProcess(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pcmProcess(
     env: *mut JNIEnv, _class: jclass, handle: jlong, buffer: jobject, length: jint, flags: jint,
     attenuation_db: jint, peak: jint,
 ) -> jint {

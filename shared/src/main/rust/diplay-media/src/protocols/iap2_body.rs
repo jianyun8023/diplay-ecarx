@@ -76,7 +76,7 @@ mod tests {
     }
 }
 
-// ---- JNI boundary: `com.shilapi.xcertplay.iap2.wire.NativeIap2Body` ----
+// ---- JNI boundary: `com.shihab.diplay.iap2.wire.NativeIap2Body` ----
 
 use jni_sys::{jbyteArray, jclass, jint, jintArray, jobjectArray, jvalue, JNIEnv};
 use std::ptr::null_mut;
@@ -84,7 +84,7 @@ use std::ptr::null_mut;
 pub(super) unsafe fn throw(env: *mut JNIEnv, class: &str, message: &str) {
     let f = &**env;
     if (f.ExceptionCheck.unwrap())(env) != 0 { return; }
-    let protocol_exception = class == "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException";
+    let protocol_exception = class == "com/shihab/diplay/iap2/wire/Iap2ProtocolException";
     let class = std::ffi::CString::new(class).unwrap();
     let target = (f.FindClass.unwrap())(env, class.as_ptr());
     if target.is_null() { return; }
@@ -141,7 +141,7 @@ mod builder_contracts {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Body_validateBuilder(
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Body_validateBuilder(
     env: *mut JNIEnv, _: jclass, ids: jintArray, kinds: jintArray, specs: jintArray,
 ) -> jintArray {
     let f = &**env;
@@ -182,7 +182,7 @@ pub(super) unsafe fn byte_array(env: *mut JNIEnv, bytes: &[u8]) -> jbyteArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Body_encode(
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Body_encode(
     env: *mut JNIEnv, _class: jclass, ids: jintArray, payloads: jobjectArray,
 ) -> jbyteArray {
     if ids.is_null() || payloads.is_null() { return null_mut(); }
@@ -208,18 +208,18 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Bod
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Body_parse(
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Body_parse(
     env: *mut JNIEnv, _class: jclass, encoded: jbyteArray,
 ) -> jobjectArray {
     let Some(body) = read_bytes(env, encoded) else { return null_mut(); };
     let parameters = match parse_parameter_list(&body) {
         Ok(parameters) => parameters,
-        Err(message) => { throw(env, "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException", &message); return null_mut(); }
+        Err(message) => { throw(env, "com/shihab/diplay/iap2/wire/Iap2ProtocolException", &message); return null_mut(); }
     };
     let f = &**env;
     if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
     let result = (|| -> Option<jobjectArray> {
-        let class = (f.FindClass.unwrap())(env, c"com/shilapi/xcertplay/iap2/wire/Iap2Parameter".as_ptr());
+        let class = (f.FindClass.unwrap())(env, c"com/shihab/diplay/iap2/wire/Iap2Parameter".as_ptr());
         if class.is_null() { return None; }
         let init = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(), c"(I[B)V".as_ptr());
         if init.is_null() { return None; }

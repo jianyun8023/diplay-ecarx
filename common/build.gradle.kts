@@ -7,7 +7,7 @@ val mockitoAgent by configurations.creating {
 }
 
 android {
-    namespace = "com.shilapi.xcertplay.host"
+    namespace = "com.shihab.diplay.host"
     compileSdk {
         version = release(37)
     }

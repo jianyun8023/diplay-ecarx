@@ -106,7 +106,7 @@ unsafe fn invalid(env: *mut JNIEnv, message: &std::ffi::CStr) -> jbyteArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_hidTouchReport(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidTouchReport(
     env: *mut JNIEnv, _class: jclass, ids: jintArray, xy: jdoubleArray, down: jbooleanArray,
 ) -> jbyteArray {
     if ids.is_null() || xy.is_null() || down.is_null() { return invalid(env, c"HID contact arrays are null"); }
@@ -131,17 +131,17 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_hid
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_hidKnobReport(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidKnobReport(
     env: *mut JNIEnv, _class: jclass, select: jboolean, home: jboolean, back: jboolean, x: jint, y: jint, wheel: jint,
 ) -> jbyteArray { bytes(env, &knob_report(select != 0, home != 0, back != 0, x, y, wheel)) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_hidIndexReport(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidIndexReport(
     env: *mut JNIEnv, _class: jclass, index: jint,
 ) -> jbyteArray { bytes(env, &index_report(index)) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_hidDescriptor(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidDescriptor(
     env: *mut JNIEnv, _class: jclass, kind: jint, x_max: jint, y_max: jint,
 ) -> jbyteArray {
     match descriptor(kind, x_max, y_max) {

@@ -34,7 +34,7 @@ unsafe fn save(env: *mut JNIEnv, array: jlongArray, state: Subscription) {
     ((**env).SetLongArrayRegion.unwrap())(env, array, 0, WORDS as i32, state.words().as_ptr());
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_create(
     env: *mut JNIEnv,
     _class: jclass,
     vehicle: jboolean,
@@ -51,7 +51,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_start(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_start(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,
@@ -63,7 +63,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_stop(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_stop(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,
@@ -74,7 +74,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_active(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_active(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,
@@ -82,7 +82,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
     read(env, array).is_some_and(|s| s.active) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_due(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_due(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,
@@ -91,7 +91,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
     read(env, array).is_some_and(|s| s.due(now)) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_timeout(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_timeout(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,
@@ -103,7 +103,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_mark(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_mark(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,
@@ -115,7 +115,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2Rep
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeIap2ReportSubscription_firstSent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeIap2ReportSubscription_firstSent(
     env: *mut JNIEnv,
     _class: jclass,
     array: jlongArray,

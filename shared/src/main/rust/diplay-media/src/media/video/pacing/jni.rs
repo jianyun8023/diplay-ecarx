@@ -97,7 +97,7 @@ impl OutputTiming {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_pacerCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_pacerCreate(
     env: *mut JNIEnv, _: jclass, window: jint, percentile: jint, refresh: jint, slew: jdouble, reset: jlong, max_early: jlong,
 ) -> jlongArray {
     if window <= 0 || !(0..=100).contains(&percentile) || refresh <= 0 || slew < 0.0 { invalid(env); return null_mut(); }
@@ -106,7 +106,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     array(env, &owner.values())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_pacerLocal(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_pacerLocal(
     env: *mut JNIEnv, _: jclass, state: jlongArray, sender: jlong, arrival: jlong,
 ) -> jlong {
     let Some(v) = read(env, state) else { return 0; };
@@ -116,7 +116,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_pacerFrame(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_pacerFrame(
     env: *mut JNIEnv, _: jclass, state: jlongArray, enabled: jboolean, sender: jlong, arrival: jlong,
 ) -> jlong {
     let Some(v) = read(env, state) else { return 0; };
@@ -125,11 +125,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     write(env, state, &owner.values()); result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputCreate(env: *mut JNIEnv, _: jclass, delay: jlong) -> jlongArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_outputCreate(env: *mut JNIEnv, _: jclass, delay: jlong) -> jlongArray {
     array(env, &OutputTiming::new(delay, false).values())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputQueued(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_outputQueued(
     env: *mut JNIEnv, _: jclass, state: jlongArray, presentation: jlong, local: jlong, now: jlong,
 ) {
     let Some(v) = read(env, state) else { return; };
@@ -137,7 +137,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     owner.queued(presentation, local, now); write(env, state, &owner.values());
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputPlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_outputPlan(
     env: *mut JNIEnv, _: jclass, state: jlongArray, presentation: jlong, now: jlong, shown: jboolean,
 ) -> jlongArray {
     let Some(v) = read(env, state) else { return null_mut(); };
@@ -150,7 +150,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     out
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_outputValue(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_outputValue(
     env: *mut JNIEnv, _: jclass, state: jlongArray, field: jint,
 ) -> jlong {
     let Some(v) = read(env, state) else { return 0; };
@@ -158,7 +158,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     match field { 0 => owner.last_queued_ns, 1 => owner.delay.is_some() as jlong, _ => { invalid(env); 0 } }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_delayCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_delayCreate(
     env: *mut JNIEnv, _: jclass, initial: jlong, min: jlong, max: jlong, window: jint, percentile: jint,
     refresh: jint, margin: jlong, rise: jlong, fall: jlong,
 ) -> jlongArray {
@@ -172,7 +172,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     array(env, &owner.values())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_delayFrame(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_delayFrame(
     env: *mut JNIEnv, _: jclass, state: jlongArray, needed: jlong,
 ) {
     let Some(v) = read(env, state) else { return; };
@@ -181,7 +181,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     write(env, state, &owner.values());
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_delayNanos(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_delayNanos(
     env: *mut JNIEnv, _: jclass, state: jlongArray,
 ) -> jlong {
     let Some(v) = read(env, state) else { return 0; };
@@ -189,11 +189,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming
     owner.nanos
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_backlogCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_backlogCreate(
     env: *mut JNIEnv, _: jclass,
 ) -> jlongArray { array(env, &BacklogRecovery::default().values()) }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoTiming_backlogEvent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoTiming_backlogEvent(
     env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, now: jlong, received: jlong, pending: jint,
     newest: jlong, has_newest: jboolean,
 ) -> jboolean {

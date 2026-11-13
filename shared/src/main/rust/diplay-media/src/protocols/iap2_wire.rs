@@ -60,7 +60,7 @@ unsafe fn int_array(env: *mut JNIEnv, values: &[i32]) -> jintArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_encodeScalar(env: *mut JNIEnv, _: jclass, kind: jint, value: jlong) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_encodeScalar(env: *mut JNIEnv, _: jclass, kind: jint, value: jlong) -> jbyteArray {
     match encode_scalar(kind, value) {
         Ok(bytes) => byte_array(env, &bytes),
         Err(message) => { throw(env, "java/lang/IllegalArgumentException", message); null_mut() }
@@ -68,11 +68,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wir
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_readScalar(env: *mut JNIEnv, _: jclass, kind: jint, input: jbyteArray, offset: jint, field_id: jint) -> jlong {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_readScalar(env: *mut JNIEnv, _: jclass, kind: jint, input: jbyteArray, offset: jint, field_id: jint) -> jlong {
     let Some(bytes) = read_bytes(env, input) else { return 0; };
     let Some(width) = width(kind) else { throw(env, "java/lang/IllegalArgumentException", "Unknown iAP2 scalar kind"); return 0; };
     if field_id >= 0 && bytes.len() != width {
-        throw(env, "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException", &format!("Parameter 0x{field_id:04x} expected {width} bytes, got {}", bytes.len()));
+        throw(env, "com/shihab/diplay/iap2/wire/Iap2ProtocolException", &format!("Parameter 0x{field_id:04x} expected {width} bytes, got {}", bytes.len()));
         return 0;
     }
     if offset < 0 || offset as usize >= bytes.len() || width > bytes.len() - offset as usize {
@@ -84,7 +84,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wir
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_encodeU16List(env: *mut JNIEnv, _: jclass, input: jintArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_encodeU16List(env: *mut JNIEnv, _: jclass, input: jintArray) -> jbyteArray {
     let f = &**env;
     let count = (f.GetArrayLength.unwrap())(env, input);
     let mut values = vec![0; count as usize];
@@ -99,17 +99,17 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wir
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_readU16List(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_readU16List(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jintArray {
     let Some(bytes) = read_bytes(env, input) else { return null_mut(); };
     if bytes.len() % 2 != 0 {
-        throw(env, "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException", &format!("CSM u16[] payload has odd length {}", bytes.len()));
+        throw(env, "com/shihab/diplay/iap2/wire/Iap2ProtocolException", &format!("CSM u16[] payload has odd length {}", bytes.len()));
         return null_mut();
     }
     int_array(env, &bytes.chunks_exact(2).map(|p| u16::from_be_bytes([p[0], p[1]]) as i32).collect::<Vec<_>>())
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_joinStrings(env: *mut JNIEnv, _: jclass, input: jobjectArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_joinStrings(env: *mut JNIEnv, _: jclass, input: jobjectArray) -> jbyteArray {
     let f = &**env;
     let count = (f.GetArrayLength.unwrap())(env, input);
     let mut bytes = Vec::new();
@@ -127,12 +127,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wir
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_stringRanges(env: *mut JNIEnv, _: jclass, input: jbyteArray, multiple: jboolean) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_stringRanges(env: *mut JNIEnv, _: jclass, input: jbyteArray, multiple: jboolean) -> jintArray {
     let Some(bytes) = read_bytes(env, input) else { return null_mut(); };
     let multiple = multiple != 0;
     if multiple && bytes.is_empty() { return int_array(env, &[]); }
     if bytes.last() != Some(&0) {
-        throw(env, "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException", if multiple { "CSM string[] is not NUL terminated" } else { "CSM string is not NUL terminated" });
+        throw(env, "com/shihab/diplay/iap2/wire/Iap2ProtocolException", if multiple { "CSM string[] is not NUL terminated" } else { "CSM string is not NUL terminated" });
         return null_mut();
     }
     if !multiple { return int_array(env, &[0, bytes.len() as i32 - 1]); }
@@ -145,7 +145,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wir
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_iap2_wire_NativeIap2Wire_requireVoid(env: *mut JNIEnv, _: jclass, id: jint, input: jbyteArray) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_iap2_wire_NativeIap2Wire_requireVoid(env: *mut JNIEnv, _: jclass, id: jint, input: jbyteArray) {
     let Some(bytes) = read_bytes(env, input) else { return; };
-    if !bytes.is_empty() { throw(env, "com/shilapi/xcertplay/iap2/wire/Iap2ProtocolException", &format!("Parameter 0x{id:04x} must be void")); }
+    if !bytes.is_empty() { throw(env, "com/shihab/diplay/iap2/wire/Iap2ProtocolException", &format!("Parameter 0x{id:04x} must be void")); }
 }

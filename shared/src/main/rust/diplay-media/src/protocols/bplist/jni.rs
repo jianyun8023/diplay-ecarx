@@ -631,7 +631,7 @@ pub(crate) unsafe fn write_value(env: *mut JNIEnv, value: &Value) -> Option<jobj
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeBplist_encode(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeBplist_encode(
     env: *mut JNIEnv,
     _class: jclass,
     root: jobject,
@@ -654,7 +654,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeBplist_en
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeBplist_decode(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeBplist_decode(
     env: *mut JNIEnv,
     _class: jclass,
     input: jbyteArray,

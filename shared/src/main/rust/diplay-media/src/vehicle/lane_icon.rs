@@ -102,13 +102,13 @@ mod tests {
     }
 }
 
-// ---- JNI boundary: `com.shilapi.xcertplay.hud.NativeLaneIcon` ----
+// ---- JNI boundary: `com.shihab.diplay.hud.NativeLaneIcon` ----
 
 use jni_sys::{jboolean, jclass, jint, jintArray, JNIEnv};
 
 /// `highlight_angle` is ignored when `has_highlight` is false. Returns -1 for no icon.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_hud_NativeLaneIcon_forLane(
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeLaneIcon_forLane(
     env: *mut JNIEnv, _class: jclass, status: jint, angles: jintArray, highlight_angle: jint, has_highlight: jboolean,
 ) -> jint {
     let mut values = Vec::new();

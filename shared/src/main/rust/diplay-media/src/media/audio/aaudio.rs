@@ -222,7 +222,7 @@ unsafe fn output<'a>(handle: jlong) -> &'a mut Output { &mut *(handle as *mut Ou
 
 /// An output stream for 16-bit PCM, or 0 when AAudio cannot open it (the renderer then uses AudioTrack).
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outOpen(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outOpen(
     _env: *mut JNIEnv, _class: jclass, sample_rate: jint, channels: jint, usage: jint, content_type: jint,
     capacity_frames: jint,
 ) -> jlong {
@@ -257,7 +257,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 /// Writes `length` bytes of the direct `buffer` from `offset`, blocking like AudioTrack's blocking
 /// write. Returns input bytes consumed (possibly buffered), or a terminal AAudio error.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outWrite(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outWrite(
     env: *mut JNIEnv, _class: jclass, handle: jlong, buffer: jobject, offset: jint, length: jint,
 ) -> jint {
     let Some(api) = api() else { return -1 };
@@ -274,7 +274,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 
 /// Frames played, in the renderer's input frames (AudioTrack.getPlaybackHeadPosition), as an int.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outFramesRead(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outFramesRead(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jint {
     let Some(api) = api() else { return 0 };
@@ -286,7 +286,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 
 /// Underruns, buffer size in frames, state: the AudioTrack figures the renderer reports.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outQuery(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outQuery(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, what: jint,
 ) -> jint {
     let Some(api) = api() else { return -1 };
@@ -303,7 +303,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 
 /// 0 start, 1 pause, 2 flush. Returns the AAudio result.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outControl(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outControl(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, what: jint,
 ) -> jint {
     let Some(api) = api() else { return -1 };
@@ -322,7 +322,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 
 /// The focus ducking volume, applied to the PCM.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outSetGain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outSetGain(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, gain: jfloat,
 ) {
     output(handle).gain = gain.clamp(0.0, 1.0);
@@ -330,7 +330,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 
 /// AudioTrack.setPlaybackRate: plays at `rate` Hz worth of input per second by resampling.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outSetRate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outSetRate(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, rate: jint,
 ) -> jint {
     let out = output(handle);
@@ -340,7 +340,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_out
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_outClose(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outClose(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle == 0 { return; }

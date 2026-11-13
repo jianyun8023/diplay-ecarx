@@ -83,7 +83,7 @@ impl Env {
 /// The complete ephemeral owner is local to this call. No native lock, handle or mutable borrow
 /// crosses an SDK callback, so callbacks may close the session or reenter auth-setup safely.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMfiSap_handle(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMfiSap_handle(
     env: *mut JNIEnv,
     _: jclass,
     body: jbyteArray,

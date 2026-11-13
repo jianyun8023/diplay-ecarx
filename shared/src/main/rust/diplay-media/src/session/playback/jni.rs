@@ -69,7 +69,7 @@ unsafe fn snapshot(env: *mut JNIEnv, state: &NowPlaying) -> jobject {
         return null_mut();
     }
     let result = (|| -> Option<jobject> {
-        let class = (f.FindClass.unwrap())(env, c"com/shilapi/xcertplay/media/CarPlayNowPlaying".as_ptr());
+        let class = (f.FindClass.unwrap())(env, c"com/shihab/diplay/media/CarPlayNowPlaying".as_ptr());
         if class.is_null() { return None; }
         let init = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(),
             c"(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Z)V".as_ptr());
@@ -105,14 +105,14 @@ unsafe fn snapshot(env: *mut JNIEnv, state: &NowPlaying) -> jobject {
     (f.PopLocalFrame.unwrap())(env, result)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_nowCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_nowCreate(
     env: *mut JNIEnv,
     _: jclass,
 ) -> jlongArray {
     array(env, &NowPlaying::default().encode())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_nowSnapshot(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_nowSnapshot(
     env: *mut JNIEnv,
     _: jclass,
     owner: jobjectArray,
@@ -120,7 +120,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCor
     now(env, owner).map_or(null_mut(), |state| snapshot(env, &state))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_nowAccept(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_nowAccept(
     env: *mut JNIEnv,
     class: jclass,
     owner: jobjectArray,
@@ -195,7 +195,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCor
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_nowClear(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_nowClear(
     env: *mut JNIEnv,
     _: jclass,
     owner: jobjectArray,
@@ -214,7 +214,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCor
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_navigationCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_navigationCreate(
     env: *mut JNIEnv,
     _: jclass,
 ) -> jlongArray {
@@ -228,7 +228,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCor
     )
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_navigationEvent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_navigationEvent(
     env: *mut JNIEnv,
     _: jclass,
     owner: jobjectArray,
@@ -271,7 +271,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCor
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativePlaybackCore_navigationSnapshot(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_navigationSnapshot(
     env: *mut JNIEnv,
     _: jclass,
     owner: jobjectArray,

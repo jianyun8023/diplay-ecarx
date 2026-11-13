@@ -112,7 +112,7 @@ use crate::platform::jvm::Env;
 use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jshortArray, JNIEnv, JNI_ABORT};
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_create(
     _: *mut JNIEnv, _: jclass, rate: jint, millis: jint,
 ) -> jlong {
     let capacity = rate as i64 * millis as i64 / 1000;
@@ -121,17 +121,17 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReferen
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_retain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_retain(
     _: *mut JNIEnv, _: jclass, handle: jlong,
 ) -> jlong { Box::into_raw(Box::new((&*(handle as *const SharedReference)).clone())) as jlong }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_destroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_destroy(
     _: *mut JNIEnv, _: jclass, handle: jlong,
 ) { if handle != 0 { drop(Box::from_raw(handle as *mut SharedReference)); } }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_append(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_append(
     env: *mut JNIEnv, _: jclass, handle: jlong, pcm: jbyteArray, offset: jint, length: jint, channels: jint, playing: jboolean, pending: jlong, now: jlong,
 ) {
     let f = &**env;
@@ -147,7 +147,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReferen
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_appendBuffer(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_appendBuffer(
     env: *mut JNIEnv, _: jclass, handle: jlong, pcm: jobject, offset: jint, length: jint, channels: jint, playing: jboolean, pending: jlong, now: jlong,
 ) {
     let Some((bytes, size)) = Env(env).direct_buffer(pcm) else { return; };
@@ -159,12 +159,12 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReferen
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_reset(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_reset(
     _: *mut JNIEnv, _: jclass, handle: jlong,
 ) { (&*(handle as *const SharedReference)).lock().unwrap().reset(); }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_read(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_read(
     env: *mut JNIEnv, _: jclass, handle: jlong, out: jshortArray, end: jlong,
 ) -> jboolean {
     let f = &**env;
@@ -177,7 +177,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReferen
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_captureRead(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_captureRead(
     env: *mut JNIEnv, _: jclass, owner: jlongArray, rate: jint, samples: jint, now: jlong, stamped: jboolean, timestamp: jlong, position: jlong,
 ) {
     let f = &**env;
@@ -189,7 +189,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReferen
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeEchoReference_captureEnd(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeEchoReference_captureEnd(
     env: *mut JNIEnv, _: jclass, owner: jlongArray, rate: jint, samples: jint,
 ) -> jlong {
     let f = &**env;

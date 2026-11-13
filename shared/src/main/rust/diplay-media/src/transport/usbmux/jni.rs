@@ -135,14 +135,14 @@ unsafe fn frozen(env: *mut JNIEnv, array: jbyteArray) -> Option<[u8; FROZEN_HEAD
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_framerCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_framerCreate(
     _env: *mut JNIEnv,
     _class: jclass,
 ) -> jlong {
     Box::into_raw(Box::new(Framer::new())) as jlong
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_framerAppend(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_framerAppend(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -153,7 +153,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_framerBuffered(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_framerBuffered(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -161,7 +161,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&*(handle as *const Framer)).bytes.len() as jint
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_framerRead(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_framerRead(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -186,7 +186,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_framerDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_framerDestroy(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -196,21 +196,21 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_hostCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_hostCreate(
     _env: *mut JNIEnv,
     _class: jclass,
 ) -> jlong {
     Box::into_raw(Box::new(Host::new())) as jlong
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_version(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_version(
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jbyteArray {
     bytes(env, &Host::version())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_handshake(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_handshake(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -221,7 +221,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&mut *(handle as *mut Host)).handshake(protocol, len, word)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_muxFrame(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_muxFrame(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -238,7 +238,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     bytes(env, &frame)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_muxSent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_muxSent(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -247,7 +247,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     host.sequence = host.sequence.wrapping_add(1);
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_muxReceived(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_muxReceived(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -256,7 +256,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&mut *(handle as *mut Host)).acknowledgement = sequence as u16;
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_sourcePort(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_sourcePort(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -274,7 +274,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&mut *(handle as *mut Host)).port(&values).unwrap_or(0) as jint
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_hostDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_hostDestroy(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -284,7 +284,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_encodeTcp(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_encodeTcp(
     env: *mut JNIEnv,
     _class: jclass,
     source: jint,
@@ -310,7 +310,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     )
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_parseTcp(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_parseTcp(
     env: *mut JNIEnv,
     _class: jclass,
     protocol: jint,
@@ -327,7 +327,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
         Err(message) => {
             throw(
                 env,
-                c"com/shilapi/xcertplay/transport/IphoneUsbException$Protocol",
+                c"com/shihab/diplay/transport/IphoneUsbException$Protocol",
                 message,
             );
             null_mut()
@@ -335,7 +335,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpCreate(
     _env: *mut JNIEnv,
     _class: jclass,
     source: jint,
@@ -344,7 +344,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     Box::into_raw(Box::new(Tcp::new(source as u16, dest as u16))) as jlong
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpStatus(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpStatus(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -365,7 +365,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
         | ((header[13] as i32) << 8)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpPrepare(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpPrepare(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -400,7 +400,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     result(env, &meta, Some(&frame), None)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpSent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpSent(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -410,7 +410,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     tcp.sequence = tcp.sequence.wrapping_add(count as u32);
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpControl(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpControl(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -434,7 +434,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     bytes(env, &frame)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpPacket(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpPacket(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -461,7 +461,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&mut *(handle as *mut Tcp)).receive(flags as u8, sequence as u32, payload)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpAckSent(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpAckSent(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -473,7 +473,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpRecv(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpRecv(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -529,7 +529,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     bytes(env, &payload)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpClosePlan(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpClosePlan(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -538,7 +538,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&mut *(handle as *mut Tcp)).close_plan(abort != 0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpHostClose(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpHostClose(
     _env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,
@@ -547,7 +547,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_
     (&mut *(handle as *mut Tcp)).host_close(failed != 0) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeUsbMux_tcpFreeze(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeUsbMux_tcpFreeze(
     env: *mut JNIEnv,
     _class: jclass,
     handle: jlong,

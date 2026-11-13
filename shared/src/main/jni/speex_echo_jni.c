@@ -19,7 +19,7 @@ static void destroy(Canceller *c) {
 }
 
 JNIEXPORT jlong JNICALL
-Java_com_shilapi_xcertplay_media_SpeexEchoCanceller_nativeCreate(
+Java_com_shihab_diplay_media_SpeexEchoCanceller_nativeCreate(
         JNIEnv *env, jclass clazz, jint frame, jint filter, jint rate, jint suppress, jint suppressActive) {
     (void) env;
     (void) clazz;
@@ -52,7 +52,7 @@ Java_com_shilapi_xcertplay_media_SpeexEchoCanceller_nativeCreate(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_shilapi_xcertplay_media_SpeexEchoCanceller_nativeProcess(
+Java_com_shihab_diplay_media_SpeexEchoCanceller_nativeProcess(
         JNIEnv *env, jclass clazz, jlong handle, jshortArray mic, jshortArray reference, jshortArray out) {
     (void) clazz;
     Canceller *c = (Canceller *) (intptr_t) handle;
@@ -81,7 +81,7 @@ cleanup:
 }
 
 JNIEXPORT void JNICALL
-Java_com_shilapi_xcertplay_media_SpeexEchoCanceller_nativeDestroy(JNIEnv *env, jclass clazz, jlong handle) {
+Java_com_shihab_diplay_media_SpeexEchoCanceller_nativeDestroy(JNIEnv *env, jclass clazz, jlong handle) {
     (void) env;
     (void) clazz;
     destroy((Canceller *) (intptr_t) handle);

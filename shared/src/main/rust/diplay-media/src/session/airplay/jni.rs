@@ -74,7 +74,7 @@ unsafe fn int_array(env: *mut JNIEnv, values: &[i32]) -> jintArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_create(
     env: *mut JNIEnv,
     _class: jclass,
     capabilities: jint,
@@ -90,7 +90,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     array
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_query(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_query(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -99,7 +99,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     read(env, token).map(|s| s.query(field)).unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_event(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_event(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -114,7 +114,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     result as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_streamAction(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_streamAction(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -125,7 +125,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_accepted(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_accepted(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -139,7 +139,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     action
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_streams(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_streams(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -150,7 +150,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     int_array(env, &state.streams)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_route(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_route(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -170,7 +170,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     state.route(&method, &path, size)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_timingAction(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_timingAction(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -182,7 +182,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
         .unwrap_or(0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_prepareTeardown(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_prepareTeardown(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -200,7 +200,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     actions
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_finishTeardown(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_finishTeardown(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -214,7 +214,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     clear_cluster as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_nightResponse(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_nightResponse(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -228,7 +228,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     night
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_navigation(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_navigation(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -244,7 +244,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     action
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_features(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_features(
     env: *mut JNIEnv,
     _class: jclass,
     capabilities: jint,
@@ -295,7 +295,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNe
     array
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeAirPlayNegotiation_teardownTypes(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_teardownTypes(
     env: *mut JNIEnv,
     _class: jclass,
     types: jintArray,

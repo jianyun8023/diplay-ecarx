@@ -8,7 +8,7 @@ unsafe fn facts(env: *mut JNIEnv, array: jintArray) -> Option<Vec<i32>> {
     ((f.ExceptionCheck.unwrap())(env) == 0).then_some(values)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAddress_select(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotAddress_select(
     env: *mut JNIEnv,
     _: jclass,
     input: jintArray,
@@ -18,7 +18,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAd
     facts(env, input).map_or(-1, |facts| super::select(&facts, operation, strict != 0))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAddress_readiness(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotAddress_readiness(
     env: *mut JNIEnv,
     _: jclass,
     prefer_ipv6: jboolean,
@@ -27,7 +27,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAd
     facts(env, input).map_or(0, |facts| super::readiness(prefer_ipv6 != 0, &facts))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAddress_filter(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotAddress_filter(
     env: *mut JNIEnv,
     _: jclass,
     input: jintArray,
@@ -49,7 +49,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAd
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAddress_flipGate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotAddress_flipGate(
     _: *mut JNIEnv,
     _: jclass,
     phone: jboolean,
@@ -58,7 +58,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAd
     super::flip_gate(phone != 0, reachable != 0)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAddress_deadline(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotAddress_deadline(
     env: *mut JNIEnv,
     _: jclass,
     start: jlong,
@@ -78,7 +78,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAd
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeHotspotAddress_time(
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeHotspotAddress_time(
     env: *mut JNIEnv,
     _: jclass,
     token: jlongArray,

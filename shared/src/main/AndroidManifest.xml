@@ -81,13 +81,13 @@
 
     <application android:usesCleartextTraffic="true">
         <service
-            android:name="com.shilapi.xcertplay.network.CarPlayVpnService"
+            android:name="com.shihab.diplay.network.CarPlayVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false" />
 
         <!-- Only Telecom can bind it; it carries no UI or audio, see PhoneAudioRoute. -->
         <service
-            android:name="com.shilapi.xcertplay.telecom.PhoneAudioConnectionService"
+            android:name="com.shihab.diplay.telecom.PhoneAudioConnectionService"
             android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
             android:exported="true">
             <intent-filter>

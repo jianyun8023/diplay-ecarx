@@ -91,25 +91,25 @@ unsafe fn read(env: *mut JNIEnv, owner: jintArray) -> Option<Vec<i32>> {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_validChannel(_: *mut JNIEnv, _: jclass, channel: jint) -> jboolean { valid_channel(channel) as jboolean }
+pub extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_validChannel(_: *mut JNIEnv, _: jclass, channel: jint) -> jboolean { valid_channel(channel) as jboolean }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_frequency(_: *mut JNIEnv, _: jclass, channel: jint) -> jint { frequency(channel) }
+pub extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_frequency(_: *mut JNIEnv, _: jclass, channel: jint) -> jint { frequency(channel) }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_remembered(_: *mut JNIEnv, _: jclass, value: jint) -> jint { remembered(value).map(|(mode, _)| mode).unwrap_or(-1) }
+pub extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_remembered(_: *mut JNIEnv, _: jclass, value: jint) -> jint { remembered(value).map(|(mode, _)| mode).unwrap_or(-1) }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_hotspotConflict(_: *mut JNIEnv, _: jclass, sdk: jint, hotspot: jboolean, busy: jboolean, reply: jlong) -> jboolean {
+pub extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_hotspotConflict(_: *mut JNIEnv, _: jclass, sdk: jint, hotspot: jboolean, busy: jboolean, reply: jlong) -> jboolean {
     (sdk >= 33 && hotspot != 0 && busy != 0 && reply >= 1000) as jboolean
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_plan(env: *mut JNIEnv, _: jclass, station: jint,
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_plan(env: *mut JNIEnv, _: jclass, station: jint,
     preferred_mode: jint, preferred_frequency: jint, has_preferred_frequency: jboolean, channel: jint, band: jboolean, five: jboolean) -> jintArray {
     let values: Vec<_> = plan(station, preferred_mode, preferred_frequency, has_preferred_frequency != 0, channel, band != 0, five != 0)
         .into_iter().flat_map(|(mode, frequency)| [mode, frequency]).collect();
     array(env, &values)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_start(env: *mut JNIEnv, _: jclass, station: jint,
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_start(env: *mut JNIEnv, _: jclass, station: jint,
     preferred_mode: jint, preferred_frequency: jint, has_preferred_frequency: jboolean, channel: jint, band: jboolean, five: jboolean) -> jintArray {
     let mut values = vec![0, 0, (channel != 0) as i32];
     values.extend(plan(station, preferred_mode, preferred_frequency, has_preferred_frequency != 0, channel, band != 0, five != 0)
@@ -117,20 +117,20 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartu
     array(env, &values)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_current(env: *mut JNIEnv, _: jclass, owner: jintArray) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_current(env: *mut JNIEnv, _: jclass, owner: jintArray) -> jintArray {
     let Some(values) = read(env, owner) else { return std::ptr::null_mut(); };
     let Some((mode, frequency)) = current(&values) else { return std::ptr::null_mut(); };
     array(env, &[mode, frequency])
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_compatibility(env: *mut JNIEnv, _: jclass, owner: jintArray) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_compatibility(env: *mut JNIEnv, _: jclass, owner: jintArray) -> jint {
     let Some(mut values) = read(env, owner) else { return 0; };
     let result = compatibility(&mut values);
     ((**env).SetIntArrayRegion.unwrap())(env, owner, 0, 2, values.as_ptr());
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_network_NativeP2pStartup_rejected(env: *mut JNIEnv, _: jclass, owner: jintArray, busy: jboolean, terminal: jboolean) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_network_NativeP2pStartup_rejected(env: *mut JNIEnv, _: jclass, owner: jintArray, busy: jboolean, terminal: jboolean) -> jint {
     let Some(mut values) = read(env, owner) else { return 0; };
     let result = rejected(&mut values, busy != 0, terminal != 0);
     ((**env).SetIntArrayRegion.unwrap())(env, owner, 0, 2, values.as_ptr());

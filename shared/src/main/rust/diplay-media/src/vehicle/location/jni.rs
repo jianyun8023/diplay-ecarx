@@ -14,7 +14,7 @@ unsafe fn invalid(env: *mut JNIEnv) {
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNmeaLocation_prepare(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNmeaLocation_prepare(
     env: *mut JNIEnv,
     _class: jclass,
     lat: jdouble,
@@ -39,7 +39,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNmeaLoc
     }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_transport_NativeNmeaLocation_frame(
+pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeNmeaLocation_frame(
     env: *mut JNIEnv,
     _class: jclass,
     array: jobjectArray,

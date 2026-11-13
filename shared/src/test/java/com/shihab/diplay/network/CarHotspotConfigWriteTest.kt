@@ -1,0 +1,259 @@
+package com.shihab.diplay.network
+
+import android.net.wifi.WifiConfiguration
+import com.shihab.diplay.orchestration.ManualHotspotBand
+import com.shihab.diplay.orchestration.ManualHotspotSecurity
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import com.shihab.diplay.network.CarHotspotConfigWrite.Result
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28], manifest = Config.NONE)
+class CarHotspotConfigWriteTest {
+    private val logs = mutableListOf<String>()
+    private fun log(message: String) { logs += message }
+    private val credentials = HotspotCredentials("DiPlay", "password1", ManualHotspotSecurity.WPA2)
+
+    @Test fun androidNineUsesTheVerifiedAppConfigurationPath() {
+        listOf(23, 24, 25, 26, 27, 29, 30, 31, 33, 35).forEach { assertFalse(CarHotspotConfigWrite.supported(it)) }
+        listOf(28).forEach { assertTrue(CarHotspotConfigWrite.supported(it)) }
+    }
+
+    @Test @Config(sdk = [28]) fun androidNineCanRenameWhilePreservingTheOriginalRadioConfiguration() {
+        val original = WifiConfiguration().apply {
+            SSID = "Original car"
+            preSharedKey = "old-password"
+            allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK)
+            hiddenSSID = true
+            javaClass.getField("apBand").setInt(this, 1)
+            javaClass.getField("apChannel").setInt(this, 149)
+        }
+        var written: WifiConfiguration? = null
+        val result = CarHotspotConfigWrite.writeApp(credentials, { error("must copy original configuration") },
+            { written = it; true }, { written ?: original }, ::log, sdk = 28)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.WRITTEN, credentials.ssid), result)
+        assertEquals("Original car", original.SSID)
+        assertEquals(credentials.passphrase, written!!.preSharedKey)
+        assertTrue(written!!.hiddenSSID)
+        assertEquals(1, written!!.javaClass.getField("apBand").getInt(written))
+        assertEquals(149, written!!.javaClass.getField("apChannel").getInt(written))
+    }
+
+    @Test @Config(sdk = [28]) fun androidNineDoesNotAcceptARadioReadbackMismatchOrMissingOriginal() {
+        val original = WifiConfiguration().apply {
+            SSID = credentials.ssid
+            preSharedKey = credentials.passphrase
+            allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK)
+        }
+        var readback: WifiConfiguration? = null
+        val outcome = CarHotspotConfigWrite.writeApp(credentials, { error("must copy original") },
+            { readback = WifiConfiguration(it).apply { hiddenSSID = !it.hiddenSSID }; true },
+            { readback ?: original }, ::log, sdk = 28)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.FAILED), outcome)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.SKIPPED),
+            CarHotspotConfigWrite.writeApp(credentials, { error("no write without original") },
+                { error("no write without original") }, { null }, ::log, sdk = 28))
+    }
+
+    @Test fun unsupportedSdkIsReportedBeforeAnythingElse() {
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.UNSUPPORTED_SDK),
+            CarHotspotConfigWrite.write(RuntimeEnvironment.getApplication(), credentials, sdk = 29, log = ::log))
+        assertTrue(logs.single().contains("unsupported Android 29"))
+    }
+
+    @Test fun wpa3IsNeverDowngraded() {
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.SKIPPED), CarHotspotConfigWrite.write(RuntimeEnvironment.getApplication(),
+            credentials.copy(security = ManualHotspotSecurity.WPA3), sdk = 28, log = ::log))
+    }
+
+    @Test fun credentialsWithLineBreaksAreSkipped() {
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.SKIPPED), CarHotspotConfigWrite.write(RuntimeEnvironment.getApplication(),
+            credentials.copy(passphrase = "pass\nword"), sdk = 28, log = ::log))
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.SKIPPED), CarHotspotConfigWrite.write(RuntimeEnvironment.getApplication(),
+            credentials.copy(ssid = "car\rhotspot"), sdk = 28, log = ::log))
+    }
+
+    @Test fun writeAppliesRawSsidAndWpa2Credentials() {
+        val config = WifiConfiguration()
+        CarHotspotConfigWrite.applyTo(config, credentials)
+        assertEquals("DiPlay", config.SSID)
+        assertEquals("password1", config.preSharedKey)
+        assertTrue(config.allowedKeyManagement.get(WifiConfiguration.KeyMgmt.WPA2_PSK))
+    }
+
+    @Test fun openHotspotsStayKeyless() {
+        val config = WifiConfiguration()
+        CarHotspotConfigWrite.applyTo(config, credentials.copy(security = ManualHotspotSecurity.OPEN))
+        assertNull(config.preSharedKey)
+        assertTrue(config.allowedKeyManagement.isEmpty)
+        assertTrue(CarHotspotConfigWrite.matches(config, credentials.copy(security = ManualHotspotSecurity.OPEN)))
+        assertFalse(CarHotspotConfigWrite.matches(config, credentials))
+    }
+
+    @Test fun fiveGhzIsWrittenThroughReflectionAndAutoKeepsTheDefault() {
+        val auto = WifiConfiguration()
+        CarHotspotConfigWrite.applyTo(auto, credentials)
+        assertEquals(0, auto.javaClass.getField("apBand").get(auto))
+        val five = WifiConfiguration()
+        CarHotspotConfigWrite.applyTo(five, credentials.copy(band = ManualHotspotBand.GHZ_5))
+        assertEquals(WifiConfiguration::class.java.getField("AP_BAND_5GHZ").getInt(null),
+            five.javaClass.getField("apBand").get(five))
+    }
+
+    @Test fun appWriteVerifiesTheReadback() {
+        var written: WifiConfiguration? = null
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.WRITTEN, "DiPlay"),
+            CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { written = it; true },
+            readBack = { written },
+            log = ::log))
+    }
+
+    @Test fun appWriteKeepsTheCarSsidWhenOneIsReadable() {
+        val existing = WifiConfiguration().apply { SSID = "Car-Original" }
+        var written: WifiConfiguration? = null
+        var reads = 0
+        val outcome = CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { written = it; true },
+            readBack = { reads++; if (reads == 1) existing else written },
+            log = ::log)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.WRITTEN, "Car-Original"), outcome)
+        assertEquals("Car-Original", written?.SSID)
+        assertEquals("password1", written?.preSharedKey)
+    }
+
+    @Test fun appWriteUsesTheGeneratedSsidWithoutAReadableConfiguration() {
+        var written: WifiConfiguration? = null
+        val outcome = CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { written = it; true },
+            readBack = { written },
+            log = ::log)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.WRITTEN, "DiPlay"), outcome)
+        assertEquals("DiPlay", written?.SSID)
+    }
+
+    @Test fun aRejectedWriteFails() {
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.FAILED), CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { false },
+            readBack = { null },
+            log = ::log))
+    }
+
+    @Test fun aMissingReadbackFails() {
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.FAILED), CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { true },
+            readBack = { null },
+            log = ::log))
+    }
+
+    @Test fun aReadbackWithoutTheWrittenCredentialsFails() {
+        val stale = WifiConfiguration().apply { SSID = "Other" }
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.FAILED), CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { true },
+            readBack = { stale },
+            log = ::log))
+        assertTrue(logs.last().contains("readback does not match"))
+    }
+
+    @Test fun reflectionFailuresAreReportedAsFailed() {
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.FAILED), CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { throw NoSuchMethodException("setWifiApConfiguration") },
+            write = { true },
+            readBack = { null },
+            log = ::log))
+        assertTrue(logs.last().contains("app write failed"))
+    }
+
+
+    @Test fun anOpenWriteIsRejectedWhenTheCarHasAPassword() {
+        val secured = WifiConfiguration().apply { SSID = "Car-Original"; preSharedKey = "carpass" }
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.OPEN_REJECTED),
+            CarHotspotConfigWrite.writeApp(credentials.copy(security = ManualHotspotSecurity.OPEN),
+            newConfig = { WifiConfiguration() },
+            write = { throw AssertionError("no write should happen") },
+            readBack = { secured },
+            log = ::log))
+    }
+
+    @Test fun anOpenWriteOverAnOpenCarHotspotStillWrites() {
+        val open = WifiConfiguration().apply {
+            SSID = "Car-Original"
+            allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE)
+        }
+        var written: WifiConfiguration? = null
+        var reads = 0
+        val outcome = CarHotspotConfigWrite.writeApp(credentials.copy(security = ManualHotspotSecurity.OPEN),
+            newConfig = { WifiConfiguration() },
+            write = { written = it; true },
+            readBack = { reads++; if (reads == 1) open else written },
+            log = ::log)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.WRITTEN, "Car-Original"), outcome)
+        assertTrue(written?.preSharedKey.isNullOrEmpty())
+        assertTrue(written?.allowedKeyManagement?.isEmpty == true)
+    }
+
+    @Test fun isSecuredDistinguishesOpenAndSecuredConfigurations() {
+        assertFalse(CarHotspotConfigWrite.isSecured(null))
+        assertFalse(CarHotspotConfigWrite.isSecured(WifiConfiguration()))
+        val none = WifiConfiguration().apply { allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE) }
+        assertFalse(CarHotspotConfigWrite.isSecured(none))
+        assertTrue(CarHotspotConfigWrite.isSecured(WifiConfiguration().apply { preSharedKey = "carpass" }))
+        val wpa2 = WifiConfiguration().apply { allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK) }
+        assertTrue(CarHotspotConfigWrite.isSecured(wpa2))
+    }
+
+
+
+
+
+
+
+    @Test fun appWriteKeepsTheSavedHiddenAndBandFields() {
+        val written = mutableListOf<WifiConfiguration>()
+        val current = WifiConfiguration().apply {
+            SSID = "Car-Original"
+            hiddenSSID = true
+            javaClass.getField("apBand").setInt(this, WifiConfiguration::class.java.getField("AP_BAND_2GHZ").getInt(null))
+            javaClass.getField("apChannel").setInt(this, 6)
+        }
+        val outcome = CarHotspotConfigWrite.writeApp(credentials,
+            newConfig = { WifiConfiguration() },
+            write = { written += it; true },
+            readBack = { written.lastOrNull() ?: current },
+            log = ::log)
+        assertEquals(CarHotspotConfigWrite.WriteOutcome(Result.WRITTEN, "Car-Original"), outcome)
+        val saved = written.single()
+        assertTrue(saved.hiddenSSID)
+        assertEquals(6, saved.javaClass.getField("apChannel").getInt(saved))
+        assertEquals(WifiConfiguration::class.java.getField("AP_BAND_2GHZ").getInt(null),
+            saved.javaClass.getField("apBand").getInt(saved))
+    }
+
+    @Test fun appWriteMovesToFiveGhzOnlyWhenAskedAndTheCarIsNotThere() {
+        val written = mutableListOf<WifiConfiguration>()
+        val current = WifiConfiguration().apply {
+            SSID = "Car-Original"
+            javaClass.getField("apBand").setInt(this, WifiConfiguration::class.java.getField("AP_BAND_2GHZ").getInt(null))
+            javaClass.getField("apChannel").setInt(this, 6)
+        }
+        val fiveGhzCredentials = credentials.copy(band = ManualHotspotBand.GHZ_5)
+        CarHotspotConfigWrite.writeApp(fiveGhzCredentials,
+            newConfig = { WifiConfiguration() },
+            write = { written += it; true },
+            readBack = { current },
+            log = ::log)
+        val saved = written.single()
+        assertEquals(WifiConfiguration::class.java.getField("AP_BAND_5GHZ").getInt(null),
+            saved.javaClass.getField("apBand").getInt(saved))
+    }
+}

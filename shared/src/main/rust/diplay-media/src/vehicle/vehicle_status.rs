@@ -48,7 +48,7 @@ fn parameter(out: &mut Vec<u8>, id: u16, value: &[u8]) {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_vehicleStatusPayload(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_vehicleStatusPayload(
     env: *mut JNIEnv, _class: jclass, range_km: jint, range_warning: jboolean,
     battery_percent: jdouble, current_charge_wh: jlong, max_charge_wh: jlong,
     energy_mask: jint, max_range_km: jint, charging: jboolean,

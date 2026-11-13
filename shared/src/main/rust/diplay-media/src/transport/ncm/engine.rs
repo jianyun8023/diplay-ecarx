@@ -47,7 +47,7 @@ unsafe fn engine<'a>(handle: jlong) -> &'a Engine { &*(handle as *const Engine) 
 
 /// Starts both directions. `usb_fd` and `tun_fd` are duplicates the engine owns. 0 on bad arguments.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncmStart(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmStart(
     env: *mut JNIEnv, _class: jclass, usb_fd: jint, in_endpoint: jint, out_endpoint: jint, packet_size: jint,
     tun_fd: jint, host_mac: jbyteArray, callbacks_in: jobject, callbacks_out: jobject,
 ) -> jlong {
@@ -173,7 +173,7 @@ fn send(env: Env, control: &Control, callbacks: &Callbacks, shared: &Shared, end
 
 /// The traffic summary for the report (`NcmUsbBridge.trafficSummary`); `airplay_port` < 0 for none.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncmTraffic(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmTraffic(
     env: *mut JNIEnv, _class: jclass, handle: jlong, airplay_port: jint,
 ) -> jstring {
     let port = (airplay_port >= 0).then_some(airplay_port as u16);
@@ -181,7 +181,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncm
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncmAttemptSince(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmAttemptSince(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, port: jint, since_nanos: jlong,
 ) -> jni_sys::jboolean {
     engine(handle).shared.traffic.lock().unwrap().attempt_since(port as u16, since_nanos) as jni_sys::jboolean
@@ -189,7 +189,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncm
 
 /// CLOCK_MONOTONIC (System.nanoTime) of the first accepted bulk-OUT frame, or 0.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncmLinkOpened(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmLinkOpened(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) -> jlong {
     engine(handle).shared.link_opened_ns.load(Ordering::Relaxed)
@@ -197,7 +197,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncm
 
 /// Stops both threads (each ends within its read timeout) and frees the handle.
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_ncmStop(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmStop(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) {
     if handle == 0 { return; }

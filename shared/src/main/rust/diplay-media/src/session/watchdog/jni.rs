@@ -38,7 +38,7 @@ unsafe fn array(env: *mut JNIEnv, values: &[i64]) -> jlongArray {
     array
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_create(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_create(
     env: *mut JNIEnv,
     _class: jclass,
     kind: jint,
@@ -52,7 +52,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
     array(env, &Watchdog::new(kind, now, timeout).words)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_finished(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_finished(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -62,7 +62,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
         .unwrap_or(false) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_event(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_event(
     env: *mut JNIEnv,
     _class: jclass,
     token: jlongArray,
@@ -86,7 +86,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
     array(env, &effect)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_budget(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_budget(
     _env: *mut JNIEnv,
     _class: jclass,
     missing: jint,
@@ -94,7 +94,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
     budget(missing)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_elapsed(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_elapsed(
     _env: *mut JNIEnv,
     _class: jclass,
     start: jlong,
@@ -103,7 +103,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
     elapsed(start, now)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_remaining(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_remaining(
     _env: *mut JNIEnv,
     _class: jclass,
     timeout: jlong,
@@ -113,7 +113,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
     remaining(timeout, start, now)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_bluetoothStall(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_bluetoothStall(
     _env: *mut JNIEnv,
     _class: jclass,
     reached: jint,
@@ -121,7 +121,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeSta
     (reached == 0) as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_orchestration_NativeStartupWatchdog_startAgain(
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeStartupWatchdog_startAgain(
     _env: *mut JNIEnv,
     _class: jclass,
     now: jlong,

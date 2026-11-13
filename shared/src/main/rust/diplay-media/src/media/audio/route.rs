@@ -102,7 +102,7 @@ pub unsafe fn retain(handle: jlong) -> Option<Arc<AudioRoute>> {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioRouteCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteCreate(
     _env: *mut JNIEnv, _class: jclass, rate: jint, direct: jboolean,
 ) -> jlong {
     if rate <= 0 { return 0; }
@@ -110,7 +110,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioRouteSetQueue(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteSetQueue(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, queue: jlong,
 ) {
     let target = queue::consume_reference(queue);
@@ -118,7 +118,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioRouteFeedback(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteFeedback(
     env: *mut JNIEnv, _class: jclass, handle: jlong, reported: jlong, now: jlong,
 ) -> jlongArray {
     if handle == 0 { return std::ptr::null_mut(); }
@@ -131,7 +131,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_aud
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioRouteDestroy(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteDestroy(
     _env: *mut JNIEnv, _class: jclass, handle: jlong,
 ) { if handle != 0 { Arc::from_raw(handle as *const AudioRoute).close(); } }
 
@@ -158,7 +158,7 @@ fn format_bits(bits: u64) -> [i32; 4] {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeMedia_audioFormatBits(
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioFormatBits(
     env: *mut JNIEnv, _class: jclass, bits: jlong,
 ) -> jni_sys::jintArray {
     let row = format_bits(bits as u64);

@@ -69,7 +69,7 @@ unsafe fn commit(env: *mut JNIEnv, state: jobjectArray, queue: &DecodeQueue, old
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_queueCreate(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_queueCreate(
     env: *mut JNIEnv, _: jclass, max_frames: jint, max_bytes: jint, resync: jobject,
 ) -> jobjectArray {
     frame(env, || {
@@ -81,7 +81,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_q
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_queueOffer(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_queueOffer(
     env: *mut JNIEnv, _: jclass, state: jobjectArray, job: jobject, kind: jint, size: jint, received: jlong,
 ) -> jobjectArray {
     frame(env, || {
@@ -92,7 +92,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_q
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_queueRemove(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_queueRemove(
     env: *mut JNIEnv, _: jclass, state: jobjectArray, op: jint,
 ) -> jobjectArray {
     frame(env, || {
@@ -103,11 +103,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_q
     })
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_queueBacklog(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_queueBacklog(
     env: *mut JNIEnv, _: jclass, state: jobjectArray,
 ) -> jlongArray { frame(env, || { let (queue, _, _) = read(env, state)?; longs(env, &queue.backlog()) }) }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_queueResync(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_queueResync(
     env: *mut JNIEnv, _: jclass, state: jobjectArray,
 ) -> jboolean {
     let mut result = false;
@@ -115,7 +115,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_q
     result as jboolean
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_reference(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_reference(
     env: *mut JNIEnv, _: jclass, token: jlong, event: jint,
 ) -> jlong {
     let mut chain = ReferenceChain { needs_keyframe: token != 0 };
@@ -123,29 +123,29 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_r
     chain.needs_keyframe() as jlong
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_referenceNeeds(
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_referenceNeeds(
     _: *mut JNIEnv, _: jclass, token: jlong,
 ) -> jboolean { ReferenceChain { needs_keyframe: token != 0 }.needs_keyframe() as jboolean }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_referenceAccepts(
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_referenceAccepts(
     _: *mut JNIEnv, _: jclass, token: jlong, random: jboolean,
 ) -> jboolean { ReferenceChain { needs_keyframe: token != 0 }.accepts(random != 0) as jboolean }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_obsolete(
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_obsolete(
     _: *mut JNIEnv, _: jclass, now: jlong, received: jlong, pending: jint, newest: jlong, has_newest: jboolean,
 ) -> jboolean {
     crate::media::video::pacing::is_obsolete(now, received, pending.max(0) as usize, (has_newest != 0).then_some(newest)) as jboolean
 }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_touchSent(_: *mut JNIEnv, _: jclass, sent: jlong) { super::touch_sent(sent); }
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_touchSent(_: *mut JNIEnv, _: jclass, sent: jlong) { super::touch_sent(sent); }
 #[no_mangle]
-pub extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_touchFrame(_: *mut JNIEnv, _: jclass, now: jlong) -> jlong { super::touch_latency(now).unwrap_or(-1) }
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_touchFrame(_: *mut JNIEnv, _: jclass, now: jlong) -> jlong { super::touch_latency(now).unwrap_or(-1) }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_keyframeCreate(env: *mut JNIEnv, _: jclass) -> jlongArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_keyframeCreate(env: *mut JNIEnv, _: jclass) -> jlongArray {
     longs(env, &[0]).unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_keyframeRequest(env: *mut JNIEnv, _: jclass, state: jlongArray, now: jlong, force: jboolean) -> jboolean {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_keyframeRequest(env: *mut JNIEnv, _: jclass, state: jlongArray, now: jlong, force: jboolean) -> jboolean {
     let mut previous = 0; ((**env).GetLongArrayRegion.unwrap())(env, state, 0, 1, &mut previous);
     if ok(env).is_none() { return 0; }
     if force != 0 || super::keyframe_due(previous, now) {
@@ -153,11 +153,11 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_k
     } else { 0 }
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_inputCreate(env: *mut JNIEnv, _: jclass, start: jlong, timeout: jlong) -> jlongArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_inputCreate(env: *mut JNIEnv, _: jclass, start: jlong, timeout: jlong) -> jlongArray {
     longs(env, &[0, -1, start, timeout]).unwrap_or(null_mut())
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_inputStep(env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, value: jlong) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_inputStep(env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, value: jlong) -> jint {
     if !(0..=4).contains(&event) { invalid(env); return 4; }
     let mut v = [0; 4]; ((**env).GetLongArrayRegion.unwrap())(env, state, 0, 4, v.as_mut_ptr());
     if ok(env).is_none() { return 4; }
@@ -165,6 +165,6 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_i
     ((**env).SetLongArrayRegion.unwrap())(env, state, 0, 4, v.as_ptr()); action
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_media_NativeVideoFlow_inputResult(env: *mut JNIEnv, _: jclass, state: jlongArray) -> jint {
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_inputResult(env: *mut JNIEnv, _: jclass, state: jlongArray) -> jint {
     let mut result = -1; ((**env).GetLongArrayRegion.unwrap())(env, state, 1, 1, &mut result); result as jint
 }

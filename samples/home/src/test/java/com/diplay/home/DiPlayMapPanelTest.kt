@@ -80,7 +80,7 @@ class DiPlayMapPanelTest {
         assertNull(shadowOf(app).nextStartedActivity)
         panel.openCarPlay()
         assertEquals(
-            ComponentName("com.shihab.diplay", "com.shilapi.xcertplay.CarPlayHostActivity"),
+            ComponentName("com.shihab.diplay", "com.shihab.diplay.CarPlayHostActivity"),
             shadowOf(app).nextStartedActivity.component,
         )
     }

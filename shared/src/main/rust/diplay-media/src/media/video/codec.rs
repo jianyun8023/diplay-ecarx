@@ -74,7 +74,7 @@ unsafe fn bytes(env: *mut JNIEnv, values: &[u8]) -> jbyteArray {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_avcParameterSets(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jobjectArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_avcParameterSets(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jobjectArray {
     let Some(input) = read(env, input) else { return null_mut(); };
     let f = &**env;
     if (f.PushLocalFrame.unwrap())(env, 8) < 0 { return null_mut(); }
@@ -95,31 +95,31 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCod
     (f.PopLocalFrame.unwrap())(env, result)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_hevcCsd(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_hevcCsd(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jbyteArray {
     let Some(input) = read(env, input) else { return null_mut(); };
     bytes(env, &hevc_csd(&input))
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_annexBCopy(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jbyteArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_annexBCopy(env: *mut JNIEnv, _: jclass, input: jbyteArray) -> jbyteArray {
     let Some(mut value) = read(env, input) else { return null_mut(); };
     if annexb::starts_with_start_code(&value) { return input; }
     if !annexb::to_annex_b_in_place(&mut value) { value.clear(); }
     bytes(env, &value)
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_randomAccess(env: *mut JNIEnv, _: jclass, input: jbyteArray, hevc: jboolean) -> jboolean {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_randomAccess(env: *mut JNIEnv, _: jclass, input: jbyteArray, hevc: jboolean) -> jboolean {
     let Some(input) = read(env, input) else { return 0; };
     let flag = if hevc != 0 { annexb::FLAG_RANDOM_ACCESS_H265 } else { annexb::FLAG_RANDOM_ACCESS_H264 };
     (annexb::random_access_flags(&input) & flag != 0) as jboolean
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_senderNanos(env: *mut JNIEnv, _: jclass, header: jbyteArray) -> jlong {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_senderNanos(env: *mut JNIEnv, _: jclass, header: jbyteArray) -> jlong {
     read(env, header).map_or(0, |bytes| annexb::sender_nanos(&bytes))
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_annexB(env: *mut JNIEnv, _: jclass, payload: jbyteArray) {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_annexB(env: *mut JNIEnv, _: jclass, payload: jbyteArray) {
     let Some(mut bytes) = read(env, payload) else { return };
     if annexb::to_annex_b_in_place(&mut bytes) {
         ((**env).SetByteArrayRegion.unwrap())(env, payload, 0, bytes.len() as jint, bytes.as_ptr().cast());
@@ -127,7 +127,7 @@ pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCod
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shilapi_xcertplay_airplay_NativeScreenCodec_config(env: *mut JNIEnv, _: jclass, payload: jbyteArray) -> jintArray {
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeScreenCodec_config(env: *mut JNIEnv, _: jclass, payload: jbyteArray) -> jintArray {
     let Some(bytes) = read(env, payload) else { return null_mut() };
     let f = &**env;
     let result = (f.NewIntArray.unwrap())(env, 2);

@@ -123,7 +123,7 @@ Source 的权限拒绝是独立观测，不能据此断言 Sink 超时一定也�
 
 ```sh
 adb shell am instrument -w -e action inspect \
-  com.shihab.diplay.hudtest.test/com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation
+  com.shihab.diplay.hudtest.test/com.shihab.diplay.BluetoothMediaProbeInstrumentation
 ```
 
 验证生产 Sink 让位/恢复流程需显式指定已配对 iPhone 的地址；探针会还原原设置，
@@ -131,5 +131,5 @@ adb shell am instrument -w -e action inspect \
 
 ```sh
 adb shell am instrument -w -e action cycle -e peerAddress '<已配对 iPhone 地址>' \
-  com.shihab.diplay.hudtest.test/com.shilapi.xcertplay.BluetoothMediaProbeInstrumentation
+  com.shihab.diplay.hudtest.test/com.shihab.diplay.BluetoothMediaProbeInstrumentation
 ```
