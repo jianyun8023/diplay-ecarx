@@ -345,6 +345,12 @@ class CarPlayController(
             if (closed || session.isClosed) return
             lifecycle.sessionActive(true)
             wiredStartWatchdog?.sessionActive()
+            // Mark the wired enumeration only once a session actually became active. A failed
+            // attempt before AirPlay should not make the retry request another USB transition:
+            // on some iPhones that transition is unanswered and the device disappears until replug.
+            if (config.transport == CarPlayTransport.WIRED) {
+                wiredDeviceName?.let(WiredSessionMemory::started)
+            }
             if (currentCornerMask?.session !== session) currentCornerMask = null
             val previousSession = activeSession
             val replacement = previousSession !== session
@@ -1697,6 +1703,21 @@ class CarPlayController(
         return NcmUsbBridge.open(connection, function, onDiagnostic = ::connectionDiagnostic)
     }
 
+    /**
+     * Wired iAP2 progress. Sending StartSession must not remember the USB enumeration yet: only a wired
+     * AirPlay session becoming active (RECORD) may. The 10 s transition retry in #335 depends on that
+     * distinction, so keep this seam callable from the regression test.
+     */
+    private fun handleWiredControlProgress(message: String, startWatchdog: WiredStartWatchdog) {
+        if (message == Iap2WiredControlClient.START_SESSION_AGAIN_PROGRESS) {
+            startWatchdog.startSessionSentAgain()
+        } else if (message.startsWith(START_SESSION_PROGRESS)) {
+            if (wiredStartSentAtNanos == null) lifecycle.startSent(System.nanoTime())
+            startWatchdog.startSessionSent()
+        }
+        debugLog("wired $message")
+    }
+
     private fun runStack(usbSession: Iap2UsbSession, ncm: NcmUsbBridge, run: Int) {
         fun report(status: CarPlayStatus) = onWiredStatus(status, run)
         var usbOwnedLocally = true
@@ -1897,16 +1918,7 @@ class CarPlayController(
                 locationProvider = locationProvider,
                 vehicleStatusProvider = vehicleStatusProvider,
                 onIncoming = { onRouteFrame(it, "wired-usb") },
-                onProgress = { message ->
-                    if (message == Iap2WiredControlClient.START_SESSION_AGAIN_PROGRESS) {
-                        startWatchdog.startSessionSentAgain()
-                    } else if (message.startsWith(START_SESSION_PROGRESS)) {
-                        if (wiredStartSentAtNanos == null) lifecycle.startSent(System.nanoTime())
-                        wiredDeviceName?.let(WiredSessionMemory::started)
-                        startWatchdog.startSessionSent()
-                    }
-                    debugLog("wired $message")
-                },
+                onProgress = { message -> handleWiredControlProgress(message, startWatchdog) },
                 startSessionAgain = ::startAgain,
             )
             report(
