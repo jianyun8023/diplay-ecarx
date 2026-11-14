@@ -15,6 +15,16 @@ data class CarPlayNowPlaying(
     val playing: Boolean = false,
 )
 
+/**
+ * The Glance song-card projection built by the native playback core: raw, untrimmed text plus
+ * the Glance playback flag. Composition and trimming stay with the display side.
+ */
+data class CarPlayGlanceSong(
+    val title: String? = null,
+    val artist: String? = null,
+    val playing: Boolean = false,
+)
+
 class CarPlayPlaybackStatus {
     private val owner = run { NativeMedia.requireAvailable(); arrayOf(NativePlaybackCore.nowCreate()) }
     @get:Synchronized val nowPlaying: CarPlayNowPlaying get() = NativePlaybackCore.nowSnapshot(owner)
@@ -42,6 +52,13 @@ internal object NativePlaybackCore {
     @JvmStatic external fun nowClear(owner: Array<LongArray>, all: Boolean): CarPlayNowPlaying?
     // Preserve the platform UTF-8 replacement and Kotlin whitespace behavior at the text boundary.
     @JvmStatic fun decodeText(bytes: ByteArray): String? = bytes.decodeToString().trim().ifEmpty { null }
+
+    @JvmStatic external fun glanceCreate(): LongArray
+    @JvmStatic external fun glanceSnapshot(owner: Array<LongArray>): CarPlayGlanceSong?
+    @JvmStatic external fun glanceAccept(owner: Array<LongArray>, id: Int, payload: ByteArray): CarPlayGlanceSong?
+    @JvmStatic external fun glanceClear(owner: Array<LongArray>): CarPlayGlanceSong?
+    // The Glance blank rules need the raw platform text; trimming stays with the card composition.
+    @JvmStatic fun decodeRawText(bytes: ByteArray): String = bytes.decodeToString()
 
     @JvmStatic external fun navigationCreate(): LongArray
     @JvmStatic external fun navigationEvent(owner: Array<LongArray>, event: Int, id: Long,

@@ -1,5 +1,7 @@
 package com.shihab.diplay.media
 
+import com.shihab.diplay.hud.ClusterSongState
+import com.shihab.diplay.hud.KotlinClusterSongState
 import com.shihab.diplay.iap2.wire.Iap2Frame
 import org.junit.Assert.assertEquals
 import java.util.Random
@@ -34,6 +36,51 @@ object PlaybackCoreContract {
             assertEquals(reference.nowPlaying, actual.nowPlaying)
             if (step % 29 == 0) assertEquals(reference.clear(), actual.clear())
             if (step % 61 == 0) assertEquals(reference.clearAll(), actual.clearAll())
+        }
+    }
+
+    /**
+     * The Glance song projection shares the wire parser but keeps its own blank-title rules;
+     * both implementations must agree frame by frame, including unchanged and cleared cards.
+     */
+    fun verifyGlanceSong() {
+        val actual = ClusterSongState()
+        val reference = KotlinClusterSongState()
+        val random = Random(20261115)
+        fun parameter(id: Int, bytes: ByteArray): ByteArray {
+            val size = bytes.size + 4
+            return byteArrayOf((size shr 8).toByte(), size.toByte(), (id shr 8).toByte(), id.toByte()) + bytes
+        }
+        fun group(id: Int, bytes: ByteArray): ByteArray = parameter(id, bytes)
+        val text = listOf(
+            "Numb".toByteArray(), "  ".toByteArray(), "".toByteArray(),
+            "bad terminator".toByteArray(), "A\u0000B".toByteArray(),
+            "\u2002\u2002".toByteArray(), "\u0000".toByteArray(),
+            byteArrayOf(0xc3.toByte(), 0x28), "Linkin Park".toByteArray(),
+        )
+        repeat(600) { step ->
+            val item = buildList {
+                if (random.nextInt(4) > 0) add(parameter(1, text[random.nextInt(text.size)] + byteArrayOf(0)))
+                if (random.nextBoolean()) add(parameter(12, text[random.nextInt(text.size)] + byteArrayOf(0)))
+            }.fold(ByteArray(0)) { acc, part -> acc + part }
+            val playback = if (random.nextBoolean()) {
+                val status = byteArrayOf(random.nextInt(6).toByte())
+                parameter(0, if (random.nextBoolean()) status else byteArrayOf(status[0], status[0]))
+            } else ByteArray(0)
+            val body = buildList {
+                if (item.isNotEmpty()) add(group(0, item))
+                if (playback.isNotEmpty()) add(group(1, playback))
+                if (random.nextInt(9) == 0) add(parameter(6, ByteArray(1).also(random::nextBytes)))
+            }.fold(ByteArray(0)) { acc, part -> acc + part }
+            val frame = Iap2Frame(if (step % 17 == 0) 0x5002 else 0x5001,
+                if (step % 23 == 0) body + byteArrayOf(0) else body)
+            assertEquals("update $step", reference.accept(frame), actual.accept(frame))
+            assertEquals("current $step", reference.current(), actual.current())
+            if (step % 31 == 0) {
+                reference.clear()
+                actual.clear()
+                assertEquals("cleared $step", reference.current(), actual.current())
+            }
         }
     }
 

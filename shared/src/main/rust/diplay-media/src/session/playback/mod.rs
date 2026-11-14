@@ -126,6 +126,127 @@ impl NowPlaying {
     }
 }
 
+/// The Glance song-card projection of the same 0x5001 stream: raw title/artist text plus the
+/// playback status. Shares the wire parser with [NowPlaying] but keeps the Glance-only rules
+/// (playing for status 1/3/4, an explicitly blank title also forgets the artist) and its own
+/// state so the two consumers never share a lifecycle.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct GlanceSong {
+    title: Option<Vec<u16>>,
+    artist: Option<Vec<u16>>,
+    playing: bool,
+}
+impl GlanceSong {
+    fn encode(&self) -> Vec<i64> {
+        let mut out = Vec::new();
+        for value in [&self.title, &self.artist] {
+            match value {
+                Some(units) => {
+                    out.push(units.len() as i64);
+                    out.extend(units.iter().map(|&v| v as i64));
+                }
+                None => out.push(-1),
+            }
+        }
+        out.push(self.playing as i64);
+        out
+    }
+    fn decode(words: &[i64]) -> Option<Self> {
+        let mut cursor = 0;
+        let mut parts = [None, None];
+        for part in &mut parts {
+            let length = *words.get(cursor)?;
+            cursor += 1;
+            if length == -1 {
+                continue;
+            }
+            if length < 0 || length as u64 > words.len().saturating_sub(cursor) as u64 {
+                return None;
+            }
+            let end = cursor + length as usize;
+            *part = Some(
+                words[cursor..end]
+                    .iter()
+                    .map(|&v| u16::try_from(v).ok())
+                    .collect::<Option<_>>()?,
+            );
+            cursor = end;
+        }
+        let playing = *words.get(cursor)?;
+        cursor += 1;
+        if cursor != words.len() || !(0..=1).contains(&playing) {
+            return None;
+        }
+        Some(Self {
+            title: parts[0].take(),
+            artist: parts[1].take(),
+            playing: playing != 0,
+        })
+    }
+    fn accept(
+        &mut self,
+        id: i32,
+        payload: &[u8],
+        mut text: impl FnMut(&[u8]) -> Option<Vec<u16>>,
+    ) -> bool {
+        if id != 0x5001 {
+            return false;
+        }
+        let Ok(body) = parse_parameter_list(payload) else {
+            return false;
+        };
+        let previous = self.clone();
+        if let Some((_, raw)) = body.iter().find(|(id, _)| *id == 0) {
+            if let Ok(fields) = parse_parameter_list(raw) {
+                // A scalar string drops only the final terminator, preserving embedded NULs.
+                let title = fields
+                    .iter()
+                    .find(|(id, _)| *id == 1)
+                    .filter(|(_, bytes)| bytes.last() == Some(&0))
+                    .and_then(|(_, bytes)| text(&bytes[..bytes.len() - 1]));
+                if let Some(units) = &title {
+                    self.title = Some(units.clone());
+                    if is_blank(units) {
+                        self.artist = None;
+                    }
+                }
+                if title.as_ref().map_or(true, |units| !is_blank(units)) {
+                    if let Some((_, bytes)) = fields.iter().find(|(id, _)| *id == 12) {
+                        if bytes.last() == Some(&0) {
+                            self.artist = text(&bytes[..bytes.len() - 1]);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some((_, raw)) = body.iter().find(|(id, _)| *id == 1) {
+            if let Ok(fields) = parse_parameter_list(raw) {
+                if let Some((_, bytes)) = fields.iter().find(|(id, _)| *id == 0) {
+                    if bytes.len() == 1 {
+                        // The Glance counts playing and seeking as playback.
+                        self.playing = matches!(bytes[0], 1 | 3 | 4);
+                    }
+                }
+            }
+        }
+        *self != previous
+    }
+    fn clear(&mut self) -> bool {
+        let previous = self.clone();
+        *self = Self::default();
+        *self != previous
+    }
+}
+
+/// Kotlin `String.isBlank()` over UTF-16: empty, or every unit whitespace. Unicode White_Space
+/// plus the Java-only separators U+001C..U+001F; lone surrogates are never whitespace.
+fn is_blank(units: &[u16]) -> bool {
+    units.iter().all(|&unit| {
+        (0x1c..=0x1f).contains(&unit)
+            || char::from_u32(unit as u32).is_some_and(char::is_whitespace)
+    })
+}
+
 struct Entry {
     id: i64,
     stream: Option<i32>,
@@ -269,6 +390,76 @@ mod tests {
         assert!(state.clear(true));
         assert!(!state.clear(true));
     }
+    #[test]
+    fn glance_song_applies_the_glance_only_rules() {
+        let mut state = GlanceSong::default();
+        let body = |fields: Vec<(u16, Vec<u8>)>| {
+            encode_parameter_list(&[(0, encode_parameter_list(&fields).unwrap())]).unwrap()
+        };
+        let playback = |status: u8| {
+            encode_parameter_list(&[(
+                1,
+                encode_parameter_list(&[(0, vec![status])]).unwrap(),
+            )])
+            .unwrap()
+        };
+        let decode = |bytes: &[u8]| Some(String::from_utf8_lossy(bytes).encode_utf16().collect());
+        // Title and artist arrive together; the composed card is the Glance consumer's business.
+        assert!(state.accept(
+            0x5001,
+            &body(vec![(1, b"Numb\0".to_vec()), (12, b"Linkin Park\0".to_vec())]),
+            decode
+        ));
+        assert_eq!(state.title.as_deref(), Some(&[78, 117, 109, 98][..]));
+        assert!(state.artist.is_some());
+        // The Glance counts playing and seeking as playback; only flag changes report an update.
+        assert!(state.accept(0x5001, &playback(3), decode));
+        assert!(state.playing);
+        assert!(!state.accept(0x5001, &playback(4), decode));
+        assert!(state.playing);
+        assert!(!state.accept(0x5001, &playback(1), decode));
+        assert!(state.accept(0x5001, &playback(2), decode));
+        assert!(!state.playing);
+        assert!(!state.accept(0x5001, &playback(2), decode));
+        // A blank title updates the retained title and forgets the artist; the same frame's
+        // artist field is ignored.
+        assert!(state.accept(
+            0x5001,
+            &body(vec![(1, b"  \0".to_vec()), (12, b"ignored\0".to_vec())]),
+            decode
+        ));
+        assert!(is_blank(state.title.as_ref().unwrap()));
+        assert_eq!(state.artist, None);
+        // A non-blank title lets the artist update again; missing fields preserve old values
+        // and a bad terminator is ignored like an absent field.
+        assert!(state.accept(
+            0x5001,
+            &body(vec![(1, b"Numb\0".to_vec()), (12, b"LP\0".to_vec())]),
+            decode
+        ));
+        assert_eq!(state.artist, Some(vec![76, 80]));
+        assert!(!state.accept(0x5001, &body(vec![(1, b"bad".to_vec())]), decode));
+        assert_eq!(state.title, Some(vec![78, 117, 109, 98]));
+        // An explicitly empty title is blank too.
+        assert!(state.accept(0x5001, &body(vec![(1, vec![0])]), decode));
+        assert_eq!(state.title, Some(Vec::new()));
+        assert_eq!(state.artist, None);
+        // Embedded NULs survive the scalar-string conversion.
+        assert!(state.accept(0x5001, &body(vec![(1, b"A\0B\0".to_vec())]), decode));
+        assert_eq!(state.title, Some(vec![65, 0, 66]));
+        // Other messages, malformed bodies and malformed groups preserve everything.
+        assert!(!state.accept(0x5002, &body(vec![(1, b"X\0".to_vec())]), decode));
+        assert!(!state.accept(0x5001, &[9, 9, 9], decode));
+        assert!(!state.accept(0x5001, &encode_parameter_list(&[(0, vec![1])]).unwrap(), decode));
+        assert_eq!(
+            GlanceSong::decode(&state.encode()).as_ref(),
+            Some(&state)
+        );
+        assert!(state.clear());
+        assert_eq!(state, GlanceSong::default());
+        assert!(!state.clear());
+    }
+
     #[test]
     fn renderer_expiry_route_conflicts_and_close_preserve_live_owners() {
         let mut state = Navigation {

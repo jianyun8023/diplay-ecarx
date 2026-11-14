@@ -9,6 +9,10 @@ class NativePlaybackCoreDeviceTest {
         assertTrue(NativeMedia.available)
         PlaybackCoreContract.verifyNowPlaying()
     }
+    @Test fun glanceSongBlankTitleRulesMatchTheKotlinContract() {
+        assertTrue(NativeMedia.available)
+        PlaybackCoreContract.verifyGlanceSong()
+    }
     @Test fun navigationRendererLeasesAndQuietTailMatchTheKotlinContract() {
         assertTrue(NativeMedia.available)
         PlaybackCoreContract.verifyNavigation()
