@@ -19,7 +19,7 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 1. 媒体闭环：音频接收器直入队列、逐包反馈、缓冲音乐锚点、SETRATE／FLUSH、PI 时钟、背压、输出门限、AAC 与 PCM／Opus 已接入 Rust；Java／NDK 视频的节拍、队列、参考链与 codec 策略也由 Rust 拥有。已通过的历史台架／实车场景与最新变更的组合缺口分别登记。
 2. 协议编解码、配对与控制加密：RTSP、bplist、control／event、PairVerify、PairSetup／SRP、完整 MFiSAP、NTP、iAP2 body／link／握手／文件传输、USBMUX、Lockdown 与默认 NCM 路径已接入 Rust；平台存储、PKIX／JCA 硬件密钥及真实 MFi I/O 保留适配层。
 3. 会话控制：WirelessRunState、WirelessBootstrapRecovery、wired Iap2ControlDeadline、wireless deadline、watchdog 决策、controller／VPN 代际和 AirPlay 流协商状态由 Rust 持有；Kotlin 执行平台资源动作和调度，平台结果携带所属代际。
-4. 导航、车辆转换和输入协议：EV 0xA101、导航状态、HID／触摸槽、IdentificationInformation、PASCD、NMEA 及仪表／HUD 转换、位置／EV 订阅与节流由 Rust 持有。Android／车机适配、Calendar／Formatter 保留 Kotlin；PASCD 生产车速由 `EcarxVehicleSpeedSource` 从 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION` 采集后送入既有 Rust 编码，实车订阅验收仍待完成。
+4. 导航、车辆转换和输入协议：EV 0xA101、导航状态、HID／触摸槽、IdentificationInformation、PASCD、NMEA 及仪表／HUD 转换、位置／EV 订阅与节流由 Rust 持有。Android／车机适配、Calendar／Formatter 保留 Kotlin；PASCD 生产车速由 `EcarxVehicleSpeedSource` 从 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION` 采集后送入既有 Rust 编码，实车订阅路径已有日志；动态 PASCD 输出与真实服务恢复边界见[专项复核](benchmarks/vehicle-speed-2026-11-14.md)。
 
 当前验收状态与恢复条件以[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)为准；历史批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)，#113 首包修复见[2026-11-14 验证摘要](benchmarks/native-video-startup-2026-11-14.md)。开发中运行定向回归，可交付批次最终运行完整 CI、所需 ABI 构建和可执行的设备验证，不把旧批通过替代最新变更验收。
 
@@ -174,7 +174,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 - `session::p2p_startup` 持有 remembered frequency、同频道／单 band／手动频道计划、BUSY 一次重试和 compatibility fallback；Kotlin 执行 Wi-Fi Direct 请求，保留外部异常身份与 SDK 前置互斥，不在结果不确定的 timeout 后重新创建。
 - `vehicle::route_guidance::lane_update` 复用共享 iAP2 body parser 解析完整 0x5204，保留 known-field duplicate 的精确长度、稳定 lane index 排序、角度 wire 顺序与 ±1000 unknown 值，空 body 才是清空。Glance／HUD 调用原 facade 获取不可变 DTO。
 - `protocols::airplay` 持有 `/info` 能力、固定 event／command、VideoInCar 和 Bonjour TXT／connect probe 编码。`media::audio::{routing, echo}` 持有路由与 speaker fallback、far-end PCM 和 capture clock；buffered owner 也持有 anchor／feedback 回复 schema 和 NTP 换算。Java bplist 数值／字符串转换与实际 SDK 执行继续保留。
-- 已迁协议、配对、媒体、导航／HUD、NTP、会话状态与恢复要求原生核心；旧算法只作为testCore对照。所有权与当前验收见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)，issue #96 保留已完成迁移的历史证据。PASCD／VehicleSpeedLocationProvider 的生产车速源已接入：`EcarxVehicleSpeedSource` 读取 ECARX `ISensor` 1048832（m/s）并经 VHAL `GEAR_SELECTION` 取得挡位，平台笔记已登记接口与单位；真实车机订阅、权限与断线恢复仍属实车验收。
+- 已迁协议、配对、媒体、导航／HUD、NTP、会话状态与恢复要求原生核心；旧算法只作为testCore对照。所有权与当前验收见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)，issue #96 保留已完成迁移的历史证据。PASCD／VehicleSpeedLocationProvider 的生产车速源已接入：`EcarxVehicleSpeedSource` 读取 ECARX `ISensor` 1048832（m/s）并经 VHAL `GEAR_SELECTION` 取得挡位，平台笔记已登记接口与单位；真实车机已记录订阅路径，完整动态数据链和服务断线恢复仍需对应证据。
 
 生产核心 facade 必须加载 Rust；独立旧算法只供测试对照，库加载失败显式上报。Bouncy Castle 已从 shared 生产依赖移除，仅作测试 oracle。AudioTrack、MediaCodec、AAudio 等真实硬件／SDK 能力回退保留。历史候选的双 ABI／设备结果仅适用于其构建源码；各批 JNI／R8／设备验收见[验收矩阵与历史审计](RUST_CORE_REMAINING.zh-CN.md)，不能用历史记录替代当前变更验收。
 
