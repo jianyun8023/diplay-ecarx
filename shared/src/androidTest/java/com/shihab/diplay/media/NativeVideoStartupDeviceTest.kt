@@ -22,6 +22,79 @@ class NativeVideoStartupDeviceTest {
 
     @Test fun duplicateHevcConfigsStillRenderTheOnlyKeyframe() = firstFrameBeforeWorker(HEVC, configurations = 2)
 
+    @Test fun newHevcConfigKeepsItsOnlyIdrWhenOlderConfigFails() = newerConfigSurvivesFailure(rebuild = false)
+
+    @Test fun newHevcConfigKeepsItsOnlyIdrWhenPipeRebuildFails() = newerConfigSurvivesFailure(rebuild = true)
+
+    private fun newerConfigSurvivesFailure(rebuild: Boolean) {
+        requireHardware(AVC.mime)
+        requireHardware(HEVC.mime)
+        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
+        val unavailableSurface = Surface(texture).apply { release() }
+        val surface = Surface(texture)
+        val failures = AtomicInteger()
+        val requests = AtomicInteger()
+        val replacementQueued = CountDownLatch(1)
+        val replacementConfigured = CountDownLatch(1)
+        val rendered = CountDownLatch(1)
+        val reports = CopyOnWriteArrayList<String>()
+        val expectedFailures = if (rebuild) 2 else 1
+        lateinit var decoder: VideoDecoder
+        decoder = VideoDecoder(
+            streamType = 110, surface = unavailableSurface, width = WIDTH, height = HEIGHT,
+            preferSoftwareHevcDecoder = false,
+            requestKeyFrame = { requests.incrementAndGet() },
+            report = { line ->
+                reports.add(line)
+                if (line.startsWith("decoder configuration failed ") && failures.incrementAndGet() == expectedFailures) {
+                    // The report precedes failed-config cleanup. A receiver may deliver a newer Config
+                    // and its only IDR here, including while a pipe-requested rebuild has no Config hold.
+                    decoder.setSurface(surface)
+                    decoder.configure(HEVC.codec, HEVC.config)
+                    decoder.submit(HEVC.bytes)
+                    replacementQueued.countDown()
+                }
+                if (line.startsWith("decoder=") && line.contains("mime=${HEVC.mime} ")) replacementConfigured.countDown()
+                if (line == "first frame rendered") rendered.countDown()
+            },
+            nativeDecodeLoop = true,
+        )
+        // A non-null Surface without a native window deterministically fails every codec attempt.
+        // The replacement uses a real Surface; no codec factory or cleanup implementation is mocked.
+        decoder.configure(AVC.codec, AVC.config)
+        // Detaching an unattached Surface changes nothing, but its acknowledgement is a FIFO worker barrier.
+        val firstConfigDone = if (rebuild) decoder.requestDetach(surface, park = false) else null
+        decoder.start()
+        try {
+            if (firstConfigDone != null) {
+                val didComplete = decoder.awaitDetach(
+                    firstConfigDone, System.nanoTime() + TimeUnit.SECONDS.toNanos(15),
+                )
+                assertTrue("The first failed Config did not complete: $reports", didComplete)
+                assertEquals(DetachOutcome.NOT_RENDERING, firstConfigDone.outcome)
+                assertEquals("The initial Config must fail before a native rebuild: $reports", 1, failures.get())
+                // Its hold is complete. This old AVC IDR requests a real native rebuild, not a second HEVC IDR.
+                decoder.submit(AVC.bytes)
+            }
+            val didQueue = replacementQueued.await(15, TimeUnit.SECONDS)
+            assertTrue("The expected failed configure did not reach its cleanup boundary: $reports", didQueue)
+            val didConfigure = replacementConfigured.await(15, TimeUnit.SECONDS)
+            assertTrue("The replacement HEVC decoder must configure successfully: $reports", didConfigure)
+            assertEquals("Unexpected configuration failures: $reports", expectedFailures, failures.get())
+            val didRender = rendered.await(5, TimeUnit.SECONDS)
+            assertTrue("An older failed configure discarded the newer Config's only HEVC IDR: $reports", didRender)
+            assertEquals(if (rebuild) 2L else 1L, decoder.liveCounters().received)
+            assertEquals(1L, decoder.liveCounters().rendered)
+            assertEquals("The replacement must not need another keyframe", 0, requests.get())
+        } finally {
+            decoder.close()
+            assertTrue(decoder.awaitExitUntil(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            unavailableSurface.release()
+            surface.release()
+            texture.release()
+        }
+    }
+
     private fun firstFrameBeforeWorker(frame: EncodedFrame, configurations: Int = 1) {
         requireHardware(frame.mime)
         val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
@@ -176,9 +249,8 @@ class NativeVideoStartupDeviceTest {
                 session.surface, hevc = true, reportVendorFormat = false,
             )
             assertNotEquals("The deliberately absent decoder must fail creation", 0, failed.status)
-            // Mirror VideoDecoder's failed-config cleanup, without retaining a frame that retries forever.
-            pipe.setAccepting(true, resetChain = true)
-            pipe.release()
+            // Use VideoDecoder's failure boundary; this chain must not retry forever without a new IDR.
+            pipe.configurationFailed(completingConfigHold = true)
             pipe.hold(false)
             assertFalse("Failed configuration must discard its old chain", session.needsDecoder.await(150, TimeUnit.MILLISECONDS))
             pipe.submit(HeapPacket(HEVC.bytes), 0, 0)

@@ -148,7 +148,7 @@ internal object NativeMedia {
         csd0: ByteArray?, csd1: ByteArray?, surface: android.view.Surface, hevc: Boolean, reportVendorFormat: Boolean,
         detailOut: Array<String?>,
     ): Int
-    @JvmStatic external fun pipeRelease(handle: Long)
+    @JvmStatic external fun pipeRelease(handle: Long, failedConfigHolds: Int)
     @JvmStatic external fun pipeSetSurface(handle: Long, surface: android.view.Surface, shown: Boolean): Int
     @JvmStatic external fun pipeHold(handle: Long, hold: Boolean)
     @JvmStatic external fun pipeSetAccepting(handle: Long, accepting: Boolean, resetChain: Boolean)

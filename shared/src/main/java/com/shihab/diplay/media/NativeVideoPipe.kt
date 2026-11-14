@@ -47,7 +47,11 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         return Result(status, detail[0])
     }
 
-    fun release() = NativeMedia.pipeRelease(handle)
+    fun release() = NativeMedia.pipeRelease(handle, -1)
+
+    /** Discard the failed chain only when no newer Config has acquired a hold. */
+    fun configurationFailed(completingConfigHold: Boolean) =
+        NativeMedia.pipeRelease(handle, if (completingConfigHold) 1 else 0)
 
     /** Moves the running decoder to [surface]; [shown] false for the parking consumer. */
     fun setSurface(surface: Surface, shown: Boolean): Boolean = NativeMedia.pipeSetSurface(handle, surface, shown) == 0

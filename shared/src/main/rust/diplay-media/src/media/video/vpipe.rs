@@ -637,7 +637,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCon
 /// Stops and frees the decoder, if any. The pipe keeps its frames' policy (a keyframe is needed next).
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRelease(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+    _env: *mut JNIEnv, _class: jclass, handle: jlong, failed_config_holds: jint,
 ) {
     let pipe = pipe(handle);
     let codec = {
@@ -646,6 +646,11 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRel
         let window = std::mem::replace(&mut inner.window, std::ptr::null_mut());
         // The feeder may be mid-call on this codec; it rechecks the codec once it holds the lock again.
         while inner.busy { inner = pipe.work.wait(inner).unwrap(); }
+        // -1 is an ordinary release; a failed Config owns one hold, a pipe/surface rebuild none.
+        // Check after waiting, under the same lock as receiver holds and frame submission.
+        if failed_config_holds >= 0 && inner.pending_configs <= failed_config_holds as usize {
+            inner.drop_frames();
+        }
         inner.inputs.clear();
         inner.outputs.clear();
         inner.retired = false;
@@ -829,7 +834,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeDes
     env: *mut JNIEnv, class: jclass, handle: jlong,
 ) {
     if handle == 0 { return; }
-    Java_com_shihab_diplay_airplay_NativeMedia_pipeRelease(env, class, handle);
+    Java_com_shihab_diplay_airplay_NativeMedia_pipeRelease(env, class, handle, -1);
     let pipe = Box::from_raw(handle as *mut Arc<Pipe>);
     {
         let mut inner = pipe.inner.lock().unwrap();

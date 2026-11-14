@@ -365,7 +365,7 @@ internal class VideoDecoder(
                 try {
                     when (job) {
                         is VideoJob.Config -> try {
-                            configureDecoder(job)
+                            configureDecoder(job, completingConfigHold = true)
                         } finally {
                             pipe?.hold(false)
                         }
@@ -546,7 +546,7 @@ internal class VideoDecoder(
     }
 
     /** [resetChain] false only when the pipe asks for a decoder for the keyframe it holds. */
-    private fun configureDecoder(config: VideoJob.Config, resetChain: Boolean = true) {
+    private fun configureDecoder(config: VideoJob.Config, resetChain: Boolean = true, completingConfigHold: Boolean = false) {
         val previous = lastConfig
         if (
             hasCodec() &&
@@ -619,11 +619,8 @@ internal class VideoDecoder(
             configuration.resetQueuedFrames()
             outputLock.notifyAll()
         }
-        // Retire the failed chain and let a fresh keyframe retry, including a pipe-requested rebuild.
-        if (configured == null) pipe?.let {
-            it.setAccepting(pipeAccepting, resetChain = true)
-            it.release()
-        }
+        // Retire only this failure's chain; a newer Config may already have delivered its only IDR.
+        if (configured == null) pipe?.configurationFailed(completingConfigHold)
         if (configured != null) backlogRecovery.decoderStarted(System.nanoTime())
         val mtkFallback = configuration.finish(used?.operatingRate ?: 0, configured?.mtkMode ?: MtkDecoderMode.NONE,
             requestedMtkMode, configured != null,
