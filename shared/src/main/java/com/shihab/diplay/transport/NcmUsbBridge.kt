@@ -131,30 +131,24 @@ class NcmUsbBridge internal constructor(
      */
     fun startNative(tun: ParcelFileDescriptor, hostMac: ByteArray, onDiagnosticLine: (String) -> Unit, onError: (Throwable) -> Unit): Boolean {
         NativeMedia.requireAvailable()
-        // Every allocation that can fail is built before the descriptors are detached: after
-        // `ncmStart` is entered, native consumes both valid FDs even when it returns 0, and Kotlin
-        // must not close them again. NcmNativeStartCleanupTest pins each failure boundary.
         val callbackIn = nativeCallbacks("inbound", onDiagnosticLine, onError)
         val callbackOut = nativeCallbacks("outbound", onDiagnosticLine, onError)
-        val (usbFd, tunFd) = synchronized(stateLock) {
-            if (closed || readQueued || nativeStarting || nativeEngine != 0L) return false
-            // Duplicate while close cannot retire the connection and recycle its FD.
-            val usbFd = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor).detachFd() }.getOrNull() ?: return false
-            val tunFd = runCatching { tun.dup().detachFd() }.getOrNull() ?: run {
-                runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
-                return false
-            }
-            nativeStarting = true
-            usbFd to tunFd
-        }
-        // The JNI call is the only ownership handoff. The Rust body takes both valid FDs as its
-        // first action and never throws back into Java, so a call that did not return normally
-        // never got there and Kotlin still owns the FDs exactly once.
-        var handedOff = false
+        // Keep managed owners throughout startup. There is no detached-FD/Pair allocation gap,
+        // and JNI only borrows these descriptors: native duplicates them for its own lifetime.
+        var usb: ParcelFileDescriptor? = null
+        var tunnel: ParcelFileDescriptor? = null
+        var starting = false
         try {
-            val handle = NativeMedia.ncmStart(usbFd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunFd, hostMac,
+            synchronized(stateLock) {
+                if (closed || readQueued || nativeStarting || nativeEngine != 0L) return false
+                nativeStarting = true
+                starting = true
+                // Duplicate while close cannot retire the connection and recycle its FD.
+                usb = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor) }.getOrNull() ?: return false
+                tunnel = runCatching { tun.dup() }.getOrNull() ?: return false
+            }
+            val handle = NativeMedia.ncmStart(usb!!.fd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunnel!!.fd, hostMac,
                 callbackIn, callbackOut)
-            handedOff = true
             if (handle == 0L) return false
             val accepted = synchronized(stateLock) {
                 if (closed) false else { nativeEngine = handle; true }
@@ -163,11 +157,11 @@ class NcmUsbBridge internal constructor(
             Log.i(IphoneCarPlayConfiguration.TAG, "ncm data path native in=${inEndpoint.address} out=${outEndpoint.address} packet=$usbPacketSize")
             return true
         } finally {
-            if (!handedOff) {
-                runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
-                runCatching { ParcelFileDescriptor.adoptFd(tunFd).close() }
-            }
-            synchronized(stateLock) { nativeStarting = false }
+            // Independent closes also cover argument evaluation/JNI entry failures and native
+            // exceptions. Native never owns these numbers, so no return-value ownership guess.
+            try { usb?.close() } catch (_: Throwable) { }
+            try { tunnel?.close() } catch (_: Throwable) { }
+            if (starting) synchronized(stateLock) { nativeStarting = false }
         }
     }
 

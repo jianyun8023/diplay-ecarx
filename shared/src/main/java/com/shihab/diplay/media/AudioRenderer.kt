@@ -140,6 +140,10 @@ internal class AudioRenderer(
     private var decoderOutputReports = 0
     private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
 
+    /** Called after the output worker has released all of its platform resources. */
+    internal var onExit: (AudioRenderer) -> Unit = {}
+
+    @Synchronized
     fun start() {
         if (started || !running) return
         started = true
@@ -271,7 +275,9 @@ internal class AudioRenderer(
             reportNavigationAudio(false, ended = true)
             runCatching { logStatsIfDue(force = true) }
             try { release() } finally {
-                try { consumer?.close() } finally { echoReference?.close() }
+                try {
+                    try { consumer?.close() } finally { echoReference?.close() }
+                } finally { runCatching { onExit(this) } }
             }
         }
     }

@@ -9,6 +9,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -70,6 +71,93 @@ class NativeAudioRouteDeviceTest {
             reader.close()
         }
     }
+
+    @Test fun failedDirectRendererFallsBackOnceThenRebindsTheReplacementQueue() {
+        val failWorker = AtomicBoolean(false)
+        val sink = AndroidMediaSink(debugLogsEnabled = {
+            if (failWorker.getAndSet(false)) throw IllegalStateException("injected worker failure")
+            false
+        })
+        val id = AudioStreamId(100, "media")
+        val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media")
+        val stream = AudioStream(key, 100, clockRate = 48_000)
+        val started = CountDownLatch(1)
+        val recovered = CountDownLatch(1)
+        val callbacks = AtomicInteger()
+        try {
+            sink.onNativeAudioRoute(id, format, stream.route)
+            val ports = stream.listen(object : AudioStream.Listener {
+                override fun onStarted(firstSample: Int) {
+                    sink.onAudioStarted(id, format, firstSample)
+                    started.countDown()
+                }
+                override fun onPacket(rtp: MediaPacket, sample: Int) {
+                    callbacks.incrementAndGet()
+                    sink.onAudioPacket(id, format, rtp, sample)
+                    recovered.countDown()
+                }
+            })
+            send(ports.first, wire(0, 1, ByteArray(1920)).first)
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            val original = renderer(sink, id)
+            // Prove the first packet took the native direct route before requesting failure.
+            val originalQueue = AudioRenderer::class.java.getDeclaredField("nativeQueue")
+                .apply { isAccessible = true }.get(original) as NativeAudioQueue
+            val firstStats = LongArray(5)
+            val firstDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            do {
+                originalQueue.stats(firstStats, false)
+                if (firstStats[0] >= 1) break
+                Thread.sleep(10)
+            } while (System.nanoTime() < firstDeadline)
+            assertEquals(1L, firstStats[0])
+            // The callback was installed before Thread.start(); only the atomic trigger changes.
+            // Failure occurs at the ordinary five-second diagnostic tick.
+            failWorker.set(true)
+            worker(original).join(10_000)
+            assertFalse("Configured failure must have run", failWorker.get())
+            assertFalse(worker(original).isAlive)
+            assertTrue(original.isTerminal)
+            assertEquals(0, callbacks.get())
+
+            send(ports.first, wire(480, 2, ByteArray(1920)).first)
+            assertTrue("Next native receiver packet must return to the sink", recovered.await(5, TimeUnit.SECONDS))
+            val replacement = renderer(sink, id)
+            assertNotSame(original, replacement)
+            assertTrue("Replacement must actually start", worker(replacement).isAlive)
+            // A delayed exit notification from the old worker cannot disconnect the new queue.
+            original.onExit(original)
+            send(ports.first, wire(960, 3, ByteArray(1920)).first)
+            val queue = AudioRenderer::class.java.getDeclaredField("nativeQueue").apply { isAccessible = true }
+                .get(replacement) as NativeAudioQueue
+            val stats = LongArray(5)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            do {
+                queue.stats(stats, false)
+                if (stats[0] >= 2) break
+                Thread.sleep(10)
+            } while (System.nanoTime() < deadline)
+            assertEquals("Both recovery and next direct packet reached the new queue", 2L, stats[0])
+            assertEquals("Recovered direct route must bypass JVM packet callbacks again", 1, callbacks.get())
+            sink.close()
+            original.onExit(original)
+            sink.onAudioStarted(id, format, 1440)
+            sink.onAudioPacket(id, format, HeapPacket(ByteArray(12)), 1440)
+            assertTrue(renderers(sink).isEmpty())
+        } finally {
+            stream.close()
+            sink.close()
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun renderers(sink: AndroidMediaSink): Map<AudioStreamId, AudioRenderer> =
+        AndroidMediaSink::class.java.getDeclaredField("audioRenderers").apply { isAccessible = true }
+            .get(sink) as Map<AudioStreamId, AudioRenderer>
+
+    private fun renderer(sink: AndroidMediaSink, id: AudioStreamId): AudioRenderer = checkNotNull(renderers(sink)[id])
+    private fun worker(renderer: AudioRenderer): Thread =
+        AudioRenderer::class.java.getDeclaredField("thread").apply { isAccessible = true }.get(renderer) as Thread
 
     @Test fun nativeWiretapPreservesRejectedDatagramsAndDisablesDirectDelivery() {
         assertTrue(NativeMedia.available)

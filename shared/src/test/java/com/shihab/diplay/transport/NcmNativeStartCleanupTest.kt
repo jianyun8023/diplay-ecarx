@@ -8,6 +8,9 @@ import android.hardware.usb.UsbEndpoint
 import android.os.ParcelFileDescriptor
 import com.shihab.diplay.airplay.NativeStreamCallbacks
 import com.shihab.diplay.testcore.ShadowNativeMedia
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -24,10 +27,9 @@ import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 /**
- * The FD ownership boundaries of [NcmUsbBridge.startNative]: `ncmStart` is the single handoff,
- * so a call that never reached native closes each FD exactly once, a call native handled (0 or a
- * handle) closes nothing, and a failed attempt can start again afterwards. The descriptor numbers
- * are fake; the shadowed [ParcelFileDescriptor] only records what Kotlin closed.
+ * Production startup keeps managed PFDs and lends their numbers to JNI. Each managed duplicate
+ * is closed once on every exit, including pre-JNI OOM and native failure. Native separately owns
+ * its own duplicates (tested in the Rust engine); Kotlin never detaches or adopts a raw FD.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE,
@@ -35,12 +37,12 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 class NcmNativeStartCleanupTest {
     @After fun tearDown() { NcmStartReplay.reset() }
 
-    @Test fun nativeConsumesTheDescriptorsOnSuccessAndKotlinClosesNothing() {
+    @Test fun successClosesOnlyTheManagedCopiesAfterNativeBorrowsThem() {
         bridge().let { ncm ->
             try {
                 assertTrue(ncm.startNative(tun(), ByteArray(6), {}, {}))
-                assertEquals("The handoff passed the duplicated tunnel FD", listOf(NcmStartReplay.tunFd), NcmStartReplay.starts.toList())
-                assertTrue("Kotlin must not close FDs native consumed", NcmStartReplay.closed.isEmpty())
+                assertEquals(listOf(NcmStartReplay.created.last()), NcmStartReplay.starts.toList())
+                assertManagedCopiesClosed()
                 // A second start is rejected by state, not by a stuck flag.
                 assertFalse(ncm.startNative(tun(), ByteArray(6), {}, {}))
                 assertEquals(1, NcmStartReplay.starts.size)
@@ -49,13 +51,13 @@ class NcmNativeStartCleanupTest {
         assertEquals(1, NcmStartReplay.stops.size)
     }
 
-    @Test fun zeroReturnAlsoConsumesTheDescriptors() {
+    @Test fun zeroReturnClosesTheManagedCopiesAndAllowsRetry() {
         NcmStartReplay.mode = NcmStartReplay.Mode.ReturnZero
         bridge().let { ncm ->
             try {
                 assertFalse(ncm.startNative(tun(), ByteArray(6), {}, {}))
-                assertEquals("Native consumed both FDs on its zero return", 1, NcmStartReplay.starts.size)
-                assertTrue(NcmStartReplay.closed.isEmpty())
+                assertEquals(1, NcmStartReplay.starts.size)
+                assertManagedCopiesClosed()
                 // The finally still reset the flag, so the caller may try again.
                 NcmStartReplay.mode = NcmStartReplay.Mode.Success
                 assertTrue(ncm.startNative(tun(), ByteArray(6), {}, {}))
@@ -68,24 +70,86 @@ class NcmNativeStartCleanupTest {
         val ncm = bridge()
         try {
             assertThrows(OutOfMemoryError::class.java) { ncm.startNative(tun(), ByteArray(6), {}, {}) }
-            assertEquals("Both unhandoffed FDs are closed once",
-                NcmStartReplay.detached.toList(), NcmStartReplay.closed.toList())
+            assertManagedCopiesClosed()
             // The failure must not wedge the bridge: the next start succeeds.
             NcmStartReplay.mode = NcmStartReplay.Mode.Success
             assertTrue(ncm.startNative(tun(), ByteArray(6), {}, {}))
         } finally { ncm.close() }
     }
 
-    @Test fun aTunnelDupFailureBeforeTheHandoffStillClosesTheUsbDescriptor() {
+    @Test fun aTunnelDupFailureStillClosesTheManagedUsbCopy() {
         NcmStartReplay.mode = NcmStartReplay.Mode.ThrowAtDup
         val ncm = bridge()
         try {
             assertFalse(ncm.startNative(tun(), ByteArray(6), {}, {}))
-            assertEquals("Only the duplicated USB FD was closed",
-                listOf(NcmStartReplay.detached.first()), NcmStartReplay.closed.toList())
+            assertEquals(1, NcmStartReplay.created.size)
+            assertManagedCopiesClosed()
             NcmStartReplay.mode = NcmStartReplay.Mode.Success
             assertTrue(ncm.startNative(tun(), ByteArray(6), {}, {}))
         } finally { ncm.close() }
+    }
+
+    @Test fun failureAfterBothCopiesExistButBeforeJniClosesBothAndClearsStarting() {
+        NcmStartReplay.mode = NcmStartReplay.Mode.ThrowAtGetFd
+        val ncm = bridge()
+        try {
+            assertThrows(OutOfMemoryError::class.java) { ncm.startNative(tun(), ByteArray(6), {}, {}) }
+            assertEquals(2, NcmStartReplay.created.size)
+            assertTrue("The injected failure precedes JNI", NcmStartReplay.starts.isEmpty())
+            assertManagedCopiesClosed()
+            NcmStartReplay.mode = NcmStartReplay.Mode.Success
+            assertTrue(ncm.startNative(tun(), ByteArray(6), {}, {}))
+        } finally { ncm.close() }
+    }
+
+    @Test fun oneCloseFailureDoesNotSkipTheOtherCopyOrWedgeStarting() {
+        NcmStartReplay.mode = NcmStartReplay.Mode.ThrowAtClose
+        val ncm = bridge()
+        try {
+            assertFalse(ncm.startNative(tun(), ByteArray(6), {}, {}))
+            assertManagedCopiesClosed()
+            NcmStartReplay.mode = NcmStartReplay.Mode.Success
+            assertTrue(ncm.startNative(tun(), ByteArray(6), {}, {}))
+        } finally { ncm.close() }
+    }
+
+    @Test fun closeDuringNativeStartRejectsAndStopsTheLateHandleWithoutDoubleClosing() {
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        NcmStartReplay.beforeReturn = {
+            entered.countDown()
+            check(resume.await(5, TimeUnit.SECONDS))
+        }
+        val ncm = bridge()
+        val result = AtomicReference<Boolean>()
+        val failure = AtomicReference<Throwable>()
+        val starter = Thread {
+            try { result.set(ncm.startNative(tun(), ByteArray(6), {}, {})) }
+            catch (error: Throwable) { failure.set(error) }
+        }
+        try {
+            starter.start()
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertFalse("A concurrent start cannot acquire the same bridge", ncm.startNative(tun(), ByteArray(6), {}, {}))
+            assertEquals(2, NcmStartReplay.created.size)
+            ncm.close()
+        } finally {
+            resume.countDown()
+            starter.join(5_000)
+            ncm.close()
+        }
+        assertFalse("Startup must finish after close", starter.isAlive)
+        failure.get()?.let { throw AssertionError("startup failed", it) }
+        assertEquals(false, result.get())
+        assertEquals(listOf(770L), NcmStartReplay.stops.toList())
+        assertManagedCopiesClosed()
+        assertFalse(ReflectionHelpers.getField(ncm, "nativeStarting"))
+        assertFalse(ncm.startNative(tun(), ByteArray(6), {}, {}))
+    }
+
+    private fun assertManagedCopiesClosed() {
+        assertEquals("Each managed duplicate is closed exactly once", NcmStartReplay.created.toList(), NcmStartReplay.closed.toList())
+        assertTrue("No raw ownership handoff or Pair is needed", NcmStartReplay.detached.isEmpty())
     }
 
     private fun tun(): ParcelFileDescriptor = NcmStartPfdShadow.of(NcmStartReplay.tunFd)
@@ -103,25 +167,28 @@ class NcmNativeStartCleanupTest {
 }
 
 object NcmStartReplay {
-    enum class Mode { Success, ReturnZero, ThrowAtStart, ThrowAtDup }
+    enum class Mode { Success, ReturnZero, ThrowAtStart, ThrowAtDup, ThrowAtGetFd, ThrowAtClose }
 
     const val usbFd = 0x6E63_5553 // plausible descriptor numbers, never real ones
     const val tunFd = 0x6E63_5455
 
+    val created = mutableListOf<Int>()
     val detached = mutableListOf<Int>()
     val closed = mutableListOf<Int>()
     val starts = mutableListOf<Int>()
     val stops = mutableListOf<Long>()
     var mode = Mode.Success
     var nextHandle = 770L
+    var nextFd = 10_000
+    var beforeReturn: (() -> Unit)? = null
 
     fun reset() {
-        detached.clear(); closed.clear(); starts.clear(); stops.clear()
-        mode = Mode.Success; nextHandle = 770L
+        created.clear(); detached.clear(); closed.clear(); starts.clear(); stops.clear()
+        mode = Mode.Success; nextHandle = 770L; nextFd = 10_000; beforeReturn = null
     }
 }
 
-/** The shadowed connection hands the bridge a fake descriptor number to detach. */
+/** The shadowed connection hands the bridge a fake descriptor number to duplicate. */
 @Implements(UsbDeviceConnection::class)
 class NcmStartConnectionShadow {
     @Implementation fun getFileDescriptor(): Int = NcmStartReplay.usbFd
@@ -139,14 +206,20 @@ class NcmStartPfdShadow {
         return result
     }
 
+    @Implementation fun getFd(): Int {
+        if (NcmStartReplay.mode == NcmStartReplay.Mode.ThrowAtGetFd) throw OutOfMemoryError("injected post-dup argument failure")
+        return fd
+    }
+
     @Implementation fun dup(): ParcelFileDescriptor {
         if (NcmStartReplay.mode == NcmStartReplay.Mode.ThrowAtDup) throw OutOfMemoryError("injected dup failure")
-        return of(fd)
+        return duplicate()
     }
 
     @Implementation fun close() {
         if (fd != -1) NcmStartReplay.closed += fd
         fd = -1
+        if (NcmStartReplay.mode == NcmStartReplay.Mode.ThrowAtClose) throw IllegalStateException("injected close failure")
     }
 
     companion object {
@@ -156,9 +229,15 @@ class NcmStartPfdShadow {
             return result
         }
 
-        @JvmStatic @Implementation fun fromFd(descriptor: Int): ParcelFileDescriptor = of(descriptor)
+        private fun duplicate(): ParcelFileDescriptor {
+            val fd = NcmStartReplay.nextFd++
+            return of(fd).also { NcmStartReplay.created += fd }
+        }
 
-        @JvmStatic @Implementation fun adoptFd(descriptor: Int): ParcelFileDescriptor = of(descriptor)
+        @JvmStatic @Implementation fun fromFd(descriptor: Int): ParcelFileDescriptor = duplicate()
+
+        @JvmStatic @Implementation fun adoptFd(descriptor: Int): ParcelFileDescriptor =
+            throw AssertionError("startup must not adopt a raw FD")
     }
 }
 
@@ -170,11 +249,13 @@ class NcmStartMediaShadow : ShadowNativeMedia() {
             inbound: NativeStreamCallbacks, outbound: NativeStreamCallbacks,
         ): Long {
             NcmStartReplay.starts += tunFd
+            assertTrue("Borrowed copies must stay open through JNI", NcmStartReplay.closed.none { it == usbFd || it == tunFd })
+            NcmStartReplay.beforeReturn?.invoke()
             when (NcmStartReplay.mode) {
                 NcmStartReplay.Mode.ThrowAtStart -> throw OutOfMemoryError("injected start failure")
-                NcmStartReplay.Mode.ReturnZero -> return 0L
+                NcmStartReplay.Mode.ReturnZero, NcmStartReplay.Mode.ThrowAtClose -> return 0L
                 NcmStartReplay.Mode.Success -> return NcmStartReplay.nextHandle++
-                NcmStartReplay.Mode.ThrowAtDup -> throw IllegalStateException("unreachable")
+                NcmStartReplay.Mode.ThrowAtDup, NcmStartReplay.Mode.ThrowAtGetFd -> throw IllegalStateException("unreachable")
             }
         }
 
