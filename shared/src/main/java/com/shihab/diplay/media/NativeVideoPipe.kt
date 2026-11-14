@@ -52,7 +52,7 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
     /** Moves the running decoder to [surface]; [shown] false for the parking consumer. */
     fun setSurface(surface: Surface, shown: Boolean): Boolean = NativeMedia.pipeSetSurface(handle, surface, shown) == 0
 
-    /** True when a new configuration arrives: feed nothing until the worker has acted on it. */
+    /** Pair each received configuration with its worker completion; overlapping configurations stay held. */
     fun hold(hold: Boolean) = NativeMedia.pipeHold(handle, hold)
 
     fun setAccepting(accepting: Boolean, resetChain: Boolean) = NativeMedia.pipeSetAccepting(handle, accepting, resetChain)

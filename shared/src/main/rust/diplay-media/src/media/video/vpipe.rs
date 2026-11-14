@@ -58,11 +58,14 @@ struct Inner {
     codec: *mut AMediaCodec,
     window: *mut ANativeWindow,
     hevc: bool,
-    /// Kotlin has a configuration and a surface: frames are kept for a decoder.
+    /// A surface is available: frames may wait for their configuration to finish.
     accepting: bool,
-    /// Nothing is fed: recovery asked Kotlin to release this codec, or a new configuration is pending
-    /// (`pipeHold`). A retired codec also shows nothing more.
+    /// Nothing is fed: recovery asked Kotlin to release this codec. A retired codec shows nothing more.
     retired: bool,
+    /// Receiver configurations not yet completed by the Kotlin worker. Their frames wait in order.
+    pending_configs: usize,
+    /// Errors from the old codec being replaced must not retire its replacement.
+    codec_held: bool,
     shown: bool,
     need_decoder_sent: bool,
     reference: ReferenceChain,
@@ -141,7 +144,7 @@ impl Inner {
         events.push((EVENT_LOG, Some(format!("Video recovery: {reason}; waiting for keyframe"))));
         events.push((EVENT_REPORT, Some(format!("recovery: {reason}; waiting for keyframe{}",
             if keep { "; decoder kept, no frame queued yet" } else { "" }))));
-        if !keep && !self.codec.is_null() && !self.retired {
+        if !keep && !self.codec.is_null() && !self.retired && self.pending_configs == 0 {
             self.retired = true;
             events.push((EVENT_RELEASE_DECODER, None));
         }
@@ -158,7 +161,7 @@ impl Inner {
     /// Pairs queued frames with free input buffers: the reference chain and backlog checks run here,
     /// the copies in the feeder.
     fn plan_feeds(&mut self, now: i64, events: &mut Events, actions: &mut Vec<Action>) {
-        while !self.codec.is_null() && !self.retired && !self.inputs.is_empty() && !self.frames.is_empty() {
+        while !self.codec.is_null() && !self.retired && self.pending_configs == 0 && !self.inputs.is_empty() && !self.frames.is_empty() {
             let front = &self.frames[0];
             let pending = self.frames.len() - 1;
             let newest = (pending > 0).then(|| self.frames.back().unwrap().received_ns);
@@ -193,7 +196,7 @@ impl Inner {
             }
             actions.push(Action::Feed { index, handle: frame.handle, size: frame.size, presentation_us });
         }
-        if !self.codec.is_null() && !self.retired && self.inputs.is_empty() && !self.frames.is_empty() {
+        if !self.codec.is_null() && !self.retired && self.pending_configs == 0 && self.inputs.is_empty() && !self.frames.is_empty() {
             if self.waiting_since_ns == 0 {
                 self.waiting_since_ns = now;
             } else if now - self.waiting_since_ns >= INPUT_STALL_NS {
@@ -211,7 +214,7 @@ impl Inner {
         if self.codec.is_null() { return; }
         while let Some((index, info)) = self.outputs.pop_front() {
             let index = index as usize;
-            if self.retired { actions.push(Action::Drop { index }); continue; }
+            if self.retired || self.pending_configs != 0 { actions.push(Action::Drop { index }); continue; }
             let shown = self.shown;
             let plan = self.timing.plan(info.presentation_time_us, now, shown);
             if let Some(latency) = plan.latency {
@@ -268,7 +271,7 @@ fn run_feeder(pipe: Arc<Pipe>) {
             if let Some(error) = result.failure {
                 // Use the same codec-failure path as the asynchronous callback, including Kotlin's
                 // existing fallback policy. Do not report a second error if that callback won.
-                if !guard.retired {
+                if !guard.retired && !guard.codec_held {
                     guard.retired = true;
                     events.push((EVENT_CODEC_ERROR, Some(error)));
                 }
@@ -428,7 +431,7 @@ unsafe extern "C" fn on_error(codec: *mut AMediaCodec, user: *mut c_void, error:
     let pipe = &*(user as *const Pipe);
     {
         let mut inner = pipe.inner.lock().unwrap();
-        if inner.codec != codec || inner.retired { return; }
+        if inner.codec != codec || inner.retired || inner.codec_held { return; }
         inner.retired = true;
     }
     let text = if detail.is_null() { String::new() } else { CStr::from_ptr(detail).to_string_lossy().into_owned() };
@@ -478,7 +481,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
     let pipe = Arc::new(Pipe {
         inner: Mutex::new(Inner {
             // Held until Kotlin has a configuration: frames before it have nothing to decode with.
-            codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, accepting: false, retired: true,
+            codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, accepting: false, retired: true, pending_configs: 0, codec_held: false,
             shown: true, need_decoder_sent: false, reference: ReferenceChain::default(), frames: VecDeque::new(), frame_bytes: 0,
             inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, timing: OutputTiming::new(pacing_delay_nanos, true),
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),
@@ -534,6 +537,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCon
     let e = Env(env);
     let f = &**env;
     let pipe = pipe(handle);
+    // A create failure must still let the next keyframe retry with the configured codec's type.
+    pipe.inner.lock().unwrap().hevc = hevc != 0;
     let string = |s: jstring| -> Option<CString> {
         if s.is_null() { return None; }
         let chars = (f.GetStringUTFChars.unwrap())(env, s, std::ptr::null_mut());
@@ -592,8 +597,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCon
         // Callbacks may come as soon as the codec starts; they find it under the lock.
         let mut inner = pipe.inner.lock().unwrap();
         inner.codec = codec;
-        inner.hevc = hevc != 0;
         inner.retired = false;
+        inner.codec_held = false;
         inner.inputs.clear();
         inner.outputs.clear();
         inner.frames_since_configure = 0;
@@ -645,9 +650,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRel
         inner.outputs.clear();
         inner.retired = false;
         inner.reference.reset();
+        inner.codec_held = false;
         inner.backlog.reset();
         // A keyframe that arrived while the old decoder was retiring asks for the next one.
-        inner.need_decoder_sent = inner.accepting && !inner.frames.is_empty();
+        inner.need_decoder_sent = inner.pending_configs == 0 && inner.accepting && !inner.frames.is_empty();
         let ask = inner.need_decoder_sent;
         (codec, window, ask)
     };
@@ -684,7 +690,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSet
     0
 }
 
-/// Whether frames are kept for a decoder (Kotlin has a configuration and a surface); a change resets
+/// Whether frames are kept for a decoder (a surface is available); a change resets
 /// the reference chain, as a new configuration or surface does in `VideoDecoder`.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSetAccepting(
@@ -698,9 +704,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSet
     }
 }
 
-/// `hold` true when a new configuration arrives (from the receive thread, before the next frame):
-/// drops the queued chain and feeds nothing until Kotlin has acted on it. False lets frames through
-/// again: the configuration was unchanged, or no decoder could be made and the next keyframe retries.
+/// Begin on the receiver before its next frame; complete once on the worker for each configuration.
+/// An older configure/start must not release frames belonging to a newer, still pending configuration.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeHold(
     _env: *mut JNIEnv, _class: jclass, handle: jlong, hold: jboolean,
@@ -710,17 +715,22 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeHol
     {
         let mut inner = pipe.inner.lock().unwrap();
         if hold != 0 {
-            inner.retired = true;
+            inner.pending_configs += 1;
+            inner.codec_held = true;
             inner.drop_frames();
             inner.reference.reset();
-        } else if inner.retired {
-            inner.retired = false;
-            inner.need_decoder_sent = false;
-            if inner.codec.is_null() && inner.accepting && !inner.frames.is_empty() {
-                inner.need_decoder_sent = true;
-                events.push((EVENT_NEED_DECODER, None));
+        } else {
+            if inner.pending_configs == 0 { return; }
+            inner.pending_configs -= 1;
+            if inner.pending_configs == 0 {
+                inner.codec_held = false;
+                inner.need_decoder_sent = false;
+                if inner.codec.is_null() && !inner.retired && inner.accepting && !inner.frames.is_empty() {
+                    inner.need_decoder_sent = true;
+                    events.push((EVENT_NEED_DECODER, None));
+                }
+                pipe.work.notify_all();
             }
-            pipe.work.notify_all();
         }
     }
     pipe.post_all(events);
@@ -750,7 +760,8 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
         } else if flags & FLAG_ANNEX_B == 0 {
             packet::release(frame);
             inner.recover("invalid video access unit", false, now, &mut events);
-        } else if inner.reference.needs_keyframe() && inner.frames.is_empty() &&
+        // The pending configuration's codec type is not published yet; plan_feeds checks it later.
+        } else if inner.pending_configs == 0 && inner.reference.needs_keyframe() && inner.frames.is_empty() &&
             flags & (if inner.hevc { FLAG_RANDOM_ACCESS_H265 } else { FLAG_RANDOM_ACCESS_H264 }) == 0 {
             // VideoReferenceChain: nothing after a lost reference until a keyframe; no decoder for it either.
             packet::release(frame);
@@ -770,7 +781,7 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
             } else {
                 inner.frames.push_back(Frame { handle: frame, size, flags, received_ns: now, local_ns });
                 inner.frame_bytes += size;
-                if inner.codec.is_null() && !inner.retired && !inner.need_decoder_sent {
+                if inner.pending_configs == 0 && inner.codec.is_null() && !inner.retired && !inner.need_decoder_sent {
                     inner.need_decoder_sent = true;
                     events.push((EVENT_NEED_DECODER, None));
                 }

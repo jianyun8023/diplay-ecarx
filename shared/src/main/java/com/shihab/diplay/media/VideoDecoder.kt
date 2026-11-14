@@ -192,6 +192,7 @@ internal class VideoDecoder(
     private val queue = VideoDecodeQueue()
     private val pipe: NativeVideoPipe? = if (nativeDecodeLoop) {
         NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail -> queue.offer(VideoJob.NativeEvent(kind, detail)) }
+            ?.apply { setAccepting(surface != null, resetChain = false) }
     } else null
     // Guards [pipe] against [submit] and [liveCounters] once the worker has destroyed it.
     private val pipeLock = Any()
@@ -199,7 +200,7 @@ internal class VideoDecoder(
     // The decoder the pipe runs, by name, null while it has none; and whether the pipe keeps frames for
     // one (there is a surface). Worker only.
     @Volatile private var nativeCodecName: String? = null
-    private var pipeAccepting = false
+    private var pipeAccepting = surface != null
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
@@ -363,7 +364,11 @@ internal class VideoDecoder(
                 }
                 try {
                     when (job) {
-                        is VideoJob.Config -> configureDecoder(job)
+                        is VideoJob.Config -> try {
+                            configureDecoder(job)
+                        } finally {
+                            pipe?.hold(false)
+                        }
                         is VideoJob.Frame -> try {
                             val backlog = queue.backlogAfterCurrent()
                             val overloaded = !referenceChain.needsKeyFrame && backlogRecovery.observe(
@@ -552,7 +557,6 @@ internal class VideoDecoder(
                 duplicateConfigLogged = true
                 if (debugLogsEnabled()) Log.i(TAG, "video decoder config unchanged; keeping existing decoder")
             }
-            pipe?.hold(false)
             return
         }
         if (!resetChain) Log.i(TAG, "video decoder rebuilt for the native pipe's keyframe")
@@ -615,8 +619,11 @@ internal class VideoDecoder(
             configuration.resetQueuedFrames()
             outputLock.notifyAll()
         }
-        // No decoder: let the next keyframe ask again, as a Kotlin frame would.
-        if (configured == null) pipe?.hold(false)
+        // Retire the failed chain and let a fresh keyframe retry, including a pipe-requested rebuild.
+        if (configured == null) pipe?.let {
+            it.setAccepting(pipeAccepting, resetChain = true)
+            it.release()
+        }
         if (configured != null) backlogRecovery.decoderStarted(System.nanoTime())
         val mtkFallback = configuration.finish(used?.operatingRate ?: 0, configured?.mtkMode ?: MtkDecoderMode.NONE,
             requestedMtkMode, configured != null,
