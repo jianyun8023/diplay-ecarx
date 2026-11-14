@@ -131,28 +131,24 @@ class NcmUsbBridge internal constructor(
      */
     fun startNative(tun: ParcelFileDescriptor, hostMac: ByteArray, onDiagnosticLine: (String) -> Unit, onError: (Throwable) -> Unit): Boolean {
         NativeMedia.requireAvailable()
-        val (usbFd, tunFd) = synchronized(stateLock) {
-            if (closed || readQueued || nativeStarting || nativeEngine != 0L) return false
-            // Duplicate while close cannot retire the connection and recycle its FD.
-            val usbFd = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor).detachFd() }.getOrNull() ?: return false
-            val tunFd = runCatching { tun.dup().detachFd() }.getOrNull() ?: run {
-                runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
-                return false
-            }
-            nativeStarting = true
-            usbFd to tunFd
-        }
+        val callbackIn = nativeCallbacks("inbound", onDiagnosticLine, onError)
+        val callbackOut = nativeCallbacks("outbound", onDiagnosticLine, onError)
+        // Keep managed owners throughout startup. There is no detached-FD/Pair allocation gap,
+        // and JNI only borrows these descriptors: native duplicates them for its own lifetime.
+        var usb: ParcelFileDescriptor? = null
+        var tunnel: ParcelFileDescriptor? = null
+        var starting = false
         try {
-            fun callbacks(direction: String) = object : NativeStreamCallbacks() {
-                override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) = NativeMedia.packetRelease(handle)
-                override fun onLog(level: Int, line: String) { if (level == 0) Log.i(IphoneCarPlayConfiguration.TAG, line) else Log.w(IphoneCarPlayConfiguration.TAG, line) }
-                override fun onReport(line: String) { runCatching { onDiagnosticLine(line) } }
-                override fun onEnded(error: String?) {
-                    if (!closedState()) onError(IOException("NCM $direction ended natively: ${error ?: "end of stream"}"))
-                }
+            synchronized(stateLock) {
+                if (closed || readQueued || nativeStarting || nativeEngine != 0L) return false
+                nativeStarting = true
+                starting = true
+                // Duplicate while close cannot retire the connection and recycle its FD.
+                usb = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor) }.getOrNull() ?: return false
+                tunnel = runCatching { tun.dup() }.getOrNull() ?: return false
             }
-            val handle = NativeMedia.ncmStart(usbFd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunFd, hostMac,
-                callbacks("inbound"), callbacks("outbound"))
+            val handle = NativeMedia.ncmStart(usb!!.fd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunnel!!.fd, hostMac,
+                callbackIn, callbackOut)
             if (handle == 0L) return false
             val accepted = synchronized(stateLock) {
                 if (closed) false else { nativeEngine = handle; true }
@@ -161,7 +157,20 @@ class NcmUsbBridge internal constructor(
             Log.i(IphoneCarPlayConfiguration.TAG, "ncm data path native in=${inEndpoint.address} out=${outEndpoint.address} packet=$usbPacketSize")
             return true
         } finally {
-            synchronized(stateLock) { nativeStarting = false }
+            // Independent closes also cover argument evaluation/JNI entry failures and native
+            // exceptions. Native never owns these numbers, so no return-value ownership guess.
+            try { usb?.close() } catch (_: Throwable) { }
+            try { tunnel?.close() } catch (_: Throwable) { }
+            if (starting) synchronized(stateLock) { nativeStarting = false }
+        }
+    }
+
+    private fun nativeCallbacks(direction: String, onDiagnosticLine: (String) -> Unit, onError: (Throwable) -> Unit) = object : NativeStreamCallbacks() {
+        override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) = NativeMedia.packetRelease(handle)
+        override fun onLog(level: Int, line: String) { if (level == 0) Log.i(IphoneCarPlayConfiguration.TAG, line) else Log.w(IphoneCarPlayConfiguration.TAG, line) }
+        override fun onReport(line: String) { runCatching { onDiagnosticLine(line) } }
+        override fun onEnded(error: String?) {
+            if (!closedState()) onError(IOException("NCM $direction ended natively: ${error ?: "end of stream"}"))
         }
     }
 

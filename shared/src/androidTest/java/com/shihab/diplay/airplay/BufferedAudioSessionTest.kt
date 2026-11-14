@@ -1,5 +1,9 @@
 package com.shihab.diplay.airplay
 
+import com.shihab.diplay.media.AndroidMediaSink
+import com.shihab.diplay.media.AudioRenderer
+import java.math.BigInteger
+import java.util.concurrent.atomic.AtomicInteger
 import java.net.Socket
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -255,13 +259,101 @@ class BufferedAudioSessionTest {
         } finally { old.close(); replacement.close() }
     }
 
-    private fun sendFrame(socket: Socket, sequence: Int, timestamp: Int) {
+    @Test
+    fun realBufferedFeedRecoversRendererAndRestartsAfterPauseAndFlush() {
+        val failWorker = AtomicBoolean(true)
+        val rendererSink = AndroidMediaSink(debugLogsEnabled = {
+            if (failWorker.getAndSet(false)) throw IllegalStateException("injected buffered worker failure")
+            false
+        })
+        val starts = AtomicInteger()
+        val stops = AtomicInteger()
+        val samples = CopyOnWriteArrayList<Int>()
+        val sink = object : MediaSink by rendererSink {
+            override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+                rendererSink.onAudioStarted(id, format, firstSample)
+                starts.incrementAndGet()
+            }
+            override fun onAudioPacket(id: AudioStreamId, format: AudioFormat, rtp: MediaPacket, sample: Int) {
+                rendererSink.onAudioPacket(id, format, rtp, sample)
+                samples += sample
+            }
+            override fun onAudioStopped(id: AudioStreamId) {
+                rendererSink.onAudioStopped(id)
+                stops.incrementAndGet()
+            }
+        }
+        val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 103, "media")
+        val id = AudioStreamId(103, "media")
+        // Freeze only the buffered scheduling clock, so pause/resume retains the same inaudible
+        // preload while the real output worker and encrypted TCP receiver run normally.
+        val buffered = BufferedAudioStream(ByteArray(32), format, sink, nanoTime = { 0L })
+        try {
+            buffered.start()
+            Socket("127.0.0.1", buffered.port).use { socket ->
+                sendFrame(socket, 1, 1024, ByteArray(4096))
+                buffered.setRate(1024L, 1, BigInteger.ZERO)
+                waitFor { samples.contains(1024) }
+                val original = bufferedRenderer(rendererSink, id)!!
+                audioWorker(original).join(10_000)
+                assertTrue("One-shot diagnostic failure must run", !failWorker.get())
+                assertTrue(original.isTerminal)
+                assertTrue("Failed worker must finish cleanup", !audioWorker(original).isAlive)
+
+                sendFrame(socket, 2, 2048, ByteArray(4096))
+                waitFor { samples.contains(2048) }
+                val recovered = bufferedRenderer(rendererSink, id)!!
+                assertTrue(original !== recovered)
+                assertTrue(audioWorker(recovered).isAlive)
+                assertEquals("Continuous buffered feed must recover without a second start", 1, starts.get())
+
+                buffered.setRate(null, 0, BigInteger.ZERO)
+                assertNull(bufferedRenderer(rendererSink, id))
+                assertEquals(1, stops.get())
+                val beforeResume = samples.size
+                buffered.setRate(1024L, 1, BigInteger.ZERO)
+                waitFor { starts.get() == 2 && samples.size >= beforeResume + 2 }
+                val resumed = bufferedRenderer(rendererSink, id)!!
+                assertTrue(recovered !== resumed)
+                assertTrue(audioWorker(resumed).isAlive)
+                assertEquals(listOf(1024, 2048), samples.drop(beforeResume))
+
+                buffered.flush(4096L)
+                assertNull(bufferedRenderer(rendererSink, id))
+                assertEquals(2, stops.get())
+                sendFrame(socket, 3, 4096, ByteArray(4096))
+                waitFor { starts.get() == 3 && samples.contains(4096) }
+                val flushed = bufferedRenderer(rendererSink, id)!!
+                assertTrue(resumed !== flushed)
+                assertTrue(audioWorker(flushed).isAlive)
+                // A failed worker's delayed exit cannot remove the current buffered renderer.
+                original.onExit(original)
+                assertTrue(flushed === bufferedRenderer(rendererSink, id))
+                buffered.close()
+                assertNull(bufferedRenderer(rendererSink, id))
+                assertEquals(3, stops.get())
+            }
+        } finally {
+            buffered.close()
+            rendererSink.close()
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun bufferedRenderer(sink: AndroidMediaSink, id: AudioStreamId): AudioRenderer? =
+        (AndroidMediaSink::class.java.getDeclaredField("audioRenderers").apply { isAccessible = true }
+            .get(sink) as Map<AudioStreamId, AudioRenderer>)[id]
+
+    private fun audioWorker(renderer: AudioRenderer): Thread =
+        AudioRenderer::class.java.getDeclaredField("thread").apply { isAccessible = true }.get(renderer) as Thread
+
+    private fun sendFrame(socket: Socket, sequence: Int, timestamp: Int, payload: ByteArray = byteArrayOf(0x21)) {
         val header = java.nio.ByteBuffer.allocate(12).apply {
             put(0x80.toByte()); put(0x60.toByte()); putShort(sequence.toShort()); putInt(timestamp); putInt(0)
         }.array()
         val tail = java.nio.ByteBuffer.allocate(8).putLong(sequence.toLong()).array()
         val nonce = ByteArray(12).also { tail.copyInto(it, 4) }
-        val encrypted = AirPlayCrypto.chachaSeal(ByteArray(32), nonce, byteArrayOf(0x21), header.copyOfRange(4, 12))
+        val encrypted = AirPlayCrypto.chachaSeal(ByteArray(32), nonce, payload, header.copyOfRange(4, 12))
         val body = header + encrypted + tail
         DataOutputStream(socket.getOutputStream()).apply { writeShort(body.size + 2); write(body); flush() }
     }

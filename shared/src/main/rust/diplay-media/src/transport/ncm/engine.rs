@@ -46,16 +46,26 @@ struct Engine { inbound: Arc<Control>, outbound: Arc<Control>, shared: Arc<Share
 
 unsafe fn engine<'a>(handle: jlong) -> &'a Engine { &*(handle as *const Engine) }
 
-/// Starts both directions; consumes every valid input FD, including on failure (zero return).
+/// Duplicate borrowed JNI inputs. Partial failure drops the first duplicate, never either caller FD.
+fn duplicate_inputs(usb_fd: i32, tun_fd: i32) -> std::io::Result<(OwnedFd, OwnedFd)> {
+    fn duplicate(fd: i32) -> std::io::Result<OwnedFd> {
+        let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+        if copy < 0 { Err(std::io::Error::last_os_error()) }
+        else { Ok(unsafe { OwnedFd::from_raw_fd(copy) }) }
+    }
+    let usb = duplicate(usb_fd)?;
+    let tun = duplicate(tun_fd)?;
+    Ok((usb, tun))
+}
+
+/// Starts both directions; borrows the input FDs only until return, including failure.
+/// Kotlin retains its managed descriptors; only the duplicates below belong to this engine.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmStart(
     env: *mut JNIEnv, _class: jclass, usb_fd: jint, in_endpoint: jint, out_endpoint: jint, packet_size: jint,
     tun_fd: jint, host_mac: jbyteArray, callbacks_in: jobject, callbacks_out: jobject,
 ) -> jlong {
-    // Unlike media starts, NCM consumes every valid input FD even on failure.
-    let usb = (usb_fd >= 0).then(|| OwnedFd::from_raw_fd(usb_fd));
-    let tun = (tun_fd >= 0).then(|| OwnedFd::from_raw_fd(tun_fd));
-    let (Some(usb), Some(tun)) = (usb, tun) else { return 0; };
+    let Ok((usb, tun)) = duplicate_inputs(usb_fd, tun_fd) else { return 0; };
     let e = Env(env);
     let mut mac = [0u8; 6];
     if host_mac.is_null() || e.array_len(host_mac) != 6 || !e.read_array(host_mac, 0, &mut mac) { return 0; }
@@ -71,12 +81,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmStar
     let (inbound_control, outbound_control) = (Control::new(usb.into_raw_fd()), Control::new(usb_out.into_raw_fd()));
     let packet = packet_size.max(1) as usize;
     let (inbound, outbound) = (shared.clone(), shared.clone());
+    let in_fd = inbound_control.socket().unwrap();
     let in_handle = stream::spawn(e, "ncm-ipv6-in", inbound_control.clone(), cb_in, move |env, control, callbacks| {
         receive(env, control, callbacks, &inbound, in_endpoint as u32, packet, tun.as_raw_fd());
     });
     if in_handle == 0 {
         // spawn returns its USB FD to the caller. TUN is a captured RAII owner.
-        libc::close(usb_fd);
+        libc::close(in_fd);
         cb_out.dispose(e);
         return 0;
     }
@@ -215,4 +226,64 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmStop
     // Each thread closes its own fds as it ends: the reader within its bulk timeout, the writer at once.
     engine.inbound.stop();
     engine.outbound.stop();
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    fn pipe() -> (OwnedFd, OwnedFd) {
+        let mut fds = [-1; 2];
+        assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) }, 0);
+        unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) }
+    }
+
+    fn assert_eof(read: &OwnedFd) {
+        let mut byte = 0u8;
+        assert_eq!(unsafe { libc::read(read.as_raw_fd(), (&mut byte as *mut u8).cast(), 1) }, 0,
+            "a leaked duplicate would keep the pipe open (EAGAIN instead of EOF)");
+    }
+
+    #[test]
+    fn native_owns_duplicates_without_consuming_borrowed_inputs() {
+        let (usb_read, usb) = pipe();
+        let (tun_read, tun) = pipe();
+        let (native_usb, native_tun) = duplicate_inputs(usb.as_raw_fd(), tun.as_raw_fd()).unwrap();
+        assert_ne!(native_usb.as_raw_fd(), usb.as_raw_fd());
+        assert_ne!(native_tun.as_raw_fd(), tun.as_raw_fd());
+        drop(usb);
+        drop(tun);
+        assert!(unsafe { libc::fcntl(native_usb.as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(native_tun.as_raw_fd(), libc::F_GETFD) } >= 0);
+        drop(native_usb);
+        drop(native_tun);
+        assert_eof(&usb_read);
+        assert_eof(&tun_read);
+    }
+
+    #[test]
+    fn second_duplicate_failure_releases_only_the_first_native_duplicate() {
+        let (read, caller) = pipe();
+        assert!(duplicate_inputs(caller.as_raw_fd(), -1).is_err());
+        assert!(unsafe { libc::fcntl(caller.as_raw_fd(), libc::F_GETFD) } >= 0);
+        drop(caller);
+        assert_eof(&read);
+    }
+
+    #[test]
+    fn jni_start_failure_preserves_caller_fds_and_releases_both_native_copies() {
+        let (usb_read, usb) = pipe();
+        let (tun_read, tun) = pipe();
+        let null = std::ptr::null_mut();
+        let result = unsafe { Java_com_shihab_diplay_airplay_NativeMedia_ncmStart(
+            std::ptr::null_mut(), null, usb.as_raw_fd(), 0x88, 6, 512, tun.as_raw_fd(), null, null, null,
+        ) };
+        assert_eq!(result, 0);
+        assert!(unsafe { libc::fcntl(usb.as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(tun.as_raw_fd(), libc::F_GETFD) } >= 0);
+        drop(usb);
+        drop(tun);
+        assert_eof(&usb_read);
+        assert_eof(&tun_read);
+    }
 }

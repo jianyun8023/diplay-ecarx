@@ -175,6 +175,9 @@ class AndroidMediaSink(
     private val mediaAudioTypes = mutableSetOf<AudioStreamId>()
     private val audioRoutes = ConcurrentHashMap<AudioStreamId, NativeAudioRoute>()
     private val audioRenderers = ConcurrentHashMap<AudioStreamId, AudioRenderer>()
+    // Platform stream lifetime, serialized with renderer publication and route rebinding.
+    private val startedAudioStreams = mutableSetOf<AudioStreamId>()
+    private var audioClosed = false
     @Volatile private var navigationAttenuationDb = NavigationAudioGain.clamp(navigationAttenuationDb)
 
     /** Apply a saved Audio setting to existing navigation tracks without reconnecting CarPlay. */
@@ -475,6 +478,7 @@ class AndroidMediaSink(
 
     @Synchronized
     override fun onNativeAudioRoute(id: AudioStreamId, format: AudioFormat, route: NativeAudioRoute) {
+        if (audioClosed) { route.disconnect(); return }
         audioRoutes.put(id, route)?.takeIf { it !== route }?.disconnect()
         route.setQueue { audioRenderers[id]?.retainNativeQueue() ?: 0L }
     }
@@ -483,7 +487,10 @@ class AndroidMediaSink(
         audioRenderers[id]?.queueEvent(kind, value, extra)
     }
 
+    @Synchronized
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+        if (audioClosed) return
+        startedAudioStreams += id
         audioRenderer(id, format).also { renderer ->
             renderer.start()
             audioRoutes[id]?.setQueue(renderer::retainNativeQueue)
@@ -491,21 +498,26 @@ class AndroidMediaSink(
         if (format.audioType == "media") updateMediaAudio(id, true)
     }
 
+    @Synchronized
     override fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {
+        if (audioClosed || id !in startedAudioStreams) return
         audioRenderer(id, format).submit(rtp, sample)
     }
 
+    @Synchronized
     override fun onAudioPacket(id: AudioStreamId, format: AudioFormat, rtp: MediaPacket, sample: Int) {
+        if (audioClosed || id !in startedAudioStreams) { rtp.release(); return }
         audioRenderer(id, format).submit(rtp, sample)
     }
 
     override fun onAudioStopped(id: AudioStreamId) {
         synchronized(this) {
+            startedAudioStreams -= id
             audioRoutes.remove(id)?.disconnect()
             audioRenderers.remove(id)?.also { if (followingNavigationRenderer === it) followingNavigationRenderer = null }?.close()
             callEchoReferences.remove(id)
+            updateMediaAudio(id, false)
         }
-        updateMediaAudio(id, false)
     }
 
     private fun updateMediaAudio(id: AudioStreamId, active: Boolean) {
@@ -536,7 +548,9 @@ class AndroidMediaSink(
             val uplink = microphoneUplinks.computeIfAbsent(id) {
                 MicrophoneUplink(config, onAudioDiagnostic,
                     speakerphoneCall = false,
-                    echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null,
+                    // Capture follows a recovered output without reopening AudioRecord or its effects.
+                    // This lookup must stay lock-free: the capture owns its own reference monitor.
+                    echoReferenceSource = { if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null },
                     audioManager = audioManager,
                     onCaptureState = { reportMicrophoneState(id, "capture") })
             }
@@ -719,6 +733,7 @@ class AndroidMediaSink(
     }
 
     fun close() {
+        synchronized(this) { audioClosed = true }
         synchronized(audioModeLock) { microphoneClosed = true }
         synchronized(videoOwnershipLock) {
             videoClosed = true
@@ -742,14 +757,18 @@ class AndroidMediaSink(
         // Audio workers close asynchronously; none may reacquire focus after their sink closes.
         audioFocusCoordinator.close()
         navigationPromptFocus.close()
-        audioRoutes.values.forEach(NativeAudioRoute::disconnect)
-        audioRoutes.clear()
-        audioRenderers.values.forEach(AudioRenderer::close)
-        audioRenderers.clear()
-        followingNavigationRenderer = null
-        callEchoReferences.clear()
-        val hadMedia = synchronized(mediaAudioTypes) { mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() } }
-        if (hadMedia) onMediaAudioChanged(false)
+        synchronized(this) {
+            audioClosed = true
+            startedAudioStreams.clear()
+            audioRoutes.values.forEach(NativeAudioRoute::disconnect)
+            audioRoutes.clear()
+            audioRenderers.values.forEach(AudioRenderer::close)
+            audioRenderers.clear()
+            followingNavigationRenderer = null
+            callEchoReferences.clear()
+            val hadMedia = synchronized(mediaAudioTypes) { mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() } }
+            if (hadMedia) onMediaAudioChanged(false)
+        }
         synchronized(audioModeLock) {
             try {
                 microphoneUplinks.values.forEach(MicrophoneUplink::close)
@@ -816,9 +835,14 @@ class AndroidMediaSink(
 
     @Synchronized
     private fun audioRenderer(id: AudioStreamId, format: AudioFormat): AudioRenderer {
+        check(!audioClosed) { "audio sink closed" }
         val existing = audioRenderers[id]
-        if (existing?.format == format) return existing
-        existing?.close()
+        if (existing?.format == format && !existing.isTerminal) return existing
+        // A renderer whose worker failed released its output and can never play again; the same
+        // id/format must get a fresh renderer instead of silently discarding every packet. The
+        // replacement happens here, at the next use, so a late failure report can never mistake
+        // a newer renderer for the dead one.
+        existing?.also { if (followingNavigationRenderer === it) followingNavigationRenderer = null }?.close()
         // A replacement owns a fresh ring: the old worker can still finish a blocking write.
         // The car's phone audio state cancels the echo itself; a second canceller would work against it.
         val echoReference = if (callEchoCancellation && format.audioType == TELEPHONY_AUDIO_TYPE && format.sampleRate > 0 &&
@@ -867,10 +891,24 @@ class AndroidMediaSink(
             }
             it.setNavigationAttenuationDb(navigationAttenuationFor(route))
             if (format.audioType == TELEPHONY_AUDIO_TYPE) it.onRoutedToEarpiece = { moveCallToLoudspeaker(id) }
+            it.onExit = { exited -> onAudioRendererExit(id, exited) }
             audioRenderers[id] = it
+            if (id in startedAudioStreams) it.start()
             audioRoutes[id]?.setQueue(it::retainNativeQueue)
             // Cover a Settings change made while this renderer was being prepared.
             it.setNavigationAttenuationDb(navigationAttenuationFor(route))
+        }
+    }
+
+    /**
+     * A direct receiver normally never calls back into this sink after its first packet. Remove
+     * only the failed worker's destination so Rust delivers the next packet through onAudioPacket;
+     * that packet starts/rebinds a replacement. No retry loop runs without incoming audio.
+     */
+    @Synchronized
+    private fun onAudioRendererExit(id: AudioStreamId, renderer: AudioRenderer) {
+        if (!audioClosed && renderer.isTerminal && audioRenderers[id] === renderer) {
+            audioRoutes[id]?.disconnect()
         }
     }
 
