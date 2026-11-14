@@ -26,34 +26,34 @@ class MediaPacketOwnershipTest {
 
     @Test
     fun framesDroppedByTheVideoQueueAreReleased() {
-        val queue = VideoDecodeQueue(maxFrames = 2)
+        val queue = KotlinVideoDecodeQueue(maxFrames = 2)
         val dropped = listOf(CountingPacket(byteArrayOf(1)), CountingPacket(byteArrayOf(2)))
-        dropped.forEach { queue.offer(VideoJob.Frame(it)) }
+        dropped.forEach { queue.offer(KotlinVideoDecodeQueue.Frame(it)) }
         val kept = CountingPacket(byteArrayOf(3))
-        queue.offer(VideoJob.Frame(kept)) // overflow drops the two older frames
+        queue.offer(KotlinVideoDecodeQueue.Frame(kept)) // overflow drops the two older frames
         assertEquals(listOf(1, 1), dropped.map { it.releases })
         assertEquals(0, kept.releases)
 
         val oversized = CountingPacket(ByteArray(16))
-        VideoDecodeQueue(maxBytes = 8).offer(VideoJob.Frame(oversized))
+        KotlinVideoDecodeQueue(maxBytes = 8).offer(KotlinVideoDecodeQueue.Frame(oversized))
         assertEquals(1, oversized.releases)
     }
 
     @Test
     fun aDiscardedChainAndAFrameOfferedAfterTheWorkerLeftAreReleased() {
-        val queue = VideoDecodeQueue()
+        val queue = KotlinVideoDecodeQueue()
         val chain = CountingPacket(byteArrayOf(1))
-        queue.offer(VideoJob.Frame(chain))
+        queue.offer(KotlinVideoDecodeQueue.Frame(chain))
         queue.discardCurrentChain()
         assertEquals(1, chain.releases)
 
         val pending = CountingPacket(byteArrayOf(2))
-        queue.offer(VideoJob.Frame(pending))
+        queue.offer(KotlinVideoDecodeQueue.Frame(pending))
         val drained = queue.drain()
         assertEquals(1, drained.size)
         assertEquals(0, pending.releases) // the worker releases what it drained
         val late = CountingPacket(byteArrayOf(3))
-        queue.offer(VideoJob.Frame(late))
+        queue.offer(KotlinVideoDecodeQueue.Frame(late))
         assertEquals(1, late.releases)
         assertNull(queue.poll(0))
     }

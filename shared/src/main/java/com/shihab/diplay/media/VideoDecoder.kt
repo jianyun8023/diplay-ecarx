@@ -146,7 +146,7 @@ internal class VideoDecoder(
     // Worker only: the cached debug-log switch for the periodic stats line.
     private var debugLogsCached = false
     private var debugLogsCheckedNanos = 0L
-    private val queue = VideoDecodeQueue()
+    private val queue = VideoControlMailbox()
     private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail ->
         queue.offer(VideoJob.NativeEvent(kind, detail))
     }.apply { setAccepting(surface != null, resetChain = false) }
@@ -277,8 +277,6 @@ internal class VideoDecoder(
                         } finally {
                             pipe.hold(false)
                         }
-                        // This mailbox only receives control jobs; frames are submitted to the pipe.
-                        is VideoJob.Frame -> job.packet.release()
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
                         is VideoJob.MirrorChanged -> changeMirror(job.key, job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
@@ -288,7 +286,6 @@ internal class VideoDecoder(
                             pipe.requestKeyframe(System.nanoTime(), force = true)
                             requestKeyFrame()
                         }
-                        is VideoJob.Resync -> Unit
                         null -> Unit
                     }
                     probeHardwareIfDue()
@@ -320,7 +317,6 @@ internal class VideoDecoder(
             fanout = null
             queue.drain().forEach { job ->
                 (job as? VideoJob.DetachSurface)?.request?.complete(DetachOutcome.RELEASED)
-                (job as? VideoJob.Frame)?.packet?.release()
             }
             runCatching { onExit(this) }
         }
@@ -384,7 +380,6 @@ internal class VideoDecoder(
             dropOperatingRate("codec failed before its first frame")
         }
         releaseDecoder()
-        queue.discardCurrentChain()
         requestKeyFrameIfDue()
     }
 
@@ -432,7 +427,6 @@ internal class VideoDecoder(
         }
         if (configured != null) noteSoftwareFallback(mime, configured.codecName)
         if (configured == null) {
-            queue.discardCurrentChain()
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }
         if (outcome and 1 != 0) dropOperatingRate("refused at configure")
@@ -647,7 +641,6 @@ internal class VideoDecoder(
         hardwareProbe = null
         report("hardware decoder ${probe.name} available again; leaving the software decoder")
         releaseDecoder()
-        queue.discardCurrentChain()
         requestKeyFrameIfDue()
     }
 
@@ -723,7 +716,6 @@ internal class VideoDecoder(
         }
         if (surface == null) {
             releaseDecoder()
-            queue.discardCurrentChain()
             if (debugLogsEnabled()) Log.i(TAG, "video decoder detached from surface")
             return
         }
@@ -737,7 +729,6 @@ internal class VideoDecoder(
             }
         }
         releaseDecoder()
-        queue.discardCurrentChain()
         pipe.lastConfiguration()?.let(::configureDecoder)
     }
 
@@ -779,7 +770,6 @@ internal class VideoDecoder(
                 } catch (error: Exception) {
                     Log.w(TAG, "video decoder could not move to the fanout; reconfiguring", error)
                     releaseDecoder()
-                    queue.discardCurrentChain()
                 }
             }
             fanout = sharing
@@ -801,13 +791,11 @@ internal class VideoDecoder(
         if (hasCodec()) {
             if (primary == null) {
                 releaseDecoder()
-                queue.discardCurrentChain()
             } else try {
                 setCodecSurface(primary)
             } catch (error: Exception) {
                 Log.w(TAG, "video decoder could not return to its surface; reconfiguring", error)
                 releaseDecoder()
-                queue.discardCurrentChain()
             }
         }
         runCatching(sharing::close)
@@ -819,7 +807,6 @@ internal class VideoDecoder(
         val sharing = fanout ?: return
         fanout = null
         releaseDecoder()
-        queue.discardCurrentChain()
         runCatching(sharing::close)
         mirrors.clear()
     }
