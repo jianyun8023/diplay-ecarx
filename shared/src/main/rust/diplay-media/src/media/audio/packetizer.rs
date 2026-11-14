@@ -9,7 +9,7 @@ fn plan(opus: bool, rate: i32, channels: i32, millis: i32, clock: i32) -> [i32; 
     [samples, if opus { clock } else { rate }, if opus { clock.wrapping_mul(20) / 1000 } else { samples }, samples.wrapping_mul(channels).wrapping_mul(2)]
 }
 
-fn opus_clock(bits: i64) -> i32 {
+pub(crate) fn opus_clock(bits: i64) -> i32 {
     if bits & 0x4000_0000 != 0 { 48_000 } else if bits & 0x2000_0000 != 0 { 24_000 }
     else if bits & 0x1000_0000 != 0 { 16_000 } else { 48_000 }
 }
@@ -18,6 +18,26 @@ fn frame_millis(rate: i32, channels: i32) -> i32 {
     [20, 10, 5].into_iter().find(|millis| {
         36i32.wrapping_add((rate.wrapping_mul(*millis) / 1000).wrapping_mul(channels).wrapping_mul(2)) <= 1452
     }).unwrap_or(5)
+}
+
+/// The captured microphone's frame length for one negotiated format: Opus records 20 ms frames;
+/// a named framesPerPacket rounds to the nearest millisecond inside the 5..60 clamp; without one
+/// the longest PCM packet that still fits the link MTU wins.
+pub(crate) fn microphone_frame_millis(opus: bool, frames_per_packet: i32, rate: i32, channels: i32) -> i32 {
+    if opus {
+        20
+    } else if frames_per_packet > 0 {
+        // Math.round carries the half-up boundary; the clamp maps any value into the window.
+        (super::route::math_round(frames_per_packet as f64 * 1000.0 / rate as f64).clamp(5, 60)) as i32
+    } else {
+        frame_millis(rate, channels)
+    }
+}
+
+/// The Opus uplink bitrate the negotiated clock bit names: 48 kHz records 96 kbps,
+/// 24 kHz 64 kbps, every other format 48 kbps.
+pub(crate) fn opus_bitrate(bits: i64) -> i32 {
+    if bits & 0x4000_0000 != 0 { 96_000 } else if bits & 0x2000_0000 != 0 { 64_000 } else { 48_000 }
 }
 
 fn advance(state: &mut [i64; 3], samples: i32) {

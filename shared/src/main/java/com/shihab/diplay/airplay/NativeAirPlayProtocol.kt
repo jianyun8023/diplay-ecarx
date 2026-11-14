@@ -18,6 +18,33 @@ internal object NativeAirPlayProtocol {
     @JvmStatic external fun availabilityCreate(): LongArray
     @JvmStatic external fun availability(token: LongArray, event: Int, value: Boolean): Int
     @JvmStatic external fun cornerMask(value: Any?, depth: Int): ByteArray?
+
+    /**
+     * SETUP interpretation and reply layout behind `protocols::airplay::setup`. [audioSetup]
+     * reads the stream fields, derives the DataStream keys and plans the microphone; a null
+     * output key aborts the SETUP. [setupReply] builds the reply dict in the protocol's field
+     * order with the unsigned connection representation.
+     */
+    const val REPLY_AUDIO = 0
+    const val REPLY_REMOTE_CONTROL = 1
+    const val REPLY_DATA = 2
+    @JvmStatic external fun audioSetup(
+        type: Int,
+        audioType: String,
+        stream: Map<String, Any?>,
+        sharedSecret: ByteArray?,
+        microphoneEnabled: Boolean,
+    ): Map<String, Any?>?
+    @JvmStatic external fun dataStreamSetup(stream: Map<String, Any?>): Map<String, Any?>?
+    @JvmStatic external fun dataStreamKey(sharedSecret: ByteArray, seed: String, label: String): ByteArray?
+    @JvmStatic external fun setupReply(
+        operation: Int,
+        type: Int,
+        streamId: Long,
+        dataPort: Int,
+        controlPort: Int,
+        connectionId: Any?,
+    ): Map<String, Any?>?
 }
 
 internal object AirPlayCommands {
