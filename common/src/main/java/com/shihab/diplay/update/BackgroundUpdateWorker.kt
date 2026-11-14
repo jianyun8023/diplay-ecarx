@@ -73,16 +73,34 @@ internal class BackgroundUpdateWorker(context: Context, parameters: WorkerParame
 }
 
 internal object BackgroundUpdateScheduler {
-    private const val PERIODIC_WORK = "diplay-periodic-update-check"
-    private const val OPEN_WORK = "diplay-open-update-check"
+    // Generation suffix bumped when the worker class moved (#100 renamed
+    // com.shilapi.xcertplay.update to com.shihab.diplay.update). WorkManager persists the worker's
+    // fully-qualified class name with every work row, not just the unique name. A row written by a
+    // pre-rename build still points at com.shilapi.xcertplay.update.BackgroundUpdateWorker, which
+    // no longer exists in the APK, so Existing*Policy.KEEP would keep it forever and neither the
+    // periodic nor the after-open check would ever run. Enqueuing under a new generation and
+    // retiring the old names rebuilds the rows with the current class.
+    internal const val PERIODIC_WORK = "diplay-periodic-update-check-v2"
+    internal const val OPEN_WORK = "diplay-open-update-check-v2"
+    internal val RETIRED_WORK = listOf("diplay-periodic-update-check", "diplay-open-update-check")
+
+    /** The work names to cancel and whether the current generation should be (re-)enqueued. */
+    internal data class WorkPlan(val cancel: List<String>, val enqueue: Boolean)
+
+    internal fun plan(enabled: Boolean): WorkPlan =
+        if (enabled) {
+            // Retire pre-rename rows, then keep the current generation.
+            WorkPlan(cancel = RETIRED_WORK, enqueue = true)
+        } else {
+            WorkPlan(cancel = RETIRED_WORK + PERIODIC_WORK + OPEN_WORK, enqueue = false)
+        }
 
     fun schedule(context: Context) {
         val manager = WorkManager.getInstance(context.applicationContext)
-        if (!UpdateAvailability.enabled(context)) {
-            manager.cancelUniqueWork(PERIODIC_WORK)
-            manager.cancelUniqueWork(OPEN_WORK)
-            return
-        }
+        val plan = plan(UpdateAvailability.enabled(context))
+        // Drop rows left by pre-rename builds. These cancels are no-ops once the old rows are gone.
+        plan.cancel.forEach { manager.cancelUniqueWork(it) }
+        if (!plan.enqueue) return
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
