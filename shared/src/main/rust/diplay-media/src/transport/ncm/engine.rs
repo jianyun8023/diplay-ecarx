@@ -10,6 +10,7 @@ use crate::media::stats::clock;
 use crate::platform::stream::{self, Callbacks, Control};
 use jni_sys::{jbyteArray, jclass, jint, jlong, jobject, jstring, JNIEnv};
 use std::os::raw::{c_uint, c_ulong, c_void};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -45,37 +46,46 @@ struct Engine { inbound: Arc<Control>, outbound: Arc<Control>, shared: Arc<Share
 
 unsafe fn engine<'a>(handle: jlong) -> &'a Engine { &*(handle as *const Engine) }
 
-/// Starts both directions. `usb_fd` and `tun_fd` are duplicates the engine owns. 0 on bad arguments.
+/// Starts both directions; consumes every valid input FD, including on failure (zero return).
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_ncmStart(
     env: *mut JNIEnv, _class: jclass, usb_fd: jint, in_endpoint: jint, out_endpoint: jint, packet_size: jint,
     tun_fd: jint, host_mac: jbyteArray, callbacks_in: jobject, callbacks_out: jobject,
 ) -> jlong {
+    // Unlike media starts, NCM consumes every valid input FD even on failure.
+    let usb = (usb_fd >= 0).then(|| OwnedFd::from_raw_fd(usb_fd));
+    let tun = (tun_fd >= 0).then(|| OwnedFd::from_raw_fd(tun_fd));
+    let (Some(usb), Some(tun)) = (usb, tun) else { return 0; };
     let e = Env(env);
     let mut mac = [0u8; 6];
-    if usb_fd < 0 || tun_fd < 0 || e.array_len(host_mac) != 6 || !e.read_array(host_mac, 0, &mut mac) { return 0; }
-    let (Some(cb_in), Some(cb_out)) = (Callbacks::new(e, callbacks_in), Callbacks::new(e, callbacks_out)) else { return 0 };
+    if host_mac.is_null() || e.array_len(host_mac) != 6 || !e.read_array(host_mac, 0, &mut mac) { return 0; }
+    let usb_out = libc::dup(usb.as_raw_fd());
+    if usb_out < 0 { return 0; }
+    let usb_out = OwnedFd::from_raw_fd(usb_out);
+    let tun_out = libc::dup(tun.as_raw_fd());
+    if tun_out < 0 { return 0; }
+    let tun_out = OwnedFd::from_raw_fd(tun_out);
+    let Some(cb_in) = Callbacks::new(e, callbacks_in) else { return 0; };
+    let Some(cb_out) = Callbacks::new(e, callbacks_out) else { cb_in.dispose(e); return 0; };
     let shared = Arc::new(Shared { traffic: Mutex::new(Traffic::default()), peer_mac: Mutex::new(None), link_opened_ns: AtomicI64::new(0) });
-    // Each direction owns its own duplicates of both fds, so neither closes one the other still uses.
-    let (usb_out, tun_out) = (libc::dup(usb_fd), libc::dup(tun_fd));
-    if usb_out < 0 || tun_out < 0 {
-        for fd in [usb_fd, tun_fd, usb_out, tun_out] { if fd >= 0 { libc::close(fd); } }
-        return 0;
-    }
-    let (inbound_control, outbound_control) = (Control::new(usb_fd), Control::new(usb_out));
+    let (inbound_control, outbound_control) = (Control::new(usb.into_raw_fd()), Control::new(usb_out.into_raw_fd()));
     let packet = packet_size.max(1) as usize;
     let (inbound, outbound) = (shared.clone(), shared.clone());
-    let in_handle = stream::spawn("ncm-ipv6-in", inbound_control.clone(), cb_in, move |env, control, callbacks| {
-        receive(env, control, callbacks, &inbound, in_endpoint as u32, packet, tun_fd);
-        libc::close(tun_fd);
+    let in_handle = stream::spawn(e, "ncm-ipv6-in", inbound_control.clone(), cb_in, move |env, control, callbacks| {
+        receive(env, control, callbacks, &inbound, in_endpoint as u32, packet, tun.as_raw_fd());
     });
-    if in_handle == 0 { libc::close(tun_fd); libc::close(tun_out); return 0; }
+    if in_handle == 0 {
+        // spawn returns its USB FD to the caller. TUN is a captured RAII owner.
+        libc::close(usb_fd);
+        cb_out.dispose(e);
+        return 0;
+    }
     stream::release_handle(in_handle);
-    let out_handle = stream::spawn("ncm-ipv6-out", outbound_control.clone(), cb_out, move |env, control, callbacks| {
-        send(env, control, callbacks, &outbound, out_endpoint as u32, packet, tun_out, mac);
-        libc::close(tun_out);
+    let out_fd = outbound_control.socket().unwrap();
+    let out_handle = stream::spawn(e, "ncm-ipv6-out", outbound_control.clone(), cb_out, move |env, control, callbacks| {
+        send(env, control, callbacks, &outbound, out_endpoint as u32, packet, tun_out.as_raw_fd(), mac);
     });
-    if out_handle == 0 { inbound_control.stop(); libc::close(tun_out); return 0; }
+    if out_handle == 0 { inbound_control.stop(); libc::close(out_fd); return 0; }
     stream::release_handle(out_handle);
     Box::into_raw(Box::new(Engine { inbound: inbound_control, outbound: outbound_control, shared })) as jlong
 }

@@ -8,6 +8,7 @@
 use crate::platform::jvm::Env;
 use jni_sys::{jclass, jfloat, jint, jlong, jobject, JNIEnv};
 use std::ffi::c_void;
+use std::collections::VecDeque;
 use std::sync::OnceLock;
 
 type Stream = c_void;
@@ -137,6 +138,54 @@ impl Resampler {
     }
 }
 
+/// Immutable per-block conversion: newly queued PCM must never reinterpret old playback.
+#[derive(Default)]
+struct PlaybackHead {
+    spans: VecDeque<(i64, i64, i64, i64)>, // output start/end, input start/end
+    input_frames: i64,
+    output_frames: i64,
+    submitted_frames: i64,
+    played: i64,
+}
+
+impl PlaybackHead {
+    fn accept(&mut self, input: i64, output: i64) {
+        let input_end = self.input_frames + input;
+        let output_end = self.output_frames + output;
+        self.spans.push_back((self.output_frames, output_end, self.input_frames, input_end));
+        self.input_frames = input_end;
+        self.output_frames = output_end;
+    }
+
+    fn read(&mut self, hardware: i64) -> i64 {
+        // AAudio can advance through silence on underrun. Pending software PCM is not played.
+        let read = hardware.max(0).min(self.submitted_frames);
+        while let Some(&(start, end, input_start, input_end)) = self.spans.front() {
+            if read < start { break; }
+            let mapped = if read >= end {
+                input_end
+            } else {
+                // Widen before multiplying: 48 kHz sessions can overflow i64 in under 18 hours.
+                input_start + (((read - start) as i128 * (input_end - input_start) as i128)
+                    / (end - start) as i128) as i64
+            };
+            self.played = self.played.max(mapped);
+            if read < end { break; }
+            self.spans.pop_front();
+        }
+        self.played
+    }
+
+    fn flush(&mut self) {
+        // AAudio's hardware counters survive flush. Drop the unsubmitted software tail,
+        // and begin a new input epoch at the end of all previously submitted PCM.
+        self.spans.clear();
+        self.input_frames = 0;
+        self.output_frames = self.submitted_frames;
+        self.played = 0;
+    }
+}
+
 pub struct Output {
     stream: *mut Stream,
     channels: usize,
@@ -146,9 +195,7 @@ pub struct Output {
     scratch: Vec<i16>,
     resampled: Vec<i16>,
     pending_offset: usize,
-    /// Input accepted and corresponding output generated, including the pending tail.
-    input_frames: i64,
-    output_frames: i64,
+    head: PlaybackHead,
 }
 
 impl Output {
@@ -160,6 +207,7 @@ impl Output {
             if result < 0 { return Err(result); }
             if result == 0 { return Ok(false); }
             self.pending_offset += result as usize * self.channels;
+            self.head.submitted_frames += result as i64;
         }
         self.resampled.clear();
         self.pending_offset = 0;
@@ -177,6 +225,8 @@ impl Output {
                 if result < 0 { return Err(result); }
                 if result == 0 { break; }
                 written += result as usize;
+                self.head.accept(result as i64, result as i64);
+                self.head.submitted_frames += result as i64;
             }
             if written > 0 {
                 let mut tail = [0i16; 2];
@@ -186,8 +236,6 @@ impl Output {
                 }
                 self.resampler.remember(&tail[..self.channels]);
             }
-            self.input_frames += written as i64;
-            self.output_frames += written as i64;
             return Ok(written * frame_bytes);
         }
         self.scratch.clear();
@@ -201,14 +249,14 @@ impl Output {
         } else {
             self.resampler.process(&self.scratch, &mut self.resampled);
         }
-        self.input_frames += frames as i64;
-        self.output_frames += (self.resampled.len() / self.channels) as i64;
+        self.head.accept(frames as i64, (self.resampled.len() / self.channels) as i64);
         // Consume the input once; a partial write retains output, never reprocesses input.
         self.drain(&mut write)?;
         Ok(bytes.len())
     }
 
     fn discard_pending(&mut self) {
+        self.head.flush();
         self.resampled.clear();
         self.pending_offset = 0;
         let step = self.resampler.step;
@@ -250,7 +298,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outOpen
     (api.stream_setBufferSizeInFrames)(stream, capacity_frames);
     Box::into_raw(Box::new(Output {
         stream, channels: channels as usize, sample_rate, gain: 1.0, resampler: Resampler::new(channels as usize),
-        scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, input_frames: 0, output_frames: 0,
+        scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, head: PlaybackHead::default(),
     })) as jlong
 }
 
@@ -280,8 +328,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outFram
     let Some(api) = api() else { return 0 };
     let out = output(handle);
     let read = (api.stream_getFramesRead)(out.stream).max(0);
-    let input = if out.output_frames > 0 { read * out.input_frames / out.output_frames } else { read };
-    input as jint
+    out.head.read(read) as jint
 }
 
 /// Underruns, buffer size in frames, state: the AudioTrack figures the renderer reports.
@@ -357,8 +404,89 @@ mod tests {
         resampler.set_step(step);
         Output {
             stream: std::ptr::null_mut(), channels, sample_rate: 48000, gain, resampler,
-            scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, input_frames: 0, output_frames: 0,
+            scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, head: PlaybackHead::default(),
         }
+    }
+
+    #[test]
+    fn resampled_writes_do_not_look_like_a_hardware_wrap_to_the_scheduler() {
+        use crate::media::audio::scheduler::AudioBufferProgress;
+        let mut out = renderer(2, 1.0, 1.0);
+        let mut scheduler = AudioBufferProgress::new(4);
+        let first = vec![0; 14800 * 4];
+        scheduler.written(out.write(&first, |_, frames| frames).unwrap() as i32);
+        assert_eq!(scheduler.queued_bytes(out.head.read(10000) as i32), 19200);
+        out.resampler.set_step(47952.0 / 48000.0);
+        let next = vec![0; 1024 * 4];
+        scheduler.written(out.write(&next, |_, frames| frames).unwrap() as i32);
+        assert_eq!(out.head.output_frames, 14800 + 1026);
+        for _ in 0..3 {
+            assert_eq!(out.head.read(10000), 10000);
+            assert_eq!(scheduler.queued_bytes(out.head.read(10000) as i32), 23296);
+        }
+        for rate in [48048.0, 47952.0, 48000.0] {
+            out.resampler.set_step(rate / 48000.0);
+            scheduler.written(out.write(&next, |_, frames| frames).unwrap() as i32);
+            assert_eq!(out.head.read(10000), 10000);
+        }
+        assert_eq!(scheduler.queued_bytes(out.head.read(10000) as i32), 23296 + 3 * 4096);
+        assert_eq!(scheduler.queued_bytes(out.head.read(out.head.submitted_frames) as i32), 0);
+        let hardware_epoch = out.head.submitted_frames;
+        out.discard_pending();
+        scheduler.reset();
+        assert_eq!(out.head.read(hardware_epoch), 0);
+        scheduler.written(out.write(&next, |_, frames| frames).unwrap() as i32);
+        assert_eq!(scheduler.queued_bytes(out.head.read(hardware_epoch) as i32), 4096);
+        assert_eq!(scheduler.queued_bytes(out.head.read(out.head.submitted_frames) as i32), 0);
+    }
+
+    #[test]
+    fn queued_rate_changes_never_reinterpret_already_played_frames() {
+        let mut head = PlaybackHead::default();
+        head.accept(14800, 14800);
+        head.submitted_frames = 14800;
+        assert_eq!(head.read(10000), 10000);
+        head.accept(1024, 1026);
+        head.submitted_frames += 1026;
+        assert_eq!(head.read(10000), 10000);
+        assert_eq!(head.read(14800 + 513), 14800 + 512);
+        head.accept(1024, 1022);
+        head.submitted_frames += 1022;
+        assert_eq!(head.read(14800 + 1026 + 511), 14800 + 1024 + 512);
+        assert_eq!(head.read(head.submitted_frames), 14800 + 2048);
+        assert!(head.spans.is_empty());
+    }
+
+    #[test]
+    fn long_sessions_widen_multiplication_and_only_wrap_at_jni_boundary() {
+        let mut head = PlaybackHead::default();
+        let count = 10_000_000_000;
+        head.accept(count, count + 1000);
+        head.submitted_frames = count + 1000;
+        assert_eq!(head.read(5_000_000_500), 5_000_000_000);
+        assert_eq!(head.read(count + 1000), count);
+        assert_eq!(head.played as jint, count as jint);
+    }
+
+    #[test]
+    fn partial_submission_and_flush_do_not_leave_a_phantom_output_tail() {
+        let mut out = renderer(1, 0.2, 0.99);
+        let bytes = vec![0; 200];
+        let mut calls = 0;
+        assert_eq!(out.write(&bytes, |_, _| { calls += 1; if calls == 1 { 50 } else { 0 } }), Ok(200));
+        assert_eq!(out.head.read(50), 49);
+        assert_eq!(out.head.read(1000), 49); // pending tail has not reached AAudio
+        assert_eq!(out.write(&[], |_, frames| frames), Ok(0));
+        assert_eq!(out.head.read(102), 100);
+        assert_eq!(out.head.read(50), 100); // stale platform observation is not a wrap
+        assert!(out.head.spans.is_empty());
+        out.discard_pending();
+        assert_eq!(out.head.read(102), 0);
+        assert_eq!(out.write(&bytes, |_, _| 0), Ok(200));
+        out.discard_pending(); // all of this block was still in software
+        assert_eq!(out.head.read(102), 0);
+        assert_eq!(out.write(&bytes, |_, frames| frames), Ok(200));
+        assert_eq!(out.head.read(out.head.submitted_frames), 100);
     }
 
     #[test]
@@ -382,18 +510,18 @@ mod tests {
                     actual.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, 50 * channels) });
                     50
                 }), Ok(bytes.len()));
-                assert_eq!(out.input_frames, 100);
-                assert_eq!(out.output_frames, reference.output_frames);
+                assert_eq!(out.head.input_frames, 100);
+                assert_eq!(out.head.output_frames, reference.head.output_frames);
                 let position = out.resampler.position;
                 assert_eq!(out.write(&bytes, |_, _| 0), Ok(0));
-                assert_eq!(out.input_frames, 100);
+                assert_eq!(out.head.input_frames, 100);
                 assert_eq!(out.resampler.position, position);
                 assert_eq!(out.write(&[], |data, frames| {
                     actual.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, frames as usize * channels) });
                     frames
                 }), Ok(0));
                 assert_eq!(actual, expected);
-                assert_eq!(out.input_frames, 100);
+                assert_eq!(out.head.input_frames, 100);
                 assert!(out.resampled.is_empty());
                 assert_eq!(out.resampler.last, reference.resampler.last);
             }
@@ -407,12 +535,12 @@ mod tests {
         let mut calls = 0;
         assert_eq!(out.write(&bytes, |_, _| { calls += 1; if calls == 1 { 2 } else { 0 } }), Ok(4));
         assert_eq!(out.resampler.last, [20]);
-        assert_eq!((out.input_frames, out.output_frames), (2, 2));
+        assert_eq!((out.head.input_frames, out.head.output_frames), (2, 2));
         assert_eq!(out.write(&bytes[4..], |_, _| -899), Err(-899));
-        assert_eq!((out.input_frames, out.output_frames), (2, 2));
+        assert_eq!((out.head.input_frames, out.head.output_frames), (2, 2));
         assert_eq!(out.write(&bytes[4..], |_, frames| frames), Ok(4));
         assert_eq!(out.resampler.last, [40]);
-        assert_eq!((out.input_frames, out.output_frames), (4, 4));
+        assert_eq!((out.head.input_frames, out.head.output_frames), (4, 4));
     }
 
     #[test]
@@ -420,9 +548,9 @@ mod tests {
         let mut out = renderer(1, 0.2, 0.99);
         let bytes = [1u8, 0, 2, 0, 3, 0, 4, 0];
         assert_eq!(out.write(&bytes, |_, _| 0), Ok(bytes.len()));
-        let generated = out.output_frames;
+        let generated = out.head.output_frames;
         assert_eq!(out.write(&bytes, |_, _| -899), Err(-899));
-        assert_eq!((out.input_frames, out.output_frames), (4, generated));
+        assert_eq!((out.head.input_frames, out.head.output_frames), (4, generated));
         out.discard_pending();
         assert!(out.resampled.is_empty());
         assert_eq!(out.pending_offset, 0);

@@ -94,9 +94,14 @@ internal class NativeAudioOut private constructor(
     /** Drains a transformed block even when no more packets arrive. Called only by the worker. */
     fun drain(): Int = write(staging, 0, 0)
 
-    override fun play() { NativeMedia.outControl(handle, 0); playing = true }
-    override fun pause() { NativeMedia.outControl(handle, 1); playing = false }
-    override fun flush() { NativeMedia.outControl(handle, 2) }
+    override fun play() { control(0, "start"); playing = true }
+    override fun pause() { control(1, "pause"); playing = false }
+    override fun flush() { control(2, "flush") }
+
+    private fun control(command: Int, operation: String) {
+        check(handle != 0L) { "AAudio $operation failed: output is closed" }
+        requireAudioControlSuccess(operation, NativeMedia.outControl(handle, command))
+    }
 
     override fun release() {
         if (handle != 0L) NativeMedia.outClose(handle)
@@ -124,4 +129,9 @@ internal class NativeAudioOut private constructor(
             }
         }
     }
+}
+
+/** Keep platform failures on the renderer's exception path, before committing scheduler state. */
+internal fun requireAudioControlSuccess(operation: String, result: Int) {
+    check(result == 0) { "AAudio $operation failed: $result" }
 }

@@ -157,28 +157,59 @@ impl Callbacks {
     pub fn dispose(self, env: Env) { env.delete_global(self.object); }
 }
 
-/// Starts `body` on a named thread attached to the JVM; the callbacks are released when it ends.
-/// Returns the handle Kotlin stops the stream with.
-pub fn spawn<F>(name: &str, control: Arc<Control>, callbacks: Callbacks, body: F) -> jlong
+/// Starts only after the receiver has attached to the JVM. A zero return leaves the socket
+/// with the caller, matching all media JNI start contracts. Captured resources are always dropped.
+pub fn spawn<F>(env: Env, name: &str, control: Arc<Control>, callbacks: Callbacks, body: F) -> jlong
 where
     F: FnOnce(Env, &Control, &Callbacks) + Send + 'static,
 {
+    spawn_with(env, name, control, callbacks, body, Attached::current, |name, work| {
+        std::thread::Builder::new().name(name.to_string()).spawn(work)
+    })
+}
+
+fn spawn_with<F, A, S>(env: Env, name: &str, control: Arc<Control>, callbacks: Callbacks, body: F,
+    attach: A, start: S) -> jlong
+where
+    F: FnOnce(Env, &Control, &Callbacks) + Send + 'static,
+    A: FnOnce(&str) -> Option<Attached> + Send + 'static,
+    S: FnOnce(&str, Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>>,
+{
     let thread_control = control.clone();
     let thread_name = name.to_string();
-    let started = std::thread::Builder::new().name(name.to_string()).spawn(move || {
-        let Some(attached) = Attached::current(&thread_name) else {
-            thread_control.close_socket();
-            return;
-        };
-        body(attached.env, &thread_control, &callbacks);
-        thread_control.close_socket();
-        callbacks.dispose(attached.env);
-    });
-    if started.is_err() {
-        control.close_socket();
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let (work_tx, work_rx) = std::sync::mpsc::sync_channel::<(Callbacks, F)>(1);
+    let started = start(name, Box::new(move || {
+        let Some(attached) = attach(&thread_name) else { return; };
+        if ready_tx.send(()).is_err() { return; }
+        let Ok((callbacks, body)) = work_rx.recv() else { return; };
+        // Drop before Attached, including when body unwinds.
+        let callbacks = RunningCallbacks { callbacks, env: attached.env };
+        let socket = RunningSocket(&thread_control);
+        body(attached.env, socket.0, &callbacks.callbacks);
+    }));
+    if started.is_err() || ready_rx.recv().is_err() {
+        // Do not close a descriptor which Kotlin still owns after a zero result.
+        control.socket.lock().unwrap().take();
+        callbacks.dispose(env);
+        return 0;
+    }
+    if let Err(error) = work_tx.send((callbacks, body)) {
+        control.socket.lock().unwrap().take();
+        error.0.0.dispose(env);
         return 0;
     }
     Box::into_raw(Box::new(control)) as jlong
+}
+
+struct RunningSocket<'a>(&'a Control);
+impl Drop for RunningSocket<'_> {
+    fn drop(&mut self) { self.0.close_socket(); }
+}
+
+struct RunningCallbacks { callbacks: Callbacks, env: Env }
+impl Drop for RunningCallbacks {
+    fn drop(&mut self) { self.env.delete_global(self.callbacks.object); }
 }
 
 /// Gives up a handle from [spawn] without stopping its thread, for an owner that keeps the control.
@@ -219,4 +250,72 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_stop(
     _env: *mut jni_sys::JNIEnv, _class: jni_sys::jclass, handle: jni_sys::jlong,
 ) {
     stop(handle)
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+    use std::sync::atomic::AtomicUsize;
+
+    unsafe extern "system" fn delete_global(_env: *mut jni_sys::JNIEnv, object: jobject) {
+        (*(object as *const AtomicUsize)).fetch_add(1, Ordering::SeqCst);
+    }
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn failed_start(attach_fails: bool) {
+        let _guard = TEST_LOCK.lock().unwrap();
+        // A minimal fake JNI environment makes deletion observable without a JVM.
+        let mut functions: jni_sys::JNINativeInterface_ = unsafe { std::mem::zeroed() };
+        functions.DeleteGlobalRef = Some(delete_global);
+        let mut interface = &functions as *const _;
+        let env = Env(&mut interface);
+        let deleted = AtomicUsize::new(0);
+        let mut callbacks: Callbacks = unsafe { std::mem::zeroed() };
+        callbacks.object = &deleted as *const _ as jobject;
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        assert!(fd >= 0);
+        let caller_fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let captured_fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        assert!(captured_fd >= 0);
+        struct Captured { fd: OwnedFd, dropped: Arc<AtomicUsize> }
+        impl Drop for Captured {
+            fn drop(&mut self) { self.dropped.fetch_add(1, Ordering::SeqCst); }
+        }
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let captured = Captured { fd: unsafe { OwnedFd::from_raw_fd(captured_fd) }, dropped: dropped.clone() };
+        let control = Control::new(fd);
+        let handle = spawn_with(env, "fault-injected", control.clone(), callbacks,
+            move |_, _, _| { let _ = captured.fd.as_raw_fd(); drop(captured); panic!("body must not run"); },
+            |_| None,
+            move |name, work| {
+                if attach_fails { std::thread::Builder::new().name(name.into()).spawn(work) }
+                else { Err(std::io::Error::from_raw_os_error(libc::EAGAIN)) }
+            });
+        assert_eq!(handle, 0);
+        assert_eq!(deleted.load(Ordering::SeqCst), 1);
+        assert!(unsafe { libc::fcntl(caller_fd.as_raw_fd(), libc::F_GETFD) } >= 0,
+            "zero return must retain caller FD ownership");
+        assert_eq!(dropped.load(Ordering::SeqCst), 1,
+            "captured TUN resources must be dropped even without running body");
+        // Replace the caller's FD atomically before retiring the last Control: its destructor
+        // must not close an unrelated descriptor that has acquired the old integer.
+        let fd = caller_fd.into_raw_fd();
+        let replacement = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
+        assert!(replacement >= 0);
+        if replacement != fd {
+            assert_eq!(unsafe { libc::dup2(replacement, fd) }, fd);
+            unsafe { libc::close(replacement); }
+        }
+        let replacement = unsafe { OwnedFd::from_raw_fd(fd) };
+        drop(control);
+        assert!(unsafe { libc::fcntl(replacement.as_raw_fd(), libc::F_GETFD) } >= 0);
+    }
+
+    #[test]
+    fn thread_spawn_failure_returns_socket_and_deletes_callbacks() { failed_start(false); }
+
+    #[test]
+    fn jvm_attach_failure_returns_socket_and_deletes_callbacks() { failed_start(true); }
 }

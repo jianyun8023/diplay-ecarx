@@ -177,7 +177,7 @@ internal object NativeMedia {
 
     /**
      * The wired data path (see `NcmUsbBridge.startNative`): bulk IN/OUT on [usbFd] and the VPN tun on
-     * [tunFd], both duplicates the engine owns. 0 on bad arguments.
+     * [tunFd]. Consumes both valid duplicate FDs even when startup fails and returns 0.
      */
     @JvmStatic external fun ncmStart(
         usbFd: Int, inEndpoint: Int, outEndpoint: Int, packetSize: Int, tunFd: Int, hostMac: ByteArray,

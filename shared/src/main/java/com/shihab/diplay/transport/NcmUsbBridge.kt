@@ -44,10 +44,14 @@ class NcmUsbBridge internal constructor(
 
     /** [System.nanoTime] when the iPhone first took a frame on bulk OUT, or null while it still NAKs the pipe. */
     val linkOpenedAtNanos: Long?
-        get() = nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmLinkOpened(it).takeIf { at -> at != 0L } }
-            ?: transmit.openedAt
+        get() = synchronized(stateLock) {
+            nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmLinkOpened(it).takeIf { at -> at != 0L } }
+                ?: transmit.openedAt
+        }
     // The native data path ([startNative]) while it runs; it then owns every bulk transfer.
-    @Volatile private var nativeEngine = 0L
+    // Every native handle use, publication and retirement is serialized by stateLock.
+    private var nativeEngine = 0L
+    private var nativeStarting = false
     // A full-speed link uses 64-byte packets; the short-packet pad follows the real packet size.
     private val usbPacketSize = inEndpoint.maxPacketSize.takeIf { it > 0 } ?: USB_PACKET_SIZE
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
@@ -110,13 +114,15 @@ class NcmUsbBridge internal constructor(
     }
 
     /** Frames to and from the iPhone so far, for a report line; see [NcmTrafficCounter]. */
-    fun trafficSummary(airPlayPort: Int?): String =
+    fun trafficSummary(airPlayPort: Int?): String = synchronized(stateLock) {
         nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmTraffic(it, airPlayPort ?: -1) } ?: traffic.summary(airPlayPort)
+    }
 
     /** Whether the iPhone tried to connect to [port] at or after [sinceNanos]; see [NcmTrafficCounter]. */
-    fun connectionAttemptSince(port: Int, sinceNanos: Long): Boolean =
+    fun connectionAttemptSince(port: Int, sinceNanos: Long): Boolean = synchronized(stateLock) {
         nativeEngine.takeIf { it != 0L }?.let { NativeMedia.ncmAttemptSince(it, port, sinceNanos) }
             ?: traffic.connectionAttemptSince(port, sinceNanos)
+    }
 
     /**
      * Hands both directions of the data link to `libdiplay_media` (the default wired data path): bulk
@@ -125,26 +131,38 @@ class NcmUsbBridge internal constructor(
      */
     fun startNative(tun: ParcelFileDescriptor, hostMac: ByteArray, onDiagnosticLine: (String) -> Unit, onError: (Throwable) -> Unit): Boolean {
         NativeMedia.requireAvailable()
-        if (readQueued) return false
-        val usbFd = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor).detachFd() }.getOrNull() ?: return false
-        val tunFd = runCatching { tun.dup().detachFd() }.getOrNull() ?: run {
-            runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
-            return false
-        }
-        fun callbacks(direction: String) = object : NativeStreamCallbacks() {
-            override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) = NativeMedia.packetRelease(handle)
-            override fun onLog(level: Int, line: String) { if (level == 0) Log.i(IphoneCarPlayConfiguration.TAG, line) else Log.w(IphoneCarPlayConfiguration.TAG, line) }
-            override fun onReport(line: String) { runCatching { onDiagnosticLine(line) } }
-            override fun onEnded(error: String?) {
-                if (!closedState()) onError(IOException("NCM $direction ended natively: ${error ?: "end of stream"}"))
+        val (usbFd, tunFd) = synchronized(stateLock) {
+            if (closed || readQueued || nativeStarting || nativeEngine != 0L) return false
+            // Duplicate while close cannot retire the connection and recycle its FD.
+            val usbFd = runCatching { ParcelFileDescriptor.fromFd(connection.fileDescriptor).detachFd() }.getOrNull() ?: return false
+            val tunFd = runCatching { tun.dup().detachFd() }.getOrNull() ?: run {
+                runCatching { ParcelFileDescriptor.adoptFd(usbFd).close() }
+                return false
             }
+            nativeStarting = true
+            usbFd to tunFd
         }
-        val handle = NativeMedia.ncmStart(usbFd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunFd, hostMac,
-            callbacks("inbound"), callbacks("outbound"))
-        if (handle == 0L) return false
-        nativeEngine = handle
-        Log.i(IphoneCarPlayConfiguration.TAG, "ncm data path native in=${inEndpoint.address} out=${outEndpoint.address} packet=$usbPacketSize")
-        return true
+        try {
+            fun callbacks(direction: String) = object : NativeStreamCallbacks() {
+                override fun onPacket(handle: Long, size: Int, flags: Int, a: Long, b: Long) = NativeMedia.packetRelease(handle)
+                override fun onLog(level: Int, line: String) { if (level == 0) Log.i(IphoneCarPlayConfiguration.TAG, line) else Log.w(IphoneCarPlayConfiguration.TAG, line) }
+                override fun onReport(line: String) { runCatching { onDiagnosticLine(line) } }
+                override fun onEnded(error: String?) {
+                    if (!closedState()) onError(IOException("NCM $direction ended natively: ${error ?: "end of stream"}"))
+                }
+            }
+            val handle = NativeMedia.ncmStart(usbFd, inEndpoint.address, outEndpoint.address, usbPacketSize, tunFd, hostMac,
+                callbacks("inbound"), callbacks("outbound"))
+            if (handle == 0L) return false
+            val accepted = synchronized(stateLock) {
+                if (closed) false else { nativeEngine = handle; true }
+            }
+            if (!accepted) { NativeMedia.ncmStop(handle); return false }
+            Log.i(IphoneCarPlayConfiguration.TAG, "ncm data path native in=${inEndpoint.address} out=${outEndpoint.address} packet=$usbPacketSize")
+            return true
+        } finally {
+            synchronized(stateLock) { nativeStarting = false }
+        }
     }
 
     private fun closedState(): Boolean = synchronized(stateLock) { closed }
@@ -175,14 +193,14 @@ class NcmUsbBridge internal constructor(
 
     override fun close() {
         statusRunning.set(false)
-        val engine = nativeEngine
-        nativeEngine = 0L
-        if (engine != 0L) NativeMedia.ncmStop(engine)
-        val requestToClose = synchronized(stateLock) {
+        val (engine, requestToClose) = synchronized(stateLock) {
             if (closed) return
             closed = true
-            readRequest
+            val retired = nativeEngine
+            nativeEngine = 0L
+            retired to readRequest
         }
+        if (engine != 0L) NativeMedia.ncmStop(engine)
         receiveCore.close()
         // Wakes a reader blocked in requestWait(); it then observes the closed state.
         runCatching { requestToClose?.cancel() }
@@ -265,6 +283,7 @@ class NcmUsbBridge internal constructor(
             // Publish and queue atomically with close(), so detach cannot miss a new request.
             synchronized(stateLock) {
                 checkOpenLocked()
+                check(!nativeStarting && nativeEngine == 0L) { "NCM native receiver owns bulk IN" }
                 val current = readRequest ?: UsbRequest().also {
                     if (!it.initialize(connection, inEndpoint)) {
                         it.close()
