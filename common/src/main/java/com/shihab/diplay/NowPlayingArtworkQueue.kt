@@ -1,6 +1,10 @@
 package com.shihab.diplay
 
 import com.shihab.diplay.media.PlaybackMetadataCore
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkDecodeResult
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkNextDeliverable
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkNextRequest
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkSubmitResult
 import com.shihab.diplay.transport.Iap2FileTransferReceiver
 import java.util.concurrent.Executor
 
@@ -30,16 +34,16 @@ internal class NowPlayingArtworkQueue<Image : Any>(
     fun execute(task: Runnable) = worker.execute(task)
 
     fun newSession(): Any = synchronized(lock) {
-        val result = PlaybackMetadataCore.artworkEvent(state, 0)
-        owner = Owner(result[0])
-        sync(result)
+        val started = PlaybackMetadataCore.artworkStartSession(state)
+        owner = Owner(started.session)
+        applyRetention(started.retention)
         owner!!
     }
 
     fun clear() = synchronized(lock) {
-        val result = PlaybackMetadataCore.artworkEvent(state, 1)
+        val retention = PlaybackMetadataCore.artworkClearSession(state)
         owner = null
-        sync(result)
+        applyRetention(retention)
     }
 
     fun submit(expected: Any, id: Int, bytes: ByteArray) {
@@ -50,10 +54,13 @@ internal class NowPlayingArtworkQueue<Image : Any>(
         var scheduleDelivery = false
         synchronized(lock) {
             if (owner !== expected) return
-            val result = PlaybackMetadataCore.artworkEvent(state, 2, target.token, id.toLong(), hash = hash)
-            if (result[0] == 0L) return
-            payloads[result[0]] = Request(target, id, result[0], bytes)
-            sync(result)
+            when (val submitted = PlaybackMetadataCore.artworkSubmit(state, target.token, id, hash)) {
+                is ArtworkSubmitResult.Accepted -> {
+                    payloads[submitted.version] = Request(target, id, submitted.version, bytes)
+                    applyRetention(submitted.retention)
+                }
+                ArtworkSubmitResult.Rejected -> return
+            }
             if (payloads.isNotEmpty() && !workerScheduled) { workerScheduled = true; scheduleWorker = true }
             if (ready.isNotEmpty() && !deliveryScheduled) { deliveryScheduled = true; scheduleDelivery = true }
         }
@@ -66,10 +73,10 @@ internal class NowPlayingArtworkQueue<Image : Any>(
             var scheduleDelivery = false
             var cacheHit = false
             val request = synchronized(lock) {
-                val result = PlaybackMetadataCore.artworkEvent(state, 3)
-                cacheHit = result[0] == -1L
-                val request = payloads.remove(result[0])
-                sync(result)
+                val next = PlaybackMetadataCore.artworkNextRequest(state)
+                cacheHit = next is ArtworkNextRequest.CacheHit
+                val request = (next as? ArtworkNextRequest.Request)?.let { payloads.remove(it.version) }
+                applyRetention(next.retention)
                 if (ready.isNotEmpty() && !deliveryScheduled) { deliveryScheduled = true; scheduleDelivery = true }
                 if (request == null && !cacheHit) workerScheduled = false
                 request
@@ -78,48 +85,45 @@ internal class NowPlayingArtworkQueue<Image : Any>(
             if (cacheHit) continue
             if (request == null) return
             val current = synchronized(lock) {
-                val valid = PlaybackMetadataCore.artworkEvent(state, 6, request.owner.token,
-                    request.id.toLong(), request.version)[0] != 0L
-                if (!valid) sync(PlaybackMetadataCore.artworkEvent(state, 4, version = request.version))
+                val valid = PlaybackMetadataCore.artworkIsCurrent(state, request.owner.token, request.id, request.version)
+                if (!valid) applyRetention(PlaybackMetadataCore.artworkDecodeComplete(state,
+                    decoded = false, version = request.version).retention)
                 valid
             }
             if (!current) continue
             val image = try { decode(request.bytes) } catch (_: RuntimeException) { null }
             val schedule = synchronized(lock) {
-                val result = PlaybackMetadataCore.artworkEvent(state, 4, id = if (image == null) 0 else 1,
-                    version = request.version)
+                val completed = PlaybackMetadataCore.artworkDecodeComplete(state,
+                    decoded = image != null, version = request.version)
                 if (image != null) {
-                    if (result[0] == 2L) images[result[1]] = CachedImage(image) else discard(image)
+                    when (completed) {
+                        is ArtworkDecodeResult.Stored -> images[completed.imageToken] = CachedImage(image)
+                        else -> discard(image)
+                    }
                 }
-                sync(result)
+                applyRetention(completed.retention)
                 if (ready.isNotEmpty() && !deliveryScheduled) { deliveryScheduled = true; true } else false
             }
             if (schedule) main.execute(::deliver)
         }
     }
 
-    /** Apply resource retention changes selected by Rust; image lifetimes remain platform-owned. */
-    private fun sync(snapshot: LongArray) {
-        var index = 3
-        val pendingVersions = mutableSetOf<Long>()
-        repeat(snapshot[index++].toInt()) { pendingVersions.add(snapshot[index++]) }
-        payloads.keys.retainAll(pendingVersions)
-        val entries = mutableListOf<Triple<Long, Int, Long>>()
-        repeat(snapshot[index++].toInt()) { entries.add(Triple(snapshot[index++], snapshot[index++].toInt(), snapshot[index++])) }
-        val retained = entries.mapTo(mutableSetOf()) { it.first }
+    /** Apply resource retention changes selected by Rust; image lifetimes remain platform-owned.
+     * A deliverable's null image token is the decode-failure placeholder that publishes a clear. */
+    private fun applyRetention(retention: PlaybackMetadataCore.ArtworkRetention) {
+        payloads.keys.retainAll(retention.pendingVersions)
+        val retained = retention.deliverables.mapTo(mutableSetOf()) { it.version }
         val removed = ready.keys.filter { it !in retained }
         removed.forEach { ready.remove(it)?.let(::releaseLocked) }
-        for ((version, id, image) in entries) {
+        for ((version, id, imageToken) in retention.deliverables) {
             if (version !in ready) {
-                val content = if (image == -1L) null else checkNotNull(images[image])
+                val content = imageToken?.let { checkNotNull(images[it]) }
                 content?.references = (content?.references ?: 0) + 1
                 ready[version] = Result(checkNotNull(owner), id, version, content)
             }
         }
-        val cached = mutableSetOf<Long>()
-        repeat(snapshot[index++].toInt()) { cached.add(snapshot[index++]) }
         for ((id, content) in images.toMap()) {
-            content.cached = id in cached
+            content.cached = id in retention.cachedTokens
             discardIfUnownedLocked(content)
             if (!content.cached && content.references == 0) images.remove(id)
         }
@@ -143,16 +147,16 @@ internal class NowPlayingArtworkQueue<Image : Any>(
     private fun deliver() {
         while (true) {
             val result = synchronized(lock) {
-                val snapshot = PlaybackMetadataCore.artworkEvent(state, 5)
-                val result = ready.remove(snapshot[0])
-                sync(snapshot)
+                val next = PlaybackMetadataCore.artworkNextDeliverable(state)
+                val result = (next as? ArtworkNextDeliverable.Deliverable)?.let { ready.remove(it.version) }
+                applyRetention(next.retention)
                 if (result == null) deliveryScheduled = false
                 result
             } ?: return
             var delivered = false
             try {
                 val current = synchronized(lock) {
-                    PlaybackMetadataCore.artworkEvent(state, 6, result.owner.token, result.id.toLong(), result.version)[0] != 0L
+                    PlaybackMetadataCore.artworkIsCurrent(state, result.owner.token, result.id, result.version)
                 }
                 if (current) {
                     publish(result.owner, result.id, result.content?.image)
