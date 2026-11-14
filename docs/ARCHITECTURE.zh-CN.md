@@ -2,7 +2,9 @@
 
 本文说明 DiPlay 领克 01 / ECARX 753 移植版的模块划分、会话组成和当前 Rust 核心／Kotlin 薄宿主边界。代码归属的细则以根目录 [AGENTS.md](../AGENTS.md) 为准；厂商接口与实车结论见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。
 
-原生媒体阶段 1 由 PR #94 合入 `dev`，阶段 2–6 及 AAudio 正确性修复经 PR #97 合入，源码层面的完整 Rust 核心迁移已完成。后续修复与验收按批记录；实现完成不等于所有实车场景通过。历史台架结果见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)，当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
+原生媒体阶段 1 由 PR #94 合入 `dev`，阶段 2–6 及 AAudio 正确性修复经 PR #97 合入，Rust 核心主体迁移已完成。后续修复与验收按批记录；实现完成不等于所有实车场景通过。历史台架结果见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)，当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
+
+2026-11-14 后续职责整理见 [Rust 与 Kotlin 职责收敛方案](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)：歌曲状态、普通音频 feedback、媒体协商及焦点策略仍有可收拢的规则，视频控制邮箱与 JNI 门面也有可简化的边界。该文列出待实施范围、调用方与分批条件，不改变本页已落地归属或重开既有验收。
 
 ## 当前 Rust 核心与平台边界
 

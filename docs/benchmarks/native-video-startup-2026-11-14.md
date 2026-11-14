@@ -32,7 +32,7 @@
 
 原始日志、APK、逐轮端点／行号、解析脚本与机器可读汇总保留在本地工作区 `artifacts/mi8-first-frame-pr-validation-20261114/`；不随公开仓库提交。目标 ECARX／API 28、实际 scanout、实车音频／Siri／通话、熄火与长测缺口见[当前验收矩阵](../RUST_CORE_REMAINING.zh-CN.md)。此前 native-only probeA/B 是定位实验，不是生产包完整单变量验收。
 
-## 后续批次：配置失败交错（修复已实现，green 待验）
+## 后续批次：配置失败交错（设备 green）
 
 基线为已合并 #113 的 `dev @ eeca03aef613193e7a49805b702bcc28ce3dcefb`。新增两项测试通过真实 `VideoDecoder` 入口复现：旧配置失败的清理与后来收到的新配置／唯一 IDR 交错时，新帧被丢弃。它是 #113 既有设备集合未覆盖的失败交错，不改写上述历史通过数。
 
@@ -57,13 +57,13 @@
 | JVM | 3593 通过、2 环境跳过、0 失败，共 3595 项；shared 1985 通过＋2 跳过、common 1594 通过、home 14 通过。跳过项为端口环境与 ECARX 真实 SDK ABI。 |
 | Rust | 226 通过、0 失败，10.70 秒。 |
 | 原生构建／来源校验 | ARM64／ARMv7／x86_64 均通过，494 Java JNI 导出＋`JNI_OnLoad`；三 ABI 来源 manifest 一致。 |
-| 修复测试 APK | 已构建并签名；尚未安装、尚未执行设备 green。 |
+| 当时的修复测试 APK | 已构建并签名；当时尚未安装或执行设备 green。 |
 
 - 待验修复 APK SHA-256：`42237fc7eca9bc403cb2e64f58aa6363a23ebc7ccd28f6143db89ad479131b53`。
 - 该 APK 内 ARM64 `libdiplay_media.so` SHA-256：`a980be3007308b4b5854c3af5d1c8af11cd6c02bf890f6aa02386c53d1dbb6f3`。strip 前原库为 `7f4f4ccbe79a0a6899dbb8de874cec20b77a8e8f284bfb2002f3947e5ee94a1a`，二者分属不同构建阶段。
 - 本地补充证据：同目录 `checks-summary.json`、`gradle-checks.log`、`rust-tests.log`、`native-build.log`、`fixed-verification.json`；Checks 记录的五份生产／测试源码指纹与当前文件一致。
 
-**当前状态：修复已实现、有效 red 已复现、本地检查通过；ARM64 实机 green 保留待测，按用户最新要求先提交 PR。** 小米 8 正被其他测试占用，仍等用户通知设备释放后再执行 ARM64 回归，不再将该验证作为创建 PR 的前置条件。本批尚无修复后实机通过或新增设备恢复记录，不继承 #113 的设备结果。
+**后续设备结果**：小米 8／API 35／ARM64 的首轮 33 项自动化均通过、0 跳过（14.545 秒），包括上述两项配置失败交错回归；另有 6 项新增 JNI 策略测试通过、0 跳过（0.044 秒）。设备测试总计 39 项，未见 JNI 致命错误或崩溃。源码与两次测试包、打包库哈希见[本批设备记录](media-state-ownership-2026-11-14.md#小米-8-设备自动化)。旧 `42237…` 是当时待验包，不是本次运行的 APK。同批 Release 的实际 iPhone 起播、切歌封面、暂停恢复、Siri 及导航有日志核验和用户正常确认；ECARX 专有 Binder／目标车机音路仍待验证。
 
 
 ## Java MediaCodec 备用循环清理
@@ -87,4 +87,4 @@ Robolectric 通过测试源码中的 `HostVideoPipe` 替换 pipe JNI 边界，�
 
 本批完整 Gradle Checks 加 `:shared:assembleDebugAndroidTest` 通过（9 分 26 秒，331 tasks／52 executed）：JVM 3597 通过、2 环境跳过、0 失败；shared 1989 通过＋2 跳过、common 1594 通过、home 14 通过。四应用 lint／debug 构建与设备测试 APK 构建通过，51 个本地文档链接目标有效。两项跳过仍为端口环境及 ECARX 真实 SDK ABI。原始检查输出、APK 哈希与逐条实车端点保留在工作区 `artifacts/native-video-loop-retirement-20261114/`。
 
-本次清理后的设备验证仍待小米 8 释放；不得用宿主替身结果关闭 NDK 运行时验收。
+清理后的 ARM64 设备自动化已在上述首轮 33 项中通过；随后同批 Release 的指定真实 iPhone 会话场景也已通过，详见本批设备记录；不以宿主替身或手机结果替代目标 ECARX 车机验收。
