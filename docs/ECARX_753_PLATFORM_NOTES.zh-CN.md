@@ -185,8 +185,8 @@ stateDiagram-v2
 | 功能 | 状态 | 版本 / 日期 | 备注 |
 | --- | --- | --- | --- |
 | 无线 CarPlay 基本连接、画面、触摸、音乐 | 实车 | v142 车测包 2026-11-08 | 日常使用基线 |
-| USB 连接（插线只充电 / 开关后切有线） | 实车 | v122 2026-11-04 | USB 卡顿、取消授权回退未解 |
-| Rust 原生 NCM FD 快路径／重连 | 台架 | v149／#104，2026-11-13，小米 8＋真实 iPhone | 实际 native USB I/O、4 次物理拔插与修复后 3 轮重启通过；[证据](https://github.com/jianyun8023/diplay-ecarx/issues/98#issuecomment-6853025697)。ECARX 753／820A 固件与最新版本组合待验，不由旧 v122 USB 行推定新实现通过。 |
+| USB 连接（插线只充电 / 开关后切有线） | 实车 | v122 2026-11-04 | 当时观察到卡顿、取消授权回退问题；当前版本是否仍复现待核，不作为新 Rust NCM 实车验收。 |
+| Rust 原生 NCM FD 快路径／重连 | 台架 | v149／#104，2026-11-13，小米 8＋真实 iPhone | native USB I/O、历史 4 次拔插及修复后 3 轮重启已有证据；原 CSV 另确认 156 秒有线采样。各批 APK、证据层级和后续重点见[USB 验证摘要](benchmarks/native-usb-2026-11-13.md)。ECARX 当前组合、长测与异常恢复仍待验。 |
 | 电话接打、通话中音乐导航暂停与恢复 | 实车 | 2026-11-01 | 通话音质实验选项不在内 |
 | Rust AAudio 音乐／导航与关闭时序 | 实车 | v149 含 `d16ed0a1`，2026-11-13 | [实车审计](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6841704520)确认正常关闭、无 PAUSING flush 错误；不覆盖后来 #111 的通话输出失败恢复／真实 AEC 瞬态。 |
 | Rust Siri／通话与 echo 恢复 | 台架部分 | v149，2026-11-12／13，小米 8＋真实 iPhone | [真实 Siri 与运营商通话已过](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6842219271)；方控 Siri、312 采样帧欠载分阶段复测，以及最新 #111 在 ECARX 持续通话中的输出失败恢复仍待。 |
