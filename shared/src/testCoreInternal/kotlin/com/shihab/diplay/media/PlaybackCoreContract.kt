@@ -52,6 +52,18 @@ object PlaybackCoreContract {
             return byteArrayOf((size shr 8).toByte(), size.toByte(), (id shr 8).toByte(), id.toByte()) + bytes
         }
         fun group(id: Int, bytes: ByteArray): ByteArray = parameter(id, bytes)
+        // NEL is not blank in Kotlin: keep the artist through this title and the next update.
+        for (fields in listOf(
+            parameter(1, "Song\u0000".toByteArray()) + parameter(12, "Artist\u0000".toByteArray()),
+            parameter(1, "\u0085\u0000".toByteArray()),
+            parameter(1, "Next song\u0000".toByteArray()),
+        )) {
+            val frame = Iap2Frame(0x5001, group(0, fields))
+            assertEquals(reference.accept(frame), actual.accept(frame))
+            assertEquals(reference.current(), actual.current())
+        }
+        reference.clear()
+        actual.clear()
         val text = listOf(
             "Numb".toByteArray(), "  ".toByteArray(), "".toByteArray(),
             "bad terminator".toByteArray(), "A\u0000B".toByteArray(),

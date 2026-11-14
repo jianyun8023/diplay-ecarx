@@ -239,11 +239,11 @@ impl GlanceSong {
 }
 
 /// Kotlin `String.isBlank()` over UTF-16: empty, or every unit whitespace. Unicode White_Space
-/// plus the Java-only separators U+001C..U+001F; lone surrogates are never whitespace.
+/// except U+0085, plus Java-only separators U+001C..U+001F; lone surrogates are never whitespace.
 fn is_blank(units: &[u16]) -> bool {
     units.iter().all(|&unit| {
         (0x1c..=0x1f).contains(&unit)
-            || char::from_u32(unit as u32).is_some_and(char::is_whitespace)
+            || (unit != 0x0085 && char::from_u32(unit as u32).is_some_and(char::is_whitespace))
     })
 }
 
@@ -411,6 +411,10 @@ mod tests {
             decode
         ));
         assert_eq!(state.title.as_deref(), Some(&[78, 117, 109, 98][..]));
+        assert!(state.artist.is_some());
+        // Kotlin treats NEL as a non-blank title, so an absent artist must stay retained.
+        assert!(state.accept(0x5001, &body(vec![(1, "\u{0085}\0".as_bytes().to_vec())]), decode));
+        assert_eq!(state.title, Some(vec![0x0085]));
         assert!(state.artist.is_some());
         // The Glance counts playing and seeking as playback; only flag changes report an update.
         assert!(state.accept(0x5001, &playback(3), decode));
