@@ -65,7 +65,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 - [预编译 libopus 实测（2026-11-10）](benchmarks/native-opus-2026-11-10.md) — 当时选用原生 Opus 编码的依据；后续 Opus 统一为静态链接的 libopus，见技术架构。
 - [原生媒体迁移历史实验（2026-11-12 起）](benchmarks/native-media-2026-11-12.md) — 各阶段 A/B/C/D 台架测量和后续迁移验证，含逐轮 CSV；待办与开关默认值按当时版本理解。
 - [原生视频首帧与配置失败交错验证（2026-11-14）](benchmarks/native-video-startup-2026-11-14.md) — #113 已合并结果与后续失败交错修复分批登记，包含有效 red、本地检查和实机待验范围。
-- [原生 USB NCM 台架验证（2026-11-13）](benchmarks/native-usb-2026-11-13.md) — 拔插／重启分批证据、156 秒有线采样复核，以及连接慢样本、异常恢复、性能和目标固件待验项。
+- [原生 USB NCM 台架验收记录（2026-11-13，已收尾）](benchmarks/native-usb-2026-11-13.md) — 拔插／重启／切换、156 秒有线采样及主动断开背景，保留版本和结论适用范围。
 - [媒体流原生解密实测（2026-11-11）](benchmarks/native-chacha-2026-11-11.md) — 原生 ChaCha 的性能依据（现并入 `libdiplay_media.so`）。
 
 ## 发布
