@@ -20,7 +20,12 @@ internal class VideoOutputTiming(initialDelayNanos: Long) {
 
 /** One session's actual request timestamps, including forced refreshes and native-pipe events. */
 internal class VideoKeyFrameRequests {
-    private val owner = NativeVideoFlow.keyframeCreate()
-    fun record(nowNanos: Long) { NativeVideoFlow.keyframeRequest(owner, nowNanos, true) }
-    fun requestIfDue(nowNanos: Long): Boolean = NativeVideoFlow.keyframeRequest(owner, nowNanos, false)
+    private var last = 0L
+    fun record(nowNanos: Long) { last = nowNanos }
+    fun requestIfDue(nowNanos: Long): Boolean {
+        // The Rust rule: a forced refresh always records; otherwise one request per second.
+        if (last != 0L && nowNanos - last < 1_000_000_000L) return false
+        last = nowNanos
+        return true
+    }
 }

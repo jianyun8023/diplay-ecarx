@@ -8,10 +8,10 @@ import com.shihab.diplay.airplay.MediaPacket
 import com.shihab.diplay.airplay.NativePacket
 import com.shihab.diplay.airplay.NativeVideoCallbacks
 import com.shihab.diplay.airplay.VideoCodec
+import com.shihab.diplay.media.KotlinVideoDecodeQueue
+import com.shihab.diplay.media.KotlinVideoReferenceChain
 import com.shihab.diplay.media.NativeVideoPipe
-import com.shihab.diplay.media.VideoDecodeQueue
 import com.shihab.diplay.media.VideoJob
-import com.shihab.diplay.media.VideoReferenceChain
 import com.shihab.diplay.media.VideoKeyFrameRequests
 import java.nio.ByteBuffer
 
@@ -34,8 +34,8 @@ object HostVideoPipe {
 
     internal class Pipe(private val callbacks: NativeVideoCallbacks) {
         private val lock = Object()
-        private val queue = VideoDecodeQueue()
-        private val reference = VideoReferenceChain()
+        private val queue = KotlinVideoDecodeQueue()
+        private val reference = KotlinVideoReferenceChain()
         private val keyframes = VideoKeyFrameRequests()
         private var configuration: ByteArray? = null
         private var duplicateLogged = false
@@ -120,7 +120,7 @@ object HostVideoPipe {
                 !reference.accepts(packet, if (hevc) VideoCodec.H265 else VideoCodec.H264)) {
                 packet.release()
                 event(NativeVideoPipe.EVENT_REQUEST_KEYFRAME)
-            } else queue.offer(VideoJob.Frame(packet, senderNanos = sender, arrivalNanos = arrival))
+            } else queue.offer(KotlinVideoDecodeQueue.Frame(packet, senderNanos = sender, arrivalNanos = arrival))
             lock.notifyAll()
         }
 
@@ -165,7 +165,7 @@ object HostVideoPipe {
                 codec?.stop()
                 codec?.release()
                 codec = null
-                queue.drain().forEach { (it as? VideoJob.Frame)?.packet?.release() }
+                queue.drain().forEach { (it as? KotlinVideoDecodeQueue.Frame)?.packet?.release() }
             }
             var interrupted = Thread.interrupted()
             while (worker.isAlive) {
@@ -210,7 +210,7 @@ object HostVideoPipe {
                     }
                     if (closed) return
                     when (val job = queue.poll(0)) {
-                        is VideoJob.Frame -> {
+                        is KotlinVideoDecodeQueue.Frame -> {
                             if (!reference.accepts(job.packet, if (hevc) VideoCodec.H265 else VideoCodec.H264)) {
                                 job.packet.release()
                                 event(NativeVideoPipe.EVENT_REQUEST_KEYFRAME)
@@ -220,7 +220,7 @@ object HostVideoPipe {
                                 Pair(checkNotNull(codec), job)
                             }
                         }
-                        VideoJob.Resync -> {
+                        KotlinVideoDecodeQueue.Resync -> {
                             reference.reset()
                             event(NativeVideoPipe.EVENT_REQUEST_KEYFRAME)
                             null
