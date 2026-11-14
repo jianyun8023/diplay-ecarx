@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds libdiplay_media.so into shared/src/main/jniLibs (or DIPLAY_JNI_LIBS_DIR) for the shipped ABIs.
+# Low-level compilation only; use scripts/check_rust_android_native.sh for verified Gradle inputs.
 # With no arguments it builds every ABI; pass one or more cargo target triples to build a subset.
 # Needs rustup targets aarch64-linux-android, armv7-linux-androideabi and x86_64-linux-android, and ANDROID_NDK_HOME.
 # ARM64 is the default production package; ARMv7 is the fallback; x86_64 is test-only (emulator).
@@ -7,7 +7,7 @@ set -eu
 cd "$(dirname "$0")"
 : "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME}"
 BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$(uname -s | tr A-Z a-z)-x86_64/bin"
-OUT=${DIPLAY_JNI_LIBS_DIR:-../../jniLibs}
+OUT=${DIPLAY_JNI_LIBS_DIR:-../../../../../.native/rust-android}
 TOOLCHAIN="$PWD/cmake/android-toolchain.cmake"
 TARGET_DIR=${CARGO_TARGET_DIR:-target}
 # Keep build-machine paths (panic locations) out of the checked-in libraries.

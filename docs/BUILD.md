@@ -31,7 +31,8 @@ Install these tools:
 - Android SDK Build-Tools 36.0.0.
 - Android SDK Platform-Tools.
 - Rust 1.97.1 for core unit tests, JVM JNI tests, and cross-compiling the Android native library.
-- Android NDK 28.2.13676358 for CI native-library validation and any local native rebuild. Ordinary Gradle APK builds still package the checked-in libraries.
+- Android NDK 28.2.13676358 to build the Rust library required by every Android APK/AAR build.
+- Python 3 for Rust artifact provenance checks and JNI staging.
 
 Use the Gradle wrapper included in this repository.
 The first build needs an internet connection to download dependencies.
@@ -63,6 +64,40 @@ java -version
 
 The output must identify Java 25.
 On Windows, use `gradlew.bat` in place of `./gradlew` in the commands below.
+
+### Prepare Rust Android inputs
+
+Before building an APK or AAR, build and verify the current Rust sources for all three packaged ABIs:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+scripts/check_rust_android_native.sh
+```
+
+The script retains `libdiplay_media.so` and a `provenance.json` receipt for each ABI in
+`.native/rust-android/`. It checks ELF architecture and shared-library type, the 494 Java JNI
+exports, `JNI_OnLoad`, and identical JNI export sets across ARM64, ARMv7 and x86_64.
+Gradle verifies these receipts before staging its generated JNI directory. It copies the existing
+C prebuilts from `shared/src/main/jniLibs/`, but never packages the historical Rust libraries there.
+
+Receipts bind the library bytes to the current crate inputs (including `Cargo.lock` and toolchain
+configuration), build/verification scripts, and Gradle staging script. They include per-file hashes
+so a source mismatch names the first changed, added or removed path; a library-byte mismatch has
+a separate error. The fingerprint does not require Git, so uncommitted edits and source archives
+are checked too. Cargo output and common OS/editor/Python cache files are excluded, but real
+hidden inputs such as `.cargo/config.toml` remain included.
+
+Missing ABIs or receipts, outdated receipt formats, changed sources and mismatched library bytes
+stop packaging with a rebuild command. Run `scripts/check_rust_android_native.sh` again; calling
+the crate's `build.sh` alone does not produce verified receipts. A single-ABI rebuild is enough
+only if the other two ABIs already have receipts matching the same current inputs. Receipts
+detect accidental stale or mixed artifacts, not malicious forgery.
+
+To use another output directory, set `DIPLAY_JNI_LIBS_DIR` to the same absolute path for both
+the native check script and Gradle. `./gradlew clean` removes generated staging but preserves
+`.native/` for revalidation. JVM-only tests build the host JNI library separately and do not
+require Android native artifacts.
 
 ## Build the main app
 
@@ -110,22 +145,20 @@ cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Carg
 
 Check that Gradle reports `BUILD SUCCESSFUL`.
 JVM test tasks build and load the host Rust JNI library with `cargo build --locked`; the separate
-`cargo test` command executes Rust's own unit tests. Android APK builds package the checked-in
-ARM64, ARMv7 and x86_64 libraries. Before testing a native-source change, cross-compile all three
-Android ABIs and verify that the checked-in binaries match:
+`cargo test` command executes Rust's own unit tests. Prepare the current Android native inputs
+as described above before running tasks that package an APK/AAR. The provenance regression suite
+can also run without an Android SDK, NDK or Git checkout:
 
 ```sh
-rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" scripts/check_rust_android_native.sh
+python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'
 ```
 
-The check builds every library into a temporary output directory, validates ELF architecture,
-the 494 Java JNI exports, `JNI_OnLoad`, and identical JNI export sets across ABIs. CI then stages
-those freshly built libraries into `shared/src/main/jniLibs` before building the Debug and Release
-APKs, and retains them plus the source revision as an Actions artifact. It does not require
-byte-for-byte equality with the checked-in copies: build-host metadata can differ even when the
-ABI and JNI contract is unchanged. Ordinary local Gradle builds still use the checked-in files,
-so regenerate them with `build.sh` after changing Rust source.
+The Android checks, release, and source-only workflows all build and verify three ABI artifacts
+and use the same Gradle staging path. The Android checks workflow retains the freshly built
+libraries and receipts as an Actions artifact; it and the release workflow select their artifact
+directory through `DIPLAY_JNI_LIBS_DIR`. The source-only workflow uses `.native/rust-android/`.
+None of these workflows overwrites the checked-in Rust libraries or depends on byte-for-byte
+equality with them.
 Shared-only contracts that access internal core owners live in `shared/src/testCoreInternal/kotlin`
 and are included only in shared JVM/Android tests. Common/home reuse the general test references and
 real-host JNI shadows without compiling those internal contracts.

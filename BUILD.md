@@ -31,8 +31,32 @@ ECARX 接口通过运行时反射和动态代理调用。编译和单测**不需
 | Gradle | 9.5.0（用仓库自带 wrapper，不要另装） |
 | 工程配置 | AGP 9.3.0（内置 Kotlin）/ `compileSdk 37` / `minSdk 24`；生产目标仍为 Android 9 / API 28 |
 
-★ **不需要 NDK。** 上游要求 NDK 28.2.13676358，但本移植版已把原生库改成**预编译 `.so`**（见
-`shared/src/main/jniLibs/`，随仓库提供），并移除了 `ndkBuild` / `ndkVersion` 配置——省掉几 GB 下载。
+**Rust 核心必须从当前源码构建。** 需要 NDK **28.2.13676358**、Rust **1.97.1**、
+Python 3，以及 `aarch64-linux-android`、`armv7-linux-androideabi`、`x86_64-linux-android`
+三个 Rust target。C JNI 库仍使用 `shared/src/main/jniLibs/` 中的预编译文件；
+其中历史 `libdiplay_media.so` 不再参与任何 Gradle APK/AAR 打包。
+
+在运行下面的 Gradle APK 构建命令之前，执行：
+
+```sh
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+scripts/check_rust_android_native.sh
+```
+
+该脚本构建并检查三个 ABI 的 ELF/JNI 导出，默认输出到 `.native/rust-android/`。
+Gradle 的所有 variant 只使用经验证的生成 JNI 目录，不会静默回退到旧 Rust 二进制。
+每个 ABI 的 `provenance.json` 绑定 Rust 源码、Cargo.lock、工具链/构建脚本和库文件的 SHA-256；
+缺少任一 ABI、来源记录、源码变更或二进制不匹配都会在打包前失败，并提示重新构建。
+这也适用于未提交的修改和没有 `.git` 的源码压缩包，不依赖提交号或时间戳。
+记录用于发现意外陈旧/混用产物，不是抵御恶意篡改的签名。
+
+CI 下载产物或自定义本地产物目录时，对构建脚本和 Gradle 设置同一个绝对路径：
+`export DIPLAY_JNI_LIBS_DIR=/absolute/path/to/rust-android-libs`。
+单 ABI 检查（如 `scripts/check_rust_android_native.sh x86_64`）不能替代完整 APK 打包需要的三个 ABI；
+其他 ABI 必须已有与当前源码匹配的产物。普通 JVM 单元测试不要求 Android Rust 产物。
+`gradlew clean` 清理生成的打包目录，但保留 `.native/` 供下次验证复用。
+
+回归测试：`python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'`。
 
 ```sh
 export JAVA_HOME=/path/to/jdk-25

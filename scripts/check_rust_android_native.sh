@@ -78,27 +78,18 @@ for abi in "${SELECTED_ABIS[@]}"; do
   fi
 done
 
-OWN_OUTPUT=0
-OUTPUT_PARENT=""
-if [[ -n "${DIPLAY_JNI_LIBS_DIR:-}" ]]; then
-  OUTPUT_DIR="$DIPLAY_JNI_LIBS_DIR"
-else
-  OUTPUT_PARENT="$(mktemp -d)"
-  OUTPUT_DIR="$OUTPUT_PARENT/jniLibs"
-  OWN_OUTPUT=1
-fi
+OUTPUT_DIR="${DIPLAY_JNI_LIBS_DIR:-$ROOT/.native/rust-android}"
 if [[ "$OUTPUT_DIR" != /* ]]; then
   OUTPUT_DIR="$ROOT/$OUTPUT_DIR"
 fi
 VERIFY_TMP="$(mktemp -d)"
-cleanup() {
-  rm -rf "$VERIFY_TMP"
-  if [[ "$OWN_OUTPUT" == "1" ]]; then
-    rm -rf "$OUTPUT_PARENT"
-  fi
-}
-trap cleanup EXIT
+trap 'rm -rf "$VERIFY_TMP"' EXIT
 mkdir -p "$OUTPUT_DIR"
+SOURCE_DIGEST="$(python3 "$ROOT/scripts/rust_android_inputs.py" fingerprint)"
+# A failed rebuild must not leave a receipt that blesses an older artifact.
+for abi in "${SELECTED_ABIS[@]}"; do
+  rm -f "$OUTPUT_DIR/$abi/provenance.json"
+done
 
 # build.sh is the single source of truth for linker, API-level and ARMv7 flags.
 DIPLAY_JNI_LIBS_DIR="$OUTPUT_DIR" sh "$CRATE_DIR/build.sh" "${BUILD_TARGETS[@]}"
@@ -157,5 +148,8 @@ if [[ "${#SELECTED_ABIS[@]}" -gt 1 ]]; then
   done
 fi
 
-git -C "$ROOT" rev-parse HEAD > "$OUTPUT_DIR/SOURCE-REVISION.txt"
+for abi in "${SELECTED_ABIS[@]}"; do
+  python3 "$ROOT/scripts/rust_android_inputs.py" stamp --inputs "$OUTPUT_DIR" \
+    --abi "$abi" --source "$SOURCE_DIGEST"
+done
 echo "Rust Android native build passed: ${SELECTED_ABIS[*]} valid and JNI contract checked."

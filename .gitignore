@@ -42,3 +42,6 @@ release-signing.properties
 
 # Accidental literal ${user.home} tooling caches (Robolectric/Maven test downloads)
 ${user.home}/
+
+# Verified local Rust Android artifacts (rebuilt from source)
+.native/
