@@ -8,7 +8,13 @@ Production targets Android 9 / API 28, ECARX 753 / Qualcomm 820A, with the vehic
 
 ## Checks
 
-Run the CI command from `.github/workflows/android.yml` before you report a change as done:
+Match local validation to the actual change:
+
+- Documentation, comments, credits and translation/string-only edits that do not change behavior, layout, resource keys/placeholders or build configuration need only `git diff --check` and a focused review of content, references, locale consistency and resource escaping. Do not launch full Gradle tests, lint, APK builds or native compilation for these changes; leave full validation to CI. Do not delay an explicitly requested commit or push while waiting for local full checks.
+- For code, behavior or build changes, run relevant local checks. Run the full suite locally only when concrete integration risk requires it, when investigating a CI failure, or when the user requests it.
+- If the user says to stop local checks or leave validation to CI, stop the checks and do not restart them unless asked. Report pending CI honestly; do not imply that uncompleted checks passed.
+
+The full CI command from `.github/workflows/android.yml` is a reference, not a requirement for every delivery:
 
 ```sh
 ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
@@ -24,7 +30,7 @@ The module layout, current ownership and migration target are described in [the 
 
 The ownership below describes the current implementation, not a completed migration. Move one coherent owner and its callers/tests at a time; preserve Android 9 calibration, routing and recovery behavior, and update these rules with each completed move. Reuse existing Rust media code. For protocol migration, first compare the relevant [LIVI Rust crates](https://github.com/f-io/LIVI/tree/main/native/crates) and test vectors against our wire behavior; record the source revision, preserve required attribution, and check API 28 and both shipped ABIs before importing code or dependencies. Do not import its complete application/runtime merely to reuse a protocol module.
 
-During development, run affected-module tests. Run the complete Checks command for a deliverable batch; do not repeat global checks for documentation-only changes. Track outstanding device/car acceptance in issue #96.
+For behavior changes, run affected-module tests according to the Checks policy above. Track outstanding device/car acceptance in issue #96.
 
 Keep shared-only internal-owner contracts in `shared/src/testCoreInternal/kotlin`, included by shared JVM/androidTest source sets only. General `testCore` references and `testCoreShadows` remain available to common/home tests; do not make production internal APIs public to compile fixtures in unrelated modules.
 
