@@ -179,6 +179,9 @@
 -keep class com.shihab.diplay.media.CarPlayNowPlaying {
     public <init>(java.lang.String, java.lang.String, java.lang.String, java.lang.Integer, java.lang.String, java.lang.Long, java.lang.Long, boolean);
 }
+-keep class com.shihab.diplay.media.CarPlayGlanceSong {
+    public <init>(java.lang.String, java.lang.String, boolean);
+}
 
 # Shared call PCM/clock ownership and CarPlay-to-platform route decisions.
 -keep class com.shihab.diplay.media.NativeEchoReference { native <methods>; }

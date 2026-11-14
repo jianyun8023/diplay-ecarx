@@ -1,4 +1,4 @@
-use super::{Navigation, NowPlaying};
+use super::{GlanceSong, Navigation, NowPlaying};
 use jni_sys::{
     jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jobjectArray, jvalue, JNIEnv,
 };
@@ -130,23 +130,61 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_no
     let Some(mut state) = now(env, owner) else {
         return null_mut();
     };
-    let f = &**env;
-    let length = (f.GetArrayLength.unwrap())(env, payload);
-    let mut bytes = vec![0u8; length as usize];
-    (f.GetByteArrayRegion.unwrap())(env, payload, 0, length, bytes.as_mut_ptr() as *mut i8);
-    if (f.ExceptionCheck.unwrap())(env) != 0 {
+    let Some(bytes) = copy_bytes(env, payload) else {
+        return null_mut();
+    };
+    let Some(mut decode) = text_decoder(env, class, c"decodeText".to_bytes_with_nul()) else {
+        return null_mut();
+    };
+    let changed = state.accept(id, &bytes, |bytes| decode(bytes));
+    if ((**env).ExceptionCheck.unwrap())(env) != 0 || !changed {
         return null_mut();
     }
+    // Construct the public immutable snapshot before committing the retained value.
+    let result = snapshot(env, &state);
+    if !result.is_null() {
+        save(env, owner, &state.encode());
+    }
+    result
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_nowClear(
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    all: jboolean,
+) -> jobject {
+    let Some(mut state) = now(env, owner) else {
+        return null_mut();
+    };
+    if !state.clear(all != 0) {
+        return null_mut();
+    }
+    let result = snapshot(env, &state);
+    if !result.is_null() {
+        save(env, owner, &state.encode());
+    }
+    result
+}
+/// One static `[B)Ljava/lang/String;` callback per projection: the byte array crosses into the
+/// platform for its UTF-8 replacement, and the resulting UTF-16 units come back.
+unsafe fn text_decoder(
+    env: *mut JNIEnv,
+    class: jclass,
+    name: &[u8],
+) -> Option<impl FnMut(&[u8]) -> Option<Vec<u16>> + '_> {
+    let f = &**env;
+    let name = std::ffi::CStr::from_bytes_with_nul(name).ok()?;
     let decode = (f.GetStaticMethodID.unwrap())(
         env,
         class,
-        c"decodeText".as_ptr(),
+        name.as_ptr(),
         c"([B)Ljava/lang/String;".as_ptr(),
     );
     if decode.is_null() {
-        return null_mut();
+        return None;
     }
-    let changed = state.accept(id, &bytes, |bytes| {
+    Some(move |bytes: &[u8]| -> Option<Vec<u16>> {
         if (f.ExceptionCheck.unwrap())(env) != 0 {
             return None;
         }
@@ -183,31 +221,107 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_no
         (f.GetStringRegion.unwrap())(env, value, 0, length, units.as_mut_ptr());
         (f.DeleteLocalRef.unwrap())(env, value);
         Some(units)
-    });
-    if (f.ExceptionCheck.unwrap())(env) != 0 || !changed {
+    })
+}
+
+unsafe fn copy_bytes(env: *mut JNIEnv, payload: jbyteArray) -> Option<Vec<u8>> {
+    let f = &**env;
+    let length = (f.GetArrayLength.unwrap())(env, payload);
+    let mut bytes = vec![0u8; length as usize];
+    (f.GetByteArrayRegion.unwrap())(env, payload, 0, length, bytes.as_mut_ptr() as *mut i8);
+    ((f.ExceptionCheck.unwrap())(env) == 0).then_some(bytes)
+}
+
+unsafe fn glance(env: *mut JNIEnv, owner: jobjectArray) -> Option<GlanceSong> {
+    let state = GlanceSong::decode(&read(env, owner)?);
+    if state.is_none() {
+        invalid(env);
+    }
+    state
+}
+
+unsafe fn glance_snapshot(env: *mut JNIEnv, state: &GlanceSong) -> jobject {
+    let f = &**env;
+    if (f.PushLocalFrame.unwrap())(env, 12) < 0 {
+        return null_mut();
+    }
+    let result = (|| -> Option<jobject> {
+        let class = (f.FindClass.unwrap())(env, c"com/shihab/diplay/media/CarPlayGlanceSong".as_ptr());
+        if class.is_null() { return None; }
+        let init = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(),
+            c"(Ljava/lang/String;Ljava/lang/String;Z)V".as_ptr());
+        if init.is_null() { return None; }
+        let mut strings = [null_mut(); 2];
+        for (index, value) in [&state.title, &state.artist].iter().enumerate() {
+            if let Some(value) = value {
+                strings[index] = (f.NewString.unwrap())(env, value.as_ptr(), value.len() as jint);
+                if strings[index].is_null() { return None; }
+            }
+        }
+        let args = [jvalue { l: strings[0] }, jvalue { l: strings[1] }, jvalue { z: state.playing as jboolean }];
+        let result = (f.NewObjectA.unwrap())(env, class, init, args.as_ptr());
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        Some(result)
+    })().unwrap_or(null_mut());
+    (f.PopLocalFrame.unwrap())(env, result)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_glanceCreate(
+    env: *mut JNIEnv,
+    _: jclass,
+) -> jlongArray {
+    array(env, &GlanceSong::default().encode())
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_glanceSnapshot(
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+) -> jobject {
+    glance(env, owner).map_or(null_mut(), |state| glance_snapshot(env, &state))
+}
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_glanceAccept(
+    env: *mut JNIEnv,
+    class: jclass,
+    owner: jobjectArray,
+    id: jint,
+    payload: jbyteArray,
+) -> jobject {
+    let Some(mut state) = glance(env, owner) else {
+        return null_mut();
+    };
+    let Some(bytes) = copy_bytes(env, payload) else {
+        return null_mut();
+    };
+    let Some(mut decode) = text_decoder(env, class, c"decodeRawText".to_bytes_with_nul()) else {
+        return null_mut();
+    };
+    let changed = state.accept(id, &bytes, |bytes| decode(bytes));
+    if ((**env).ExceptionCheck.unwrap())(env) != 0 || !changed {
         return null_mut();
     }
     // Construct the public immutable snapshot before committing the retained value.
-    let result = snapshot(env, &state);
+    let result = glance_snapshot(env, &state);
     if !result.is_null() {
         save(env, owner, &state.encode());
     }
     result
 }
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_nowClear(
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_glanceClear(
     env: *mut JNIEnv,
     _: jclass,
     owner: jobjectArray,
-    all: jboolean,
 ) -> jobject {
-    let Some(mut state) = now(env, owner) else {
+    let Some(mut state) = glance(env, owner) else {
         return null_mut();
     };
-    if !state.clear(all != 0) {
+    if !state.clear() {
         return null_mut();
     }
-    let result = snapshot(env, &state);
+    let result = glance_snapshot(env, &state);
     if !result.is_null() {
         save(env, owner, &state.encode());
     }
