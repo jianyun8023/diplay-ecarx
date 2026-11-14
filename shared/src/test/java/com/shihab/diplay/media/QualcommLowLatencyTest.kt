@@ -2,6 +2,7 @@ package com.shihab.diplay.media
 
 import android.graphics.SurfaceTexture
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaCrypto
 import android.media.MediaFormat
 import android.view.Surface
@@ -15,6 +16,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowMediaCodec
+import org.robolectric.shadows.MediaCodecInfoBuilder
+import org.robolectric.shadows.ShadowMediaCodecList
+import java.util.concurrent.atomic.AtomicInteger
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -26,6 +30,8 @@ class QualcommLowLatencyTest {
     private val reports = CopyOnWriteArrayList<String>()
     private val surfaces = mutableListOf<Surface>()
     private var sink: AndroidMediaSink? = null
+    private lateinit var codecConfig: ShadowMediaCodec.CodecConfig
+    private val processed = AtomicInteger()
     private var rejectConfigure = false
     private var rejectPictureOrder = false
     private val avcC = byteArrayOf(1, 0x42, 0xC0.toByte(), 0x1E, 0xFF.toByte(), 0xE1.toByte(),
@@ -37,22 +43,22 @@ class QualcommLowLatencyTest {
         NamedCodec.rejectStart = false
         NamedCodec.failInput = false
         NamedCodec.privateRequest = false
-        ShadowMediaCodec.addDecoder(MediaFormat.MIMETYPE_VIDEO_AVC,
-            ShadowMediaCodec.CodecConfig(64 * 1024, 64 * 1024, object : ShadowMediaCodec.CodecConfig.Codec {
-                override fun onConfigured(format: MediaFormat?, surface: Surface?, crypto: MediaCrypto?, flags: Int) {
-                    formats += checkNotNull(format)
-                    NamedCodec.privateRequest = format.containsKey(QTI_LOW_LATENCY_PARAMETER)
-                    check(!rejectConfigure || !NamedCodec.privateRequest) { "private parameter rejected" }
-                    check(!rejectPictureOrder || !format.containsKey(PICTURE_ORDER_PARAMETER)) { "picture order rejected" }
-                }
-                override fun process(input: ByteBuffer, output: ByteBuffer) { output.put(input) }
-            }))
+        codecConfig = ShadowMediaCodec.CodecConfig(64 * 1024, 64 * 1024, object : ShadowMediaCodec.CodecConfig.Codec {
+            override fun onConfigured(format: MediaFormat?, surface: Surface?, crypto: MediaCrypto?, flags: Int) {
+                formats += checkNotNull(format)
+                NamedCodec.privateRequest = format.containsKey(QTI_LOW_LATENCY_PARAMETER)
+                check(!rejectConfigure || !NamedCodec.privateRequest) { "private parameter rejected" }
+                check(!rejectPictureOrder || !format.containsKey(PICTURE_ORDER_PARAMETER)) { "picture order rejected" }
+            }
+            override fun process(input: ByteBuffer, output: ByteBuffer) { output.put(input); processed.incrementAndGet() }
+        })
     }
 
     @After fun tearDown() {
         sink?.let { it.close(); assertTrue(it.awaitVideoReleased(5_000)) }
         surfaces.forEach(Surface::release)
         ShadowMediaCodec.clearCodecs()
+        ShadowMediaCodecList.reset()
     }
 
     @Test fun pieSubmitsOnlyLowLatencyAndDoesNotClaimItIsEffective() {
@@ -90,8 +96,10 @@ class QualcommLowLatencyTest {
         configure()
         NamedCodec.failInput = true
         sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        awaitCondition { reports.any { "QTI low-latency fallback: codec failed" in it } }
         barrier()
         sink!!.onVideoFrame(110, idr, 3L, System.nanoTime())
+        awaitCondition { formats.size == 2 }
         barrier()
         assertEquals(listOf(true, false), formats.map { it.containsKey(QTI_LOW_LATENCY_PARAMETER) })
         assertTrue(reports.any { "QTI low-latency fallback: codec failed" in it })
@@ -101,6 +109,7 @@ class QualcommLowLatencyTest {
         configure()
         NamedCodec.failInput = true
         sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        awaitCondition { reports.any { "QTI low-latency fallback: codec failed" in it } }
         barrier()
         sink!!.setSurface(111, surface())
         sink!!.onVideoConfig(111, avcC)
@@ -142,8 +151,10 @@ class QualcommLowLatencyTest {
         configure(enabled = false, smooth = true)
         NamedCodec.failInput = true
         sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        awaitCondition { reports.any { "QTI low-latency fallback: codec failed" in it } }
         barrier()
         sink!!.onVideoFrame(110, idr, 3L, System.nanoTime())
+        awaitCondition { formats.size == 2 }
         barrier()
         assertEquals(listOf(true, false), formats.map { it.containsKey(PICTURE_ORDER_PARAMETER) })
         assertTrue(reports.any { "QTI low-latency fallback: codec failed" in it })
@@ -157,13 +168,25 @@ class QualcommLowLatencyTest {
 
     private fun surface() = Surface(SurfaceTexture(0)).also { surfaces += it }
     private fun configure(enabled: Boolean = true, smooth: Boolean = false) {
+        ShadowMediaCodec.addDecoder(NamedCodec.name, codecConfig)
+        ShadowMediaCodecList.addCodec(MediaCodecInfoBuilder.newBuilder().setName(NamedCodec.name)
+            .setCapabilities(MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
+                .setMediaFormat(MediaFormat().apply { setString(MediaFormat.KEY_MIME, MediaFormat.MIMETYPE_VIDEO_AVC) })
+                .setColorFormats(intArrayOf(MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface))
+                .setProfileLevels(emptyArray()).build()).build())
         sink = AndroidMediaSink(surface = null, vendorLowLatencyDecoder = enabled, mainVideoFrameRate = 60,
             videoPacingDelayMillis = if (smooth) 90 else 0)
         sink!!.setVideoDiagnosticHandler(110) { reports += it }
         sink!!.setSurface(110, surface())
         sink!!.onVideoConfig(110, avcC)
         sink!!.onVideoFrame(110, idr, 1L, System.nanoTime())
+        awaitCondition { processed.get() > 0 }
         barrier()
+    }
+    private fun awaitCondition(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (!condition() && System.nanoTime() < deadline) Thread.sleep(10)
+        assertTrue(reports.joinToString("\n"), condition())
     }
     private fun barrier() { assertTrue(sink!!.beginSurfaceDetach(surface(), parkMain = false).await()) }
 

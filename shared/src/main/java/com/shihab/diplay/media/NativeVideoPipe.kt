@@ -7,10 +7,10 @@ import com.shihab.diplay.airplay.NativePacket
 import com.shihab.diplay.airplay.NativeVideoCallbacks
 
 /**
- * A screen stream's decode loop in `libdiplay_media`: frames go from the receiver straight into an
- * NDK MediaCodec in async mode, and the codec's callbacks release pictures paced as [VideoDecoder]
- * paces them, so nothing polls the codec. [VideoDecoder] keeps every decision (which decoder, which
- * format keys, which surface, when to rebuild) and acts on the pipe's events from its worker.
+ * A screen stream's Rust decode loop: frames go directly from the receiver into async NDK MediaCodec.
+ * Rust owns pacing, configuration policy and memory, recovery, and shared keyframe throttling.
+ * [VideoDecoder] supplies platform capabilities and executes codec/Surface operations from its worker,
+ * preserving resource ownership and reporting actual operation results to the core.
  */
 internal class NativeVideoPipe private constructor(private val handle: Long) {
     fun retainTarget(): Long = NativeMedia.pipeRetain(handle)
@@ -47,7 +47,17 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         return Result(status, detail[0])
     }
 
-    fun release() = NativeMedia.pipeRelease(handle)
+    fun release() = NativeMedia.pipeRelease(handle, -1)
+    fun requestKeyframe(nowNanos: Long, force: Boolean) = NativeMedia.pipeRequestKeyframe(handle, nowNanos, force)
+    fun rememberConfiguration(config: VideoJob.Config, hasCodec: Boolean): Int =
+        NativeMedia.pipeRememberConfiguration(handle, config.codec.ordinal, config.codecData, hasCodec)
+    fun lastConfiguration(): VideoJob.Config? = NativeMedia.pipeLastConfiguration(handle)?.let {
+        VideoJob.Config(com.shihab.diplay.airplay.VideoCodec.entries[it[0].toInt()], it.copyOfRange(1, it.size))
+    }
+
+    /** Discard the failed chain only when no newer Config has acquired a hold. */
+    fun configurationFailed(completingConfigHold: Boolean) =
+        NativeMedia.pipeRelease(handle, if (completingConfigHold) 1 else 0)
 
     /** Moves the running decoder to [surface]; [shown] false for the parking consumer. */
     fun setSurface(surface: Surface, shown: Boolean): Boolean = NativeMedia.pipeSetSurface(handle, surface, shown) == 0
@@ -79,14 +89,16 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         const val EVENT_FIRST_FRAME = 7
         const val EVENT_LOG = 8
 
-        /** Null before API 28 or when the platform cannot create an async NDK MediaCodec loop. */
-        fun create(pacingDelayNanos: Long, trackTouches: Boolean, onEvent: (Int, String?) -> Unit): NativeVideoPipe? {
+        /** Video requires the async NDK loop; initialization failure must not select a second decoder path. */
+        fun create(pacingDelayNanos: Long, trackTouches: Boolean, onEvent: (Int, String?) -> Unit): NativeVideoPipe {
             NativeMedia.requireAvailable()
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) return null
+            check(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) { "Native video decoding requires Android 9 / API 28" }
             val callbacks = object : NativeVideoCallbacks() {
                 override fun onEvent(kind: Int, detail: String?) = onEvent(kind, detail)
             }
-            return NativeMedia.pipeCreate(callbacks, pacingDelayNanos, trackTouches).takeIf { it != 0L }?.let(::NativeVideoPipe)
+            val handle = NativeMedia.pipeCreate(callbacks, pacingDelayNanos, trackTouches)
+            check(handle != 0L) { "Native video decode loop could not be created" }
+            return NativeVideoPipe(handle)
         }
     }
 }

@@ -148,8 +148,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_keyfr
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_keyframeRequest(env: *mut JNIEnv, _: jclass, state: jlongArray, now: jlong, force: jboolean) -> jboolean {
     let mut previous = 0; ((**env).GetLongArrayRegion.unwrap())(env, state, 0, 1, &mut previous);
     if ok(env).is_none() { return 0; }
-    if force != 0 || super::keyframe_due(previous, now) {
-        ((**env).SetLongArrayRegion.unwrap())(env, state, 0, 1, &now); 1
+    if super::keyframe_request(&mut previous, now, force != 0) {
+        ((**env).SetLongArrayRegion.unwrap())(env, state, 0, 1, &previous); 1
     } else { 0 }
 }
 #[no_mangle]

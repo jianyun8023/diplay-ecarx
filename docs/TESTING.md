@@ -54,6 +54,26 @@ Siri tests; they do not constitute new on-car acceptance.
 The 2026-10-29 combined capability/ownership and media-session refactor passed the full command
 below: 2,679 tests passed, one existing test skipped, all three lint tasks and Debug builds passed.
 
+## Current Rust-core and video regression evidence
+
+Current build and test totals, source versions, and outstanding device/car acceptance are recorded in
+the [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md). The dated results above describe their original
+batches. For native input preparation and Rust/JVM checks, use [the build guide](BUILD.md#check-the-source-build).
+Kotlin's Android platform fallbacks remain supported; the production core facades require Rust, and
+the old Kotlin algorithms are test references only.
+
+For ARM64 device validation, `NativeVideoStartupDeviceTest` includes these configuration-failure regressions:
+
+- `newHevcConfigKeepsItsOnlyIdrWhenOlderConfigFails`: an older Config failure must preserve the newer Config's only HEVC IDR.
+- `newHevcConfigKeepsItsOnlyIdrWhenPipeRebuildFails`: the same guarantee while a native-requested rebuild has no Config hold.
+
+Both use the real `VideoDecoder` failure cleanup, confirm the replacement decoder configured successfully,
+and then require a rendered frame and the live counters, without sending a replacement HEVC IDR.
+`NativeVideoRouteDeviceTest.encryptedScreenStreamHardwareDecodesToSurfaceWithoutPacketCallbacks` separately
+checks one encrypted AVC IDR through receiver, native route and Surface, with no Kotlin packet callbacks.
+The [startup validation record](benchmarks/native-video-startup-2026-11-14.md) keeps the red/green evidence
+and each batch's totals; ARMv7 fallback and x86_64 emulator coverage do not substitute for ARM64 device results.
+
 ## Host unit tests
 
 For the ECARX microphone lifecycle and the target server's unsupported arbitration, see the

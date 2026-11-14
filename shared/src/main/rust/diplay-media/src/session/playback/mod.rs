@@ -1,5 +1,8 @@
 //! Incremental NowPlaying metadata and renderer activity/route deadlines. JVM owns clocks and text decoding.
 mod jni;
+mod artwork_recovery;
+mod artwork_queue;
+mod publication;
 use crate::protocols::iap2_body::parse_parameter_list;
 
 #[derive(Clone, Debug, Default, PartialEq)]

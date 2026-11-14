@@ -85,24 +85,22 @@ internal fun videoCodecNameFlags(name: String, advertised: Boolean = false): Int
 
 internal object NativeVideoPolicy {
     init { NativeMedia.requireAvailable() }
-    @JvmStatic external fun decoderAttempts(rate: Int, software: Boolean, lowLatency: Boolean, mtkMode: Int): IntArray
     @JvmStatic external fun nameFlags(folded: String, advertised: Boolean): Int
     @JvmStatic external fun mtkMode(mode: Int, op: Int): IntArray
     @JvmStatic external fun mtkSelect(flags: IntArray, mode: Int): Int
     @JvmStatic external fun appliedMtkMode(mode: Int, legacy: Boolean): Int
     @JvmStatic external fun operatingRate(type: Int, labelled: Boolean, frameRate: Int): Int
-    @JvmStatic external fun nextOperatingRate(requested: Int, used: Boolean, usedRate: Int): Int
-    @JvmStatic external fun keepLowLatency(requested: Boolean, used: Boolean, same: Boolean): Boolean
     @JvmStatic external fun lowLatency(flags: IntArray): Int
     @JvmStatic external fun workerWait(drains: Boolean, last: Long, now: Long): Long
     @JvmStatic external fun prefersSoftware(sdk: Int, hevc: Boolean, requested: Boolean): Boolean
     @JvmStatic external fun defaultDecoder(flags: IntArray, software: Boolean, hardwareFailed: Boolean): Int
-    @JvmStatic external fun firstSoftware(flags: IntArray): Int
     @JvmStatic external fun softwareOutcome(owner: LongArray, hardware: Boolean, software: Boolean, preferred: Boolean, sameHardware: Boolean): Int
     @JvmStatic external fun configurationCreate(rate: Int, mtk: Boolean, vendorRefused: Boolean): LongArray
+    @JvmStatic external fun configurationBegin(owner: LongArray, rate: Int, flags: Int, mode: Int, sdk: Int)
+    @JvmStatic external fun configurationNext(owner: LongArray): IntArray
+    @JvmStatic external fun configurationResult(owner: LongArray, success: Boolean, sameLowLatency: Boolean): Int
     @JvmStatic external fun configurationQuery(owner: LongArray, field: Int, capability: Boolean): Long
     @JvmStatic external fun configurationEvent(owner: LongArray, event: Int, a: Int, b: Int, c: Int, flags: Int): Int
-    @JvmStatic external fun attemptAllowed(owner: LongArray, defaultDecoder: Boolean, software: Boolean, sdk: Int): Boolean
     @JvmStatic external fun formatFlags(owner: LongArray, tuned: Boolean, atOnce: Boolean, vendorRequested: Boolean, sdk: Int, advertised: Boolean, pictureListed: Boolean, nameFlags: Int): Int
     @JvmStatic external fun softwareName(folded: String): Boolean
     @JvmStatic external fun select(flags: IntArray, software: Boolean): Int

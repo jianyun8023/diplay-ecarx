@@ -342,9 +342,7 @@ internal class MicrophoneUplink(
         val clock = canceller?.let { CaptureClock(config.sampleRate) }
         val reference = canceller?.let { ShortArray(it.frameSamples) }
         var filled = 0
-        var readRestarts = 0
-        var noAudioRestarts = 0
-        var lastAudioNs = System.nanoTime()
+        val recovery = longArrayOf(0L, 0L, System.nanoTime())
         try {
             while (running.get()) {
                 stats.reading()
@@ -360,10 +358,10 @@ internal class MicrophoneUplink(
                     // ERROR_INVALID_OPERATION, and capture used to end there for the whole call
                     // (#647). Restart recording a few times before giving up.
                     if (running.get() && count != AudioRecord.ERROR_DEAD_OBJECT &&
-                        readRestarts < MAX_READ_RESTARTS && restartRecording(recorder)
+                        NativeAudioScheduler.captureRecovery(recovery, READ_ERROR, 0L, 0L) > 0 && restartRecording(recorder)
                     ) {
-                        readRestarts++
-                        stats.restarted(readRestarts, "read-error", routeType(recorder))
+                        val attempt = NativeAudioScheduler.captureRecovery(recovery, READ_RESTARTED, 0L, 0L)
+                        stats.restarted(attempt, "read-error", routeType(recorder))
                         continue
                     }
                     return
@@ -374,13 +372,10 @@ internal class MicrophoneUplink(
                     // as long as it runs: a Leapmotor T03 (Android 7.1) did this for minutes of Siri and
                     // call capture (#566). Restart it, and pause between empty reads instead of spinning.
                     val now = System.nanoTime()
-                    if (running.get() && noAudioRestarts < MAX_NO_AUDIO_RESTARTS &&
-                        now - lastAudioNs >= noAudioRestartMillis * 1_000_000L
-                    ) {
-                        noAudioRestarts++
-                        lastAudioNs = now
+                    val attempt = if (running.get()) NativeAudioScheduler.captureRecovery(recovery, NO_AUDIO, now, noAudioRestartMillis) else 0
+                    if (attempt > 0) {
                         if (restartRecording(recorder)) {
-                            stats.restarted(noAudioRestarts, "no-audio", routeType(recorder))
+                            stats.restarted(attempt, "no-audio", routeType(recorder))
                         } else {
                             stats.failure(MicrophoneFailureStage.RECORDING, code = recorder.recordingState)
                         }
@@ -389,7 +384,7 @@ internal class MicrophoneUplink(
                     }
                     continue
                 }
-                lastAudioNs = System.nanoTime()
+                NativeAudioScheduler.captureRecovery(recovery, AUDIO_READ, System.nanoTime(), 0L)
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)
@@ -604,14 +599,16 @@ internal class MicrophoneUplink(
 
     private companion object {
         const val TAG = "diplay-usb"
+        const val AUDIO_READ = 0
+        const val READ_ERROR = 1
+        const val READ_RESTARTED = 2
+        const val NO_AUDIO = 3
         const val MIN_READ_BYTES = 2_048
         const val CLOSE_JOIN_MILLIS = 500L
         const val ECHO_TAIL_MILLIS = 250
         const val ECHO_REFERENCE_LEAD_NS = 30_000_000L
-        const val MAX_READ_RESTARTS = 3
         const val READ_RESTART_PAUSE_MILLIS = 50L
         const val NO_AUDIO_RESTART_MILLIS = 1_000L
-        const val MAX_NO_AUDIO_RESTARTS = 3
         const val EMPTY_READ_PAUSE_MILLIS = 5L
         const val MAX_LISTED_RECORDINGS = 4
     }

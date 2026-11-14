@@ -1,10 +1,10 @@
 package com.shihab.diplay
 
+import com.shihab.diplay.media.PlaybackMetadataCore
 import com.shihab.diplay.transport.Iap2FileTransferReceiver
-import java.security.MessageDigest
 import java.util.concurrent.Executor
 
-/** Bounds artwork work and reuses decoded images when iAP2 assigns a new id to identical bytes. */
+/** Rust owns queue and cache policy; this adapter owns platform image references and executors. */
 internal class NowPlayingArtworkQueue<Image : Any>(
     private val worker: Executor,
     private val main: Executor,
@@ -12,75 +12,50 @@ internal class NowPlayingArtworkQueue<Image : Any>(
     private val publish: (owner: Any, id: Int, image: Image?) -> Unit,
     private val discard: (Image) -> Unit,
 ) {
-    private data class Request(val owner: Any, val id: Int, val version: Long, val bytes: ByteArray,
-                               val contentHash: String)
-    private data class RequestInfo(val owner: Any, val id: Int, val version: Long)
-    private class CachedImage<Image : Any>(
-        val image: Image,
-        var references: Int = 0,
-        var published: Boolean = false,
-        var cached: Boolean = true,
-        var discarded: Boolean = false,
-    )
-    private data class Result<Image : Any>(val request: RequestInfo, val content: CachedImage<Image>?)
+    private class Owner(val token: Long)
+    private data class Request(val owner: Owner, val id: Int, val version: Long, val bytes: ByteArray)
+    private class CachedImage<Image : Any>(val image: Image, var references: Int = 0,
+        var published: Boolean = false, var cached: Boolean = true, var discarded: Boolean = false)
+    private data class Result<Image : Any>(val owner: Owner, val id: Int, val version: Long, val content: CachedImage<Image>?)
 
     private val lock = Any()
-    private var owner: Any? = null
-    private var version = 0L
-    private val latest = LongArray(256)
-    private val pending = LinkedHashMap<Int, Request>()
-    private val ready = LinkedHashMap<Int, Result<Image>>()
-    private val decodedByContent = LinkedHashMap<String, CachedImage<Image>>()
+    private val state = PlaybackMetadataCore.artworkCreate()
+    private var owner: Owner? = null
+    private val payloads = mutableMapOf<Long, Request>()
+    private val ready = mutableMapOf<Long, Result<Image>>()
+    private val images = mutableMapOf<Long, CachedImage<Image>>()
     private var workerScheduled = false
     private var deliveryScheduled = false
 
-    /** Runs bounded metadata recovery on the existing worker, away from the UI and PCM. */
     fun execute(task: Runnable) = worker.execute(task)
 
-    /** A fresh token also invalidates a decode already in progress. */
     fun newSession(): Any = synchronized(lock) {
-        clearLocked()
-        Any().also { owner = it }
+        val result = PlaybackMetadataCore.artworkEvent(state, 0)
+        owner = Owner(result[0])
+        sync(result)
+        owner!!
     }
 
-    fun clear() = synchronized(lock) { clearLocked() }
-
-    private fun clearLocked() {
+    fun clear() = synchronized(lock) {
+        val result = PlaybackMetadataCore.artworkEvent(state, 1)
         owner = null
-        pending.clear()
-        ready.values.forEach(::releaseLocked)
-        ready.clear()
-        decodedByContent.values.forEach {
-            it.cached = false
-            discardIfUnownedLocked(it)
-        }
-        decodedByContent.clear()
+        sync(result)
     }
 
     fun submit(expected: Any, id: Int, bytes: ByteArray) {
         if (bytes.isEmpty() || id !in 0..255 || bytes.size > Iap2FileTransferReceiver.DEFAULT_MAXIMUM_ARTWORK_BYTES) return
-        val hash = contentHash(bytes)
+        val target = expected as? Owner ?: return
+        val hash = PlaybackMetadataCore.artworkHash(bytes)
         var scheduleWorker = false
         var scheduleDelivery = false
         synchronized(lock) {
             if (owner !== expected) return
-            val requestVersion = ++version
-            latest[id] = requestVersion
-            pending.remove(id)
-            val info = RequestInfo(expected, id, requestVersion)
-            val cached = decodedByContent[hash]
-            if (cached != null) {
-                touchContentLocked(hash, cached)
-                scheduleDelivery = enqueueReadyLocked(info, cached)
-            } else {
-                ready.remove(id)?.let(::releaseLocked)
-                pending[id] = Request(expected, id, requestVersion, bytes, hash)
-                while (pending.size > MAX_PENDING) pending.remove(pending.keys.first())
-                if (!workerScheduled) {
-                    workerScheduled = true
-                    scheduleWorker = true
-                }
-            }
+            val result = PlaybackMetadataCore.artworkEvent(state, 2, target.token, id.toLong(), hash = hash)
+            if (result[0] == 0L) return
+            payloads[result[0]] = Request(target, id, result[0], bytes)
+            sync(result)
+            if (payloads.isNotEmpty() && !workerScheduled) { workerScheduled = true; scheduleWorker = true }
+            if (ready.isNotEmpty() && !deliveryScheduled) { deliveryScheduled = true; scheduleDelivery = true }
         }
         if (scheduleDelivery) main.execute(::deliver)
         if (scheduleWorker) worker.execute(::drain)
@@ -88,82 +63,65 @@ internal class NowPlayingArtworkQueue<Image : Any>(
 
     private fun drain() {
         while (true) {
+            var scheduleDelivery = false
+            var cacheHit = false
             val request = synchronized(lock) {
-                if (pending.isEmpty()) {
-                    workerScheduled = false
-                    return
-                }
-                pending.remove(pending.keys.first())!!
+                val result = PlaybackMetadataCore.artworkEvent(state, 3)
+                cacheHit = result[0] == -1L
+                val request = payloads.remove(result[0])
+                sync(result)
+                if (ready.isNotEmpty() && !deliveryScheduled) { deliveryScheduled = true; scheduleDelivery = true }
+                if (request == null && !cacheHit) workerScheduled = false
+                request
             }
-            val info = RequestInfo(request.owner, request.id, request.version)
-            if (!isCurrent(info)) continue
-
-            var stale = false
-            var cachedSchedule: Boolean? = null
-            synchronized(lock) {
-                if (!isCurrentLocked(info)) {
-                    stale = true
-                } else {
-                    decodedByContent[request.contentHash]?.let { cached ->
-                        touchContentLocked(request.contentHash, cached)
-                        cachedSchedule = enqueueReadyLocked(info, cached)
-                    }
-                }
+            if (scheduleDelivery) main.execute(::deliver)
+            if (cacheHit) continue
+            if (request == null) return
+            val current = synchronized(lock) {
+                val valid = PlaybackMetadataCore.artworkEvent(state, 6, request.owner.token,
+                    request.id.toLong(), request.version)[0] != 0L
+                if (!valid) sync(PlaybackMetadataCore.artworkEvent(state, 4, version = request.version))
+                valid
             }
-            if (stale) continue
-            if (cachedSchedule != null) {
-                if (cachedSchedule == true) main.execute(::deliver)
-                continue
-            }
-            if (!isCurrent(info)) continue
-
+            if (!current) continue
             val image = try { decode(request.bytes) } catch (_: RuntimeException) { null }
             val schedule = synchronized(lock) {
-                if (!isCurrentLocked(info)) {
-                    stale = true
-                    image?.let(discard)
-                    false
-                } else {
-                    val content = if (image == null) null else {
-                        val existing = decodedByContent[request.contentHash]
-                        if (existing != null) {
-                            image.let(discard)
-                            touchContentLocked(request.contentHash, existing)
-                            existing
-                        } else {
-                            CachedImage(image).also {
-                                decodedByContent[request.contentHash] = it
-                                trimContentCacheLocked()
-                            }
-                        }
-                    }
-                    enqueueReadyLocked(info, content)
+                val result = PlaybackMetadataCore.artworkEvent(state, 4, id = if (image == null) 0 else 1,
+                    version = request.version)
+                if (image != null) {
+                    if (result[0] == 2L) images[result[1]] = CachedImage(image) else discard(image)
                 }
+                sync(result)
+                if (ready.isNotEmpty() && !deliveryScheduled) { deliveryScheduled = true; true } else false
             }
-            if (!stale && schedule) main.execute(::deliver)
+            if (schedule) main.execute(::deliver)
         }
     }
 
-    private fun enqueueReadyLocked(info: RequestInfo, content: CachedImage<Image>?): Boolean {
-        ready.remove(info.id)?.let(::releaseLocked)
-        content?.references = (content?.references ?: 0) + 1
-        ready[info.id] = Result(info, content)
-        while (ready.size > MAX_PENDING) ready.remove(ready.keys.first())?.let(::releaseLocked)
-        if (deliveryScheduled) return false
-        deliveryScheduled = true
-        return true
-    }
-
-    private fun touchContentLocked(hash: String, content: CachedImage<Image>) {
-        decodedByContent.remove(hash)
-        decodedByContent[hash] = content
-    }
-
-    private fun trimContentCacheLocked() {
-        while (decodedByContent.size > MAX_CACHED_CONTENT) {
-            val oldest = decodedByContent.remove(decodedByContent.keys.first()) ?: continue
-            oldest.cached = false
-            discardIfUnownedLocked(oldest)
+    /** Apply resource retention changes selected by Rust; image lifetimes remain platform-owned. */
+    private fun sync(snapshot: LongArray) {
+        var index = 3
+        val pendingVersions = mutableSetOf<Long>()
+        repeat(snapshot[index++].toInt()) { pendingVersions.add(snapshot[index++]) }
+        payloads.keys.retainAll(pendingVersions)
+        val entries = mutableListOf<Triple<Long, Int, Long>>()
+        repeat(snapshot[index++].toInt()) { entries.add(Triple(snapshot[index++], snapshot[index++].toInt(), snapshot[index++])) }
+        val retained = entries.mapTo(mutableSetOf()) { it.first }
+        val removed = ready.keys.filter { it !in retained }
+        removed.forEach { ready.remove(it)?.let(::releaseLocked) }
+        for ((version, id, image) in entries) {
+            if (version !in ready) {
+                val content = if (image == -1L) null else checkNotNull(images[image])
+                content?.references = (content?.references ?: 0) + 1
+                ready[version] = Result(checkNotNull(owner), id, version, content)
+            }
+        }
+        val cached = mutableSetOf<Long>()
+        repeat(snapshot[index++].toInt()) { cached.add(snapshot[index++]) }
+        for ((id, content) in images.toMap()) {
+            content.cached = id in cached
+            discardIfUnownedLocked(content)
+            if (!content.cached && content.references == 0) images.remove(id)
         }
     }
 
@@ -172,6 +130,7 @@ internal class NowPlayingArtworkQueue<Image : Any>(
         content.references--
         check(content.references >= 0) { "Artwork cache reference underflow" }
         discardIfUnownedLocked(content)
+        if (!content.cached && content.references == 0) images.entries.removeAll { it.value === content }
     }
 
     private fun discardIfUnownedLocked(content: CachedImage<Image>) {
@@ -184,46 +143,27 @@ internal class NowPlayingArtworkQueue<Image : Any>(
     private fun deliver() {
         while (true) {
             val result = synchronized(lock) {
-                if (ready.isEmpty()) {
-                    deliveryScheduled = false
-                    return
-                }
-                ready.remove(ready.keys.first())!!
-            }
+                val snapshot = PlaybackMetadataCore.artworkEvent(state, 5)
+                val result = ready.remove(snapshot[0])
+                sync(snapshot)
+                if (result == null) deliveryScheduled = false
+                result
+            } ?: return
             var delivered = false
             try {
-                if (isCurrent(result.request)) {
-                    publish(result.request.owner, result.request.id, result.content?.image)
+                val current = synchronized(lock) {
+                    PlaybackMetadataCore.artworkEvent(state, 6, result.owner.token, result.id.toLong(), result.version)[0] != 0L
+                }
+                if (current) {
+                    publish(result.owner, result.id, result.content?.image)
                     delivered = true
                 }
             } finally {
-                result.content?.let { content ->
-                    synchronized(lock) {
-                        if (delivered) content.published = true
-                        releaseLocked(result)
-                    }
+                synchronized(lock) {
+                    result.content?.let { if (delivered) it.published = true }
+                    releaseLocked(result)
                 }
             }
         }
-    }
-
-    private fun isCurrent(info: RequestInfo): Boolean = synchronized(lock) { isCurrentLocked(info) }
-    private fun isCurrentLocked(info: RequestInfo): Boolean = owner === info.owner && latest[info.id] == info.version
-
-    private fun contentHash(bytes: ByteArray): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-        val chars = CharArray(digest.size * 2)
-        for (index in digest.indices) {
-            val value = digest[index].toInt() and 0xff
-            chars[index * 2] = HEX[value ushr 4]
-            chars[index * 2 + 1] = HEX[value and 0x0f]
-        }
-        return String(chars)
-    }
-
-    private companion object {
-        const val MAX_PENDING = 4 // At most 8 MiB compressed, plus the one decode in progress.
-        const val MAX_CACHED_CONTENT = 4
-        const val HEX = "0123456789abcdef"
     }
 }

@@ -32,10 +32,6 @@ internal class NavigationPromptFocus(
     private val audioFocusEnabled: Boolean,
     private val attributes: () -> AudioAttributes,
     private val report: (String) -> Unit = {},
-    private val releaseDelayMillis: Long = RELEASE_DELAY_MILLIS,
-    private val timeoutMillis: Long = TIMEOUT_MILLIS,
-    private val streamTimeoutMillis: Long = STREAM_TIMEOUT_MILLIS,
-    private val audibleReleaseDelayMillis: Long = AUDIBLE_RELEASE_DELAY_MILLIS,
     private val clock: () -> Long = android.os.SystemClock::elapsedRealtime,
     /**
      * True when a new request is not needed: the prompt plays through focus the music already holds.
@@ -52,28 +48,25 @@ internal class NavigationPromptFocus(
     private var request: AudioFocusRequestCompat? = null
     private var pendingRelease: Runnable? = null
     private var skipReported = false
-    private var closed = false
-    private var iphoneDucking = false
-    private var audibleStreams = 0
+    private val promptState = LongArray(3)
     private var heldSince = 0L
     private var skipping = false
 
     @Synchronized
     fun onDuck() {
-        if (closed || !promptFocusEnabled) return
-        iphoneDucking = true
+        if (NativeAudioScheduler.promptFocus(promptState, DUCK, promptFocusEnabled, request != null) != ACQUIRE) return
         if (!acquire("duck")) return
         // Each duck restarts the timeout, and a duck right after an unduck keeps the same request.
-        scheduleRelease("timeout", if (audibleStreams > 0) streamTimeoutMillis else timeoutMillis)
+        val timeout = NativeAudioScheduler.promptFocus(promptState, DUCK_TIMEOUT, promptFocusEnabled, request != null)
+        scheduleRelease("timeout", timeout.toLong())
     }
 
     /** The prompt's last audio is still in DiPlay's buffers when the iPhone sends unduckAudio. */
     @Synchronized
     fun onUnduck() {
-        iphoneDucking = false
-        if (closed || request == null) return
         // Navigation sound still playing keeps the prompt going; its silence releases the focus.
-        if (audibleStreams == 0) scheduleRelease("unduck", releaseDelayMillis)
+        val delay = NativeAudioScheduler.promptFocus(promptState, UNDUCK, promptFocusEnabled, request != null)
+        if (delay > 0) scheduleRelease("unduck", delay.toLong())
     }
 
     /**
@@ -82,15 +75,15 @@ internal class NavigationPromptFocus(
      */
     @Synchronized
     fun onNavigationAudio(audible: Boolean) {
-        audibleStreams = (audibleStreams + if (audible) 1 else -1).coerceAtLeast(0)
-        if (closed || !promptFocusEnabled) return
-        if (audible) {
+        val action = NativeAudioScheduler.promptFocus(promptState, if (audible) AUDIBLE else SILENT, promptFocusEnabled, request != null)
+        if (action == ACQUIRE) {
             if (!acquire("audio")) return
             // Only bounds a renderer that never reports its silence.
-            scheduleRelease("timeout", streamTimeoutMillis)
-        } else if (audibleStreams == 0 && !iphoneDucking && request != null) {
+            val timeout = NativeAudioScheduler.promptFocus(promptState, AUDIO_TIMEOUT, promptFocusEnabled, request != null)
+            scheduleRelease("timeout", timeout.toLong())
+        } else if (action > 0) {
             // The renderer reports silence after it has waited out its own playout delay.
-            scheduleRelease("silence", audibleReleaseDelayMillis)
+            scheduleRelease("silence", action.toLong())
         }
     }
 
@@ -131,8 +124,7 @@ internal class NavigationPromptFocus(
 
     @Synchronized
     fun close() {
-        if (closed) return
-        closed = true
+        if (NativeAudioScheduler.promptFocus(promptState, CLOSE, promptFocusEnabled, request != null) == 0) return
         release("closed")
     }
 
@@ -189,14 +181,14 @@ internal class NavigationPromptFocus(
     }
 
     internal companion object {
+        private const val DUCK = 0
+        private const val UNDUCK = 1
+        private const val AUDIBLE = 2
+        private const val SILENT = 3
+        private const val CLOSE = 4
+        private const val DUCK_TIMEOUT = 5
+        private const val AUDIO_TIMEOUT = 6
+        private const val ACQUIRE = 1
         const val TAG = "DiPlay-AudioFocus"
-        /** Covers the playout delay after unduckAudio and joins back-to-back prompts. */
-        const val RELEASE_DELAY_MILLIS = 1_000L
-        /** Longest hold without unduckAudio; reported prompts lasted up to about 15 s. */
-        const val TIMEOUT_MILLIS = 30_000L
-        /** Longest hold for navigation sound that never reports its end. */
-        const val STREAM_TIMEOUT_MILLIS = 60_000L
-        /** Added to the renderer's own silence wait; together about the old 1 s tail. */
-        const val AUDIBLE_RELEASE_DELAY_MILLIS = 400L
     }
 }

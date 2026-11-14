@@ -10,15 +10,17 @@ Select `mobile` to build the main DiPlay app.
 
 | Gradle module | Purpose | Debug APK |
 | --- | --- | --- |
-| `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk` |
+| `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk` |
 | `:maphost` | Sample application that displays a map from DiPlay | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
 | `:home` | Optional DiPlay Home launcher | `samples/home/build/outputs/apk/debug/home-debug.apk` |
+| `:siribridge` | Steering-wheel voice-key bridge to Siri | `integrations/siri/build/outputs/apk/debug/siribridge-debug.apk` |
 
 The `:common` and `:shared` modules are libraries.
-The applications use these libraries.
+The main app uses them; the other applications do not package the Rust core.
 
 If the installed app is **DiPlay map host**, you selected `:maphost` or its APK.
-Build `:mobile` and select `mobile-debug.apk` to install the main app.
+Build `:mobile` and select its `arm64-v8a` APK for the production target.
+ARMv7 is the fallback; x86_64 is for emulator testing. Each main-app APK contains one ABI.
 A command such as `./gradlew assembleDebug` can build more than one application.
 Use the module name in each build command to select the required application.
 
@@ -31,7 +33,8 @@ Install these tools:
 - Android SDK Build-Tools 36.0.0.
 - Android SDK Platform-Tools.
 - Rust 1.97.1 for core unit tests, JVM JNI tests, and cross-compiling the Android native library.
-- Android NDK 28.2.13676358 to build the Rust library required by every Android APK/AAR build.
+- Android NDK 28.2.13676358 to build the Rust library packaged by `shared` and the main app.
+- CMake and a host C/C++ build toolchain for bundled libopus and host JNI tests.
 - Python 3 for Rust artifact provenance checks and JNI staging.
 
 Use the Gradle wrapper included in this repository.
@@ -64,6 +67,9 @@ java -version
 
 The output must identify Java 25.
 On Windows, use `gradlew.bat` in place of `./gradlew` in the commands below.
+The native Android build scripts use Linux/macOS NDK host directories. For Windows Gradle builds,
+use the matching three-ABI libraries and receipts from Android checks, or build them on Linux/macOS,
+then select their directory with `DIPLAY_JNI_LIBS_DIR` as described below.
 
 ### Prepare Rust Android inputs
 
@@ -110,7 +116,7 @@ For a source build without runtime authentication assets:
 Check that this file exists:
 
 ```text
-mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk
+mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk
 ```
 
 The debug application ID is `com.shihab.diplay.hudtest`.
@@ -163,7 +169,9 @@ Shared-only contracts that access internal core owners live in `shared/src/testC
 and are included only in shared JVM/Android tests. Common/home reuse the general test references and
 real-host JNI shadows without compiling those internal contracts.
 For the complete CI procedure, see [the Android workflow](../.github/workflows/android.yml).
-That workflow also checks and builds the `home` and `maphost` applications.
+That workflow also checks and builds the `home`, `maphost` and `siribridge` applications,
+and runs Release R8 optimization for all four apps. Current device acceptance is recorded in
+the [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md), separately from CI results.
 
 ## Build a standalone car-test APK
 
@@ -188,7 +196,8 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 ```
 
 The task stops if either required file is absent or empty.
-Its APK output is `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-debug.apk`.
+Its ARM64 APK output is `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk`;
+the same task also produces ARMv7 and x86_64 splits.
 Check both files in the APK against your selected local inputs:
 
 - `assets/offline-mfi/identity.pk8`.
@@ -234,20 +243,27 @@ That opt-in embeds the runtime identity in the APK, where recipients can extract
 
 ### GitHub Release automation
 
-The Android checks workflow runs locked Rust core unit tests, cross-compiles all three Rust Android ABIs, validates their ELF/JNI contracts, and packages those fresh libraries into Debug and Release APKs on `dev`/`main` pushes and pull requests. It also verifies that each split Debug APK contains only its own Rust ABI.
-Publishing a GitHub Release also runs those checks, then signs one Release APK per ABI and attaches
+The [Android checks workflow](../.github/workflows/android.yml) runs locked Rust core and JVM tests,
+cross-compiles all three Rust Android ABIs, validates their ELF/JNI contracts, builds Debug APKs,
+and checks Release R8 optimization on `dev`/`main` pushes and pull requests. It verifies that each
+split Debug APK contains only its own Rust ABI. Documentation-only changes skip the heavy jobs
+and still report the aggregate `check` result.
+
+The separate [Release workflow](../.github/workflows/release.yml) runs on a published GitHub Release
+or manual dispatch. It rebuilds and verifies the native libraries, runs main-app Release lint,
+then signs one Release APK per ABI. It does not rerun Rust/JVM tests or wait for the separate
+Android checks workflow. A published Release receives
 `DiPlay-v<versionCode>-arm64-v8a-release.apk`, `DiPlay-v<versionCode>-armeabi-v7a-release.apk`,
-`DiPlay-v<versionCode>-x86_64-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt` to that Release.
+`DiPlay-v<versionCode>-x86_64-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt`.
 `update.json` carries an `apks` map so each device downloads the package built for its own ABI; the
 top-level `apk` remains the ARM64 default.
 The mapping is included in the checksums and retained as a Release asset beyond the Actions artifact retention period.
 A manually dispatched run builds the selected ref
 and uploads the same files as the `DiPlay-signed-release` Actions artifact without publishing a Release.
 
-The released tag must include the updated `.github/workflows/android.yml`.
+The released tag supplies `.github/workflows/release.yml` and the source to build.
 Creating a release branch, pushing a tag alone, or saving an unpublished draft does not publish an APK.
 Increment `mobile`'s `versionCode` before each new version; the workflow uses the checked-out source value.
-Version 146 supersedes the existing v145 vehicle package.
 
 Configure these repository Actions secrets:
 
@@ -258,7 +274,7 @@ Configure these repository Actions secrets:
 | `ANDROID_KEY_ALIAS` | Existing signing key alias |
 | `ANDROID_KEY_PASSWORD` | Signing key password |
 
-Only the Release job uses the secrets, after the checks pass. It restores the keystore in the runner's temporary
+Only the Release job uses the secrets. After its native verification, it restores the keystore in the runner's temporary
 directory, removes it after use, verifies the APK signature for Android 9, and rejects bundled MFi or key containers.
 No MFi secrets are required or uploaded. Keep the same signing identity for updates and vehicle platform permissions.
 

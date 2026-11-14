@@ -346,8 +346,35 @@ open class ShadowNativeMedia {
 
         @JvmStatic @Implementation fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int =
             HostNative.call("airplay.NativeMedia", "pcmProcess", handle, buffer, length, flags, attenuationDb, peak) as Int
-        // The macOS host has no Android NDK decoder; SDK MediaCodec replay stays available.
-        @JvmStatic @Implementation fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long = 0L
+        // Host tests exercise the same pipe boundary through an explicit SDK-only fixture.
+        @JvmStatic @Implementation fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long =
+            HostVideoPipe.create(callbacks)
+        // Synthetic host handles must never be handed to a native receiver as NDK pointers.
+        @JvmStatic @Implementation fun pipeRetain(handle: Long): Long = 0L
+        @JvmStatic @Implementation fun pipeConfigure(handle: Long, name: String?, mime: String, width: Int, height: Int,
+            keys: Array<String>, values: IntArray, csd0: ByteArray?, csd1: ByteArray?, surface: android.view.Surface,
+            hevc: Boolean, reportVendorFormat: Boolean, detailOut: Array<String?>): Int =
+            HostVideoPipe.get(handle).configure(name, mime, width, height, keys, values, csd0, csd1,
+                surface, hevc, reportVendorFormat, detailOut)
+        @JvmStatic @Implementation fun pipeRelease(handle: Long, failedConfigHolds: Int) { HostVideoPipe.get(handle).release(failedConfigHolds) }
+        @JvmStatic @Implementation fun pipeRequestKeyframe(handle: Long, nowNanos: Long, force: Boolean): Boolean =
+            HostVideoPipe.get(handle).requestKeyframe(nowNanos, force)
+        @JvmStatic @Implementation fun pipeRememberConfiguration(handle: Long, codec: Int, data: ByteArray, hasCodec: Boolean): Int =
+            HostVideoPipe.get(handle).rememberConfiguration(codec, data, hasCodec)
+        @JvmStatic @Implementation fun pipeLastConfiguration(handle: Long): ByteArray? = HostVideoPipe.get(handle).lastConfiguration()
+        @JvmStatic @Implementation fun pipeSetSurface(handle: Long, surface: android.view.Surface, shown: Boolean): Int =
+            HostVideoPipe.get(handle).setSurface(surface, shown)
+        @JvmStatic @Implementation fun pipeHold(handle: Long, hold: Boolean) { HostVideoPipe.get(handle).hold(hold) }
+        @JvmStatic @Implementation fun pipeSetAccepting(handle: Long, accepting: Boolean, resetChain: Boolean) {
+            HostVideoPipe.get(handle).accepting(accepting, resetChain)
+        }
+        @JvmStatic @Implementation fun pipeSubmit(handle: Long, frame: Long, size: Int, flags: Int, senderNanos: Long, arrivalNanos: Long) {
+            HostVideoPipe.get(handle).submit(frame, size, flags, senderNanos, arrivalNanos)
+        }
+        @JvmStatic @Implementation fun pipeLive(handle: Long, out: LongArray) { HostVideoPipe.get(handle).live(out) }
+        @JvmStatic @Implementation fun pipeTakeStats(handle: Long, out: LongArray, decodeMicros: IntArray): Int =
+            HostVideoPipe.get(handle).takeStats(out, decodeMicros)
+        @JvmStatic @Implementation fun pipeDestroy(handle: Long) { HostVideoPipe.destroy(handle) }
 
     }
 }

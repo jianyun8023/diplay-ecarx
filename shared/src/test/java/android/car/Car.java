@@ -12,7 +12,7 @@ public final class Car {
     public static Car last;
     /** Property values the next car's manager starts with. */
     public static final java.util.Map<Integer, Object> seeded = new java.util.HashMap<>();
-    public final CarPropertyManager properties = new CarPropertyManager();
+    public CarPropertyManager properties = new CarPropertyManager();
     public boolean connected;
     public boolean disconnected;
     private final ServiceConnection connection;
@@ -38,6 +38,13 @@ public final class Car {
     public boolean isConnected() { return connected; }
 
     public void disconnect() { connected = false; disconnected = true; }
+
+    /** A service loss invalidates the old manager; connect() delivers the recovery callback. */
+    public void disconnectService() {
+        connected = false;
+        properties = new CarPropertyManager();
+        connection.onServiceDisconnected(new ComponentName("android.car", "CarService"));
+    }
 
     public Object getCarManager(String name) { return "property".equals(name) ? properties : null; }
 }

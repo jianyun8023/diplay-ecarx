@@ -241,7 +241,7 @@ class AndroidMediaSinkCodecDetachTest {
         assertFalse(stuck.field<Thread>("thread").isAlive)
         assertTrue(barrier(sink))
         assertNull(fresh.field<Surface?>("outputSurface"))
-        assertNotNull("it picked up the stream's configuration", fresh.field<Any?>("lastConfig"))
+        assertNotNull("it picked up the stream's configuration", fresh.field<NativeVideoPipe>("pipe").lastConfiguration())
         assertEquals("no codec was started on A again", listOf<Surface?>(a), codec.configuredSurfaces.toList())
 
         sink.setSurface(110, c)
@@ -525,7 +525,8 @@ class AndroidMediaSinkCodecDetachTest {
 
     private fun mainDecoder(sink: AndroidMediaSink): Any = checkNotNull(decoders(sink)[110]) { "no main decoder" }
 
-    private fun mediaCodecOf(decoder: Any): MediaCodec? = decoder.field("decoder")
+    private fun mediaCodecOf(decoder: Any): MediaCodec? =
+        com.shihab.diplay.testcore.HostVideoPipe.codec(decoder.field<Any>("pipe").field("handle"))
 
     private fun parkingOf(decoder: Any): ParkingOutput? = decoder.field("parking")
 

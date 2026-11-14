@@ -57,8 +57,8 @@
 | DIM 总线（MQTT） | `se.cevt.dimsupportservice` 在回环 broker 上的 `ihu/…` 主题：`ihu/info/phoneprojection`、`ihu/events/navigation/ongoing`、`…/distance`、`…/ETA`、`…/fullscreenmap`、`ihu/info/navigation/turn-by-turn/{next-turn,icon,lanesupport}`、`ihu/heartbeat/navigation` | 自实现 MQTT 3.1.1 帧；只发布投屏状态两个主题，其余只订阅观测（QoS 0，独立 clean session） | `EcarxMqtt`、`EcarxProjectionChannel`、`EcarxNavigationMqttObserver` | 实车抓包、原厂服务反编译 |
 | 日夜 | `Device.create(context)` → `IDayNightMode.registerDayNightModeCallBack`；车身光线属性 `0x21400305`（`TwliBriSts`，1 日 0 夜）；高德广播 `AUTONAVI_STANDARD_BROADCAST_SEND` `KEY_TYPE=10019`，`EXTRA_STATE` 30 日 32 夜 | 反射推送 + `Car` 属性订阅 + 广播 | `EcarxDayNight` | 实车：属性变化后数毫秒内 AdaptAPI 推送相同结论 |
 | 车身信号（只读诊断） | `GeelyVehicleProperty` 的 usageMode（11/13 为上电态）与五个车门 | `Car` 属性订阅 | `EcarxVehicleSignalProbe` | HY 读主驾门、嘟嘟读全部车门 |
-| PASCD 真实车速 | `Car.create(context)`／`ICar.getSensorManager()` → `ISensor` 的 1048832（`SENSOR_TYPE_CAR_SPEED`），`isSensorSupported` 为 active 后读取／订阅 `getSensorLatestValue`／`registerListener(..., 3)`，单位 m/s | 只读 AdaptAPI；不使用 GPS 速度替代。`SensorPaUtil` 将 `PaNaviVehSpeed` 原始值除以 100，0–125 m/s | `EcarxVehicleSpeedSource` → `VehicleSpeedLocationProvider` → 既有 Rust PASCD | 2026-11-13 复核：Ultra `exp/carplay-ultra-bench` 与 origin 同为 `eee320468c154e43420b255409a6453edb5543fa`，参考 worktree clean；2026-11-11 分支实车反馈取得车速；本地真实 753 SDK `SensorImpl`／`SensorPaUtil`／`SensorListener` |
-| PASCD 挡位 | `CarPropertyManager` 的 `GEAR_SELECTION=289408000`（0x11400400），global area 0、Integer、on-change；只接受 `CarPropertyValue.getStatus()==0`。`CarSensorEvent` 的 P=4／R=2／N=1／D=8；未知值不替代成 P／D | 只读 `android.car.Car.createCar(context, ServiceConnection, Handler)`／property manager，读初值及注册回调；声明并检查 `android.car.permission.CAR_POWERTRAIN`，权限／接口缺失则保留 Android 位置而不声明 wheel-speed | `EcarxVehicleSpeedSource` | 2026-11-13 注册：实车 `logs/v141-cartest-20261108/env/car_service.txt` 列出该属性；真实固件 `PropertyHalServiceIds` 将其绑定 CAR_POWERTRAIN，SDK `VehiclePropertyIds`／`CarSensorEvent` 确认枚举。AdaptAPI 的 gear 常量 2097664 在本固件 `SensorImpl`／`SensorListener` 未实现，不作为备用来源 |
+| PASCD 真实车速 | `Car.create(context)`／`ICar.getSensorManager()` → `ISensor` 的 1048832（`SENSOR_TYPE_CAR_SPEED`），`isSensorSupported` 为 active 后读取／订阅 `getSensorLatestValue`／`registerListener(..., 3)`，单位 m/s | 只读 AdaptAPI；不使用 GPS 速度替代。`SensorPaUtil` 将 `PaNaviVehSpeed` 原始值除以 100，0–125 m/s | `EcarxVehicleSpeedSource` → `VehicleSpeedLocationProvider` → 既有 Rust PASCD | 2026-11-13 复核：Ultra `exp/carplay-ultra-bench` 与 origin 同为 `eee320468c154e43420b255409a6453edb5543fa`，参考 worktree clean；2026-11-11 分支实车反馈取得车速；旧系统日志另有 0.17–0.37 非零回调。真实 753 SDK 转换及默认订阅、HY 客户端 m/s→km/h 与当前实现相符；[11 月 14 日复核](benchmarks/vehicle-speed-2026-11-14.md) |
+| PASCD 挡位 | `CarPropertyManager` 的 `GEAR_SELECTION=289408000`（0x11400400），global area 0、Integer、on-change；只接受 `CarPropertyValue.getStatus()==0`。`CarSensorEvent` 的 P=4／R=2／N=1／D=8；未知值不替代成 P／D | 只读 `android.car.Car.createCar(context, ServiceConnection, Handler)`／property manager，读初值及注册回调；声明并检查 `android.car.permission.CAR_POWERTRAIN`，权限／接口缺失则保留 Android 位置而不声明 wheel-speed | `EcarxVehicleSpeedSource` | 2026-11-13 注册：实车 `logs/v141-cartest-20261108/env/car_service.txt` 列出该属性；真实固件 `PropertyHalServiceIds` 将其绑定 CAR_POWERTRAIN，SDK `VehiclePropertyIds`／`CarSensorEvent` 确认枚举。AdaptAPI 的 gear 常量 2097664 在本固件 `SensorImpl`／`SensorListener` 未实现，不作为备用来源；2026-11-14 补核 HY DCYTools 1.13：同样通过 `CarPropertyManager` 订阅 289408000 并透传整数值，支持当前接口选择，不替代实际换挡验收 |
 | 方向盘键（拦截 API） | `com.ecarx.xui.adaptapi.input.Input.requestKeysInterception(int[], IKeyCallback)`；键码在 200000 偏移空间，普通 `dispatchKeyEvent` 收不到 | 反射 | `EcarxSwKeyIntercept`、`EcarxSwKey` | 参考应用 `SWKeyActivity` |
 | 方向盘语音 / 电话键（广播） | `ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT`、`ECARX_KEY_RCALL_EVENT`，extra `ecarx.extra.ECARX_KEY_ACTION_TYPE`；匹配后 `abortBroadcast()` 夺取 | 有序广播接收器 | `EcarxKeyBroadcasts` | 车机按键服务 `media$EcarXVoiceKey` 接收器 |
 | 方向盘原始键（Geely） | `com.geely.inputservice.InputService` 导出，`registerListener` 无权限检查 | 绑定服务订阅原始码 | `GeelyWheelKeys` | 车机 `KeyInputController` 同法 |
@@ -180,35 +180,44 @@ stateDiagram-v2
 
 ## 7. 验证矩阵
 
+2026-11-14 用户确认 SDK 接口、189.6 秒启动记录、导航音量键、日夜初始化、蓝牙媒体让位、HUD／车道、双屏生命周期、#111 echo 引用切换及已有性能记录均 OK，停止重复核验。下面旧版本的测量范围保留为历史证据；当前待办以[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)为准。用户确认不改写历史测试执行结果。
+
 状态：**实车** = 本车确认；**台架** = 其他 Android 设备 + 真 iPhone；**模拟器** = Android 9 模拟器 + 回放；**待验** = 只有软件测试。版本是最后一次取得该证据的包。
 
 | 功能 | 状态 | 版本 / 日期 | 备注 |
 | --- | --- | --- | --- |
 | 无线 CarPlay 基本连接、画面、触摸、音乐 | 实车 | v142 车测包 2026-11-08 | 日常使用基线 |
-| USB 连接（插线只充电 / 开关后切有线） | 实车 | v122 2026-11-04 | USB 卡顿、取消授权回退未解 |
+| USB 连接（插线只充电 / 开关后切有线） | 实车 | v122 2026-11-04 | 当时观察到卡顿、取消授权回退问题；当前版本是否仍复现待核，不作为新 Rust NCM 实车验收。 |
+| Rust 原生 NCM FD 快路径／重连 | 台架 | v149／#104，2026-11-13，小米 8＋真实 iPhone | native USB I/O、历史 4 次拔插及修复后 3 轮重启已有证据；原 CSV 另确认 156 秒有线采样。2026-11-14 用户确认当前状态 OK，本轮已收尾。各批 APK、主动操作背景与未覆盖范围见[USB 验收记录](benchmarks/native-usb-2026-11-13.md)；本轮不追加补测。 |
 | 电话接打、通话中音乐导航暂停与恢复 | 实车 | 2026-11-01 | 通话音质实验选项不在内 |
-| 仪表封面图片、导航车道、可视区域 | 实车 | v108 及之前 | 车道只验证隐藏路径；显示恢复、多分支高亮待验 |
+| Rust AAudio 音乐／导航与关闭时序 | 实车 | v149 含 `d16ed0a1`，2026-11-13 | [实车审计](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6841704520)确认正常关闭、无 PAUSING flush 错误；不覆盖后来 #111 的通话输出失败恢复／真实 AEC 瞬态。 |
+| Rust Siri／通话与 echo 恢复 | 台架部分 | v149，2026-11-12／13，小米 8＋真实 iPhone | [真实 Siri 与运营商通话已过](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6842219271)；#111 已由用户确认 OK，停止补验；312 采样帧欠载仅保留历史观察，方控 Siri 属单列场景。 |
+| 仪表封面图片、导航车道、可视区域 | 实车 | v108 及之前 | 历史批次只记录隐藏路径；2026-11-14 用户确认 HUD／车道及双屏生命周期 OK，停止补验 |
 | 仪表显隐三指手势 / `stopUI`·`showUI` | 实车 | v110 2026-11-01 | 17 次请求 15 次状态变化对应 |
-| 导航接管（停包 / 恢复 / 异常退出恢复） | 模拟器 | v109 | 物理仪表距离、车道待实车 |
+| 导航接管（停包 / 恢复 / 异常退出恢复） | 模拟器 | v109 | 历史模拟器证据保留；HUD／车道已由用户确认 OK，不再追加核验 |
 | 三家地图仪表显示 | 模拟器回放 | v109 | 高德真实车道帧未采到 |
 | 平台权限授予 | 实车 | 2026-11-02 | 完整重启、USB/VPN 原生授权效果、方向盘服务绑定待验 |
 | 日夜「跟随车机」立即切换 | 实车 | v136 2026-11-08 | 6 次遮挡传感器，25 ms 内下发 |
-| 日夜选项精简、冷启动推测 | 待验 | v143 | |
+| 日夜选项精简、冷启动推测 | 用户确认 OK | 2026-11-14；历史 v143 | 日夜初始化已收尾，不再重复核验 |
 | 开机解锁即启动、等待桌面批次 | 实车部分 | v134 2026-11-07 | 批次等待机制有实车依据；整体冷启动验收未做 |
 | 开机热点不被车机 Wi-Fi 关掉 | 待验 | v134 | 依据来自 10-31/11-06/11-07 日志 |
 | 熄火开门后点亮屏幕自动重连 | 台架 | v143，小米 8 | 实车待验 |
 | 暂停音乐两个开关（主驾门 / 熄火） | 实车 | v141 | 两项都能触发 |
 | 导航声音跟随 iPhone 与车机 | 待验 | v134 | 通路选择依据实车时序 |
-| 蓝牙媒体让位（A2DP_SINK） | 待验 | 默认开启 | BOOX Android 11 探测失败；本车未测 |
+| 蓝牙媒体让位（A2DP_SINK） | 用户确认 OK | 2026-11-14，默认开启 | 既有报告记录策略接受及媒体断开；用户确认收尾，不再追加恢复或共存测试 |
 | 方向盘语音键短按（直接接管模式） | 实车部分 | v134 | 后台 Siri 唤醒受控验证未做 |
 | 方向盘键 HY 模式（READ_LOGS） | 实车 | 2026-11-01 | 155/303 并发，312/303 缺对照 |
 | 麦克风 Policy 生命周期 | 待验 | | 本车预期拒绝后直接录音 |
 | RFCOMM 预连接并行、局部恢复 | 待验 | v124+ | 预期省约 235 ms，需 A/B |
-| 高通低延迟解码 | 待验 | 默认关闭 | `effectiveness=unverified` |
+| 高通低延迟解码 | 实车功能通过；无可测收益 | v150，2026-11-14，默认关闭 | [#99 实车对照](https://github.com/jianyun8023/diplay-ecarx/issues/99#issuecomment-6872722131)：下发／撤销和起播正常；驱动未回报生效，延迟无可测收益，不承诺硬件低延迟能力。 |
 | 保留系统栏时的前台布局 | 待验 | | Robolectric 截图，非车机 |
 | 公开 Release 应用内更新 | 实车 | v143→v144 2026-11-09 | |
 | 开机 `BOOT_COMPLETED` 恢复 DiPlay 暂停的原厂导航 | 模拟器 | PR #70 2026-11-10，Android 9 模拟器 | 覆盖自启关闭、解锁后已导航两条路径；广播 `goAsync` 持有仅有单测；实车待验；桌面卡片绑定不恢复 |
 | 启动指标（开机 / 进程 / 代次分组，首帧与稳定帧） | 台架 | PR #70 2026-11-10，小米 8 + 模拟器 | 开机计数与 PID 落盘为真实数据，首帧检查点为注入数据；实车冷启动 p50/p95 未采 |
+| 原生视频配置／首包顺序（#113） | 台架 | 2026-11-14，小米 8／API 35／ARM64 | 16 项设备回归、同 APK native 交替对照及 300.334 秒观察；[摘要与范围](benchmarks/native-video-startup-2026-11-14.md)。不测物理显示延迟，也不替代本车组合验收；后续配置失败交错回归单独登记。 |
+| PASCD 真实车速源／SDK ABI | 实车接口部分 | #101；v150 日志，2026-11-14 | Ultra 车速、旧日志非零回调、HY 挡位来源和固件映射已复核；当前 8 次车速注册及默认 rate 行为有据。24 项定向测试通过，含未发送批次清空及 VHAL 重连回归；缺当前 PASCD 动态输出与真实服务恢复证据，[范围及最小补测](benchmarks/vehicle-speed-2026-11-14.md)。SDK 接口已由用户确认 OK，不再追加核验。 |
+
+Rust 核心迁移已完成；当前剩余项以[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)为准。#96／#98／#99 均已关闭，其历史通过按被测版本保留，关闭本身不把本表“待验”改为通过。
 
 ## 8. 证据索引（本地工作区 `lyno-carplay/`，不随仓库分发）
 

@@ -46,6 +46,8 @@ internal object NativeAudioScheduler {
     @JvmStatic external fun sanitizeDelay(millis: Int, mode: Int): Int
     @JvmStatic external fun bufferPlan(media: Boolean, rate: Int, channels: Int, minimum: Int, millis: Int): IntArray
     @JvmStatic external fun navigationRoute(follows: Boolean, configured: Int, ducking: Boolean): Int
+    @JvmStatic external fun captureRecovery(state: LongArray, event: Int, nowNanos: Long, timeoutMillis: Long): Int
+    @JvmStatic external fun promptFocus(state: LongArray, event: Int, enabled: Boolean, held: Boolean): Int
     @JvmStatic external fun create(frameBytes: Int): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun reset(handle: Long)

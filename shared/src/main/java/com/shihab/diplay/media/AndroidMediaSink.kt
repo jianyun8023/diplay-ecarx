@@ -56,7 +56,7 @@ class AndroidMediaSink(
     private val callSpeakerphone: () -> Boolean = { false },
     /**
      * Smooth video: show main-screen frames at the iPhone's frame time plus a delay that starts here and
-     * then follows how late the decoder releases frames ([PacingDelay]); 0 shows each as soon as it is
+     * then follows how late the decoder releases frames; 0 shows each as soon as it is
      * decoded. Only a SurfaceView honours the timestamps, so the host sets it with one.
      */
     private val videoPacingDelayMillis: Int = 0,
@@ -820,14 +820,11 @@ class AndroidMediaSink(
             vendorLowLatency = vendorLowLatencyDecoder,
             vendorLowLatencyRefusedEarlier = vendorLowLatencyRefused,
             onVendorLowLatencyRefused = { vendorLowLatencyRefused = true },
-            dedicatedOutputThread = vendorLowLatencyDecoder,
             framesAtOnce = type == MAIN_SCREEN_TYPE && statsLabel == null && videoPacingDelayMillis > 0,
             // Keep the experimental MTK mode on the main CarPlay picture only. Mirrors and the
             // cluster have separate timing and must retain their established decoder configuration.
             mtkDecoderTuningEnabled = mtkDecoderTuningEnabled && type == MAIN_SCREEN_TYPE && statsLabel == null,
             fanoutFactory = videoFanoutFactory,
-            // Falls back to the Kotlin loop without the library (host tests) or before Android 9.
-            nativeDecodeLoop = true,
         )
         if (startImmediately) video.start()
         return video

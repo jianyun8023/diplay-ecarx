@@ -32,7 +32,7 @@ ECARX 接口通过运行时反射和动态代理调用。编译和单测**不需
 | 工程配置 | AGP 9.3.0（内置 Kotlin）/ `compileSdk 37` / `minSdk 24`；生产目标仍为 Android 9 / API 28 |
 
 **Rust 核心必须从当前源码构建。** 需要 NDK **28.2.13676358**、Rust **1.97.1**、
-Python 3，以及 `aarch64-linux-android`、`armv7-linux-androideabi`、`x86_64-linux-android`
+Python 3、可调用的 CMake 与主机 C/C++ 构建工具（bundled libopus／host JNI 测试使用），以及 `aarch64-linux-android`、`armv7-linux-androideabi`、`x86_64-linux-android`
 三个 Rust target。C JNI 库仍使用 `shared/src/main/jniLibs/` 中的预编译文件；
 其中历史 `libdiplay_media.so` 不再参与任何 Gradle APK/AAR 打包。
 
@@ -52,7 +52,8 @@ Gradle 的所有 variant 只使用经验证的生成 JNI 目录，不会静默�
 
 CI 下载产物或自定义本地产物目录时，对构建脚本和 Gradle 设置同一个绝对路径：
 `export DIPLAY_JNI_LIBS_DIR=/absolute/path/to/rust-android-libs`。
-单 ABI 检查（如 `scripts/check_rust_android_native.sh x86_64`）不能替代完整 APK 打包需要的三个 ABI；
+原生 Android 构建脚本使用 Linux／macOS 的 NDK 主机目录；Windows Gradle 构建可使用与当前源码匹配的 CI 三 ABI 库及 receipt，或在 Linux／macOS 构建后设置此目录。
+单 ABI 检查（如 `scripts/check_rust_android_native.sh arm64-v8a`）不能替代完整 APK 打包需要的三个 ABI；
 其他 ABI 必须已有与当前源码匹配的产物。普通 JVM 单元测试不要求 Android Rust 产物。
 `gradlew clean` 清理生成的打包目录，但保留 `.native/` 供下次验证复用。
 
@@ -218,23 +219,27 @@ GitHub Release 附带 `DiPlay-v<versionCode>-mapping.txt`，并将它纳入 `SHA
 
 ## 5. 第四步：校验产物
 
+先选定一个具体 APK，替换下面的版本号；本轮车机／小米 8 验证优先使用 ARM64。
+以下为 Linux／macOS 命令；Windows 的 Build-Tools 可执行文件分别是 `apksigner.bat` 和 `aapt2.exe`。
+
 ```sh
 BT="$ANDROID_HOME/build-tools/36.0.0"
+APK="mobile/build/outputs/apk/release/DiPlay-v<versionCode>-arm64-v8a-release.apk"
 
 # ① 签名证书是不是那一把
-"$BT/apksigner.bat" verify --print-certs mobile/build/outputs/apk/release/DiPlay-v*-*-release.apk \
+"$BT/apksigner" verify --print-certs "$APK" \
     | grep "SHA-256 digest"
 #   期望 c8a2e9bc…92ab8
 
 # ② 版本号 / 包名 / 权限声明
-"$BT/aapt2.exe" dump badging mobile/build/outputs/apk/release/DiPlay-v*-*-release.apk \
+"$BT/aapt2" dump badging "$APK" \
     | grep -E "^package|uses-permission.*(BLUETOOTH|car\.|ecarx|cevt)"
 
 # ③ 公开源码构建应无身份文件；显式本地车测包才应包含所选两个文件
-unzip -l mobile/build/outputs/apk/release/DiPlay-v*-*-release.apk | grep -i offline-mfi
+unzip -l "$APK" | grep -i offline-mfi
 
 # ④ 确认产物里没有夹带私钥
-unzip -l mobile/build/outputs/apk/release/DiPlay-v*-*-release.apk | grep -iE "\.jks|\.keystore|\.p12|\.pem"
+unzip -l "$APK" | grep -iE "\.jks|\.keystore|\.p12|\.pem"
 #   期望：无输出
 ```
 

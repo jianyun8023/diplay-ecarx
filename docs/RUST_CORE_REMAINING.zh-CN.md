@@ -1,14 +1,53 @@
-# Rust 核心剩余缺口审计
+# Rust 核心验收状态与历史审计
+
+## 当前状态与验收矩阵（2026-11-14）
+
+**源码层面的完整 Rust 核心迁移已由 [PR #97](https://github.com/jianyun8023/diplay-ecarx/pull/97) 合入 `dev`。** 当前工作是具体缺陷修复与按版本补验，不再沿用旧迁移分支。本文是当前剩余项的仓库入口；已关闭的 [#96](https://github.com/jianyun8023/diplay-ecarx/issues/96)、[#98](https://github.com/jianyun8023/diplay-ecarx/issues/98)、[#99](https://github.com/jianyun8023/diplay-ecarx/issues/99) 保留历史证据，其正文中的旧清单和关闭状态都不能单独作为当前验收结论。
+
+**2026-11-14 用户确认收尾**：真实 SDK 接口、189.6 秒启动记录、导航音量键、日夜初始化、蓝牙媒体让位、HUD／车道、双屏生命周期、#111 echo 引用切换及 v148／v150 性能记录均已确认 OK，不再安排重复核验、追加回放或故障注入。此处记录用户的最新验收结论；历史日志范围和条件跳过结果保持原样，不改写成新执行的测试。此前单列的 PASCD 动态数据／真实服务恢复及配置失败交错 ARM64 green 不在这次收尾列表内。
+
+**本次媒体状态归属补齐**：在 #114 的 `f689c722` 上继续将视频配置／关键帧、封面恢复／队列、MediaCenter 发布判定、录音恢复与导航提示音状态交给 Rust；平台资源及动作顺序保留。边界见[架构说明](ARCHITECTURE.zh-CN.md#当前-rust-核心与平台边界)。本次 JVM 3600 通过／2 环境跳过、Rust 235 通过，三 ABI 的 510 JNI／来源校验、四应用 lint／debug／R8 和设备测试 APK 构建均通过，详见[本批验证记录](benchmarks/media-state-ownership-2026-11-14.md)。不改写下表历史测试数字，也不重开用户已确认收尾的旧批次。未安装设备测试 APK，未新增实机验收结论。
+
+| 范围 | 已有证据 | 当前边界与下一步 |
+| --- | --- | --- |
+| AAudio 关闭 | v149 含 `d16ed0a1` 已在 ECARX／API 28 实车通过：音乐和导航使用 AAudio，正常拆除，未复现 PAUSING flush 错误。见 [#96 实车审计](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6841704520)。 | 已验证，不因版本变动笼统重开已通过项目。#111 亦按本页用户确认收尾。 |
+| Siri、通话、echo 恢复 | 小米 8＋真实 iPhone 已通过 Siri 语音／播放恢复和约 16 秒运营商通话；见 [#96 勘误](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6842219271)。#111 同格式 renderer 失败后的 echo reference 切换有 60 项定向 JVM 与完整 Checks／CI。 | #111 echo 引用切换已由用户确认 OK，本轮收尾，不再安排输出失败注入。历史通话轨 312 **采样帧**（48 kHz 约 6.5 ms）保留为观察记录，不是 312 次错误；方控 Siri 属原先单列场景。 |
+| 原生 USB NCM／重连 | 小米 8 原工具日志确认 4 次主动拔插通过；#104 同逻辑包 3 轮重启、最终包起播及有线／无线切换通过；CSV 有 156 秒有线采样，Harness 补齐该窗错误查询结果。20:57 断开经用户确认为主动操作，21:17 切无线也有明确指令，不计自然掉线。见[USB 验收记录（已收尾）](benchmarks/native-usb-2026-11-13.md)，按不同 APK、计时起点和采集范围登记。原生路径默认开启，保留显式关闭和启动失败回退。 | **本轮已收尾（2026-11-14）**：用户确认当前状态 OK，停止 USB 分析与补测，移出当前待办。小米 8 的指定场景通过；长时运行、故障注入和目标固件的新组合仍是证据边界，不追认为全面通过，也不作为本轮阻塞项。 |
+| PASCD 车速源／真实 SDK ABI | #101 已接生产；Ultra 有同一车速源的实车显示，旧系统日志另有非零回调；v150 有 8 次注册／即时回调路径。HY DCYTools 使用同一 VHAL 挡位属性，真实固件枚举与当前 P/R/N/D 映射一致。车速相关 17 项＋共享替身关联 7 项定向测试通过；完整 Checks 通过（3595 通过／2 条件跳过），见[代码与日志复核](benchmarks/vehicle-speed-2026-11-14.md)。 | 单位转换、数据源、映射与默认订阅行为已有依据。缺当前包非零速度／时间戳／挡位到 PASCD 的端到端记录，以及 AdaptAPI、VHAL 真实服务中断恢复。未 drain 批次清空和 VHAL 重新取初值／订阅的本地回归已补齐通过；SDK 接口已由用户确认 OK，不再追加核验。应用重启不等于服务断线验收。 |
+| 视频首包／配置顺序（#113） | [#113](https://github.com/jianyun8023/diplay-ecarx/pull/113) 已合并；小米 8 的 16 项设备回归、同 APK 原生库交替对照和 300.334 秒会话观察已完成。详见[验证摘要](benchmarks/native-video-startup-2026-11-14.md)。 | 该批通过数、APK 身份和设备恢复记录固定属于 #113；未测物理显示延迟、目标 ECARX／API 28 硬解和全部 ABI 运行时，不替代后续批次验收。 |
+| 配置失败交错（本批） | 以 `eeca03ae` 为基线，小米 8／API 35 两项新增回归均有效 red（10.815 秒）。生产修复已实现：4 文件、17 增／11 删，以锁内 0／1 hold 判断保留后续配置的帧。本地完整 Checks／四应用 R8 通过；JVM 3593 通过＋2 环境跳过，Rust 226 通过，三 ABI 的 494 JNI＋JNI_OnLoad／来源校验通过。详见[本批记录](benchmarks/native-video-startup-2026-11-14.md)。 | 修复测试 APK 已构建签名，尚未安装／green。按用户要求等小米 8 其他任务结束、通知释放后优先执行 ARM64 回归；**ARM64 实机 green 待测；按用户最新要求先提交 PR**。本批没有新增设备恢复／实机通过结论。 |
+| 导航音量键 | 11 月 14 日 17:25 历史诊断报告记录服务未启用；相关本地测试已有覆盖。用户随后明确确认此项 OK。 | 已收尾，不再把历史未启用快照或此前复测计划列为当前待办。 |
+| 双屏／HUD／生命周期与长测 | 历史 v149 实车有 cluster 首帧，#98 小米 8 台架有 overlay 地图实际渲染；#113 新会话记录了两路接收。 | HUD／车道、双屏生命周期及已有性能记录已由用户确认 OK，不再追加回放、实体显示核验或长测。原记录覆盖范围保持不变。 |
+| v149 观察项与 QTI low-latency | [#99 v150 实车评论](https://github.com/jianyun8023/diplay-ecarx/issues/99#issuecomment-6872722131)已验证低延迟开关下发／撤销、正常起播；延迟对照无可测收益，驱动未回报实际生效，保持默认关闭。 | #99 的 08:24:18–08:24:38 Host 暂停，用户已确认记不清操作背景，**仅保留观察，不认定故障或当前回归**。3.2 秒音频到达间隙／stale backlog、熄火后状态也先核操作背景和当前包复现，再决定是否处理。等待数据的 `readsOver250Ms` 不等于处理耗时。 |
+| 独立协议样本 | 保留数学参考、旧实现差分及已登记的外部向量。 | PairVerify／PairSetup 外部完整 transcript 的资料来源缺口保留；HUD／车道已确认 OK，不再要求补固定输入输出回放。自写 fixture 不改称外部独立证据。 |
+
+当前平台状态另见 [ECARX 验收表](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵)。新增结果须注明源码／包、环境、场景和未覆盖范围；历史实车通过、最新变更未补验与确实未覆盖的目标硬件分别记录。原始日志、认证资产和设备标识留在本地，不提交仓库。
+
+## 当前剩余项的处理范围（2026-11-14 澄清）
+
+- **明确待执行**：配置失败交错修复及 Java 备用循环清理后的 ARM64 实机验证，仍等用户释放小米 8。按用户最新要求先提交 PR，实机保持待测，不作为创建 PR 的前置条件。
+- **此前保留的实车项**：PASCD 动态数据到发送的对应记录／真实服务恢复；与本次收尾列表无关的方控 Siri、熄火唤醒场景仍按各自原记录管理。已确认 OK 的导航音量键、#111、HUD 和双屏生命周期不再重复列入。
+- **仅观察**：约 20 秒 Host 暂停、音频到达间隙及相关历史现象。未明确操作背景或复现前，不当作已确认缺陷。
+- **独立协议资料**：PairVerify／PairSetup 外部 transcript 的来源缺口保留为资料记录，不阻塞本轮视频修复；SDK 接口和 HUD／车道不再追加核验。
+- **性能记录已收尾**：v148／v150 短测及每版 10 分钟、8 次重连已有工作区报告，用户确认 OK。保留原测量范围，不追加长测，也不用于替代配置失败交错修复的设备 green。
+
+USB 本轮已收尾；#113 首帧修复及历史 AAudio 关闭修复已有验收结果，不重复列入本轮待执行项。
+
+**Java MediaCodec 备用循环清理（2026-11-14）**：已从生产删除，视频统一通过 Rust／NDK；API < 28 或原生循环无法创建时明确失败。软硬件 codec 回退、厂商参数降级、Surface／镜像能力保留。v150 原始日志有 18 次原生首输入／18 次原生首渲染；这是已有路径证据，本次变更后的设备运行仍待小米 8 释放，见[验证记录](benchmarks/native-video-startup-2026-11-14.md#java-mediacodec-备用循环清理)。本批完整 Checks 已通过：JVM 3597 通过、2 环境跳过、0 失败，四应用 lint／debug 构建及设备测试 APK 通过；不把该结果计为设备 green。
+
+## 历史审计批次
+
+以下保留原批次数字和判断。下文的“本轮”“当前”“暂挂”和“缺 iPhone”等均指对应历史采样阶段，**不覆盖上方最新矩阵**；尤其 iPhone 当时离场不代表后来未做真实会话，旧双 ABI／491 JNI／测试总数也不应改写成新批次数字。
 
 基线：`feat/rust-protocol-media-all` 的 `0c4820ae`。对应 [issue #96](https://github.com/jianyun8023/diplay-ecarx/issues/96) 和 [PR #97](https://github.com/jianyun8023/diplay-ecarx/pull/97)。本轮按生产调用核查 Rust 核心与 Kotlin Android 薄宿主的差距，补齐可在源码及现有测试环境完成的部分；不把 Kotlin 文件行数作为完成标准。
 
-## 基线已经具备的核心
+### 基线已经具备的核心
 
 基线已接入协议／密码、配对、iAP2、USBMUX／Lockdown、NCM、媒体队列／时钟／输出 scheduler、codec 选型、会话／controller／VPN 代际、watchdog、wireless recovery、导航／车辆转换等 Rust owner。旧文档中“controller 仍持有代际”“Lockdown 尚未集成”“UDP 音频仍逐包交 Kotlin”“所有核心需要 Kotlin fallback”等描述已不反映实际入口。
 
 这轮没有重做上述迁移。检查 controller／WirelessRun／VPN 的实际调用后，保留平台资源句柄、监视器、SDK I/O、线程交接和异常对象引用；代际、有效性、预算、deadline、handoff 与拆除动作计划继续由现有 Rust owner 决定。
 
-## 本轮发现并补齐的源码缺口
+### 本轮发现并补齐的源码缺口
 
 | 真实缺口 | 收敛到的 Rust owner | Kotlin 保留 |
 | --- | --- | --- |
@@ -27,7 +66,7 @@
 
 新增 GC opaque value owner 不引入 native heap close 生命周期；需要共享 PCM 引用的 echo owner 沿用明确引用所有权。Kotlin 不解释迁移状态的 token 编码，也不保留一份镜像核心状态。
 
-## 明确保留的平台边界
+### 明确保留的平台边界
 
 - Activity／Service／视图／输入事件、Android 权限与焦点、设置、媒体会话发布、持久化、车机 SDK provider 和输出。
 - `A2dpSinkPolicy`：Android 9 priority 与新系统 connectionPolicy 的隐藏 SDK 兼容、反射及 connect／disconnect 动作。
@@ -40,7 +79,7 @@
 - MediaCodec／Surface／AudioTrack／AAudio／AudioRecord 及平台 AEC 的能力回退、设备校准和释放顺序；Java socket／USB I/O 仍执行 Rust 协议与媒体核心返回的请求。
 - 诊断聚合、日志限流、UI 地图可见性和宿主的资源引用保留 Kotlin；不把它们当作会话核心未迁的证据。
 
-## 本轮验证
+### 本轮验证
 
 本节登记本轮源码冻结阶段、下述 v149 Release 真机运行之前的执行结果；其中“未操作物理手机”仅指该阶段。历史云端构建、旧候选 APK 和此前设备数字不能充当新源码验收。
 
@@ -72,7 +111,7 @@
 
 API 28 首轮 49 项中两项暴露 Android／桌面平台差异：Regex 数字分类，以及 BigInteger 极值的 bit／byte 行为。修复保留本平台执行边界，Rust 仍定义协议 pattern／feature bits／布局；修复后相同 49 项全部通过，没有删除或放宽合同。
 
-## 暂挂项与恢复条件
+### 暂挂项与恢复条件
 
 | 暂挂项 | 恢复条件 |
 | --- | --- |
@@ -87,7 +126,7 @@ API 28 首轮 49 项中两项暴露 Android／桌面平台差异：Regex 数字�
 
 上述源码冻结／模拟器验证阶段未操作物理手机或车机；后续小米 8 真机运行另记如下，车机仍未验收。上述项目是硬件／独立样本验收条件，不是继续保留第二套 Kotlin 核心算法的理由。
 
-## 2026-11-13：小米 8 v149 Release 真机日志审计
+### 2026-11-13：小米 8 v149 Release 真机日志审计
 
 本次在小米 8 上运行同一 v149 正式 Release／R8 包，APK SHA-256 为 `45fec9ddd6e1b5896a5a0f9e4b563f5a2a423d781cef299daf36b0bc53fa01d2`；该包构建及本次运行时，对应源码尚未提交。本节是后续真机审计，保留前述源码冻结验证及历史数字；不将 Release 真机运行记作 Debug 测试包验收。
 
@@ -104,7 +143,7 @@ API 28 首轮 49 项中两项暴露 Android／桌面平台差异：Regex 数字�
 - type 101／default 音频映射为 NAVIGATION：07:27:14.814 导航提示音 focus duck 请求成功（granted=1），07:27:21.752 unduck 释放成功（result=1），持有约 6.938 秒。
 - 约五分钟后仍有双路视频持续收包统计：07:27:18.687 累计 3,423 packets，07:27:19.193 累计 12,895 packets，均无接收序列缺口。这只证明持续收流，不证明副屏已渲染，也不是长期输出帧率验收。
 
-### 问题登记与修复验收
+#### 问题登记与修复验收
 
 先登记以下问题，再逐项定位、修复和重验；本节登记本身不代表问题已解决。
 
@@ -121,7 +160,7 @@ AudioFlinger 计数口径的 primary 来源为 [AOSP Tracks.cpp 的 Track::appen
 
 AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根目录 `artifacts/issue96-mi8-qiphone-20261112-1925/device-logcat.txt` 的 3489、3985、5470、15238、15991 行，以及 `artifacts/perf-v148-vs-rust-20261112/B2-rust/logcat.txt` 的 4401 行。跨进程／重复采集记录不累计为独立验收轮次，也不与本次明确记录的三处时间点混算。这些路径只登记定位信息，原始日志不公开。
 
-### AAudio 最小修复阶段验证
+#### AAudio 最小修复阶段验证
 
 生产修改已冻结：`AudioRenderer.releaseTrack` 的 native 销毁分支由 pause→flush→release 改为 pause→release。显式 flush／rebuffer、AudioTrack 分支和校准行为保持原合同。只处理已复现的销毁时状态错误，不据此调整通话 pre-skip 或网络策略。
 
@@ -137,11 +176,11 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 
 最终证据均在本地 ignored 目录 `build/task-validation/mi8-v149-cold-start/`：`aaudio-mi8-final.log`、`aaudio-api28-final.log`、两端的 `aaudio-*-final-own-pid.log` 和 `aaudio-final-log-audit.json`。Rust 源码及双 ABI 库均未因本次 AAudio 修复改变，复用前述已重建并审计的库。已确认的 AAudio 销毁时 flush 问题在本阶段完成修复及独立设备验收；通话欠载观察、codec 警告和真实 CarPlay 听感／组合重放仍保留各自边界。
 
-### 本次验收边界
+#### 本次验收边界
 
 本次已补充正式 Release／R8 包在小米 8 上的实际无线认证、会话、主屏首帧和音频切换运行证据，并完成 AAudio 最小修复后的独立设备验收。详细 FPS、长期掉帧、听感及长会话尚未验收；副屏只有流接收证据，没有渲染证据。实车、真实 ECARX SDK ABI、USB NCM、车机音路／AEC 和组合恢复仍按前表暂挂条件恢复验收。修复后的真实 CarPlay／Release 场景重放仍待 iPhone 可用后进行，不以独立设备音频测试替代。
 
-## 2026-11-13：NCM 原生路径默认选择
+### 2026-11-13：NCM 原生路径默认选择
 
 有线 `CarPlayVpnService.attach` 与设置／诊断的 `AirPlayPersistence.loadNativeWiredDataPath` 对同一 `native_wired_data_path` 偏好均默认读取为开启；已有显式关闭和备份恢复后的关闭选择继续有效，不新增偏好或迁移用户选择。
 
@@ -149,7 +188,7 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 
 新增实际 attach 事务合同覆盖未保存偏好、显式关闭、原生启动失败后沿用同一 TUN，以及交接后失败的资源关闭；设置合同覆盖默认开启及显式关闭的备份恢复。执行结果待本批源码冻结后的统一验证登记，历史默认关闭的台架记录保持原样。
 
-## 2026-11-13：PASCD 真实车速装配点
+### 2026-11-13：PASCD 真实车速装配点
 
 此前 PASCD 只有 Rust 编码入口（`vehicle::vehicle_speed`）而没有生产车速来源。本轮接入并登记了真实来源，不再用 GPS 速度或模拟值代替：
 

@@ -114,8 +114,8 @@ check_library() {
 
   symbols="$("$NM" --dynamic --defined-only "$file" | awk 'NF { print $NF }' | LC_ALL=C sort)"
   java_count="$(awk '/^Java_/ { count++ } END { print count + 0 }' <<<"$symbols")"
-  if [[ "$java_count" != "494" ]]; then
-    echo "$abi exports $java_count Java JNI methods; expected 494" >&2
+  if [[ "$java_count" != "510" ]]; then
+    echo "$abi exports $java_count Java JNI methods; expected 510" >&2
     exit 1
   fi
   if ! grep -Fxq "JNI_OnLoad" <<<"$symbols"; then

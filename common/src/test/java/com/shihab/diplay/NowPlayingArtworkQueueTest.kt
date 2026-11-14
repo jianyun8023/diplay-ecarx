@@ -156,6 +156,29 @@ class NowPlayingArtworkQueueTest {
         assertTrue(decoded.isEmpty())
     }
 
+    @Test fun ownerFromAnotherQueueCannotSubmit() {
+        val other = NowPlayingArtworkQueue(worker, main, { _: ByteArray -> 1 }, { _, _, _ -> }, {})
+        val foreign = other.newSession()
+        queue.newSession()
+        queue.submit(foreign, 1, byteArrayOf(1))
+        assertEquals(0, worker.size)
+    }
+
+    @Test fun immediateDeliveryCanReplaceAnotherPendingCacheHit() {
+        val delivered = mutableListOf<Pair<Int, Int?>>()
+        lateinit var owner: Any
+        lateinit var directQueue: NowPlayingArtworkQueue<Int>
+        directQueue = NowPlayingArtworkQueue(worker, Executor { it.run() }, { it[0].toInt() },
+            { _, id, image ->
+                delivered += id to image
+                if (id == 2) directQueue.submit(owner, 3, byteArrayOf(9))
+            }, {})
+        owner = directQueue.newSession()
+        for (id in 1..3) directQueue.submit(owner, id, byteArrayOf(4))
+        worker.runNext()
+        assertEquals(listOf(1 to 4, 2 to 4, 3 to 9), delivered)
+    }
+
     @Test fun emptyArtworkDoesNotCancelPendingOrDecodedValidTransfer() {
         val owner = queue.newSession()
         queue.submit(owner, 7, byteArrayOf(42))

@@ -1,7 +1,7 @@
 package com.shihab.diplay.media
 
 import android.graphics.SurfaceTexture
-import android.media.MediaCodec
+import com.shihab.diplay.testcore.HostVideoPipe
 import android.media.MediaCrypto
 import android.media.MediaFormat
 import android.view.Surface
@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 /** Low-latency decoding releases decoded frames from a thread of its own, which stops with the decoder. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
-class VideoOutputThreadTest {
+class NativeVideoLoopTest {
     private val sps = byteArrayOf(0x67, 0x42, 0xC0.toByte(), 0x1E)
     private val pps = byteArrayOf(0x68, 0xCE.toByte())
     private val avcC = byteArrayOf(1, 0x42, 0xC0.toByte(), 0x1E, 0xFF.toByte(), 0xE1.toByte(), 0, sps.size.toByte()) +
@@ -43,53 +43,71 @@ class VideoOutputThreadTest {
     }
 
     @After fun tearDown() {
+        HostVideoPipe.failCreate = false
         ShadowMediaCodec.clearCodecs()
         Thread.setDefaultUncaughtExceptionHandler(previousHandler)
     }
 
-    @Test fun theOutputThreadRendersFramesAndStopsWithTheDecoder() {
+    @Test fun nativeLoopOwnsRenderingAndReleasesWithTheSink() = assertNativeRendering(vendorLowLatency = false)
+
+    @Test fun lowLatencyUsesTheSameNativeLoop() = assertNativeRendering(vendorLowLatency = true)
+
+    private fun assertNativeRendering(vendorLowLatency: Boolean) {
         val reports = CopyOnWriteArrayList<String>()
         val rendered = CountDownLatch(1)
-        val sink = AndroidMediaSink(surface = null, vendorLowLatencyDecoder = true)
-        sink.setVideoDiagnosticHandler(MAIN) { message ->
-            reports += message
-            if (message == "first frame rendered") rendered.countDown()
-        }
+        val before = HostVideoPipe.activeCount
+        val sink = AndroidMediaSink(surface = null, vendorLowLatencyDecoder = vendorLowLatency)
         val surface = Surface(SurfaceTexture(0))
-        sink.setSurface(MAIN, surface)
-        sink.onVideoConfig(MAIN, avcC)
-        sink.onVideoFrame(MAIN, idr)
-        assertTrue("a decoded frame was rendered", rendered.await(5, TimeUnit.SECONDS))
-        assertTrue(reports.toString(), reports.any { it.startsWith("decoder=") && it.endsWith(" outputThread=true") })
-
-        val decoder = mainDecoder(sink)
-        val output = checkNotNull(decoder.field<Thread?>("outputThread")) { "no output thread" }
-        assertTrue(output.isAlive)
-
-        // Losing the surface releases the codec the output thread is waiting on.
-        assertTrue(sink.beginSurfaceDetach(surface, parkMain = false).await())
-        assertNull(decoder.field<MediaCodec?>("decoder"))
-
-        sink.close()
-        assertTrue(sink.awaitVideoReleased(5_000))
-        output.join(5_000)
-        assertFalse("the output thread exits with the worker", output.isAlive)
+        try {
+            sink.setVideoDiagnosticHandler(MAIN) { message ->
+                reports += message
+                if (message == "first frame rendered") rendered.countDown()
+            }
+            sink.setSurface(MAIN, surface)
+            sink.onVideoConfig(MAIN, avcC)
+            sink.onVideoFrame(MAIN, idr)
+            assertTrue("a decoded frame was rendered", rendered.await(5, TimeUnit.SECONDS))
+            assertEquals(before + 1, HostVideoPipe.activeCount)
+            assertEquals(1L, mainDecoder(sink).let { it as VideoDecoder }.liveCounters().rendered)
+            val handle = mainDecoder(sink).field<Any>("pipe").field<Long>("handle")
+            assertNotNull(HostVideoPipe.codec(handle))
+            assertTrue(sink.beginSurfaceDetach(surface, parkMain = false).await())
+            assertNull(HostVideoPipe.codec(handle))
+        } finally {
+            sink.close()
+            assertTrue(sink.awaitVideoReleased(5_000))
+            surface.release()
+        }
+        assertEquals(before, HostVideoPipe.activeCount)
         assertTrue(uncaught.toString(), uncaught.isEmpty())
         assertFalse(reports.toString(), reports.any { it.startsWith("decoder failed") })
     }
 
-    @Test fun withoutLowLatencyDecodingTheWorkerDrainsItsOwnOutput() {
+    @Test fun nativeLoopCreationFailureIsExplicitAndDoesNotRegisterABackupDecoder() {
+        val before = HostVideoPipe.activeCount
         val sink = AndroidMediaSink(surface = null)
         try {
-            sink.setSurface(MAIN, Surface(SurfaceTexture(0)))
+            HostVideoPipe.failCreate = true
+            val failure = assertThrows(IllegalStateException::class.java) { sink.onVideoConfig(MAIN, avcC) }
+            assertEquals("Native video decode loop could not be created", failure.message)
+            assertTrue(sink.field<Map<Int, Any>>("videoDecoders").isEmpty())
+            assertEquals(before, HostVideoPipe.activeCount)
+            HostVideoPipe.failCreate = false
             sink.onVideoConfig(MAIN, avcC)
-            sink.onVideoFrame(MAIN, idr)
-            assertTrue(sink.beginSurfaceDetach(Surface(SurfaceTexture(0)), parkMain = false).await())
-            assertNull(mainDecoder(sink).field<Thread?>("outputThread"))
+            assertEquals(before + 1, HostVideoPipe.activeCount)
         } finally {
+            HostVideoPipe.failCreate = false
             sink.close()
-            sink.awaitVideoReleased(5_000)
+            assertTrue(sink.awaitVideoReleased(5_000))
         }
+        assertEquals(before, HostVideoPipe.activeCount)
+    }
+
+    @Test @Config(sdk = [27]) fun prePieVideoFailsWithTheMinimumSupportedVersion() {
+        val before = HostVideoPipe.activeCount
+        val failure = assertThrows(IllegalStateException::class.java) { NativeVideoPipe.create(0, false) { _, _ -> } }
+        assertEquals("Native video decoding requires Android 9 / API 28", failure.message)
+        assertEquals(before, HostVideoPipe.activeCount)
     }
 
     private fun mainDecoder(sink: AndroidMediaSink): Any =

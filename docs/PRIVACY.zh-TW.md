@@ -2,7 +2,7 @@
 
 [繁體中文首頁](../README.zh-TW.md) · [報告匯出步驟](SETTINGS.zh-TW.md#匯出診斷報告與回報問題) · [英文原文](PRIVACY.md)
 
-本說明適用於本分支目前的領克 01／ECARX 753 配置，更新日期為 2026-11-07。
+本說明適用於本分支目前的領克 01／ECARX 753 配置，更新日期為 2026-11-14。
 
 ## 連線與本機資料
 
@@ -34,6 +34,6 @@ Android 9 以下儲存到 `Download/DiPlay` 時會要求儲存權限。若未允
 
 ## 更新及外部服務
 
-本分支目前關閉應用程式內更新通道（`UpdateAvailability.ENABLED = false`），不排程 GitHub 更新檢查，也不在「關於」提供更新下載控制。版本可從[本專案倉庫](https://github.com/jianyun8023/diplay-ecarx)手動取得；開啟外部下載或原始碼連結時，適用該服務自身的隱私政策。
+正式套件（`com.shihab.diplay`）在「關於」支援應用程式內更新，獨立 debug 套件不提供。背景更新檢查預設開啟，可在「關於」關閉；有合適網路時約每天透過所選下載來源向 GitHub 取得發行版本資料，請求的 User-Agent 包含應用程式版本。APK 下載與安裝都需要你在前景操作，也可從[最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)手動取得。向 GitHub 或所選鏡像發出的請求，適用該服務自身的隱私政策。
 
 繼承的靜態下載網站與 Pages 自動部署已從倉庫移除。閱讀內附授權全文不會連網；開啟原始碼或下載網址時，適用外部服務自身的隱私政策。這次倉庫清理不會變更先前已部署的遠端網站。

@@ -10,6 +10,35 @@ pub fn touch_latency(now: i64) -> Option<i64> {
     (sent != 0).then_some(now.wrapping_sub(sent))
 }
 pub fn keyframe_due(last: i64, now: i64) -> bool { last == 0 || now.wrapping_sub(last) >= 1_000_000_000 }
+pub fn keeps_unused_decoder(requested: bool, has_codec: bool, queued_frames: u32) -> bool {
+    requested && has_codec && queued_frames == 0
+}
+pub fn keyframe_request(last: &mut i64, now: i64, force: bool) -> bool {
+    if !force && !keyframe_due(*last, now) { return false; }
+    *last = now;
+    true
+}
+
+#[derive(Default)]
+pub struct ConfigurationMemory { value: Option<(u8, Vec<u8>)>, duplicate_logged: bool }
+impl ConfigurationMemory {
+    pub fn remember(&mut self, codec: u8, data: Vec<u8>, has_codec: bool) -> i32 {
+        if has_codec && self.value.as_ref().is_some_and(|(previous, bytes)| *previous == codec && *bytes == data) {
+            if self.duplicate_logged { return 2; }
+            self.duplicate_logged = true;
+            return 1;
+        }
+        self.value = Some((codec, data));
+        self.duplicate_logged = false;
+        0
+    }
+    pub fn encoded(&self) -> Option<Vec<u8>> {
+        self.value.as_ref().map(|(codec, data)| {
+            let mut encoded = Vec::with_capacity(data.len() + 1);
+            encoded.push(*codec); encoded.extend(data); encoded
+        })
+    }
+}
 
 // The SDK adapter executes one running/drain/dequeue/clock action at a time; no I/O lives here.
 fn input_step(v: &mut [i64; 4], event: i32, value: i64) -> i32 {
@@ -133,5 +162,33 @@ mod contracts {
         assert_eq!(input_step(&mut v, 3, 4), 4); assert_eq!(v[1], 4);
         assert!(!keyframe_due(i64::MAX - 100, i64::MIN + 100));
         assert!(keyframe_due(i64::MAX - 100, i64::MIN + 1_000_000_000));
+    }
+    #[test]
+    fn forced_refresh_and_automatic_recovery_share_request_deadline() {
+        let mut last = 0;
+        assert!(keyframe_request(&mut last, 100, true));
+        assert!(!keyframe_request(&mut last, 200, false));
+        assert!(keyframe_request(&mut last, 300, true));
+        assert!(!keyframe_request(&mut last, 1_000_000_200, false));
+        assert!(keyframe_request(&mut last, 1_000_000_300, false));
+        assert!(!keyframe_request(&mut last, 1_000_000_301, false));
+    }
+    #[test]
+    fn recovery_keeps_only_an_existing_unused_decoder_when_requested() {
+        assert!(keeps_unused_decoder(true, true, 0));
+        assert!(!keeps_unused_decoder(false, true, 0));
+        assert!(!keeps_unused_decoder(true, false, 0));
+        assert!(!keeps_unused_decoder(true, true, 1));
+    }
+    #[test]
+    fn remembered_configuration_keeps_duplicate_diagnostic_once_per_change() {
+        let mut memory = ConfigurationMemory::default();
+        assert!(memory.encoded().is_none());
+        assert_eq!(memory.remember(0, vec![1, 2], false), 0);
+        assert_eq!(memory.remember(0, vec![1, 2], true), 1);
+        assert_eq!(memory.remember(0, vec![1, 2], true), 2);
+        assert_eq!(memory.remember(0, vec![1, 2], false), 0);
+        assert_eq!(memory.remember(1, vec![1, 2], true), 0);
+        assert_eq!(memory.encoded(), Some(vec![1, 1, 2]));
     }
 }

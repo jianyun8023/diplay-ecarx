@@ -1,6 +1,6 @@
 # Privacy and diagnostics
 
-This policy describes this fork's current Lynk & Co 01 / ECARX 753 configuration, updated on 2026-11-07.
+This policy describes this fork's current Lynk & Co 01 / ECARX 753 configuration, updated on 2026-11-14.
 
 DiPlay's default product flow uses local authentication and a direct USB/Wi-Fi connection to the iPhone. No account, remote authentication service or automatic diagnostic upload is used in that flow. The iPhone's CarPlay apps have their own internet and privacy behavior.
 
@@ -25,6 +25,6 @@ When HUD/cluster guidance or vehicle media integration is enabled, navigation in
 
 Optional Android Usage Access supports automatic hiding/showing of the center-map overlay when the home screen is in front. With that feature enabled and access granted, DiPlay reads foreground-activity events, initially looking back up to ten minutes, and identifies the most recently resumed app package. The monitor holds that package in memory to decide whether a launcher is visible; it does not write the activity history or package names to its diagnostic log or upload them. Disabling the feature stops the monitor. Usage Access can be revoked in Android system settings.
 
-This fork currently disables the in-app update channel (`UpdateAvailability.ENABLED = false`). It does not schedule GitHub update checks or offer update download controls in About. Releases can be obtained manually from [this repository](https://github.com/jianyun8023/diplay-ecarx). Visiting an external download or source link is subject to that service's own privacy policy.
+The release package (`com.shihab.diplay`) supports in-app updates in About; the separate debug package does not. Background update checks are on by default and can be turned off in About. They fetch release metadata from GitHub through the selected download source about once a day when a suitable network is available; metadata requests include the app version in the User-Agent. APK downloads and installation require your foreground actions. Releases are also available from [latest Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest). Requests to GitHub or a selected mirror are subject to that service's own privacy policy.
 
 The inherited static download website and its automatic Pages deployment have been removed from this repository. Reading the bundled license texts is offline; opening a source or download URL uses the external service and its privacy policy. This repository cleanup does not change any previously deployed remote website.

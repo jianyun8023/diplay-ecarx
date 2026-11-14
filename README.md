@@ -1,6 +1,6 @@
 # DiPlay · 领克 01 CarPlay
 
-正式环境：Android 9（API 28）／753／820A，使用现有平台签名。应用内不使用 ADB，APK 仅含 ARM64／ARMv7；其他 Android 版本仅用于调试。见 [权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
+正式环境：Android 9（API 28）／753／820A，使用现有平台签名。应用内不使用 ADB。发布包按 ABI 分为独立的 ARM64、ARMv7 和 x86_64 APK；当前适配的 820A 车机选 ARM64，ARMv7 为兼容兜底，x86_64 仅供模拟器测试。其他 Android 版本仅用于调试。见 [权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
 
 [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
 
@@ -8,13 +8,13 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 连接、日常设置和排错，见 [车主使用说明（含设置图）](docs/USER-GUIDE.zh-CN.md)。功能细节和验证范围见 [详细说明](docs/FEATURES.zh-CN.md)。
 
-各文档开头标注其适用版本：车主使用说明对齐 v142 车测包，详细说明以 v134 为基线。导航声音、自动热点保护、开机服务与短按 Siri 的新实现仍待实车复测。
+两份指南以 v148 车测包为界面说明基线，截图出处按各页标注保留，尚未全量核对最新界面。当前发行见 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已验场景与剩余项见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。
 
 | 功能 | 需要开启的设置 |
 | --- | --- |
 | 仪表和 HUD 导航提示 | **设置 → 导航 → 亿咖通导航**，开启「HUD／仪表导航提示」 |
 | 车道指引 | 随「HUD／仪表导航提示」输出手机提供的有效车道，无需单独开关 |
-| 歌曲信息和封面 | **设置 → 音频 → 车机媒体集成**，选择「DiPlay 直接接管」或「HY 代理」，歌曲信息随所选后端输出 |
+| 歌曲信息和封面 | **设置 → 音频 → 车机媒体集成**，选择「DiPlay 直接接管」或「Android 标准」，歌曲信息随所选后端输出 |
 | 日夜模式跟随车辆 | **设置 → 显示 → 显示与性能**，把「CarPlay 日夜模式」设为「跟随车辆」 |
 | 音乐走 CarPlay、保留蓝牙电话 | **设置 → 音频 → 音频路由 → 声音异常排查**，开启「CarPlay 期间停用蓝牙媒体」，关闭「通过车辆蓝牙播放 CarPlay 音频」 |
 | 导航压低音乐或共同播报 | **设置 → 音频 → 音频路由**，默认开启「导航声音跟随 iPhone 和车机」；手机地图选播报方式，车机调导航音量，改开关后重连 |
@@ -50,15 +50,17 @@ CarPlay 及相关标识属于 Apple；本项目与 Apple、领克、亿咖通无
 
 DiPlay brings iPhone navigation, music, Siri and calls to the Lynk & Co head unit. Built for **ECARX system version 753** (Lynk Qualcomm 820A platform), validated on the **2021 Lynk & Co 01**; other 753 units on the same platform should work.
 
+Releases contain separate ARM64, ARMv7 and x86_64 APKs. Choose ARM64 for the currently adapted 820A head unit; ARMv7 is a fallback and x86_64 is for emulator testing only.
+
 For connection, everyday settings and troubleshooting, see the [owner's guide with settings screenshots](docs/USER-GUIDE.zh-CN.md). Behavior and validation limits are in the [detailed feature guide](docs/FEATURES.zh-CN.md). Both guides are in Simplified Chinese.
 
-Each guide states the version it covers: the owner's guide follows the v142 car-test build, the feature guide the v134 baseline. The new navigation sound, hotspot protection, boot service order and short-press Siri behavior still need vehicle testing.
+Both guides use the v148 car-test build as their UI baseline, with older screenshot sources marked on each page. They have not been fully checked against the latest UI. For the current release, see [latest Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest); completed checks and remaining acceptance work are in the [current matrix](docs/RUST_CORE_REMAINING.zh-CN.md).
 
 | Feature | Settings |
 | --- | --- |
 | Cluster and HUD navigation | **Settings → Navigation → ECARX navigation**: enable “HUD and cluster guidance” |
 | Lane guidance | Follows “HUD and cluster guidance” when the iPhone supplies valid lanes; no separate switch |
-| Song information and artwork | **Settings → Audio → Vehicle media integration**: choose “DiPlay direct” or “HY proxy”; song data follows the backend |
+| Song information and artwork | **Settings → Audio → Vehicle media integration**: choose “DiPlay direct” or “Android standard”; song data follows the backend |
 | Day/night following the vehicle | **Settings → Display → Display and performance**: set “CarPlay day/night mode” to “Follow the vehicle” |
 | Music through CarPlay, keep Bluetooth calls | **Settings → Audio → Audio routing → Sound troubleshooting**: enable “Pause Bluetooth media for CarPlay” and disable “CarPlay audio over the car's Bluetooth” |
 | Navigation over music or lowering it | **Settings → Audio → Audio routing**: “Navigation sound follows the iPhone and the car” is on by default on ECARX; choose the prompt mode on the iPhone and adjust navigation volume in the car. Reconnect after changing the switch |
