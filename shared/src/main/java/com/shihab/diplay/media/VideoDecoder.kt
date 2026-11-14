@@ -12,9 +12,6 @@ import com.shihab.diplay.airplay.HeapPacket
 import com.shihab.diplay.airplay.MediaPacket
 import com.shihab.diplay.airplay.VideoCodec
 import java.io.Closeable
-import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.TimeUnit
 
 /** CarPlay's main screen stream type. */
 internal const val MAIN_SCREEN_TYPE = 110
@@ -130,8 +127,7 @@ internal fun nextLowLatencyDecoder(requested: String?, used: DecoderAttempt?): S
  * only once one or two later frames had been queued. Decoding order is the display order only for a stream
  * without reordered (B) frames. The iPhone's CarPlay H.264 had none, and its HEVC declares
  * sps_max_num_reorder_pics=0 (Mi 8 bench, 2026-11-10, main and second stream). It is set only for the main
- * screen with smooth video, on a decoder that lists the parameter or on Qualcomm's OMX decoders
- * ([submitsPictureOrderUnlisted]).
+ * screen with smooth video on known Qualcomm OMX decoders ([submitsPictureOrderUnlisted]).
  */
 internal const val PICTURE_ORDER_PARAMETER = "vendor.qti-ext-dec-picture-order.enable"
 
@@ -143,7 +139,7 @@ internal const val PICTURE_ORDER_PARAMETER = "vendor.qti-ext-dec-picture-order.e
 internal fun submitsPictureOrderUnlisted(codecName: String): Boolean =
     videoCodecNameFlags(codecName) and 2 != 0
 
-/** Serial MediaCodec video decoder: one worker owns configure and frame feeding. */
+/** Serial platform control for the Rust NDK video loop; the worker owns configuration and surfaces. */
 internal class VideoDecoder(
     streamType: Int,
     surface: Surface?,
@@ -164,13 +160,8 @@ internal class VideoDecoder(
     /** Called when this decoder drops [vendorLowLatency], so the sink's later decoders skip it. */
     private val onVendorLowLatencyRefused: () -> Unit = {},
     /**
-     * Release decoded frames from a thread that waits on the codec's output, instead of when the worker
-     * next comes back from its queue or from feeding: a frame is shown as soon as it is decoded.
-     */
-    dedicatedOutputThread: Boolean = false,
-    /**
      * The main screen with smooth video (H.264 and HEVC): try a low-latency decoder first ([lowLatencyDecoderName]) and
-     * ask decoders that list it for [PICTURE_ORDER_PARAMETER], so each frame leaves the decoder as soon as it can.
+     * ask known Qualcomm OMX decoders for [PICTURE_ORDER_PARAMETER] to avoid frame reordering delay.
      */
     private val framesAtOnce: Boolean = false,
     private val mtkDecoderTuningEnabled: Boolean = false,
@@ -178,31 +169,22 @@ internal class VideoDecoder(
     /** Draws this decoder's pictures onto its surface and its mirrors while it has any ([setMirror]). */
     private val fanoutFactory: (width: Int, height: Int, report: (String) -> Unit) -> VideoFanout =
         { w, h, r -> GlVideoFanout(w, h, r) },
-    /**
-     * Run the frames in the native decode loop ([NativeVideoPipe]) when the library can: frames then go
-     * from the receiver into the codec without this worker, and its events come back as jobs.
-     */
-    nativeDecodeLoop: Boolean = false,
 ) : Closeable {
-    private val pacer = FramePacer()
-    private val outputTiming = VideoOutputTiming(pacingDelayNanos)
     // Worker only: the cached debug-log switch for the periodic stats line.
     private var debugLogsCached = false
     private var debugLogsCheckedNanos = 0L
     private val queue = VideoDecodeQueue()
-    private val pipe: NativeVideoPipe? = if (nativeDecodeLoop) {
-        NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail -> queue.offer(VideoJob.NativeEvent(kind, detail)) }
-            ?.apply { setAccepting(surface != null, resetChain = false) }
-    } else null
+    private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail ->
+        queue.offer(VideoJob.NativeEvent(kind, detail))
+    }.apply { setAccepting(surface != null, resetChain = false) }
     // Guards [pipe] against [submit] and [liveCounters] once the worker has destroyed it.
     private val pipeLock = Any()
-    private var pipeAlive = pipe != null
+    private var pipeAlive = true
     // The decoder the pipe runs, by name, null while it has none; and whether the pipe keeps frames for
     // one (there is a surface). Worker only.
     @Volatile private var nativeCodecName: String? = null
     private var pipeAccepting = surface != null
     @Volatile private var running = true
-    @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
     private var parking: ParkingOutput? = null
     // The stream's mirrors and, while there are any, the fanout the codec renders to instead of
@@ -220,9 +202,6 @@ internal class VideoDecoder(
     private val vendorLowLatencyRefused get() = configuration.vendorLowLatencyRefused
     private val startedLowLatency get() = configuration.startedLowLatency
     private val startedPictureOrder get() = configuration.startedPictureOrder
-    private var submittedFrameLogged = false
-    // Frames queued into the current codec. Its CSD is in the configure format, so a codec that has had
-    // none can wait for the next keyframe as it is.
     private var duplicateConfigLogged = false
     // Installed decoders per MIME type, read once: the list does not change while the app runs.
     private val installedDecoders = HashMap<String, List<InstalledDecoder>>()
@@ -235,54 +214,25 @@ internal class VideoDecoder(
     private var hardwareProbe: HardwareDecoderProbe? = null
     private val hardwareProbeIntervalMillis get() = configuration.probeIntervalMillis
     private var failureReports = 0
-    private val referenceChain = VideoReferenceChain()
-    private val backlogRecovery = VideoBacklogRecovery()
     private val keyframes = VideoKeyFrameRequests()
     // The main screen keeps the historical log format; other screens are labelled.
     private val stats = VideoStats(statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType")
-    // Running totals for the live FPS counter, read from the UI thread.
-    private val liveReceived = AtomicLong()
-    private val liveRendered = AtomicLong()
-    private val liveDecodeNanos = AtomicLong()
-    private val liveDecodeSamples = AtomicLong()
-
-    fun liveCounters(): LiveVideoCounters {
-        synchronized(pipeLock) {
-            if (pipeAlive) {
-                val native = checkNotNull(pipe).live()
-                return LiveVideoCounters(native[0], native[1], native[2], native[3])
-            }
-        }
-        return javaLiveCounters()
+    fun liveCounters(): LiveVideoCounters = synchronized(pipeLock) {
+        if (pipeAlive) {
+            val native = pipe.live()
+            LiveVideoCounters(native[0], native[1], native[2], native[3])
+        } else LiveVideoCounters(0, 0, 0, 0)
     }
 
-    private fun javaLiveCounters() = LiveVideoCounters(
-        received = liveReceived.get(),
-        rendered = liveRendered.get(),
-        decodeNanos = liveDecodeNanos.get(),
-        decodeSamples = liveDecodeSamples.get(),
-    )
     private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
-    private val outputThread = if (dedicatedOutputThread) {
-        Thread(::runOutput, "carplay-video-output").apply { isDaemon = true }
-    } else null
-    // Guards the codec handoff between the worker and the output thread: [decoder] changes, [outputSurface]
-    // and [parking] changes, the per-frame bookkeeping, and the output thread's handling of one buffer.
-    // The output thread waits inside dequeueOutputBuffer without it.
-    private val outputLock = Object()
-    // The codec the output thread is waiting on; the worker waits for it to return before releasing that codec.
-    private var dequeuing: MediaCodec? = null
-    // A failure on the output thread, handled by the worker as if its own job had failed.
-    @Volatile private var outputFailure: Exception? = null
 
     fun start() {
         thread.start()
-        outputThread?.start()
     }
 
     fun configure(codec: VideoCodec, codecData: ByteArray) {
         // On the receiver's thread, before the keyframe that follows: the pipe must not feed it to the old decoder.
-        synchronized(pipeLock) { if (pipeAlive) checkNotNull(pipe).hold(true) }
+        synchronized(pipeLock) { if (pipeAlive) pipe.hold(true) }
         queue.offer(VideoJob.Config(codec, codecData))
     }
 
@@ -291,18 +241,11 @@ internal class VideoDecoder(
 
     /** Takes ownership of [frame]: the worker releases it once fed or dropped. */
     fun submit(frame: MediaPacket, senderNanos: Long = 0L, arrivalNanos: Long = 0L) {
-        if (pipe != null) {
-            synchronized(pipeLock) { if (pipeAlive) pipe.submit(frame, senderNanos, arrivalNanos) else frame.release() }
-            return
-        }
-        stats.onReceived(frame.size)
-        liveReceived.incrementAndGet()
-        // Pacing runs on the worker, in queue order: callbacks of a replaced stream may still deliver here.
-        queue.offer(VideoJob.Frame(frame, senderNanos = senderNanos, arrivalNanos = arrivalNanos))
+        synchronized(pipeLock) { if (pipeAlive) pipe.submit(frame, senderNanos, arrivalNanos) else frame.release() }
     }
 
     fun retainNativeTarget(): Long = synchronized(pipeLock) {
-        if (pipeAlive) checkNotNull(pipe).retainTarget() else 0L
+        if (pipeAlive) pipe.retainTarget() else 0L
     }
 
     fun setSurface(surface: Surface?) {
@@ -357,30 +300,16 @@ internal class VideoDecoder(
     private fun run() {
         try {
             while (running) {
-                val job = queue.poll(workerWaitMillis())
-                outputFailure?.let { failure ->
-                    outputFailure = null
-                    onJobFailure("output", failure)
-                }
+                val job = queue.poll(VIDEO_IDLE_POLL_MS)
                 try {
                     when (job) {
                         is VideoJob.Config -> try {
                             configureDecoder(job, completingConfigHold = true)
                         } finally {
-                            pipe?.hold(false)
+                            pipe.hold(false)
                         }
-                        is VideoJob.Frame -> try {
-                            val backlog = queue.backlogAfterCurrent()
-                            val overloaded = !referenceChain.needsKeyFrame && backlogRecovery.observe(
-                                System.nanoTime(), job.receivedNs,
-                                backlog.pendingFrames, backlog.newestPendingReceivedNs,
-                            )
-                            if (overloaded) {
-                                recover("video backlog kept growing or exceeded hard limit")
-                            } else feed(job.packet, job.receivedNs, localTimeOf(job))
-                        } finally {
-                            job.packet.release()
-                        }
+                        // This mailbox only receives control jobs; frames are submitted to the pipe.
+                        is VideoJob.Frame -> job.packet.release()
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
                         is VideoJob.MirrorChanged -> changeMirror(job.key, job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
@@ -390,19 +319,14 @@ internal class VideoDecoder(
                             keyframes.record(System.nanoTime())
                             requestKeyFrame()
                         }
-                        // A slow configure can fill the queue before the codec got a frame (1.9 s on a
-                        // cold head unit); rebuilding that unused codec only adds another configure.
-                        is VideoJob.Resync -> recover("video queue overflow", keepUnusedDecoder = true)
+                        is VideoJob.Resync -> Unit
                         null -> Unit
                     }
-                    if (outputThread == null) decoder?.let(::drainOutput)
                     probeHardwareIfDue()
                     if (statsLoggingEnabled()) {
-                        pipe?.drainStats(stats)
+                        pipe.drainStats(stats)
                         stats.logIfDue()?.let(report)
                     }
-                    // The pipe keeps its own reference chain and asks for keyframes itself.
-                    if (pipe == null && referenceChain.needsKeyFrame && lastConfig != null && codecSurface() != null) requestKeyFrameIfDue()
                     updatePipeAccepting()
                 } catch (error: Exception) {
                     onJobFailure(job?.javaClass?.simpleName ?: "drain", error)
@@ -417,12 +341,8 @@ internal class VideoDecoder(
             running = false
             releaseDecoder()
             synchronized(pipeLock) {
-                if (pipeAlive) pipe?.destroy()
+                if (pipeAlive) pipe.destroy()
                 pipeAlive = false
-            }
-            outputThread?.let { output ->
-                output.interrupt()
-                joinUninterruptibly(output, OUTPUT_EXIT_WAIT_MS)
             }
             // The codec is gone, so nothing renders to any surface or to the parking consumer any more.
             parking?.close()
@@ -437,22 +357,16 @@ internal class VideoDecoder(
         }
     }
 
-    private fun hasCodec(): Boolean = decoder != null || nativeCodecName != null
+    private fun hasCodec(): Boolean = nativeCodecName != null
 
-    /** Moves the running codec, Java or native, to [surface]; throws when it cannot. */
+    /** Moves the running native codec to [surface]; throws when it cannot. */
     private fun setCodecSurface(surface: Surface) {
-        val codec = decoder
-        if (codec != null) {
-            codec.setOutputSurface(surface)
-        } else if (nativeCodecName != null) {
-            check(checkNotNull(pipe).setSurface(surface, shown = surface !== parking?.surface)) {
-                "native video decoder could not move to the surface"
-            }
+        if (hasCodec()) check(pipe.setSurface(surface, shown = surface !== parking?.surface)) {
+            "native video decoder could not move to the surface"
         }
     }
 
     private fun updatePipeAccepting() {
-        val pipe = pipe ?: return
         val accepting = codecSurface() != null
         if (accepting == pipeAccepting) return
         pipeAccepting = accepting
@@ -503,46 +417,7 @@ internal class VideoDecoder(
         }
         releaseDecoder()
         queue.discardCurrentChain()
-        referenceChain.reset()
         requestKeyFrameIfDue()
-    }
-
-    /** The output thread: waits on the current codec's output and releases each frame as it comes. */
-    private fun runOutput() {
-        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
-        val info = MediaCodec.BufferInfo()
-        while (running) {
-            val codec = synchronized(outputLock) {
-                val current = decoder
-                if (current == null || outputFailure != null) {
-                    try { outputLock.wait(OUTPUT_IDLE_WAIT_MS) } catch (_: InterruptedException) { return }
-                    null
-                } else {
-                    dequeuing = current
-                    current
-                }
-            } ?: continue
-            var index = MediaCodec.INFO_TRY_AGAIN_LATER
-            var failure: Exception? = null
-            try {
-                index = codec.dequeueOutputBuffer(info, OUTPUT_TIMEOUT_US)
-            } catch (error: Exception) {
-                failure = error
-            }
-            synchronized(outputLock) {
-                dequeuing = null
-                outputLock.notifyAll()
-                // A codec the worker released or replaced meanwhile has no buffers left to hand out.
-                if (decoder === codec) {
-                    try {
-                        if (failure != null) throw failure
-                        handleOutput(codec, index, info)
-                    } catch (error: Exception) {
-                        if (running) outputFailure = error
-                    }
-                }
-            }
-        }
     }
 
     /** [resetChain] false only when the pipe asks for a decoder for the keyframe it holds. */
@@ -563,7 +438,6 @@ internal class VideoDecoder(
         lastConfig = config
         duplicateConfigLogged = false
         releaseDecoder()
-        referenceChain.reset()
         val surface = codecSurface() ?: return
         val codec = config.codec
         val codecData = config.codecData
@@ -597,8 +471,7 @@ internal class VideoDecoder(
             requestedMtkMode,
         )) {
             if (!configuration.allows(attempt, attempt.codecName?.let(::isSoftwareDecoderName) == true, Build.VERSION.SDK_INT)) continue
-            configured = pipe?.let { tryConfigureNative(it, mime, csd, surface, attempt, framesAtOnce) }
-                ?: if (pipe == null) tryConfigure(mime, csd, surface, attempt, framesAtOnce) else null
+            configured = tryConfigureNative(mime, csd, surface, attempt, framesAtOnce)
             if (configured != null) { used = attempt; break }
         }
         if (configured != null) noteSoftwareFallback(mime, configured.codecName)
@@ -612,16 +485,9 @@ internal class VideoDecoder(
             configuration.refuseLowLatency()
         }
         renderedFrameLogged = false
-        submittedFrameLogged = false
-        synchronized(outputLock) {
-            decoder = configured?.codec
-            nativeCodecName = if (pipe != null) configured?.codecName else null
-            configuration.resetQueuedFrames()
-            outputLock.notifyAll()
-        }
+        nativeCodecName = configured?.codecName
         // Retire only this failure's chain; a newer Config may already have delivered its only IDR.
-        if (configured == null) pipe?.configurationFailed(completingConfigHold)
-        if (configured != null) backlogRecovery.decoderStarted(System.nanoTime())
+        if (configured == null) pipe.configurationFailed(completingConfigHold)
         val mtkFallback = configuration.finish(used?.operatingRate ?: 0, configured?.mtkMode ?: MtkDecoderMode.NONE,
             requestedMtkMode, configured != null,
             configured != null && requestedMtkCodec2 != null && configured.codecName.equals(requestedMtkCodec2, ignoreCase = true),
@@ -636,7 +502,6 @@ internal class VideoDecoder(
             val lowLatency = " qtiLowLatencyRequested=$vendorLowLatency" +
                 " qtiLowLatencySubmitted=$configuredVendorLowLatency" +
                 " qtiLowLatencyFallback=$vendorLowLatencyRefused effectiveness=unverified"
-            val output = if (outputThread != null) " outputThread=true" else ""
             val atOnceReport = if (framesAtOnce) " lowLatency=$startedLowLatency pictureOrder=$startedPictureOrder" else ""
             val mtk = when {
                 configuredMtkCodec2LowLatency -> " mtkTuning=codec2-low-latency"
@@ -645,7 +510,7 @@ internal class VideoDecoder(
                 else -> ""
             }
             report("decoder=${configured.codecName} mime=$mime size=${width}x$height" +
-                "$rate$lowLatency$output$atOnceReport$mtk")
+                "$rate$lowLatency$atOnceReport$mtk")
             Log.i(
                 TAG,
                 "video decoder configured name=${configured.codecName} mime=$mime size=${width}x$height$mtk",
@@ -678,118 +543,12 @@ internal class VideoDecoder(
         report("MTK Codec2 low-latency decoder dropped: $reason; next=default")
     }
 
-    private fun buildFormat(
-        mime: String,
-        csd: List<ByteArray>,
-        attempt: DecoderAttempt,
-        mtkMode: MtkDecoderMode,
-    ): MediaFormat =
-        MediaFormat.createVideoFormat(mime, width, height).apply {
-            if (attempt.tuned) {
-                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_SIZE)
-                setInteger(MediaFormat.KEY_PRIORITY, 0)
-                if (attempt.operatingRate > 0) setInteger(MediaFormat.KEY_OPERATING_RATE, attempt.operatingRate)
-            }
-            mtkMode.formatKeys().forEach { setInteger(it, 1) }
-            csd.forEachIndexed { index, bytes -> setByteBuffer("csd-$index", ByteBuffer.wrap(bytes)) }
-        }
-
     private data class ConfiguredVideoDecoder(
-        /** Null for a decoder the native pipe runs. */
-        val codec: MediaCodec?,
         val codecName: String,
         val mtkMode: MtkDecoderMode,
     )
 
-    private fun tryConfigure(
-        mime: String,
-        csd: List<ByteArray>,
-        surface: Surface,
-        attempt: DecoderAttempt,
-        /** Ask for [PICTURE_ORDER_PARAMETER] when the decoder lists it ([framesAtOnce]). */
-        atOnce: Boolean = false,
-    ): ConfiguredVideoDecoder? {
-        var candidate: MediaCodec? = null
-        var mtkMode = MtkDecoderMode.NONE
-        var vendorKeys = emptyList<String>()
-        var privateParameters = false
-        var codecName = attempt.codecName ?: "default"
-        var phase = "create"
-        var phaseStartNs = System.nanoTime()
-        val startedNs = phaseStartNs
-        return try {
-            val codec = attempt.codecName?.let { MediaCodec.createByCodecName(it) } ?: createDecoder(mime)
-            candidate = codec
-            val createdName = runCatching { codec.name }.getOrNull().orEmpty()
-            codecName = createdName.ifEmpty { codecName }
-            mtkMode = appliedMtkDecoderMode(attempt.mtkMode, createdName)
-            val format = buildFormat(mime, csd, attempt, mtkMode)
-            phase = "configure"
-            phaseStartNs = System.nanoTime()
-            val advertised = attempt.tuned && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                codec.codecInfo.getCapabilitiesForType(mime).isFeatureSupported("low-latency")
-            val nameFlags = videoCodecNameFlags(createdName)
-            val initialFlags = configuration.formatFlags(attempt.tuned, atOnce, vendorLowLatency, Build.VERSION.SDK_INT, advertised, false, nameFlags)
-            val lowLatency = initialFlags and 1 != 0
-            if (lowLatency) format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-            vendorKeys = if (initialFlags and 2 != 0) listOf(QTI_LOW_LATENCY_PARAMETER) else emptyList()
-            vendorKeys.forEach { format.setInteger(it, 1) }
-            val pictureOrderListed = listsPictureOrder(codec)
-            val flags = configuration.formatFlags(attempt.tuned, atOnce, vendorLowLatency, Build.VERSION.SDK_INT, advertised, pictureOrderListed, nameFlags)
-            val pictureOrder = flags and 4 != 0
-            privateParameters = flags and 8 != 0
-            if (pictureOrder) format.setInteger(PICTURE_ORDER_PARAMETER, 1)
-            if (vendorKeys.isNotEmpty()) {
-                report("QTI low-latency attempt decoder=$codecName api=${Build.VERSION.SDK_INT} " +
-                    "request=${vendorKeys.joinToString { "$it=1" }} pictureOrder=$pictureOrder")
-            }
-            codec.configure(format, surface, null, 0)
-            phase = "start"
-            phaseStartNs = System.nanoTime()
-            codec.start()
-            configuration.noteParameters(vendorKeys.isNotEmpty(), privateParameters)
-            if (configuredVendorLowLatency) {
-                report("QTI low-latency configure/start returned decoder=$codecName; effectiveness=unverified")
-            }
-            configuration.noteFeatures(lowLatency, pictureOrder)
-            val configuredName = runCatching { codec.name }.getOrNull().orEmpty()
-                .ifEmpty { createdName }
-                .ifEmpty { attempt.codecName ?: "default" }
-            ConfiguredVideoDecoder(codec, configuredName, mtkMode)
-        } catch (error: Exception) {
-            val phaseMs = (System.nanoTime() - phaseStartNs) / 1_000_000
-            val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
-            runCatching { candidate?.release() }.onFailure {
-                Log.w(TAG, "video decoder candidate release failed name=$codecName", it)
-            }
-            reportFailure("stage=configure phase=$phase phaseMs=$phaseMs elapsedMs=$elapsedMs " +
-                "decoder=$codecName qtiRequest=${vendorKeys.joinToString()} " +
-                "tuned=${attempt.tuned} operatingRate=${attempt.operatingRate} " +
-                "mtkTuning=${mtkMode.diagnosticName} mime=$mime", error)
-            Log.w(
-                TAG,
-                "video decoder configure failed name=$codecName phase=$phase phaseMs=$phaseMs elapsedMs=$elapsedMs " +
-                    "tuned=${attempt.tuned} operatingRate=${attempt.operatingRate} " +
-                    "mtkTuning=${mtkMode.diagnosticName} mime=$mime size=${width}x$height",
-                error,
-            )
-            if (privateParameters) {
-                configuration.declineVendor(force = true)
-                onVendorLowLatencyRefused()
-                report("QTI low-latency fallback decoder=$codecName phase=$phase; " +
-                    "retry=same-format-without-private-parameters for this session")
-                tryConfigure(mime, csd, surface, attempt, atOnce)
-            } else null
-        }
-    }
-
-    /**
-     * [tryConfigure] for the native pipe: the same attempt, format keys and private-parameter fallback,
-     * with the codec created and started by the pipe. A decoder's listed vendor parameters need a Java
-     * instance (Android 12+), so only Qualcomm's OMX decoders get picture order here, unlisted.
-     */
     private fun tryConfigureNative(
-        pipe: NativeVideoPipe,
         mime: String,
         csd: List<ByteArray>,
         surface: Surface,
@@ -825,7 +584,7 @@ internal class VideoDecoder(
                 "request=${vendorKeys.joinToString { "$it=1" }} pictureOrder=$pictureOrder")
         }
         val hevc = mime == MediaFormat.MIMETYPE_VIDEO_HEVC
-        // The hardware decoder by name is retried as in [createDecoder]: its session is freed asynchronously.
+        // Hardware sessions are freed asynchronously, so retry creation before selecting software.
         val retries = if (attempt.codecName == null && requestedName != null) HARDWARE_CREATE_RETRY_MILLIS else emptyList()
         val result = try {
             createWithRetries(retries, sleep = Thread::sleep, onRetry = { tries, failure ->
@@ -854,17 +613,17 @@ internal class VideoDecoder(
             onVendorLowLatencyRefused()
             report("QTI low-latency fallback decoder=$codecName phase=$phase; " +
                 "retry=same-format-without-private-parameters for this session")
-            return tryConfigureNative(pipe, mime, csd, surface, attempt, atOnce)
+            return tryConfigureNative(mime, csd, surface, attempt, atOnce)
         }
         configuration.noteParameters(vendorKeys.isNotEmpty(), privateParameters)
         if (configuredVendorLowLatency) {
             report("QTI low-latency configure/start returned decoder=$codecName; effectiveness=unverified")
         }
         configuration.noteFeatures(lowLatency, pictureOrder)
-        return ConfiguredVideoDecoder(null, result.detail?.takeIf { it.isNotEmpty() } ?: codecName, mtkMode)
+        return ConfiguredVideoDecoder(result.detail?.takeIf { it.isNotEmpty() } ?: codecName, mtkMode)
     }
 
-    /** The decoder [createDecoder] would make for an unnamed attempt, by name; null for the platform's own choice. */
+    /** Resolve an unnamed attempt; null keeps the platform's own decoder choice. */
     private fun nativeDefaultDecoderName(mime: String): String? {
         return preferredDefaultDecoder(installedDecoders(mime), prefersSoftware(mime), hardwareCreateFailed)
     }
@@ -885,11 +644,6 @@ internal class VideoDecoder(
                 })
         }.getOrNull()
     }
-
-    /** Android 12 lets a codec list its vendor parameters. */
-    private fun listsPictureOrder(codec: MediaCodec): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            runCatching { PICTURE_ORDER_PARAMETER in codec.supportedVendorParameters }.getOrDefault(false)
 
     private fun softwareDecoderName(mime: String): String? = softwareFallbackDecoder(installedDecoders(mime))
 
@@ -937,50 +691,14 @@ internal class VideoDecoder(
         report("hardware decoder ${probe.name} available again; leaving the software decoder")
         releaseDecoder()
         queue.discardCurrentChain()
-        referenceChain.reset()
         requestKeyFrameIfDue()
     }
 
     private fun prefersSoftware(mime: String): Boolean =
         NativeVideoPolicy.prefersSoftware(Build.VERSION.SDK_INT, mime == MediaFormat.MIMETYPE_VIDEO_HEVC, preferSoftwareHevcDecoder)
 
-    private fun createDecoder(mime: String): MediaCodec {
-        if (prefersSoftware(mime)) {
-            val candidates = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { !it.isEncoder && mime in it.supportedTypes }
-            val software = candidates.getOrNull(NativeVideoPolicy.firstSoftware(candidates.map { if (it.isSoftwareOnly) 1 else 0 }.toIntArray()))
-            if (software != null) {
-                try {
-                    return MediaCodec.createByCodecName(software.name)
-                } catch (error: Exception) {
-                    Log.w(TAG, "software HEVC decoder unavailable name=${software.name}", error)
-                }
-            }
-        }
-        // Without a known hardware decoder (emulators, debugging boards) keep the platform's own choice.
-        val hardware = defaultHardwareDecoder(installedDecoders(mime)) ?: return MediaCodec.createDecoderByType(mime)
-        if (hardwareCreateFailed) throw java.io.IOException("hardware decoder $hardware unavailable")
-        return try {
-            createWithRetries(
-                HARDWARE_CREATE_RETRY_MILLIS,
-                sleep = Thread::sleep,
-                onRetry = { attempt, failure ->
-                    report("hardware decoder $hardware create failed attempt=$attempt " +
-                        "${MediaFailureSummary.describe(failure)}; retrying")
-                },
-            ) { MediaCodec.createByCodecName(hardware) }
-        } catch (failure: Exception) {
-            hardwareCreateFailed = true
-            // tryConfigure reports and swallows the failure; a close must still end the worker.
-            if (failure is InterruptedException) Thread.currentThread().interrupt()
-            throw failure
-        }
-    }
-
-    private fun localTimeOf(frame: VideoJob.Frame): Long =
-        pacer.frameTime(outputTiming.pacingEnabled, frame.senderNanos, frame.arrivalNanos)
-
     /** Completes [request] once the codec no longer renders to its surface, whatever happens here. */
-    private fun detach(request: SurfaceDetachRequest): Unit = synchronized(outputLock) {
+    private fun detach(request: SurfaceDetachRequest): Unit {
         var outcome = DetachOutcome.RELEASED
         val sharing = fanout
         if (sharing != null) {
@@ -1034,7 +752,7 @@ internal class VideoDecoder(
         }
     }
 
-    private fun changeSurface(surface: Surface?): Unit = synchronized(outputLock) {
+    private fun changeSurface(surface: Surface?): Unit {
         if (outputSurface === surface) return
         outputSurface = surface
         fanout?.let { sharing ->
@@ -1063,12 +781,11 @@ internal class VideoDecoder(
         }
         releaseDecoder()
         queue.discardCurrentChain()
-        referenceChain.reset()
         lastConfig?.let(::configureDecoder)
     }
 
     /** Mirrors: one decoder for all of them, through a fanout that also draws onto the stream's own surface. */
-    private fun changeMirror(key: String, surface: Surface?): Unit = synchronized(outputLock) {
+    private fun changeMirror(key: String, surface: Surface?): Unit {
         if (surface == null) {
             if (mirrors.remove(key) == null) return
         } else {
@@ -1106,7 +823,6 @@ internal class VideoDecoder(
                     Log.w(TAG, "video decoder could not move to the fanout; reconfiguring", error)
                     releaseDecoder()
                     queue.discardCurrentChain()
-                    referenceChain.reset()
                 }
             }
             fanout = sharing
@@ -1135,7 +851,6 @@ internal class VideoDecoder(
                 Log.w(TAG, "video decoder could not return to its surface; reconfiguring", error)
                 releaseDecoder()
                 queue.discardCurrentChain()
-                referenceChain.reset()
             }
         }
         runCatching(sharing::close)
@@ -1148,98 +863,12 @@ internal class VideoDecoder(
         fanout = null
         releaseDecoder()
         queue.discardCurrentChain()
-        referenceChain.reset()
         runCatching(sharing::close)
         mirrors.clear()
     }
 
     /** Where the codec renders: the fanout while the stream has mirrors, else the stream's own surface. */
     private fun codecSurface(): Surface? = fanout?.input ?: outputSurface
-
-    /** [frame] stays owned by the caller, which releases it afterwards. */
-    private fun feed(frame: MediaPacket, receivedNs: Long, presentNs: Long = 0L) {
-        val annexB = frame.annexBOrNull()
-        val config = lastConfig ?: return
-        if (codecSurface() == null) return
-        if (annexB == null) { recover("invalid video access unit"); return }
-        if (!referenceChain.accepts(annexB, config.codec)) {
-            requestKeyFrameIfDue()
-            return
-        }
-        if (decoder == null) configureDecoder(config)
-        val codec = decoder ?: return
-        // A slow rebuild must not immediately restart on its obsolete triggering IDR.
-        if (referenceChain.needsKeyFrame && VideoRecoveryFrameAge.isObsolete(
-                System.nanoTime(), receivedNs, queue.backlogAfterCurrent(),
-            )) {
-            queue.discardCurrentChain()
-            backlogRecovery.reset()
-            requestKeyFrameIfDue()
-            return
-        }
-        // The queue overflowed behind this frame (a slow configure): its chain is gone, and the
-        // pending Resync recovers, so do not spend the fresh codec on it.
-        if (queue.resyncPending()) return
-        if (!submittedFrameLogged) {
-            submittedFrameLogged = true
-            Log.i(
-                TAG,
-                "video decoder first input avcc=${frame.size} annexB=${annexB.size} " +
-                    "packet=${frame.javaClass.simpleName}",
-            )
-        }
-        val index = DecoderInputPump.acquire(
-            running = { running }, drain = { if (outputThread == null) drainOutput(codec) },
-            dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
-        )
-        if (index < 0) {
-            dropVendorLowLatency("video decoder input stalled")
-            dropMtkTuning("video decoder input stalled")
-            dropMtkCodec2LowLatency("video decoder input stalled")
-            recover("video decoder input stalled")
-            return
-        }
-        val input = checkNotNull(codec.getInputBuffer(index)) { "Decoder input buffer unavailable" }
-        input.clear()
-        if (annexB.size <= input.remaining()) {
-            annexB.copyInto(input)
-            // A paced frame carries its local time; MediaCodec returns it with the decoded output.
-            val presentationUs = if (presentNs > 0) presentNs / 1000 else System.nanoTime() / 1000
-            // Recorded before queueing: the output thread may dequeue the frame as soon as it is queued.
-            synchronized(outputLock) {
-                val queuedNow = System.nanoTime()
-                outputTiming.queued(presentationUs, presentNs, queuedNow)
-            }
-            codec.queueInputBuffer(index, 0, annexB.size, presentationUs, 0)
-            configuration.inputQueued()
-            referenceChain.onQueued()
-        } else {
-            recover("video frame exceeded codec input capacity")
-            return
-        }
-        if (outputThread == null) drainOutput(codec)
-    }
-
-    private fun recover(reason: String, keepUnusedDecoder: Boolean = false) {
-        val keep = configuration.keepsUnusedDecoder(keepUnusedDecoder, decoder != null)
-        Log.w(TAG, "Video recovery: $reason; waiting for keyframe")
-        stats.onRecovery()
-        report("recovery: $reason; waiting for keyframe" + if (keep) "; decoder kept, no frame queued yet" else "")
-        // Recreate with codec-specific data: flush can discard CSD before the first output.
-        if (!keep) releaseDecoder()
-        queue.discardCurrentChain()
-        referenceChain.reset()
-        requestKeyFrameIfDue()
-    }
-
-    /**
-     * How long the worker may wait for the next job; see [videoWorkerWaitMillis].
-     */
-    private fun workerWaitMillis(): Long = videoWorkerWaitMillis(
-        drainsOutput = outputThread == null && decoder != null,
-        lastQueuedNanos = outputTiming.lastQueuedNanos,
-        nowNanos = System.nanoTime(),
-    )
 
     /** [debugLogsEnabled] reads settings; the worker loop checks it at most once a second. */
     private fun statsLoggingEnabled(): Boolean {
@@ -1257,82 +886,6 @@ internal class VideoDecoder(
         requestKeyFrame()
     }
 
-    private fun drainOutput(codec: MediaCodec) {
-        val info = MediaCodec.BufferInfo()
-        while (running) {
-            if (!handleOutput(codec, codec.dequeueOutputBuffer(info, 0), info)) return
-        }
-    }
-
-    /** Handles one dequeueOutputBuffer result; false when there is nothing more to drain for now. */
-    private fun handleOutput(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo): Boolean {
-        when {
-            index == MediaCodec.INFO_TRY_AGAIN_LATER -> return false
-            index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
-            index >= 0 -> {
-                val target = codecSurface()
-                val render = target != null
-                // Parked output goes to the offscreen consumer: it keeps the codec's state, but it is
-                // not shown, so it is neither paced nor counted.
-                val shown = render && target !== parking?.surface
-                val now = System.nanoTime()
-                val plan = outputTiming.plan(info.presentationTimeUs, now, shown)
-                if (plan.latencyKnown) stats.onDecodeLatency(plan.latencyNanos, plan.heldOverGap)
-                if (plan.latencyKnown && !plan.heldOverGap) {
-                    liveDecodeNanos.addAndGet(plan.latencyNanos)
-                    liveDecodeSamples.incrementAndGet()
-                }
-                plan.pacingDelayNanos?.let(stats::onPacingDelay)
-                val renderAt = plan.renderAtNanos
-                if (renderAt != null) codec.releaseOutputBuffer(index, renderAt)
-                else {
-                    if (plan.late) stats.onLate()
-                    codec.releaseOutputBuffer(index, render)
-                }
-                if (shown) {
-                    stats.onRendered()
-                    liveRendered.incrementAndGet()
-                }
-                if (shown && !renderedFrameLogged) {
-                    renderedFrameLogged = true
-                    report("first frame rendered")
-                    if (vendorLowLatency) report("QTI first output released for rendering " +
-                        "qtiLowLatencySubmitted=$configuredVendorLowLatency effectiveness=unverified")
-                    Log.i(TAG, "video decoder rendered first frame bytes=${info.size}")
-                }
-                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return false
-            }
-            else -> return false
-        }
-        return true
-    }
-
-    private fun logOutputFormat(format: MediaFormat) {
-        if (vendorLowLatency) {
-            report("QTI driver-reported output format " +
-                "$QTI_LOW_LATENCY_PARAMETER=${format.intOrNull(QTI_LOW_LATENCY_PARAMETER) ?: "unreported"} " +
-                "$PICTURE_ORDER_PARAMETER=${format.intOrNull(PICTURE_ORDER_PARAMETER) ?: "unreported"}; " +
-                "effectiveness=unverified (reported values may be stale; unreported is not unsupported)")
-        }
-        report("output format requested=${width}x${height} " +
-            "coded=${format.intOrNull(MediaFormat.KEY_WIDTH)}x${format.intOrNull(MediaFormat.KEY_HEIGHT)} " +
-            "crop=${format.intOrNull("crop-left")},${format.intOrNull("crop-top")}," +
-            "${format.intOrNull("crop-right")},${format.intOrNull("crop-bottom")} " +
-            "stride=${format.intOrNull(MediaFormat.KEY_STRIDE)} slice=${format.intOrNull(MediaFormat.KEY_SLICE_HEIGHT)} " +
-            "color=${format.intOrNull(MediaFormat.KEY_COLOR_STANDARD)}/${format.intOrNull(MediaFormat.KEY_COLOR_RANGE)}/${format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)}")
-        Log.i(
-            TAG,
-            "video decoder output format " +
-                "size=${format.intOrNull(MediaFormat.KEY_WIDTH)}x" +
-                "${format.intOrNull(MediaFormat.KEY_HEIGHT)} " +
-                "stride=${format.intOrNull(MediaFormat.KEY_STRIDE)} " +
-                "slice=${format.intOrNull(MediaFormat.KEY_SLICE_HEIGHT)} " +
-                "standard=${format.intOrNull(MediaFormat.KEY_COLOR_STANDARD)} " +
-                "range=${format.intOrNull(MediaFormat.KEY_COLOR_RANGE)} " +
-                "transfer=${format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)}",
-        )
-    }
-
     private fun reportFailure(context: String, error: Throwable) {
         // A bad decoder can fail again on every frame; exported detail stays bounded per worker.
         if (failureReports >= 8) return
@@ -1341,92 +894,21 @@ internal class VideoDecoder(
             MediaFailureSummary.describe(error)) }
     }
 
-    // Worker only; [outputLock] orders it against the output thread.
     private fun releaseDecoder() {
-        backlogRecovery.reset()
-        val codec: MediaCodec?
-        synchronized(outputLock) {
-            codec = decoder
-            decoder = null
-            // The output thread returns from dequeueOutputBuffer within its timeout and then sees no codec.
-            awaitNotDequeuing(codec)
-        }
         if (nativeCodecName != null) {
             nativeCodecName = null
-            checkNotNull(pipe).release()
+            pipe.release()
         }
         configuration.released()
-        if (codec != null) {
-            try {
-                codec.stop()
-            } catch (_: Exception) {
-                // Best effort.
-            }
-            try {
-                codec.release()
-            } catch (_: Exception) {
-                // Best effort.
-            }
-        }
-    }
-
-    /** Waits, holding [outputLock], until the output thread no longer waits on [codec]; keeps an interrupt. */
-    private fun awaitNotDequeuing(codec: MediaCodec?) {
-        if (codec == null) return
-        var interrupted = false
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(OUTPUT_EXIT_WAIT_MS)
-        while (dequeuing === codec) {
-            val leftMillis = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
-            if (leftMillis <= 0) break
-            try { outputLock.wait(leftMillis) } catch (_: InterruptedException) { interrupted = true }
-        }
-        if (interrupted) Thread.currentThread().interrupt()
-    }
-
-    private fun joinUninterruptibly(thread: Thread, timeoutMillis: Long) {
-        var interrupted = false
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
-        while (thread.isAlive) {
-            val leftMillis = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
-            if (leftMillis <= 0) break
-            try { thread.join(leftMillis) } catch (_: InterruptedException) { interrupted = true }
-        }
-        if (interrupted) Thread.currentThread().interrupt()
     }
 
     private companion object {
         const val TAG = "diplay-usb"
         const val MAX_INPUT_SIZE = 8 * 1024 * 1024
-        // The output thread's wait for a decoded frame; a release waits at most this long for it to return.
-        const val OUTPUT_TIMEOUT_US = 10_000L
-        const val OUTPUT_IDLE_WAIT_MS = 10L
-        const val OUTPUT_EXIT_WAIT_MS = 500L
-        const val INPUT_TIMEOUT_US = 10_000L
         const val DEBUG_LOGS_RECHECK_NS = 1_000_000_000L
         // Waits before creating a refused hardware decoder again: 0.7 s in all, while frames queue up.
         val HARDWARE_CREATE_RETRY_MILLIS = listOf(100L, 200L, 400L)
+        const val VIDEO_IDLE_POLL_MS = 50L
         val START_CODE = byteArrayOf(0x00, 0x00, 0x00, 0x01)
     }
 }
-
-/** Use the existing hard backlog age only when a newer frame remains in this control segment. */
-internal object VideoRecoveryFrameAge {
-    fun isObsolete(nowNs: Long, receivedNs: Long, backlog: VideoDecodeQueue.Backlog): Boolean =
-        NativeVideoFlow.obsolete(nowNs, receivedNs, backlog.pendingFrames,
-            backlog.newestPendingReceivedNs ?: 0, backlog.newestPendingReceivedNs != null)
-}
-
-internal const val VIDEO_DRAIN_POLL_MS = 5L
-internal const val VIDEO_IDLE_POLL_MS = 50L
-internal const val VIDEO_STILL_GAP_NS = 500_000_000L
-
-/**
- * The decoder worker's wait for its next job. When it drains a codec's output itself ([drainsOutput]: a
- * codec and no output thread) it polls every [VIDEO_DRAIN_POLL_MS] while the codec may still emit a
- * frame. The codec holds the last frames of a burst until later input arrives, so once input has
- * paused for a still-screen gap nothing comes out until the next frame, and that frame wakes the
- * queue at once. Otherwise only due checks (hardware probe, keyframe request, stats) run, every
- * [VIDEO_IDLE_POLL_MS].
- */
-internal fun videoWorkerWaitMillis(drainsOutput: Boolean, lastQueuedNanos: Long, nowNanos: Long): Long =
-    NativeVideoPolicy.workerWait(drainsOutput, lastQueuedNanos, nowNanos)

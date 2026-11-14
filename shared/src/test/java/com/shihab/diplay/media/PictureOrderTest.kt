@@ -1,8 +1,6 @@
 package com.shihab.diplay.media
 
 import android.graphics.SurfaceTexture
-import android.media.MediaCodec
-import android.media.MediaCodecInfo
 import android.media.MediaCrypto
 import android.media.MediaFormat
 import android.view.Surface
@@ -13,16 +11,15 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.Implementation
-import org.robolectric.annotation.Implements
 import org.robolectric.shadows.MediaCodecInfoBuilder
 import org.robolectric.shadows.ShadowMediaCodec
+import org.robolectric.shadows.ShadowMediaCodecList
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** Android 12 lets a decoder list its vendor parameters; picture order follows that list for H.264 and HEVC. */
+/** Native configuration requests picture order by the installed Qualcomm OMX codec name. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31], manifest = Config.NONE, shadows = [PictureOrderTest.ListingCodec::class])
+@Config(sdk = [31], manifest = Config.NONE)
 class PictureOrderTest {
     private val formats = CopyOnWriteArrayList<MediaFormat>()
     private val reports = CopyOnWriteArrayList<String>()
@@ -33,37 +30,40 @@ class PictureOrderTest {
         sink?.let { it.close(); assertTrue(it.awaitVideoReleased(5_000)) }
         surfaces.forEach(Surface::release)
         ShadowMediaCodec.clearCodecs()
-        ListingCodec.vendorParameters = emptyList()
+        ShadowMediaCodecList.reset()
     }
 
-    @Test fun smoothHevcAsksAListingDecoderForPictureOrder() {
-        ListingCodec.vendorParameters = listOf(PICTURE_ORDER_PARAMETER)
+    @Test fun smoothHevcAsksQualcommOmxForPictureOrder() {
         configure(VideoCodec.H265, smooth = true)
         assertEquals(reports.joinToString("\n"), 1, formats.last().getInteger(PICTURE_ORDER_PARAMETER, 0))
         assertTrue(reports.any { "mime=video/hevc" in it && "pictureOrder=true" in it })
     }
 
     @Test fun smoothH264KeepsPictureOrder() {
-        ListingCodec.vendorParameters = listOf(PICTURE_ORDER_PARAMETER)
         configure(VideoCodec.H264, smooth = true)
         assertEquals(reports.joinToString("\n"), 1, formats.last().getInteger(PICTURE_ORDER_PARAMETER, 0))
     }
 
     @Test fun hevcWithoutSmoothVideoKeepsDecoderOrder() {
-        ListingCodec.vendorParameters = listOf(PICTURE_ORDER_PARAMETER)
         configure(VideoCodec.H265, smooth = false)
         assertFalse(formats.single().containsKey(PICTURE_ORDER_PARAMETER))
     }
 
-    @Test fun hevcDecoderThatDoesNotListTheParameterGetsNone() {
-        configure(VideoCodec.H265, smooth = true)
+    @Test fun otherHevcDecodersReceiveNoUnlistedPictureOrder() {
+        configure(VideoCodec.H265, smooth = true, name = "c2.qti.hevc.decoder")
         assertFalse(formats.single().containsKey(PICTURE_ORDER_PARAMETER))
         assertTrue(reports.any { "mime=video/hevc" in it && "pictureOrder=false" in it })
     }
 
-    private fun configure(codec: VideoCodec, smooth: Boolean) {
+    private fun configure(codec: VideoCodec, smooth: Boolean, name: String = "OMX.qcom.video.decoder.test") {
+        ShadowMediaCodecList.addCodec(MediaCodecInfoBuilder.newBuilder().setName(name)
+            .setCapabilities(*listOf(MediaFormat.MIMETYPE_VIDEO_AVC, MediaFormat.MIMETYPE_VIDEO_HEVC).map {
+                MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
+                    .setMediaFormat(MediaFormat.createVideoFormat(it, 1920, 1080))
+                    .setProfileLevels(arrayOf()).setColorFormats(intArrayOf()).build()
+            }.toTypedArray()).build())
         val mime = if (codec == VideoCodec.H265) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
-        ShadowMediaCodec.addDecoder(mime,
+        ShadowMediaCodec.addDecoder(name,
             ShadowMediaCodec.CodecConfig(64 * 1024, 64 * 1024, object : ShadowMediaCodec.CodecConfig.Codec {
                 override fun onConfigured(format: MediaFormat?, surface: Surface?, crypto: MediaCrypto?, flags: Int) {
                     formats += checkNotNull(format)
@@ -80,21 +80,6 @@ class PictureOrderTest {
     }
 
     private fun surface() = Surface(SurfaceTexture(0)).also { surfaces += it }
-
-    @Implements(MediaCodec::class)
-    class ListingCodec : ShadowMediaCodec() {
-        @Implementation fun getSupportedVendorParameters(): List<String> = vendorParameters
-        // API 31 configure reads the capabilities; the shadow codec is not in MediaCodecList.
-        @Implementation fun getCodecInfo(): MediaCodecInfo = MediaCodecInfoBuilder.newBuilder()
-            .setName("OMX.qcom.video.decoder.test")
-            .setCapabilities(*listOf(MediaFormat.MIMETYPE_VIDEO_AVC, MediaFormat.MIMETYPE_VIDEO_HEVC).map {
-                MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
-                    .setMediaFormat(MediaFormat.createVideoFormat(it, 1920, 1080))
-                    .setProfileLevels(arrayOf()).setColorFormats(intArrayOf()).build()
-            }.toTypedArray())
-            .build()
-        companion object { var vendorParameters: List<String> = emptyList() }
-    }
 
     private companion object {
         const val MAIN = 110

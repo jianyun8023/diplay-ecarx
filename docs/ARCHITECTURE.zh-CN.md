@@ -76,14 +76,28 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 
 当前边界：Rust 持有协议、会话与媒体核心状态，Kotlin 执行平台动作。SDK 线程间的简单 I/O 交接邮箱、资源保护与 PKIX 身份材料适配仍属于平台层。
 
+2026-11-14 生产入口复核：协议／配对（RTSP、bplist、控制加密、PairVerify／PairSetup、MFiSAP、iAP2）、会话代际／重试／watchdog、媒体队列／节拍／选型／音频调度、USBMUX／Lockdown／NCM 协议，以及导航／HID／车辆转换均已有 Rust owner。入口通过 `NativeMedia.requireAvailable()` 或同等检查要求原生核心；加载失败不会切回旧 Kotlin 核心。旧算法、Bouncy Castle 与 Concentus 参考仅接入 `test`／`androidTest`，见 `gradle/native-core-tests.gradle`，不作为发布 APK 的后备实现。
+
+生产树中剩余的 Kotlin 路径应按实际职责判断：
+
+| 路径 | 当前触发条件与职责 | 清理判断 |
+| --- | --- | --- |
+| Java MediaCodec 视频循环 | 已删除备用喂帧／出帧循环及输出线程开关；所有视频均创建 Rust／NDK pipe。API < 28 或 pipe 创建失败明确报错。 | v150 实车 18 次首输入、18 次首渲染均为原生路径。保留原生 codec 重试／软解／厂商参数降级，以及 Java 硬件可用性探测；详见[删除依据与验证边界](benchmarks/native-video-startup-2026-11-14.md#java-mediacodec-备用循环清理)。 |
+| AudioTrack／旧式流类型 | usage 音乐和导航尝试 AAudio；通话、Siri、指定 legacy stream 正常使用 AudioTrack，AAudio 打开失败也使用它。 | 属于正式音路，不能按旧核心后备删除。AAC 硬件／系统解码也仍是平台职责。 |
+| 麦克风 Java DatagramSocket | 无法共享 socket FD 或原生 sender 创建失败时使用 Java I/O；`MicrophonePacketizer` 的 RTP／计数／加密仍走 Rust，软件 Opus 为原生 libopus。 | 不是第二套 Kotlin 协议算法；删除会取消 FD 能力适配。日志 `implementation=kotlin` 只标记发送路径，不代表核心算法回退。 |
+| Kotlin USB／TUN I/O | 用户显式关闭原生通路或 `startNative` 无法启动时使用；NCM framing／路由核心仍是 Rust。 | 属于显式设置及 SDK I/O 适配；USB 已确认 OK 并收尾，不顺带取消设置或能力分支。 |
+| AEC、厂商麦克风、HUD SDK 回退 | Speex C/JNI／平台 AEC、厂商授权及显示接口按能力选择。 | 属于车机适配，不是 Rust 迁移残留；保留现有车辆校准。 |
+
+已有实车日志确认 v150 接收统计 `impl=rust`、PCM `native=true`、Siri sender `native encoder=libopus`；这些与生产入口共同确认 Rust 主路径已运行。已确认 OK 的功能不再追加验收（见[当前状态](RUST_CORE_REMAINING.zh-CN.md)）；是否取消上述平台分支属于兼容行为变更，不由正常路径日志自动决定。
+
 | 归属 | 内容 |
 | --- | --- |
-| 平台适配（Kotlin） | 平台连接建立与 Socket／USB／VPN 资源交接、能力回退分支的 I/O、SDK／watchdog 调度、取消执行、设置和持久化、证书／硬件密钥、格式参数、Surface／fanout／停放与 Java codec 创建恢复；音频焦点、BUS／旧式流类型、AAC／AudioTrack 平台调用与回调顺序；仪表／HUD 输出、车辆 SDK provider／订阅及诊断报告。协议、配对、协商、代际、重试、codec 选型和输出调度决策由 Rust 返回动作。 |
+| 平台适配（Kotlin） | 平台连接建立与 Socket／USB／VPN 资源交接、能力回退分支的 I/O、SDK／watchdog 调度、取消执行、设置和持久化、证书／硬件密钥、格式参数、Surface／fanout／停放与硬件 codec 可用性探测；音频焦点、BUS／旧式流类型、AAC／AudioTrack 平台调用与回调顺序；仪表／HUD 输出、车辆 SDK provider／订阅及诊断报告。协议、配对、协商、代际、重试、codec 选型和输出调度决策由 Rust 返回动作。 |
 | 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；RTP 打包；有线 NCM 与 tun 之间的转发。Speex 回声消除仍通过原有 C/JNI 库执行。 |
 
 Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kotlin 执行平台动作并保留焦点、SDK能力检测与设备校准。两点说明：
 
-- **视频**：解码由高通硬件完成，Java 与 NDK 走同一条 OMX/Codec2 路径，迁移省下的是轮询与线程交接。Java `MediaCodec` 以 `dequeueOutputBuffer` 超时轮询，台架上它的 `MediaCodec_loop` 线程单独占一个核的约 16%；API 28 起 NDK 提供 `AMediaCodec_setAsyncNotifyCallback`。Rust 返回选型、回退与节拍决策；Kotlin 执行 Java MediaCodec 动作，Rust 执行 NDK 解码循环。
+- **视频**：解码由高通硬件完成，Java 与 NDK 走同一条 OMX/Codec2 路径，迁移省下的是轮询与线程交接。Java `MediaCodec` 以 `dequeueOutputBuffer` 超时轮询，台架上它的 `MediaCodec_loop` 线程单独占一个核的约 16%；API 28 起 NDK 提供 `AMediaCodec_setAsyncNotifyCallback`。Rust 返回选型、回退与节拍决策并执行 NDK 解码循环；Kotlin 执行控制和 Surface 动作。Java 轮询循环已删除，上述轮询开销是迁移前的历史测量。
 - **音频输出**：按 usage 路由的音乐与导航流尝试 AAudio，打开失败时回退到 `AudioTrack`。通话、Siri 和指定旧式流类型的流保留 `AudioTrack`。AAudio 路径用 Rust PCM 增益处理焦点衰减，用重采样处理原先由 `AudioTrack.setPlaybackRate` 执行的时钟微调。AAC 仍由系统 Google AAC 解码（实车上高通 AAC 解码器创建失败，见平台笔记）。
 
 ## 5. 迁移前的开销与测量依据
@@ -140,7 +154,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 - **音频状态**：缓冲音乐的 queue 与尚未听到的 fed 包、字节和帧数上限、15 秒后四倍速填充、400 ms 锚点、1 秒预填、RTP 回绕、SETRATE／FLUSH／GETANCHOR／feedback 均由 Rust 计算。平台回调外不持 Rust 锁；Kotlin 输出锁排序暂停／切歌／关闭与交付，开始回调后用 core generation 验证，重入控制使旧交付失效。关闭先销毁／唤醒 owner，再停止接收线程；Arc 保持接收器结束前的内存安全。
 - **音频队列与时钟**：渲染器压缩包在 Rust 持有，保持 192 包上限及持续拥塞恢复阈值，语音不执行音乐积压跳过。入队／关闭唤醒 Android worker；Rust 计算压缩积压与到达加权样本、PI 误差平均、目标测量和进程级 learned drift。Kotlin 只向输出设置请求的速率；系统拒绝时关闭该时钟控制。JNI 句柄销毁与生产者串行，已取出的包独立持引用；时钟随 output worker 释放。生产路径要求原生核心；独立 Kotlin 算法仅留测试源码。
 - **帧句柄**：`NativePacket` 持有引用计数的池化缓冲，Kotlin 通过 `MediaPacket` 传递所有权。镜像消费方各持有自己的引用；写入解码器、被队列丢弃或流关闭时释放。
-- **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin worker 执行配置、Surface 操作和恢复请求，核心选型与恢复策略由 Rust 持有。Java MediaCodec 能力分支通过 `MediaPacket.copyInto` 写入解码器输入缓冲，同样使用 Rust 核心策略。
+- **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin worker 执行配置、Surface 操作和恢复请求，核心选型与恢复策略由 Rust 持有。生产视频不再通过 Java MediaCodec 输入缓冲喂帧；桌面测试的 SDK pipe 替身仅验证宿主动作，不构成 NDK 解码验收。
 - **配置与首包顺序**：原生 pipe 在发布到接收路由前，按已有 Surface 初始化接收能力。接收线程先登记待处理配置，再收后续帧；Rust 保留这些帧，直到 Kotlin worker 逐个完成所有待处理配置，才按实际 codec 类型检查关键帧并喂入。配置暂停与故障退休状态独立，旧配置完成不能放行新配置的帧。配置失败时，worker 告知该任务是否持有 Config hold；Rust 在同一把锁内判断并清理失败旧链，保留更新配置的帧，无更新配置时允许新关键帧重试。无 Surface 时仍不缓存。#113 及后续失败交错修复的验收边界见[验证摘要](benchmarks/native-video-startup-2026-11-14.md)，各批次通过数分别登记。
 - **统计**：`StreamReceiveStats` 的字段与日志格式不变，计数在 Rust 内累计，按原有心跳与异常间隔回调一行文本。
 - **视频输入统计**：输入帧数、字节、活跃／静止间隔和触摸到下一帧由 Rust 累积，随解码统计定期拉取；主屏独占触摸样本。FPS 直接读取原生计数，保留原有日志字段，不为统计恢复逐帧回调。

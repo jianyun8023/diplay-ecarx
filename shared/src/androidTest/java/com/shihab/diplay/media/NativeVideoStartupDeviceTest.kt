@@ -57,7 +57,6 @@ class NativeVideoStartupDeviceTest {
                 if (line.startsWith("decoder=") && line.contains("mime=${HEVC.mime} ")) replacementConfigured.countDown()
                 if (line == "first frame rendered") rendered.countDown()
             },
-            nativeDecodeLoop = true,
         )
         // A non-null Surface without a native window deterministically fails every codec attempt.
         // The replacement uses a real Surface; no codec factory or cleanup implementation is mocked.
@@ -107,7 +106,6 @@ class NativeVideoStartupDeviceTest {
             preferSoftwareHevcDecoder = false,
             requestKeyFrame = { requests.incrementAndGet() },
             report = { reports.add(it); if (it == "first frame rendered") rendered.countDown() },
-            nativeDecodeLoop = true,
         )
         // The receiver can deliver its only IDR before the worker ever handles Config.
         repeat(configurations) { decoder.configure(frame.codec, frame.config) }
@@ -139,7 +137,6 @@ class NativeVideoStartupDeviceTest {
             preferSoftwareHevcDecoder = false,
             requestKeyFrame = { requests.incrementAndGet(); refreshed.countDown() },
             report = { reports.add(it); if (it == "first frame rendered") rendered.countDown() },
-            nativeDecodeLoop = true,
         )
         decoder.configure(HEVC.codec, HEVC.config)
         decoder.submit(HEVC.bytes)
@@ -179,7 +176,7 @@ class NativeVideoStartupDeviceTest {
             preferSoftwareHevcDecoder = false,
             requestKeyFrame = { requests.incrementAndGet() },
             report = { if (it == "first frame rendered") rendered.incrementAndGet() },
-            onExit = { exited.countDown() }, nativeDecodeLoop = true,
+            onExit = { exited.countDown() },
         )
         repeat(2) { decoder.configure(HEVC.codec, HEVC.config) }
         decoder.submit(HEVC.bytes)
@@ -268,12 +265,12 @@ class NativeVideoStartupDeviceTest {
         val needsDecoder = CountDownLatch(1)
         val keyframes = AtomicInteger()
         val logs = CopyOnWriteArrayList<String>()
-        val pipe = checkNotNull(NativeVideoPipe.create(0, false) { kind, detail ->
+        val pipe = NativeVideoPipe.create(0, false) { kind, detail ->
             if (kind == NativeVideoPipe.EVENT_REQUEST_KEYFRAME) keyframes.incrementAndGet()
             if (kind == NativeVideoPipe.EVENT_NEED_DECODER) needsDecoder.countDown()
             if (detail != null) logs.add(detail)
             if (kind == NativeVideoPipe.EVENT_LOG && detail?.contains("video decoder first input ") == true) input.countDown()
-        })
+        }
 
         fun configure(frame: EncodedFrame) {
             val result = pipe.configure(

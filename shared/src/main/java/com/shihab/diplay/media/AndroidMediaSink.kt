@@ -820,14 +820,11 @@ class AndroidMediaSink(
             vendorLowLatency = vendorLowLatencyDecoder,
             vendorLowLatencyRefusedEarlier = vendorLowLatencyRefused,
             onVendorLowLatencyRefused = { vendorLowLatencyRefused = true },
-            dedicatedOutputThread = vendorLowLatencyDecoder,
             framesAtOnce = type == MAIN_SCREEN_TYPE && statsLabel == null && videoPacingDelayMillis > 0,
             // Keep the experimental MTK mode on the main CarPlay picture only. Mirrors and the
             // cluster have separate timing and must retain their established decoder configuration.
             mtkDecoderTuningEnabled = mtkDecoderTuningEnabled && type == MAIN_SCREEN_TYPE && statsLabel == null,
             fanoutFactory = videoFanoutFactory,
-            // Falls back to the Kotlin loop without the library (host tests) or before Android 9.
-            nativeDecodeLoop = true,
         )
         if (startImmediately) video.start()
         return video

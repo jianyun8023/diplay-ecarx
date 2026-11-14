@@ -64,3 +64,27 @@
 - 本地补充证据：同目录 `checks-summary.json`、`gradle-checks.log`、`rust-tests.log`、`native-build.log`、`fixed-verification.json`；Checks 记录的五份生产／测试源码指纹与当前文件一致。
 
 **当前冻结状态：修复已实现、有效 red 已复现、本地检查通过；ARM64 设备 green 待验，PR 尚未创建。** 小米 8 正被其他测试占用，按用户要求等其通知设备释放后再执行 ARM64 回归，完成验证后再创建 PR。本批尚无修复后实机通过或新增设备恢复记录，不继承 #113 的设备结果。
+
+
+## Java MediaCodec 备用循环清理
+
+当前量产目标为 ECARX／Android 9／API 28／ARM64。删除前所有生产视频创建点已设置 `nativeDecodeLoop=true`；只有 `pipeCreate` 初始化失败或 API < 28 时才进入 Java 循环。具体 codec 的创建／异步模式／配置／启动失败，原先就由已有 pipe 内的方案重试处理，不会退回 Java。因此删除 Java 循环不取消原生硬件忙重试、软件 codec 回退、硬件恢复探测、QTI／MTK 参数降级或 Surface／fanout／停放。
+
+原始实车依据是工作区 `logs/cap-v150-20261114-session1/full.log`：
+
+| 原始检查点 | 数量与位置 |
+| --- | --- |
+| `video decoder first input` | 18 条，全部 `decoder=native`；首末行 15530／394821。 |
+| `video decoder rendered first frame` | 18 条，全部 `decoder=native`；首末行 15561／394839。 |
+| 覆盖范围 | 13:06:04–13:40:30，4 个 PID 各 3／3／4／8 次首帧；不是 18 个独立会话。 |
+| 故障检索 | 未匹配 `native video decoder configure failed`、`video decoder job failed: native`、`decoder failed`；不等于整份日志没有任何异常。 |
+
+这些是删除前原生路径实际运行的证据。上文 #113 的 16 项小米 8 通过属于历史基线，不能改记为本次清理后的设备结果。
+
+生产代码移除 Java 配置／喂帧／出帧循环、独立输出线程和两种 loop 的选择开关。原生循环初始化失败现在明确抛出错误；API 24–27 不再拥有视频 Java 兼容路径，最低视频能力要求为 API 28。仍保留 Java `MediaCodec` 的短暂创建／释放，用于判断硬件资源是否恢复可用；它不处理视频帧。
+
+Robolectric 通过测试源码中的 `HostVideoPipe` 替换 pipe JNI 边界，以 SDK shadow 验证配置、Surface、镜像、错误报告与关闭动作；不存在于生产 APK，不复刻 NDK 回调或节拍。删除旧 Java 输出线程测试，新增原生入口创建失败、失败后重试、默认／低延迟选项共用 pipe 及释放回归；原有厂商参数和生命周期用例转为同一入口。配置失败交错的两项真实设备回归继续保留。
+
+本批完整 Gradle Checks 加 `:shared:assembleDebugAndroidTest` 通过（9 分 26 秒，331 tasks／52 executed）：JVM 3597 通过、2 环境跳过、0 失败；shared 1989 通过＋2 跳过、common 1594 通过、home 14 通过。四应用 lint／debug 构建与设备测试 APK 构建通过，51 个本地文档链接目标有效。两项跳过仍为端口环境及 ECARX 真实 SDK ABI。原始检查输出、APK 哈希与逐条实车端点保留在工作区 `artifacts/native-video-loop-retirement-20261114/`。
+
+本次清理后的设备验证仍待小米 8 释放；不得用宿主替身结果关闭 NDK 运行时验收。
