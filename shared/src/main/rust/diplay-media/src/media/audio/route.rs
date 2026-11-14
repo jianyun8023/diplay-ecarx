@@ -1,6 +1,7 @@
 //! A live audio receiver's queue destination and receive-clock diagnostics.
 use super::queue::{self, AudioPacket, QueueOwner};
-use jni_sys::{jboolean, jclass, jint, jlong, jlongArray, JNIEnv};
+use crate::protocols::bplist::{self, Value};
+use jni_sys::{jboolean, jclass, jint, jlong, jlongArray, jobject, JNIEnv};
 use std::sync::{Arc, Mutex};
 
 pub struct AudioRoute { state: Mutex<State>, clock_rate: i64, direct: bool }
@@ -10,6 +11,7 @@ struct State {
     newest: Option<u32>,
     baseline_logged: bool,
     last_overrun_ns: Option<i64>,
+    anchor: Option<(u32, i64)>,
     probe: ClockProbe,
 }
 #[derive(Default)]
@@ -27,22 +29,45 @@ impl ClockProbe {
         if elapsed < 3_000_000_000 { return None; }
         self.done = true;
         let rate = sample.wrapping_sub(first_sample) as f64 * 1_000_000_000.0 / elapsed as f64;
-        // Math.round(double), then Java's narrowing Long -> Int (not Rust's saturating Int cast).
-        let bits = rate.to_bits();
-        let shift = 1074 - ((bits >> 52) & 0x7ff) as i32;
-        let rounded = if (0..64).contains(&shift) {
-            let significand = (bits & 0x000f_ffff_ffff_ffff) | 0x0010_0000_0000_0000;
-            (((significand >> shift) + 1) >> 1) as i64
-        } else { rate as i64 };
-        Some(rounded as i32)
+        Some(math_round(rate) as i32)
     }
+}
+
+/// Java's `Math.round` for the non-negative values both callers produce: floor(value + 0.5)
+/// with the half-up carry, unlike Rust's away-from-zero cast.
+fn math_round(value: f64) -> i64 {
+    let bits = value.to_bits();
+    let shift = 1074 - ((bits >> 52) & 0x7ff) as i32;
+    if (0..64).contains(&shift) {
+        let significand = (bits & 0x000f_ffff_ffff_ffff) | 0x0010_0000_0000_0000;
+        (((significand >> shift) + 1) >> 1) as i64
+    } else { value as i64 }
 }
 
 pub enum Delivery { Callback(AudioPacket), Queued(Arc<QueueOwner>), Closed }
 impl AudioRoute {
     pub fn new(clock_rate: i64, direct: bool) -> Arc<Self> {
         Arc::new(Self { state: Mutex::new(State { target: None, closed: false, newest: None,
-            baseline_logged: false, last_overrun_ns: None, probe: ClockProbe::default() }), clock_rate, direct })
+            baseline_logged: false, last_overrun_ns: None, anchor: None, probe: ClockProbe::default() }),
+            clock_rate, direct })
+    }
+
+    /// The first decrypted sample and its monotonic origin, committed from the platform's
+    /// start callback at the point where the old media engine stored its anchor.
+    pub fn anchor(&self, first_sample: i32, origin_ns: i64) {
+        self.state.lock().unwrap().anchor = Some((first_sample as u32, origin_ns));
+    }
+
+    /// sampleTime counts on the stream's RTP clock. Counted at the 48 kHz Opus decode rate,
+    /// a 16 kHz call stream ran 3x ahead of the audio that had arrived, 14.5 s ahead after
+    /// 20 s, in a call whose far end the driver could not understand (#473). The playout
+    /// latency is subtracted but never pushes the position before the stream's start.
+    pub fn sample_time(&self, now_ns: i64, latency_ms: i32) -> Option<i64> {
+        let state = self.state.lock().unwrap();
+        let (first, origin) = state.anchor?;
+        let elapsed_sec = ((now_ns - origin) as f64 / 1e9 - latency_ms as f64 / 1000.0).max(0.0);
+        Some((((first as i32) as i64 & 0xffff_ffff) + math_round(elapsed_sec * self.clock_rate as f64))
+            & 0xffff_ffff)
     }
 
     /// Sampled after the first-start callback, exactly where the old media-engine observer ran.
@@ -128,6 +153,46 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRo
     ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 3, row.as_ptr());
     if ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
     out
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteAnchor(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong, first_sample: jint, origin_ns: jlong,
+) {
+    if handle != 0 { (&*(handle as *const AudioRoute)).anchor(first_sample, origin_ns); }
+}
+
+/// The complete single-stream feedback entry: the route owner computes sampleTime and assembles
+/// the reply dict, with the platform-encoded connection and NTP objects put back unchanged.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteFeedbackEntry(
+    env: *mut JNIEnv, _class: jclass, handle: jlong, stream_type: jint, now: jlong,
+    latency_ms: jint, connection: jobject, timestamp: jobject,
+) -> jobject {
+    let null = std::ptr::null_mut();
+    if handle == 0 { return null; }
+    let route = &*(handle as *const AudioRoute);
+    let mut fields = vec![
+        ("type".encode_utf16().collect(), Value::Int32(stream_type)),
+        ("sampleRate".encode_utf16().collect(), Value::Int32(route.clock_rate as i32)),
+    ];
+    let anchored = route.sample_time(now, latency_ms);
+    if let Some(sample_time) = anchored {
+        fields.extend([
+            ("streamConnectionID".encode_utf16().collect(), Value::Null),
+            ("timestamp".encode_utf16().collect(), Value::Null),
+            ("timestampRawNs".encode_utf16().collect(), Value::Int(now as u64)),
+            ("sampleTime".encode_utf16().collect(), Value::Int(sample_time as u64)),
+        ]);
+    }
+    let Some(map) = bplist::jni::write_value(env, &Value::Dict(fields)) else { return null; };
+    if anchored.is_some() {
+        bplist::jni::replace_map_value(env, map, "streamConnectionID", connection);
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return null; }
+        bplist::jni::replace_map_value(env, map, "timestamp", timestamp);
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return null; }
+    }
+    map
 }
 
 #[no_mangle]
@@ -228,6 +293,32 @@ mod tests {
             assert_eq!(route.observe(sample.wrapping_add(64_000), origin.wrapping_add(4_000_000_000)), Some(16_000));
             assert_eq!(route.observe(0, origin.wrapping_add(5_000_000_000)), None);
         }
+    }
+
+    #[test]
+    fn sample_time_counts_on_the_rtp_clock_with_rounding_floor_and_wrap() {
+        let route = AudioRoute::new(48_000, true);
+        // No anchor yet: the caller omits the position fields instead of guessing.
+        assert_eq!(route.sample_time(1_000_000_000, 0), None);
+        route.anchor(-1000, 0);
+        assert_eq!(route.sample_time(0, 0), Some(0xffff_ffff - 999));
+        assert_eq!(route.sample_time(1_000_000_000, 0), Some(47_000));
+        // The playout latency never pushes the position before the stream's start.
+        assert_eq!(route.sample_time(500_000_000, 2_000), Some(0xffff_ffff - 999));
+        // A late anchor commit replaces the retained origin like the old engine's fields.
+        route.anchor(0, 1_000_000_000);
+        assert_eq!(route.sample_time(1_000_000_000, 0), Some(0));
+        // Math.round carries the half-up boundary; the 32-bit wrap keeps the unsigned clock.
+        let halves = AudioRoute::new(2, true);
+        halves.anchor(0, 0);
+        assert_eq!(halves.sample_time(250_000_000, 0), Some(1));
+        assert_eq!(halves.sample_time(249_999_999, 0), Some(0));
+        let wrap = AudioRoute::new(48_000, true);
+        wrap.anchor(-1, 0);
+        assert_eq!(wrap.sample_time(1_000_000_000, 0), Some(47_999));
+        // A closed route keeps its anchor; the diagnostic row, not the entry, honors close().
+        wrap.close();
+        assert_eq!(wrap.sample_time(2_000_000_000, 0), Some(95_999));
     }
 
     #[test]
