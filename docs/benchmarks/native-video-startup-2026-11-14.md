@@ -63,7 +63,7 @@
 - 该 APK 内 ARM64 `libdiplay_media.so` SHA-256：`a980be3007308b4b5854c3af5d1c8af11cd6c02bf890f6aa02386c53d1dbb6f3`。strip 前原库为 `7f4f4ccbe79a0a6899dbb8de874cec20b77a8e8f284bfb2002f3947e5ee94a1a`，二者分属不同构建阶段。
 - 本地补充证据：同目录 `checks-summary.json`、`gradle-checks.log`、`rust-tests.log`、`native-build.log`、`fixed-verification.json`；Checks 记录的五份生产／测试源码指纹与当前文件一致。
 
-**当前冻结状态：修复已实现、有效 red 已复现、本地检查通过；ARM64 设备 green 待验，PR 尚未创建。** 小米 8 正被其他测试占用，按用户要求等其通知设备释放后再执行 ARM64 回归，完成验证后再创建 PR。本批尚无修复后实机通过或新增设备恢复记录，不继承 #113 的设备结果。
+**当前状态：修复已实现、有效 red 已复现、本地检查通过；ARM64 实机 green 保留待测，按用户最新要求先提交 PR。** 小米 8 正被其他测试占用，仍等用户通知设备释放后再执行 ARM64 回归，不再将该验证作为创建 PR 的前置条件。本批尚无修复后实机通过或新增设备恢复记录，不继承 #113 的设备结果。
 
 
 ## Java MediaCodec 备用循环清理
