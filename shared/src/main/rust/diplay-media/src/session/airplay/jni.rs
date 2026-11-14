@@ -228,6 +228,19 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegoti
     night
 }
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_remoteControlStream(
+    env: *mut JNIEnv,
+    _class: jclass,
+    token: jlongArray,
+) -> jlong {
+    let Some(mut state) = read(env, token) else {
+        return -1;
+    };
+    let id = state.remote_control_stream();
+    save(env, token, &state);
+    id
+}
+#[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_navigation(
     env: *mut JNIEnv,
     _class: jclass,

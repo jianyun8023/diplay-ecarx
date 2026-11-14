@@ -3,6 +3,7 @@ mod bonjour;
 mod control;
 mod info;
 mod jni;
+mod setup;
 mod video;
 
 use super::bplist::Value;

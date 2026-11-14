@@ -35,7 +35,7 @@ impl ClockProbe {
 
 /// Java's `Math.round` for the non-negative values both callers produce: floor(value + 0.5)
 /// with the half-up carry, unlike Rust's away-from-zero cast.
-fn math_round(value: f64) -> i64 {
+pub(crate) fn math_round(value: f64) -> i64 {
     let bits = value.to_bits();
     let shift = 1074 - ((bits >> 52) & 0x7ff) as i32;
     if (0..64).contains(&shift) {
@@ -201,7 +201,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRo
 ) { if handle != 0 { Arc::from_raw(handle as *const AudioRoute).close(); } }
 
 /// Negotiated audioFormat bits. Opus wins over AAC; PCM formats require an exact table key.
-fn format_bits(bits: u64) -> [i32; 4] {
+pub(crate) fn format_bits(bits: u64) -> [i32; 4] {
     if bits & 0x7000_0000 != 0 {
         let clock = if bits & 0x4000_0000 != 0 { 48_000 } else if bits & 0x2000_0000 != 0 { 24_000 } else { 16_000 };
         return [1, 48_000, 1, clock];

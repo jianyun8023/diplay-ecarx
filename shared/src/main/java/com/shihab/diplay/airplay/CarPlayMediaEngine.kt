@@ -153,7 +153,6 @@ class CarPlayMediaEngine(
             ?.let { bufferedTransition = null }
         return !session.isClosed && session !in retiredBufferedSessions && bufferedTransition == null
     }
-    @Volatile private var nextRemoteControlStreamId = FIRST_REMOTE_CONTROL_STREAM_ID
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
 
     override fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {
@@ -161,10 +160,16 @@ class CarPlayMediaEngine(
     }
 
     override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
-        val key = outputKey(session, stream) ?: return null
+        // The screen SETUP shares the data-stream key derivation: the connection decimal and
+        // label cross the boundary, the salt assembly stays in protocols::airplay.
+        val parsed = NativeAirPlayProtocol.dataStreamSetup(stream) ?: return null
+        val shared = session.sharedSecret ?: return null
+        val key = (parsed["connectionIdDecimal"] as? String)
+            ?.let { decimal -> NativeAirPlayProtocol.dataStreamKey(shared, decimal, DATASTREAM_OUTPUT_KEY) }
+            ?: return null
         val peer = session.remoteAddress ?: return null
         val streamKey = StreamKey(session, type)
-        Log.i(TAG, "airplay screen key connectionID=${unsignedPlistDecimal(stream["streamConnectionID"])}")
+        Log.i(TAG, "airplay screen key connectionID=${parsed["connectionIdDecimal"]}")
         val screen = ScreenStream(key, peer, session::logDebug)
         sink.setVideoDiagnosticHandler(type) {
             if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it == "first frame rendered") {
@@ -231,28 +236,29 @@ class CarPlayMediaEngine(
         if (pendingMicrophone.remove(streamKey) != null) sink.onMicrophoneStopped(streamId)
         sink.onAudioStopped(streamId)
 
-        val key = outputKey(session, stream) ?: return null
-        val format = AudioStreamCodec.fromFormatBits(
-            (stream["audioFormat"] as? Number)?.toLong() ?: 0L,
-            type,
-            audioType,
-        )
+        // protocols::airplay interprets the request, derives the DataStream keys and plans the
+        // microphone; the platform binds the sockets and constructs its own MicrophoneConfig.
+        val plan = NativeAirPlayProtocol.audioSetup(type, audioType, stream, session.sharedSecret, microphoneEnabled)
+            ?: return null
+        val key = plan["outputKey"] as? ByteArray ?: return null
+        val formatBits = plan["formatBits"] as? Long ?: 0L
+        val micPort = plan["micPort"] as? Int ?: 0
+        val format = AudioStreamCodec.fromFormatBits(formatBits, type, audioType)
         Log.i(
             TAG,
             "airplay audio format type=$type audioType=$audioType codec=${format.codec} " +
                 "rate=${format.sampleRate} channels=${format.channels} " +
-                "formatBits=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
-                "micPort=${(stream["dataPort"] as? Number)?.toInt() ?: 0}",
+                "formatBits=0x${java.lang.Long.toHexString(formatBits)} micPort=$micPort",
         )
         val connectionId = stream["streamConnectionID"]
-        val latencyMs = (stream["audioLatencyMs"] as? Number)?.toInt() ?: 0
+        val latencyMs = plan["latencyMs"] as? Int ?: 0
         val meta = AudioMeta(type, format, connectionId, latencyMs)
-        val microphone = microphoneConfig(session, type, stream, format)
+        val microphone = microphoneConfig(session, plan, format)
         if (microphone != null) pendingMicrophone[streamKey] = microphone
         if (type == STREAM_TYPE_MAIN_AUDIO && audioType != "media") {
             session.logDebug(
                 "Audio: setup type=$type audioType=$audioType input=${stream["input"] ?: "none"} " +
-                    "micPort=${if ((stream["dataPort"] as? Number)?.toInt()?.let { it > 0 } == true) "yes" else "no"} " +
+                    "micPort=${if (micPort > 0) "yes" else "no"} " +
                     "microphone=${if (microphone != null) "on" else "off"} keys=${stream.keys.sorted().joinToString(",")}" +
                     // An app call (WeChat, #718) carried vocoderInfo; the report showed only its name.
                     (stream["vocoderInfo"]?.let { " vocoderInfo=${it.toString().take(200)}" } ?: ""),
@@ -288,7 +294,7 @@ class CarPlayMediaEngine(
                 override fun onClock(hz: Int) {
                     if (current()) session.logDebug(
                         "Audio: rtp clock type=$type audioType=$audioType " +
-                            "audioFormat=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
+                            "audioFormat=0x${java.lang.Long.toHexString(formatBits)} " +
                             "measuredHz=$hz microphoneClockHz=${microphone?.rtpClockRate ?: "none"}",
                     )
                 }
@@ -319,7 +325,10 @@ class CarPlayMediaEngine(
                 audio.close()
             }
         }
-        if (microphoneStart != null && MicrophoneStart.startsWithoutDownlink(audioType)) {
+        // The plan's wait-for-downlink flag travels with the microphone rules; telephony waits
+        // for its echo-reference audio while other streams may start after the 500 ms deadline.
+        val waitsForDownlink = (plan["mic"] as? Map<*, *>)?.get("waitDownlink") == true
+        if (microphoneStart != null && !waitsForDownlink) {
             microphoneStart.scheduleSilentStart(microphoneScheduler, MicrophoneStart.SILENT_START_MILLIS) { startNow ->
                 // Atomic with TEARDOWN, which removes the pending entry before it stops the microphone.
                 var started = false
@@ -335,11 +344,13 @@ class CarPlayMediaEngine(
                 }
             }
         }
-        return linkedMapOf(
-            "type" to type,
-            "dataPort" to dataPort,
-            "controlPort" to controlPort,
-            "streamConnectionID" to unsignedPlistInteger(connectionId ?: 0L),
+        return NativeAirPlayProtocol.setupReply(
+            NativeAirPlayProtocol.REPLY_AUDIO,
+            type,
+            0L,
+            dataPort,
+            controlPort,
+            connectionId,
         )
     }
 
@@ -445,21 +456,17 @@ class CarPlayMediaEngine(
 
     override fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
         val uuid = (stream["clientTypeUUID"] as? String)?.uppercase() ?: return null
-        if (session.videoInCar) videoDataStream(session, uuid, stream)?.let { return it }
+        val parsed = NativeAirPlayProtocol.dataStreamSetup(stream) ?: return null
+        if (session.videoInCar) videoDataStream(session, uuid, parsed, stream)?.let { return it }
         if (uuid != IAP_DATASTREAM_UUID) return null
         val shared = session.sharedSecret ?: return null
-        val seed = unsignedPlistDecimal(stream["seed"]) ?: return null
+        val seed = parsed["seed"] as? String ?: return null
         val peer = session.remoteAddress ?: return null
         session.logDebug(
             "AirPlay iAP SETUP uuid=$uuid seed=$seed " +
-                "streamConnectionID=${unsignedPlistDecimal(stream["streamConnectionID"]) ?: "none"}",
+                "streamConnectionID=${parsed["connectionIdDecimal"] ?: "none"}",
         )
-        val key = AirPlayCrypto.hkdfSha512(
-            shared,
-            "DataStream-Salt$seed".toByteArray(Charsets.US_ASCII),
-            DATASTREAM_OUTPUT_KEY.toByteArray(Charsets.US_ASCII),
-            32,
-        )
+        val key = NativeAirPlayProtocol.dataStreamKey(shared, seed, DATASTREAM_OUTPUT_KEY) ?: return null
         val tunnel = IapTunnel(
             readKey = key,
             expectedPeer = peer,
@@ -501,41 +508,56 @@ class CarPlayMediaEngine(
             throw error
         }
         streams[StreamKey(session, STREAM_TYPE_DATA)] = if (handler != null) bridge else tunnel
-        return linkedMapOf<String, Any?>("type" to STREAM_TYPE_DATA, "streamID" to 1L, "dataPort" to port)
-            .apply {
-                stream["streamConnectionID"]?.let { connectionId ->
-                    this["streamConnectionID"] = unsignedPlistInteger(connectionId)
-                }
-            }
+        return NativeAirPlayProtocol.setupReply(
+            NativeAirPlayProtocol.REPLY_DATA,
+            STREAM_TYPE_DATA,
+            1L,
+            port,
+            0,
+            stream["streamConnectionID"],
+        )
     }
 
     /**
      * Video in car: the settings channel gets its own encrypted socket; the remote control sessions that
      * carry playback have none (controlType 1), their messages arrive as commands with X-Apple-StreamID.
      */
-    private fun videoDataStream(session: AirPlaySession, uuid: String, stream: Map<String, Any?>): Map<String, Any?>? {
-        if (uuid in VideoInCar.REMOTE_CONTROL_UUIDS && (stream["controlType"] as? Number)?.toInt() == 1) {
-            val streamId = nextRemoteControlStreamId++
+    private fun videoDataStream(
+        session: AirPlaySession,
+        uuid: String,
+        parsed: Map<String, Any?>,
+        stream: Map<String, Any?>,
+    ): Map<String, Any?>? {
+        if (uuid in VideoInCar.REMOTE_CONTROL_UUIDS && parsed["controlType"] == 1) {
+            val streamId = session.nextRemoteControlStreamId()
             session.logTrace("video remote-control stream accepted uuid=$uuid streamID=$streamId")
-            return linkedMapOf("type" to STREAM_TYPE_DATA, "streamID" to streamId)
+            return NativeAirPlayProtocol.setupReply(
+                NativeAirPlayProtocol.REPLY_REMOTE_CONTROL,
+                STREAM_TYPE_DATA,
+                streamId,
+                0,
+                0,
+                null,
+            )
         }
         if (uuid != VideoInCar.SETTINGS_CHANNEL_UUID) return null
         val shared = session.sharedSecret ?: return null
-        val seed = unsignedPlistDecimal(stream["seed"]) ?: return null
+        val seed = parsed["seed"] as? String ?: return null
         val peer = session.remoteAddress ?: return null
-        fun key(label: String) = AirPlayCrypto.hkdfSha512(
-            shared, "DataStream-Salt$seed".toByteArray(Charsets.US_ASCII), label.toByteArray(Charsets.US_ASCII), 32,
-        )
-        val channel = VideoSettingsChannel(key(DATASTREAM_OUTPUT_KEY), key(DATASTREAM_INPUT_KEY), peer) { session.logDebug(it) }
+        val outputKey = NativeAirPlayProtocol.dataStreamKey(shared, seed, DATASTREAM_OUTPUT_KEY) ?: return null
+        val inputKey = NativeAirPlayProtocol.dataStreamKey(shared, seed, DATASTREAM_INPUT_KEY) ?: return null
+        val channel = VideoSettingsChannel(outputKey, inputKey, peer) { session.logDebug(it) }
         val port = channel.listen(session.localAddress ?: InetAddress.getByName("::"))
         videoSettingsChannels.put(session, channel)?.close()
         session.logTrace("video settings stream listening port=$port")
-        return linkedMapOf<String, Any?>("type" to STREAM_TYPE_DATA, "streamID" to VIDEO_SETTINGS_STREAM_ID, "dataPort" to port)
-            .apply {
-                stream["streamConnectionID"]?.let { connectionId ->
-                    this["streamConnectionID"] = unsignedPlistInteger(connectionId)
-                }
-            }
+        return NativeAirPlayProtocol.setupReply(
+            NativeAirPlayProtocol.REPLY_DATA,
+            STREAM_TYPE_DATA,
+            VIDEO_SETTINGS_STREAM_ID,
+            port,
+            0,
+            stream["streamConnectionID"],
+        )
     }
 
     override fun onSetupResponseSent(session: AirPlaySession) {
@@ -694,63 +716,26 @@ class CarPlayMediaEngine(
         pendingIapTunnels.remove(session)?.bridge?.close()
     }
 
-    private fun outputKey(session: AirPlaySession, stream: Map<String, Any?>): ByteArray? {
-        return dataStreamKey(session, stream, DATASTREAM_OUTPUT_KEY)
-    }
-
-    private fun microphoneConfig(
-        session: AirPlaySession,
-        type: Int,
-        stream: Map<String, Any?>,
-        format: AudioFormat,
-    ): MicrophoneConfig? {
-        if (!microphoneEnabled || type != STREAM_TYPE_MAIN_AUDIO) return null
-        if (!wantsMicrophone(format.audioType, stream)) return null
-        val port = (stream["dataPort"] as? Number)?.toInt() ?: return null
-        if (port !in 1..65535) return null
+    /**
+     * The platform half of the Rust microphone plan: the rule, port, key and parameters already
+     * live in protocols::airplay; only the InetAddress and the DTO are built here.
+     */
+    private fun microphoneConfig(session: AirPlaySession, plan: Map<String, Any?>, format: AudioFormat): MicrophoneConfig? {
+        val mic = plan["mic"] as? Map<*, *> ?: return null
         val host = session.remoteAddress ?: return null
-        val key = dataStreamKey(session, stream, DATASTREAM_INPUT_KEY) ?: return null
-        val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
-        val framesPerPacket = (stream["framesPerPacket"] as? Number)?.toInt() ?: 0
-        val frameMillis = if (format.codec == AudioCodecKind.OPUS) {
-            20
-        } else if (framesPerPacket > 0) {
-            Math.round(framesPerPacket * 1000.0 / format.sampleRate).toInt().coerceIn(5, 60)
-        } else {
-            MicrophoneConfig.pcmFrameMillis(format.sampleRate, format.channels)
-        }
-        val opusBitrate = when {
-            formatBits and OPUS_48K != 0L -> 96_000
-            formatBits and OPUS_24K != 0L -> 64_000
-            else -> 48_000
-        }
+        val key = mic["inputKey"] as? ByteArray ?: return null
         return MicrophoneConfig(
             audioType = format.audioType,
             sampleRate = format.sampleRate,
             channels = format.channels,
-            payloadType = type,
-            frameMillis = frameMillis,
+            payloadType = format.payloadType,
+            frameMillis = mic["frameMillis"] as? Int ?: return null,
             host = host,
-            port = port,
+            port = mic["port"] as? Int ?: return null,
             key = key,
             codec = format.codec,
-            bitrate = if (format.codec == AudioCodecKind.OPUS) opusBitrate else null,
-            opusClockRate = MicrophoneConfig.opusClockRate(formatBits),
-        )
-    }
-
-    private fun dataStreamKey(
-        session: AirPlaySession,
-        stream: Map<String, Any?>,
-        label: String,
-    ): ByteArray? {
-        val shared = session.sharedSecret ?: return null
-        val connectionId = unsignedPlistDecimal(stream["streamConnectionID"]) ?: return null
-        return AirPlayCrypto.hkdfSha512(
-            shared,
-            "DataStream-Salt$connectionId".toByteArray(Charsets.US_ASCII),
-            label.toByteArray(Charsets.US_ASCII),
-            32,
+            bitrate = mic["bitrate"] as? Int,
+            opusClockRate = mic["opusClockRate"] as? Int ?: return null,
         )
     }
 
@@ -758,21 +743,6 @@ class CarPlayMediaEngine(
         type == STREAM_TYPE_MAIN_SCREEN || type == STREAM_TYPE_ALT_SCREEN
 
     internal companion object {
-        /**
-         * Calls and Siri always record. App audio ("default", e.g. a WhatsApp voice note) also carries
-         * guidance prompts, so it records only when the iPhone asks for input: an explicit `input` flag,
-         * or, without one, the uplink port the iPhone sends for a recording stream.
-         */
-        fun wantsMicrophone(audioType: String, stream: Map<String, Any?>): Boolean = when (audioType) {
-            "telephony", "speechrecognition" -> true
-            "default", "compatibility" -> when (val input = stream["input"]) {
-                is Boolean -> input
-                is Number -> input.toInt() != 0
-                else -> (stream["dataPort"] as? Number)?.toInt()?.let { it in 1..65535 } == true
-            }
-            else -> false
-        }
-
         private val CLUSTER_OUTPUT_FORMAT = Regex(
             "^output format requested=(\\d{1,5})x(\\d{1,5}) " +
                 "coded=(null|-?\\d{1,10})x(null|-?\\d{1,10}) " +
@@ -788,21 +758,14 @@ class CarPlayMediaEngine(
         private const val DATASTREAM_INPUT_KEY = "DataStream-Input-Encryption-Key"
         private const val IAP_DATASTREAM_UUID = "E9459FD0-BCAD-4C45-820F-1E72447EF2F2"
         private const val VIDEO_SETTINGS_STREAM_ID = 2L
-        private const val FIRST_REMOTE_CONTROL_STREAM_ID = 3L
-        private const val OPUS_24K = 0x20000000L
-        private const val OPUS_48K = 0x40000000L
     }
 }
 
-internal fun unsignedPlistDecimal(value: Any?): String? = when (value) {
-    is Long -> java.lang.Long.toUnsignedString(value)
-    is Int -> Integer.toUnsignedString(value)
-    is Short -> (value.toInt() and 0xffff).toString()
-    is Byte -> (value.toInt() and 0xff).toString()
-    is BigInteger -> if (value.signum() >= 0) value.toString() else null
-    else -> (value as? Number)?.toLong()?.let(java.lang.Long::toUnsignedString)
-}
-
+/**
+ * The reply-side unsigned representation for one plist connection value, kept next to the
+ * feedback and buffered owners that still encode it on the platform. The SETUP interpretation
+ * and reply layout live in protocols::airplay::setup.
+ */
 internal fun unsignedPlistInteger(value: Any?): Any = when (value) {
     is Long -> if (value < 0) BigInteger(java.lang.Long.toUnsignedString(value)) else value
     is Int -> if (value < 0) BigInteger(Integer.toUnsignedString(value)) else value
