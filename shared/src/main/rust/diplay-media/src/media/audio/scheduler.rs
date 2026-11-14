@@ -134,6 +134,107 @@ pub fn navigation_route(follows: bool, configured: i32, ducking: bool) -> i32 {
     if !follows { configured } else if ducking { 0 } else { 3 }
 }
 
+// ---- Audio focus policy ----
+//
+// Kotlin's AudioFocusCoordinator keeps the platform objects (the active outputs, the
+// AudioFocusRequest, the listener) and reports channel activity plus the platform's grant facts
+// here; the core owns the channel priority, the request intent and the per-channel target gains.
+// One six-slot value token, like `prompt_focus`: 0..2 media/phone/assistant output counts, 3 the
+// channel of the request Kotlin still holds (0 none), 4 the reported grant, 5 the media gain level
+// (0 full, 1 duck 0.2, 2 mute). Navigation never enters: its prompts run through `prompt_focus`
+// with their own platform request, and unknown channel codes are ignored. The executor reports
+// every fact — a request result or a listener gain — and the core never infers success.
+
+// Events: 1 acquire, 2 release (channel 1 media, 2 phone, 3 assistant), 3 a ducking loss, 4 a
+// transient loss, 5 a gain, 6/7 the requestAudioFocus result (granted/failed), 8 close.
+fn focus_primary(state: &[i64; 6]) -> i32 {
+    if state[1] > 0 { 2 } else if state[2] > 0 { 3 } else if state[0] > 0 { 1 } else { 0 }
+}
+
+// 1 gain, 2 gain transient, 3 gain transient may duck; Kotlin maps them to AudioManager constants.
+fn focus_gain_intent(channel: i32) -> i32 {
+    match channel { 1 => 1, 2 => 2, 3 => 3, _ => 0 }
+}
+
+// A rejected request silences every channel; an ordinary duck lowers only media.
+fn focus_media_target(state: &[i64; 6]) -> i32 { if state[4] != 0 { state[5] as i32 } else { 2 } }
+fn focus_other_target(state: &[i64; 6]) -> i32 { if state[4] != 0 { 0 } else { 2 } }
+
+// Decision: 0 abandon the held request, 1 make a new one, 2 its channel, 3 its gain intent,
+// 4 media gain, 5 other-channel gain (full/duck/mute codes), 6 apply scope (0 nothing, 1 the new
+// output only, 2 all outputs). A new request's gains arrive with the reported result, never with
+// the plan.
+fn focus_step(state: &mut [i64; 6], event: i32, channel: i32, enabled: bool, mute_transient: bool) -> [i32; 7] {
+    let mut decision = [0; 7];
+    match event {
+        1 | 2 => {
+            if !enabled || !(1..=3).contains(&channel) { return decision; }
+            let slot = (channel - 1) as usize;
+            if event == 1 { state[slot] += 1 } else { state[slot] = (state[slot] - 1).max(0) }
+            let primary = focus_primary(state);
+            if primary == 0 {
+                decision[0] = (state[3] != 0) as i32;
+                state[3] = 0;
+                state[4] = 1;
+                state[5] = 0;
+            } else if state[3] == primary as i64 && state[4] != 0 {
+                // The held request already covers the primary channel; a new output only joins it.
+                if event == 1 {
+                    decision[4] = focus_media_target(state);
+                    decision[5] = focus_other_target(state);
+                    decision[6] = 1;
+                }
+            } else {
+                decision[0] = (state[3] != 0) as i32;
+                decision[1] = 1;
+                decision[2] = primary;
+                decision[3] = focus_gain_intent(primary);
+            }
+        }
+        3 | 4 | 5 => {
+            let before = (focus_media_target(state), focus_other_target(state));
+            match event {
+                3 => state[5] = 1,
+                4 => if mute_transient { state[5] = 2 },
+                _ => { state[4] = 1; state[5] = 0; }
+            }
+            let after = (focus_media_target(state), focus_other_target(state));
+            if before != after {
+                decision[4] = after.0;
+                decision[5] = after.1;
+                decision[6] = 2;
+            }
+        }
+        6 | 7 => {
+            if !(1..=3).contains(&channel) { return decision; }
+            state[3] = channel as i64;
+            state[4] = if event == 6 { 1 } else { 0 };
+            state[5] = 0;
+            decision[4] = focus_media_target(state);
+            decision[5] = focus_other_target(state);
+            decision[6] = 2;
+        }
+        8 => {
+            state[0] = 0;
+            state[1] = 0;
+            state[2] = 0;
+            if state[3] != 0 {
+                state[3] = 0;
+                state[4] = 1;
+                state[5] = 0;
+                decision[0] = 1;
+            }
+        }
+        _ => {}
+    }
+    decision
+}
+
+/// CarPlay music holds granted focus now, so the car's audio controller already plays Android.
+fn focus_holds_media(state: &[i64; 6]) -> bool {
+    state[3] == 1 && state[4] != 0
+}
+
 // 1 requests focus; release decisions return milliseconds. The tails cover buffered playout,
 // while 30/60 s bound missing unduck/silence events observed on head units.
 fn prompt_focus(state: &mut [i64; 3], event: i32, enabled: bool, held: bool) -> i32 {
@@ -257,6 +358,108 @@ mod tests {
         assert_eq!(navigation_route(false, 10, true), 10);
         assert_eq!(navigation_route(true, 10, true), 0);
         assert_eq!(navigation_route(true, 10, false), 3);
+    }
+
+    // Decision slots: [abandon, new request, channel, gain intent, media gain, other gain, scope].
+    // Channels 1 media, 2 phone, 3 assistant; gains 0 full, 1 duck 0.2, 2 mute; scope 0 nothing,
+    // 1 the new output, 2 all outputs.
+    #[test]
+    fn focus_priority_asks_phone_above_assistant_above_media_with_their_gain_intents() {
+        let mut state = [0; 6];
+        // Media alone asks with AUDIOFOCUS_GAIN.
+        assert_eq!(focus_step(&mut state, 1, 1, true, true), [0, 1, 1, 1, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 6, 1, true, true), [0, 0, 0, 0, 0, 0, 2]);
+        // Phone outranks media: abandon the held request and ask with GAIN_TRANSIENT.
+        assert_eq!(focus_step(&mut state, 1, 2, true, true), [1, 1, 2, 2, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 6, 2, true, true), [0, 0, 0, 0, 0, 0, 2]);
+        // Assistant does not outrank phone: it only joins the held request.
+        assert_eq!(focus_step(&mut state, 1, 3, true, true), [0, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(focus_step(&mut state, 2, 3, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        // Without phone, assistant outranks media with GAIN_TRANSIENT_MAY_DUCK.
+        assert_eq!(focus_step(&mut state, 2, 2, true, true), [1, 1, 1, 1, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 6, 1, true, true), [0, 0, 0, 0, 0, 0, 2]);
+        assert_eq!(focus_step(&mut state, 1, 3, true, true), [1, 1, 3, 3, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 6, 3, true, true), [0, 0, 0, 0, 0, 0, 2]);
+        // Releasing the assistant restores media with AUDIOFOCUS_GAIN, abandoning the held one.
+        assert_eq!(focus_step(&mut state, 2, 3, true, true), [1, 1, 1, 1, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 6, 1, true, true), [0, 0, 0, 0, 0, 0, 2]);
+        // An output joining a channel the held request already covers asks for nothing.
+        assert_eq!(focus_step(&mut state, 1, 1, true, true), [0, 0, 0, 0, 0, 0, 1]);
+    }
+
+    #[test]
+    fn focus_gain_targets_duck_only_media_and_mute_everything_when_denied() {
+        let mut state = [0; 6];
+        focus_step(&mut state, 1, 1, true, true);
+        focus_step(&mut state, 6, 1, true, true);
+        // A ducking loss lowers only the media target.
+        assert_eq!(focus_step(&mut state, 3, 0, true, true), [0, 0, 0, 0, 1, 0, 2]);
+        // A transient loss with the switch on mutes media only; GAIN restores full everywhere.
+        assert_eq!(focus_step(&mut state, 4, 0, true, true), [0, 0, 0, 0, 2, 0, 2]);
+        assert_eq!(focus_step(&mut state, 5, 0, true, true), [0, 0, 0, 0, 0, 0, 2]);
+        // With the switch off a transient loss leaves the targets alone.
+        assert_eq!(focus_step(&mut state, 4, 0, true, false), [0, 0, 0, 0, 0, 0, 0]);
+        // A repeated gain that restores nothing applies nothing.
+        assert_eq!(focus_step(&mut state, 5, 0, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        // A rejected request silences every channel until a gain is reported; a new activity
+        // on the same channel abandons the denied request and asks again.
+        let mut denied = [0; 6];
+        focus_step(&mut denied, 1, 1, true, true);
+        assert_eq!(focus_step(&mut denied, 7, 1, true, true), [0, 0, 0, 0, 2, 2, 2]);
+        assert_eq!(focus_step(&mut denied, 1, 1, true, true), [1, 1, 1, 1, 0, 0, 0]);
+        focus_step(&mut denied, 7, 1, true, true);
+        assert_eq!(focus_step(&mut denied, 5, 0, true, true), [0, 0, 0, 0, 0, 0, 2]);
+    }
+
+    #[test]
+    fn focus_release_and_close_abandon_the_held_request() {
+        let mut state = [0; 6];
+        // Closing before any activity leaves nothing to abandon.
+        assert_eq!(focus_step(&mut state, 8, 0, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        focus_step(&mut state, 1, 1, true, true);
+        focus_step(&mut state, 6, 1, true, true);
+        // The last release abandons the held request and resets the reported facts.
+        assert_eq!(focus_step(&mut state, 2, 1, true, true), [1, 0, 0, 0, 0, 0, 0]);
+        assert!(!focus_holds_media(&state));
+        // Close with a request still held abandons it.
+        focus_step(&mut state, 1, 1, true, true);
+        focus_step(&mut state, 6, 1, true, true);
+        assert_eq!(focus_step(&mut state, 8, 0, true, true), [1, 0, 0, 0, 0, 0, 0]);
+        assert!(!focus_holds_media(&state));
+    }
+
+    #[test]
+    fn focus_records_only_the_reported_grant_facts() {
+        let mut state = [0; 6];
+        focus_step(&mut state, 1, 1, true, true);
+        // The plan for a new request carries no gains; the result does.
+        assert!(!focus_holds_media(&state));
+        focus_step(&mut state, 6, 1, true, true);
+        assert!(focus_holds_media(&state));
+        // A failed result keeps the request held but not granted; a reported gain restores it.
+        focus_step(&mut state, 7, 1, true, true);
+        assert!(!focus_holds_media(&state));
+        focus_step(&mut state, 5, 0, true, true);
+        assert!(focus_holds_media(&state));
+        // Phone holding the request never counts as media focus.
+        let mut phone = [0; 6];
+        focus_step(&mut phone, 1, 2, true, true);
+        focus_step(&mut phone, 6, 2, true, true);
+        assert!(!focus_holds_media(&phone));
+    }
+
+    #[test]
+    fn focus_never_lets_navigation_or_unknown_channels_enter() {
+        let mut state = [0; 6];
+        // Navigation (0) and unknown codes are ignored for activity, release and results.
+        assert_eq!(focus_step(&mut state, 1, 0, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 1, 4, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 2, 0, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(focus_step(&mut state, 6, 0, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(state, [0; 6]);
+        // With the setting off nothing is requested at all.
+        assert_eq!(focus_step(&mut state, 1, 1, false, true), [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(state, [0; 6]);
     }
 }
 
@@ -417,3 +620,30 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_navigationRoute(
     _: *mut JNIEnv, _: jclass, follows: jboolean, configured: jint, ducking: jboolean,
 ) -> jint { navigation_route(follows != 0, configured, ducking != 0) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_focusStep(
+    env: *mut JNIEnv, _: jclass, state: jlongArray, event: jint, channel: jint,
+    enabled: jboolean, mute_transient: jboolean,
+) -> jintArray {
+    let f = &**env;
+    let mut token = [0; 6];
+    (f.GetLongArrayRegion.unwrap())(env, state, 0, 6, token.as_mut_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
+    let decision = focus_step(&mut token, event, channel, enabled != 0, mute_transient != 0);
+    (f.SetLongArrayRegion.unwrap())(env, state, 0, 6, token.as_ptr());
+    let result = (f.NewIntArray.unwrap())(env, 7);
+    if !result.is_null() { (f.SetIntArrayRegion.unwrap())(env, result, 0, 7, decision.as_ptr()); }
+    result
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_mediaFocusHeld(
+    env: *mut JNIEnv, _: jclass, state: jlongArray,
+) -> jboolean {
+    let f = &**env;
+    let mut token = [0; 6];
+    (f.GetLongArrayRegion.unwrap())(env, state, 0, 6, token.as_mut_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return 0; }
+    focus_holds_media(&token) as jboolean
+}

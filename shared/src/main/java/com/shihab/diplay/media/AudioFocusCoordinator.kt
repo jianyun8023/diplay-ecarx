@@ -14,7 +14,13 @@ import com.shihab.diplay.compat.AudioFocusRequestCompat
 internal fun audioTrackAttributesForFocus(track: AudioTrack, configured: AudioAttributes): AudioAttributes =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) track.audioAttributes else configured
 
-/** Owns one focus request for all eligible tracks in a CarPlay sink. */
+/**
+ * Executes the Rust core's audio-focus decisions for all eligible tracks in a CarPlay sink. The
+ * core (`media::audio::scheduler`) owns the channel priority, the request intent and the target
+ * gains; this class keeps the platform objects — the active outputs, the [AudioFocusRequestCompat],
+ * the listener with its generation guard — and the applied-volume accounting: only a successful
+ * [Entry.setVolume] updates it. Reported grant facts are the only success facts either side holds.
+ */
 internal class AudioFocusCoordinator(
     context: Context?,
     private val enabled: Boolean,
@@ -31,10 +37,9 @@ internal class AudioFocusCoordinator(
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     // Keyed by the renderer's output (an AudioTrack or a native output).
     private val active = LinkedHashMap<Any, Entry>()
+    /** The core's value token: per-channel output counts, reported grant facts, media gain level. */
+    private val core = LongArray(6)
     private var request: AudioFocusRequestCompat? = null
-    private var requestedChannel: AudioChannel? = null
-    private var mediaVolume = FULL_VOLUME
-    private var focusGranted = true
     private var closed = false
     private var focusGeneration = 0L
     private var currentListener = listenerFor(focusGeneration)
@@ -55,21 +60,18 @@ internal class AudioFocusCoordinator(
                 return@synchronized
             }
             runCatching { report("Audio: focus change=$change activeTracks=${active.size}") }
-            when (change) {
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> setMediaVolume(DUCKED_VOLUME)
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                    if (muteMediaOnTransientLoss) {
-                        // This reports a temporary Android focus owner, not a confirmed call.
-                        Log.i(TAG, "Audio: muting media during transient focus loss")
-                        setMediaVolume(0f)
-                    }
-                }
-                AudioManager.AUDIOFOCUS_GAIN -> {
-                    focusGranted = true
-                    setMediaVolume(FULL_VOLUME)
-                }
+            val event = when (change) {
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> EVENT_DUCKED_LOSS
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> EVENT_TRANSIENT_LOSS
+                AudioManager.AUDIOFOCUS_GAIN -> EVENT_GAIN
                 // Preserve the existing permanent-loss workaround for ROMs that never send gain again.
+                else -> return@synchronized
             }
+            if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT && muteMediaOnTransientLoss) {
+                // This reports a temporary Android focus owner, not a confirmed call.
+                Log.i(TAG, "Audio: muting media during transient focus loss")
+            }
+            execute(step(event, CHANNEL_NONE))
         }
     }
 
@@ -80,18 +82,24 @@ internal class AudioFocusCoordinator(
     @Synchronized
     fun acquire(owner: Any, channel: AudioChannel, attributes: AudioAttributes, setVolume: (Float) -> Boolean) {
         if (closed || !enabled || manager == null || channel == AudioChannel.NAVIGATION) return
-        active[owner] = Entry(channel, attributes, setVolume)
-        refreshRequest()
-        applyMediaVolume(active.getValue(owner))
+        val entry = Entry(channel, attributes, setVolume)
+        active[owner] = entry
+        val decision = step(EVENT_ACQUIRE, channel.coreCode())
+        // A fresh request retargets every output once its result is reported; a covered output
+        // only joins the held request at the current target.
+        val applied = execute(decision)
+        if (applied != null) applyGain(entry, applied.first, applied.second)
+        else if (decision[SCOPE] == SCOPE_NEW_OUTPUT) applyGain(entry, decision[MEDIA_GAIN], decision[OTHER_GAIN])
     }
 
     /** CarPlay music holds granted focus now, so the car's audio controller already plays Android. */
     @Synchronized
-    fun mediaHoldsFocus(): Boolean = request != null && requestedChannel == AudioChannel.MEDIA && focusGranted
+    fun mediaHoldsFocus(): Boolean = NativeAudioScheduler.mediaFocusHeld(core)
 
     @Synchronized
     fun release(owner: Any) {
-        if (active.remove(owner) != null) refreshRequest()
+        val entry = active.remove(owner) ?: return
+        execute(step(EVENT_RELEASE, entry.channel.coreCode()))
     }
 
     fun onExternalFocusChange(change: Int) {
@@ -104,63 +112,83 @@ internal class AudioFocusCoordinator(
         if (closed) return
         closed = true
         active.clear()
-        refreshRequest()
+        execute(step(EVENT_CLOSE, CHANNEL_NONE))
     }
 
-    private fun refreshRequest() {
-        val primary = active.values.maxByOrNull { it.channel.focusPriority() }
-        if (primary == null) {
-            focusGeneration += 1
+    private fun step(event: Int, channel: Int): IntArray =
+        NativeAudioScheduler.focusStep(core, event, channel, enabled, muteMediaOnTransientLoss)
+
+    /**
+     * Runs one core decision: abandon the held request when told, ask Android for the channel the
+     * core chose and report the platform's result back as the only success fact. Returns the gain
+     * codes a fresh request applied, so the caller can re-reach the output that triggered it.
+     */
+    private fun execute(decision: IntArray): Pair<Int, Int>? {
+        if (decision[ABANDON] == 1 || decision[NEW_REQUEST] == 1) focusGeneration += 1
+        if (decision[ABANDON] == 1) {
             val abandoned = request
             request = null
-            requestedChannel = null
-            mediaVolume = FULL_VOLUME
-            focusGranted = true
             manager?.let { abandoned?.abandon(it) }
-            if (abandoned != null) runCatching { report("Audio: focus released activeTracks=0") }
-            return
+            if (abandoned != null && decision[NEW_REQUEST] == 0) {
+                runCatching { report("Audio: focus released activeTracks=0") }
+            }
         }
-        if (request != null && requestedChannel == primary.channel && focusGranted) return
-        focusGeneration += 1
-        manager?.let { request?.abandon(it) }
-        val gain = when (primary.channel) {
-            AudioChannel.MEDIA -> AudioManager.AUDIOFOCUS_GAIN
-            AudioChannel.PHONE -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-            AudioChannel.ASSISTANT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-            AudioChannel.NAVIGATION -> return
+        if (decision[NEW_REQUEST] == 1) return requestFocusFor(decision[CHANNEL], decision[GAIN_INTENT])
+        if (decision[SCOPE] == SCOPE_ALL_OUTPUTS) applyAll(decision[MEDIA_GAIN], decision[OTHER_GAIN])
+        return null
+    }
+
+    /** Asks Android for the channel the core chose, then reports the actual result. */
+    private fun requestFocusFor(channel: Int, intent: Int): Pair<Int, Int>? {
+        val primary = active.values.firstOrNull { it.channel.coreCode() == channel } ?: return null
+        val gain = when (intent) {
+            GAIN_INTENT_TRANSIENT -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            GAIN_INTENT_TRANSIENT_MAY_DUCK -> AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            else -> AudioManager.AUDIOFOCUS_GAIN
         }
         currentListener = listenerFor(focusGeneration)
         val next = AudioFocusRequestCompat(gain, primary.attributes, currentListener, Handler(Looper.getMainLooper()))
         request = next
-        requestedChannel = primary.channel
         val result = manager?.let(next::request)
-        focusGranted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        setMediaVolume(if (focusGranted) FULL_VOLUME else 0f)
+        val reported = step(
+            if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) EVENT_REQUEST_GRANTED else EVENT_REQUEST_FAILED,
+            channel,
+        )
+        // The request result retargets every output, the new one included.
+        applyAll(reported[MEDIA_GAIN], reported[OTHER_GAIN])
         val line = "Audio: focus requested channel=${primary.channel} gain=$gain granted=$result " +
             "usage=${primary.attributes.usage} contentType=${primary.attributes.contentType} " +
             "api=${if (Build.VERSION.SDK_INT >= 26) "AudioFocusRequest" else "legacy"} activeTracks=${active.size}"
         Log.i(TAG, line)
         runCatching { report(line) }
+        return reported[MEDIA_GAIN] to reported[OTHER_GAIN]
     }
 
-    private fun setMediaVolume(volume: Float) {
-        mediaVolume = volume
-        active.values.forEach(::applyMediaVolume)
+    private fun applyAll(mediaGain: Int, otherGain: Int) {
+        active.values.forEach { applyGain(it, mediaGain, otherGain) }
     }
 
-    private fun applyMediaVolume(entry: Entry) {
+    private fun applyGain(entry: Entry, mediaGain: Int, otherGain: Int) {
         // A rejected request silences its tracks; ordinary ducking affects only music.
         // This changes only the renderer's relative gain, never Android's user stream volume.
-        val volume = if (!focusGranted) 0f else if (entry.channel == AudioChannel.MEDIA) mediaVolume else FULL_VOLUME
+        val volume = if (entry.channel == AudioChannel.MEDIA) focusVolume(mediaGain) else focusVolume(otherGain)
         if (entry.appliedVolume == volume) return
         val applied = runCatching { entry.setVolume(volume) }.getOrDefault(false)
         if (applied) entry.appliedVolume = volume
     }
 
-    private fun AudioChannel.focusPriority(): Int = when (this) {
+    /** The core's gain codes; the platform floats stay on this side. */
+    private fun focusVolume(gain: Int) = when (gain) {
+        GAIN_DUCKED -> DUCKED_VOLUME
+        GAIN_MUTED -> 0f
+        else -> FULL_VOLUME
+    }
+
+    /** The core's channel codes: 1 media, 2 phone, 3 assistant; navigation never enters. */
+    private fun AudioChannel.coreCode(): Int = when (this) {
         AudioChannel.MEDIA -> 1
-        AudioChannel.PHONE -> 3
-        AudioChannel.ASSISTANT -> 2
+        AudioChannel.PHONE -> 2
+        AudioChannel.ASSISTANT -> 3
         AudioChannel.NAVIGATION -> 0
     }
 
@@ -168,5 +196,37 @@ internal class AudioFocusCoordinator(
         const val TAG = "DiPlay-AudioFocus"
         const val FULL_VOLUME = 1f
         const val DUCKED_VOLUME = 0.2f
+
+        // Core events (NativeAudioScheduler.focusStep): 1 acquire, 2 release, 3 ducking loss,
+        // 4 transient loss, 5 gain, 6/7 the requestAudioFocus result, 8 close.
+        const val EVENT_ACQUIRE = 1
+        const val EVENT_RELEASE = 2
+        const val EVENT_DUCKED_LOSS = 3
+        const val EVENT_TRANSIENT_LOSS = 4
+        const val EVENT_GAIN = 5
+        const val EVENT_REQUEST_GRANTED = 6
+        const val EVENT_REQUEST_FAILED = 7
+        const val EVENT_CLOSE = 8
+
+        // Decision slots in the returned IntArray.
+        const val ABANDON = 0
+        const val NEW_REQUEST = 1
+        const val CHANNEL = 2
+        const val GAIN_INTENT = 3
+        const val MEDIA_GAIN = 4
+        const val OTHER_GAIN = 5
+        const val SCOPE = 6
+        const val SCOPE_NEW_OUTPUT = 1
+        const val SCOPE_ALL_OUTPUTS = 2
+
+        // Gain intents; the AudioManager constants are mapped in [requestFocusFor].
+        const val GAIN_INTENT_TRANSIENT = 2
+        const val GAIN_INTENT_TRANSIENT_MAY_DUCK = 3
+
+        // Gain codes returned by the core.
+        const val GAIN_DUCKED = 1
+        const val GAIN_MUTED = 2
+
+        const val CHANNEL_NONE = 0
     }
 }
