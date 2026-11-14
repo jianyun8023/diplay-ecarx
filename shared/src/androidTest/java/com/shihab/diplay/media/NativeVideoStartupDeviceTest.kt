@@ -20,7 +20,9 @@ class NativeVideoStartupDeviceTest {
 
     @Test fun hevcKeyframeReceivedBeforeWorkerStartsIsRendered() = firstFrameBeforeWorker(HEVC)
 
-    private fun firstFrameBeforeWorker(frame: EncodedFrame) {
+    @Test fun duplicateHevcConfigsStillRenderTheOnlyKeyframe() = firstFrameBeforeWorker(HEVC, configurations = 2)
+
+    private fun firstFrameBeforeWorker(frame: EncodedFrame, configurations: Int = 1) {
         requireHardware(frame.mime)
         val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
         val surface = Surface(texture)
@@ -35,13 +37,87 @@ class NativeVideoStartupDeviceTest {
             nativeDecodeLoop = true,
         )
         // The receiver can deliver its only IDR before the worker ever handles Config.
-        decoder.configure(frame.codec, frame.config)
+        repeat(configurations) { decoder.configure(frame.codec, frame.config) }
         decoder.submit(frame.bytes)
         decoder.start()
         try {
-            assertTrue("The only ${frame.codec} IDR was lost: $reports", rendered.await(10, TimeUnit.SECONDS))
+            val didRender = rendered.await(10, TimeUnit.SECONDS)
+            assertTrue("The only ${frame.codec} IDR was lost: $reports", didRender)
             assertEquals("Startup must not need a replacement keyframe", 0, requests.get())
             assertEquals(1L, decoder.liveCounters().received)
+        } finally {
+            decoder.close()
+            assertTrue(decoder.awaitExitUntil(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            surface.release()
+            texture.release()
+        }
+    }
+
+    @Test fun decoderWaitsForANewKeyframeAfterItsSurfaceBecomesAvailable() {
+        requireHardware(HEVC.mime)
+        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
+        val surface = Surface(texture)
+        val refreshed = CountDownLatch(1)
+        val rendered = CountDownLatch(1)
+        val requests = AtomicInteger()
+        val reports = CopyOnWriteArrayList<String>()
+        val decoder = VideoDecoder(
+            streamType = 110, surface = null, width = WIDTH, height = HEIGHT,
+            preferSoftwareHevcDecoder = false,
+            requestKeyFrame = { requests.incrementAndGet(); refreshed.countDown() },
+            report = { reports.add(it); if (it == "first frame rendered") rendered.countDown() },
+            nativeDecodeLoop = true,
+        )
+        decoder.configure(HEVC.codec, HEVC.config)
+        decoder.submit(HEVC.bytes)
+        decoder.setSurface(surface)
+        // Refresh is processed after SurfaceChanged has configured the codec and updated acceptance.
+        decoder.refreshPicture()
+        decoder.start()
+        try {
+            val didRefresh = refreshed.await(10, TimeUnit.SECONDS)
+            assertTrue("The worker did not finish attaching its Surface: $reports", didRefresh)
+            assertEquals(1L, decoder.liveCounters().received)
+            assertFalse("The frame received without a Surface must not render", rendered.await(300, TimeUnit.MILLISECONDS))
+            assertEquals(0L, decoder.liveCounters().rendered)
+            decoder.submit(HEVC.bytes)
+            val didRender = rendered.await(5, TimeUnit.SECONDS)
+            assertTrue("The new IDR did not render after Surface attachment: $reports", didRender)
+            assertEquals(2L, decoder.liveCounters().received)
+            assertEquals(1L, decoder.liveCounters().rendered)
+            assertEquals("Only the explicit refresh should request a keyframe", 1, requests.get())
+        } finally {
+            decoder.close()
+            assertTrue(decoder.awaitExitUntil(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            surface.release()
+            texture.release()
+        }
+    }
+
+    @Test fun closeBeforeWorkerStartsReleasesPendingConfigsAndFrame() {
+        requireHardware(HEVC.mime)
+        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
+        val surface = Surface(texture)
+        val exited = CountDownLatch(1)
+        val rendered = AtomicInteger()
+        val requests = AtomicInteger()
+        val decoder = VideoDecoder(
+            streamType = 110, surface = surface, width = WIDTH, height = HEIGHT,
+            preferSoftwareHevcDecoder = false,
+            requestKeyFrame = { requests.incrementAndGet() },
+            report = { if (it == "first frame rendered") rendered.incrementAndGet() },
+            onExit = { exited.countDown() }, nativeDecodeLoop = true,
+        )
+        repeat(2) { decoder.configure(HEVC.codec, HEVC.config) }
+        decoder.submit(HEVC.bytes)
+        // Closing before start leaves both Config holds and the IDR for the worker's finally block.
+        decoder.close()
+        decoder.start()
+        try {
+            assertTrue("The worker must release pending native state on close", exited.await(5, TimeUnit.SECONDS))
+            assertTrue(decoder.awaitExitUntil(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))
+            assertEquals(0, rendered.get())
+            assertEquals(0, requests.get())
         } finally {
             decoder.close()
             assertTrue(decoder.awaitExitUntil(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)))

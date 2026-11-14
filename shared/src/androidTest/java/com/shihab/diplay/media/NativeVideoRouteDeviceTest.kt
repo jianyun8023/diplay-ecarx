@@ -31,9 +31,14 @@ class NativeVideoRouteDeviceTest {
         assumeTrue("AVC hardware decoder required", MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any {
             !it.isEncoder && "video/avc" in it.supportedTypes && !isSoftwareDecoderName(it.name)
         })
-        // ffmpeg/libx264: one generated black 64x64 baseline frame, keyint=1, zerolatency; no capture data.
-        val nals = listOf("6742c00adc426c0440000003004000000f23c489e0", "68ce0f2c80",
-            "65888404bc98a00038a32727275d75d75d75d75d75d780").map { hex ->
+        // The same generated 320x240 baseline frame as NativeVideoStartupDeviceTest; exactly one IDR.
+        val nals = listOf("6742c00dda0507ec0440000003004000000f23c50aa8", "68ce0fc8",
+            "6588843a2628000902c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9c9d75d75d75d75d75d75d75d75d75d75d75d75d75d" +
+                "75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d" +
+                "75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d" +
+                "75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d" +
+                "75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75d75e0",
+        ).map { hex ->
             hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         }
         val (sps, pps) = nals
@@ -43,10 +48,10 @@ class NativeVideoRouteDeviceTest {
         val imageReady = CountDownLatch(1)
         val packets = AtomicInteger()
         val images = HandlerThread("native-video-test-images").apply { start() }
-        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(64, 64) }
+        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(320, 240) }
         texture.setOnFrameAvailableListener({ imageReady.countDown() }, Handler(images.looper))
         val surface = Surface(texture)
-        val sink = AndroidMediaSink(surface = surface, videoWidth = 64, videoHeight = 64)
+        val sink = AndroidMediaSink(surface = surface, videoWidth = 320, videoHeight = 240)
         val stream = ScreenStream(key, InetAddress.getLoopbackAddress())
         val delegate = currentScreenListener(110, sink) { true }
         val port = stream.listen(object : ScreenStream.Listener by delegate {
@@ -61,22 +66,17 @@ class NativeVideoRouteDeviceTest {
                 val header = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN)
                     .putInt(config.size).put(1).array()
                 output.write(header); output.write(config)
-                val frame = ByteBuffer.allocate(nals.sumOf { it.size + 4 }).apply {
-                    nals.forEach { putInt(it.size); put(it) }
-                }.array()
+                val idr = nals.last()
+                val frame = ByteBuffer.allocate(idr.size + 4).putInt(idr.size).put(idr).array()
                 val frameHeader = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN).putInt(frame.size + 16).array()
-                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-                var counter = 0L
-                while (imageReady.count != 0L && System.nanoTime() < deadline) {
-                    output.write(frameHeader)
-                    output.write(AirPlayCrypto.chachaSeal(key, AirPlayCrypto.nonce64(counter++), frame, frameHeader))
-                    output.flush()
-                    imageReady.await(30, TimeUnit.MILLISECONDS)
-                }
-                assertEquals("A decrypted frame must reach the platform Surface: ${sink.liveVideoCounters()}", 0L, imageReady.count)
+                output.write(frameHeader)
+                output.write(AirPlayCrypto.chachaSeal(key, AirPlayCrypto.nonce64(0), frame, frameHeader))
+                output.flush()
+                val didRender = imageReady.await(10, TimeUnit.SECONDS)
+                assertTrue("The only decrypted IDR must reach the platform Surface: ${sink.liveVideoCounters()}", didRender)
                 assertEquals(0, packets.get())
                 assertTrue(sink.mainVideoReceived)
-                assertTrue(requireNotNull(sink.liveVideoCounters()).received > 0)
+                assertEquals(1L, requireNotNull(sink.liveVideoCounters()).received)
             }
         } finally {
             stream.close()
