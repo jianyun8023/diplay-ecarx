@@ -300,7 +300,7 @@
     <string name="preparing_mfi_authentication">Preparing MFi authentication</string>
     <string name="ready">Ready</string>
     <string name="ready_when_you_are">Ready when you are</string>
-    <string name="receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay">Receiver based on xcertplay (GPL-3.0). Interface adapted from DiAuto (AGPL-3.0).\n\nCarPlay and the CarPlay icon belong to Apple Inc. DiPlay is an independent project.</string>
+    <string name="receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay">This project is derived from DiPlay, DiPlay-ECARX and xcertplay, with ongoing adaptation for Lynk &amp; Co / ECARX head units. The core, including protocols, sessions, audio/video processing and scheduling, has been rewritten in Rust. Kotlin handles the Android interface and platform adaptation.\n\nThe receiver and related modifications retain the GPL-3.0 license. Parts of the interface are adapted from DiAuto and retain the AGPL-3.0 license.\n\nThanks to LIVI (Lasse Heitgres) for protocol references and test vectors, and to Showcase for protocol research. Core dependencies include ring, RustCrypto, curve25519-dalek, num-bigint, libopus and SpeexDSP. See “Licenses and source” for the full dependencies and licenses.\n\nCarPlay and the CarPlay icon belong to Apple Inc. DiPlay is an independent project.</string>
     <string name="reconnecting_to_your_iphone">Reconnecting to your iPhone…</string>
     <string name="remote">Remote</string>
     <string name="remote_server_address_contains_u_0000">Remote server address contains U+0000</string>

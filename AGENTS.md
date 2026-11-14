@@ -8,7 +8,13 @@ Production targets Android 9 / API 28, ECARX 753 / Qualcomm 820A, with the vehic
 
 ## Checks
 
-Run the CI command from `.github/workflows/android.yml` before you report a change as done:
+Match local validation to the actual change:
+
+- Documentation, comments, credits and translation/string-only edits that do not change behavior, layout, resource keys/placeholders or build configuration need only `git diff --check` and a focused review of content, references, locale consistency and resource escaping. Do not launch full Gradle tests, lint, APK builds or native compilation for these changes; leave full validation to CI. Do not delay an explicitly requested commit or push while waiting for local full checks.
+- For code, behavior or build changes, run relevant local checks. Run the full suite locally only when concrete integration risk requires it, when investigating a CI failure, or when the user requests it.
+- If the user says to stop local checks or leave validation to CI, stop the checks and do not restart them unless asked. Report pending CI honestly; do not imply that uncompleted checks passed.
+
+The full CI command from `.github/workflows/android.yml` is a reference, not a requirement for every delivery:
 
 ```sh
 ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
