@@ -149,12 +149,30 @@ struct PlaybackHead {
 }
 
 impl PlaybackHead {
+    /// Mapping segments kept before coalescing. A head that advances reclaims spans in `read`,
+    /// so steady state stays far below this; the limit only bounds a stalled head fed by
+    /// successful writes, where nothing would otherwise be reclaimed.
+    const SPAN_LIMIT: usize = 1024;
+
     fn accept(&mut self, input: i64, output: i64) {
         let input_end = self.input_frames + input;
         let output_end = self.output_frames + output;
         self.spans.push_back((self.output_frames, output_end, self.input_frames, input_end));
         self.input_frames = input_end;
         self.output_frames = output_end;
+        // Coalesce the newest adjacent spans into their combined range. A merged range never
+        // marks anything played — `played` still only advances through `read` — and the mapping
+        // stays exact while the merged segments are collinear; a rate change between them only
+        // smooths the played-position estimate inside this already-stalled region.
+        while self.spans.len() > Self::SPAN_LIMIT {
+            let Some(second) = self.spans.pop_back() else { break };
+            let Some(first) = self.spans.pop_back() else {
+                self.spans.push_back(second);
+                break;
+            };
+            debug_assert_eq!(first.1, second.0);
+            self.spans.push_back((first.0, second.1, first.2, second.3));
+        }
     }
 
     fn read(&mut self, hardware: i64) -> i64 {
@@ -455,6 +473,41 @@ mod tests {
         assert_eq!(head.read(14800 + 1026 + 511), 14800 + 1024 + 512);
         assert_eq!(head.read(head.submitted_frames), 14800 + 2048);
         assert!(head.spans.is_empty());
+    }
+
+    /// The issue #110 probe as a persistent regression: playback started, the hardware head
+    /// pinned at zero, and every platform write succeeding. The span structure must stay bounded
+    /// without ever marking the stalled PCM played, and a recovered head must still map exactly.
+    #[test]
+    fn stalled_head_with_continued_writes_stays_bounded_and_never_fakes_played() {
+        let mut out = renderer(2, 1.0, 1.0);
+        let block = vec![0u8; 4096]; // 1024 stereo frames, the issue's probe block
+        for _ in 0..16 { out.write(&block, |_, frames| frames).unwrap(); }
+        assert_eq!(out.head.read(0), 0);
+        for _ in 0..100_000 {
+            out.write(&block, |_, frames| frames).unwrap();
+            out.head.read(0);
+        }
+        assert!(out.head.spans.len() <= PlaybackHead::SPAN_LIMIT, "spans={}", out.head.spans.len());
+        assert_eq!(out.head.played, 0);
+        assert_eq!(out.head.read(out.head.submitted_frames), out.head.input_frames);
+        assert!(out.head.spans.is_empty());
+    }
+
+    #[test]
+    fn stalled_head_stays_bounded_across_rate_changes_and_recovers_exactly() {
+        let mut out = renderer(2, 1.0, 1.0);
+        let block = vec![0u8; 4096];
+        for _ in 0..50_000 {
+            out.resampler.set_step(48048.0 / 48000.0);
+            out.write(&block, |_, frames| frames).unwrap();
+            out.resampler.set_step(47952.0 / 48000.0);
+            out.write(&block, |_, frames| frames).unwrap();
+            out.head.read(0);
+        }
+        assert!(out.head.spans.len() <= PlaybackHead::SPAN_LIMIT, "spans={}", out.head.spans.len());
+        assert_eq!(out.head.played, 0);
+        assert_eq!(out.head.read(out.head.submitted_frames), out.head.input_frames);
     }
 
     #[test]

@@ -78,6 +78,10 @@ internal class AudioRenderer(
     private val queuedPacketCount: Int get() = nativeQueue.size
     @Volatile private var running = true
     @Volatile private var started = false
+    @Volatile private var workerFailed = false
+
+    /** The worker stopped on its own failure; this renderer can never start or play again. */
+    internal val isTerminal: Boolean get() = workerFailed
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
     // AAudio in place of [track] for a stream routed by usage, when the native PCM path runs.
@@ -251,12 +255,15 @@ internal class AudioRenderer(
             // Worker shut down.
         } catch (error: Exception) {
             if (running) {
+                workerFailed = true
                 Log.e(TAG, "audio renderer worker failed", error)
                 reportFailure(error)
             }
         } catch (error: LinkageError) {
-            // Record an unsupported platform API without changing the existing crash semantics.
-            if (running) reportFailure(error)
+            if (running) {
+                workerFailed = true
+                reportFailure(error)
+            }
             throw error
         } finally {
             running = false

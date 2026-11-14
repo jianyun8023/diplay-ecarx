@@ -817,8 +817,12 @@ class AndroidMediaSink(
     @Synchronized
     private fun audioRenderer(id: AudioStreamId, format: AudioFormat): AudioRenderer {
         val existing = audioRenderers[id]
-        if (existing?.format == format) return existing
-        existing?.close()
+        if (existing?.format == format && !existing.isTerminal) return existing
+        // A renderer whose worker failed released its output and can never play again; the same
+        // id/format must get a fresh renderer instead of silently discarding every packet. The
+        // replacement happens here, at the next use, so a late failure report can never mistake
+        // a newer renderer for the dead one.
+        existing?.also { if (followingNavigationRenderer === it) followingNavigationRenderer = null }?.close()
         // A replacement owns a fresh ring: the old worker can still finish a blocking write.
         // The car's phone audio state cancels the echo itself; a second canceller would work against it.
         val echoReference = if (callEchoCancellation && format.audioType == TELEPHONY_AUDIO_TYPE && format.sampleRate > 0 &&
