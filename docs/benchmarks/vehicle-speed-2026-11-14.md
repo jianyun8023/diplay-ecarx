@@ -19,9 +19,18 @@
 - **VHAL 挡位服务**：`onServiceDisconnected` 清除 property manager 与挡位；重新连接后 `attach()` 重新取 manager、读初值并注册。此时即使有速度，没有有效挡位也不生成 PASCD。
 - **停止／新会话**：停止时清空状态并释放监听器；SDK 回调通过当前 `Run` 身份检查，旧实例回调不能修改新会话。
 
-本轮离线运行 `EcarxVehicleSpeedSourceTest`（5）、`VehicleSpeedCoreTest`（1）、`VehicleSpeedNmeaTest`（9），**15 项通过，0 失败／跳过**。覆盖正常速度、P/R/N/D 与无效状态、AdaptAPI 断开后重新采样、停用、Rust 批次及 PASCD 编码等。
+首次复核离线运行 `EcarxVehicleSpeedSourceTest`（5）、`VehicleSpeedCoreTest`（1）、`VehicleSpeedNmeaTest`（9），**15 项通过，0 失败／跳过**。覆盖正常速度、P/R/N/D 与无效状态、AdaptAPI 断开后重新采样、停用、Rust 批次及 PASCD 编码等。
 
-测试局限：现有 AdaptAPI 恢复用例在断开前已 drain，不单独证明“尚未 drain 的旧批次被断开清空”；VHAL property service 的断开／重连没有对应专门用例。这两项可以先补本地回归，不必等实车。真实服务中断后的恢复仍需平台证据，不能由 mock 通过替代。
+### 后续本地回归补齐（2026-11-14）
+
+在上述基线上新增两项测试，现有生产实现直接通过，未修改生产代码：
+
+- `discardsUndrainedSpeedWhenTheServiceDisconnects`：断开前保留尚未 drain 的两笔数据；断开后无批次，期间的速度回调不产生批次；恢复后只包含新时间戳／新速度，不夹带旧值。
+- `rereadsGearAndResubscribesAfterThePropertyServiceReconnects`：速度服务保持在线，VHAL 中断使待发送批次失效；期间的速度和旧挡位回调不产生批次。测试替身在服务中断时更换 property manager，恢复后先读取新 manager 的 R 挡初值，再通过新订阅接收 P 挡变化；停止时解除新 manager 的监听。
+
+车速适配器现为 7 项，加核心合同 1 项、NMEA 9 项，共 **17 项通过**；共享 `Car` 替身的车辆信号 3 项、日夜 4 项一并通过，**定向合计 24 项，0 失败／跳过**。这两项本地缺口已关闭；真实服务中断后的恢复仍需平台证据，不能由 mock 通过替代。
+
+完整 AGENTS Checks 亦通过（3m 47s）：shared／common／home 单测共 **3595 通过、2 项条件跳过**，四应用 lint 与 debug 构建通过。跳过项为主机通配端口绑定语义不适用、未配置真实 AdaptAPI JAR；后者仍不计 SDK ABI 验收通过。
 
 ## 确实缺少的验证
 
@@ -39,6 +48,7 @@
 - `artifacts/cartest-ultra-probes-v145-20261109/reports/DiPlay-20261109-200054-747.txt:3281`；同批 `photos/03-2022-vehicle-data-rows.png`；11 月 11 日现场确认见 `analysis/20261111-carplay-ultra/证据索引.md`。
 - `analysis/dcytools113-20261029/sources/com/hyphp/hywebviewdcltools/ApiService.java:144,463,509`：HY DCYTools 的属性集合、整数回调和注册路径。`analysis/20261107-voice-key/interactive/sources/android/car/hardware/CarSensorEvent.java:20–28`：固件挡位常量。
 - `oem-launcher/build/adaptapi-src/sources/com/ecarx/xui/adaptapi/car/sensor/`：`SensorImpl`、`SensorPaUtil`、`SensorListener`；同目录上层 `CarImpl` 与 `se/cevt/vehiclesignals/VehicleSignalManager.java`：连接通知和 SDK 重订阅。
-- `analysis/20261114-vehicle-speed-review/`：日志摘录及 SHA-256、此次 3 个测试类的 JUnit XML。
+- `analysis/20261114-vehicle-speed-review/`：日志摘录及 SHA-256、首次 3 个测试类的 JUnit XML。
+- `artifacts/vehicle-speed-local-20261114/`：新增回归后的 5 个测试类 JUnit XML、定向结果汇总与完整 Checks 日志。
 
 这些证据缩小了验收缺口；本轮没有确认需要修改生产逻辑的故障，也没有把历史 Ultra 成功扩展为当前 PASCD 全链路通过。

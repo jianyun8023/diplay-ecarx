@@ -8,6 +8,7 @@ import com.ecarx.xui.adaptapi.binder.IConnectable
 import com.ecarx.xui.adaptapi.car.ICar
 import com.ecarx.xui.adaptapi.car.sensor.ISensor
 import com.shihab.diplay.transport.VehicleGear
+import com.shihab.diplay.transport.VehicleSpeedSample
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -122,7 +123,7 @@ class EcarxVehicleSpeedSourceTest {
         idle()
         assertEquals(5.0, source.drain()!!.samples.last().metersPerSecond, 1e-9)
 
-        // Disconnect clears the retained batch; a stale value must not survive the gap.
+        // This batch was already drained; the separate undrained-batch test covers stale data.
         vendor.watcher!!.onDisConnected()
         idle()
         assertNull(source.drain())
@@ -152,6 +153,85 @@ class EcarxVehicleSpeedSourceTest {
         idle()
         assertNull(source.drain())
         assertTrue(source.status()!!.contains("gear=D"))
+    }
+
+    @Test fun discardsUndrainedSpeedWhenTheServiceDisconnects() {
+        vendor.sensor.value = 5.0f
+        val source = source()
+        source.start()
+        idle()
+        vendor.watcher!!.onConnected()
+        idle()
+
+        // Leave both readings pending: draining before disconnect would hide a stale-batch bug.
+        now = 2_000L
+        vendor.sensor.value = 6.0f
+        vendor.sensor.listener!!.onSensorValueChanged(SPEED, 6.0f)
+        idle()
+        vendor.watcher!!.onDisConnected()
+        idle()
+        assertNull(source.drain())
+
+        now = 3_000L
+        vendor.sensor.value = 7.0f
+        vendor.sensor.listener!!.onSensorValueChanged(SPEED, 7.0f)
+        idle()
+        assertNull(source.drain())
+
+        now = 4_000L
+        vendor.sensor.value = 8.0f
+        vendor.watcher!!.onConnected()
+        idle()
+        val resumed = source.drain()!!
+        assertEquals(VehicleGear.DRIVE, resumed.gear)
+        assertEquals(listOf(VehicleSpeedSample(4_000L, 8.0)), resumed.samples)
+        source.stop()
+        idle()
+    }
+
+    @Test fun rereadsGearAndResubscribesAfterThePropertyServiceReconnects() {
+        vendor.sensor.value = 5.0f
+        val source = source()
+        source.start()
+        idle()
+        vendor.watcher!!.onConnected()
+        idle()
+        val car = android.car.Car.last!!
+        val oldListener = car.properties.listener!!
+
+        // The speed service stays live, but its pending batch loses its valid gear.
+        car.disconnectService()
+        idle()
+        assertNull(source.drain())
+        now = 2_000L
+        vendor.sensor.value = 6.0f
+        vendor.sensor.listener!!.onSensorValueChanged(SPEED, 6.0f)
+        oldListener.onChangeEvent(CarPropertyValue(GEAR, 8))
+        idle()
+        assertNull(source.drain())
+
+        // Recovery must read the new manager's initial gear before any gear event arrives.
+        car.properties.values[GEAR] = 2
+        now = 3_000L
+        vendor.sensor.value = 1.0f
+        car.connect()
+        idle()
+        val resumed = source.drain()!!
+        assertEquals(VehicleGear.REVERSE, resumed.gear)
+        assertEquals(listOf(VehicleSpeedSample(3_000L, 1.0)), resumed.samples)
+        assertEquals(GEAR, car.properties.listenedProperty)
+
+        now = 4_000L
+        vendor.sensor.value = 0.0f
+        car.properties.listener!!.onChangeEvent(CarPropertyValue(GEAR, 4))
+        idle()
+        val parked = source.drain()!!
+        assertEquals(VehicleGear.PARK, parked.gear)
+        assertEquals(listOf(VehicleSpeedSample(4_000L, 0.0)), parked.samples)
+        source.stop()
+        idle()
+        assertNull(car.properties.listener)
+        assertTrue(car.disconnected)
     }
 
     @Test fun doesNotAdvertiseSupportOffTheCar() {
