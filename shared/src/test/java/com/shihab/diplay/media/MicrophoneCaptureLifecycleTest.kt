@@ -7,6 +7,8 @@ import android.media.MediaRecorder
 import android.os.Looper
 import com.ecarx.sdk.policy.PolicyAPI
 import com.shihab.diplay.hud.EcarxMicPolicy
+import com.shihab.diplay.airplay.AudioCodecKind
+import com.shihab.diplay.airplay.AudioFormat
 import com.shihab.diplay.airplay.AudioStreamId
 import com.shihab.diplay.airplay.MicrophoneConfig
 import java.net.InetAddress
@@ -28,6 +30,7 @@ import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowAudioEffect
 import org.robolectric.shadows.ShadowAudioRecord
 import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter
 
 /** Siri keeps direct capture; calls acquire and release the communication path. */
 @RunWith(RobolectricTestRunner::class)
@@ -216,6 +219,61 @@ class MicrophoneCaptureLifecycleTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(AudioManager.MODE_RINGTONE, manager.mode)
         assertEquals(1, policy.releases)
+    }
+
+    @Test fun recoveredCallOutputRebindsTheActiveCaptureWithoutReopeningTheRecorder() {
+        sink = AndroidMediaSink(context = context, callEchoCancellation = true, onAudioDiagnostic = reports::add)
+        val currentSink = requireNotNull(sink)
+        val format = AudioFormat(AudioCodecKind.LPCM, 16_000, 1, call.type, call.audioType)
+        fun renderer(): AudioRenderer = ReflectionHelpers.callInstanceMethod(currentSink, "audioRenderer",
+            ClassParameter.from(AudioStreamId::class.java, call), ClassParameter.from(AudioFormat::class.java, format))
+        fun outputReference(): EchoReference =
+            ReflectionHelpers.getField<Map<AudioStreamId, EchoReference>>(currentSink, "callEchoReferences").getValue(call)
+        // Isolate binding from actual SDK playback: neither output worker starts in this test.
+        val original = renderer()
+        val originalReference = outputReference()
+        val lateOldWriter = requireNotNull(originalReference.retain())
+        try {
+            currentSink.onMicrophoneStarted(call, config(call))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(captureStarted.await(5, TimeUnit.SECONDS))
+            val recorder = MicrophoneSourceFallbackTest.RecorderBuilder.built.single()
+            val uplink = ReflectionHelpers.getField<Map<AudioStreamId, MicrophoneUplink>>(currentSink, "microphoneUplinks").getValue(call)
+            val oldCaptureReference = ReflectionHelpers.getField<EchoReference>(uplink, "echoReference")
+            val out = ShortArray(2)
+            fun read() = ReflectionHelpers.callInstanceMethod<Boolean>(uplink, "readEchoReference",
+                ClassParameter.from(ShortArray::class.java, out), ClassParameter.from(Long::class.javaPrimitiveType, 1_000_000_000L))
+            originalReference.append(byteArrayOf(11, 0, 22, 0), 0, 4, 1, 0L, 1_000_000_000L)
+            assertTrue(read())
+            assertArrayEquals(shortArrayOf(11, 22), out)
+
+            ReflectionHelpers.setField(original, "workerFailed", true)
+            val replacement = renderer()
+            assertNotSame(original, replacement)
+            val replacementReference = outputReference()
+            assertNotSame(originalReference, replacementReference)
+            replacementReference.append(byteArrayOf(77, 0, 88, 0), 0, 4, 1, 0L, 1_000_000_000L)
+            // A retained old output can still finish a write; it must not contaminate the new ring.
+            lateOldWriter.append(byteArrayOf(99, 0, 100, 0), 0, 4, 1, 0L, 1_000_000_000L)
+            assertTrue(read())
+            assertArrayEquals(shortArrayOf(77, 88), out)
+            assertNull("Capture releases its old retain when the output changes", oldCaptureReference.retain())
+            assertSame(uplink, ReflectionHelpers.getField<Map<AudioStreamId, MicrophoneUplink>>(currentSink, "microphoneUplinks")[call])
+            assertSame(recorder, MicrophoneSourceFallbackTest.RecorderBuilder.built.single())
+            assertEquals(AudioRecord.RECORDSTATE_RECORDING, recorder.recordingState)
+            assertEquals("Output recovery must not reacquire the platform microphone", 1, policy.requests)
+            original.onExit(original)
+            assertSame(replacement, renderer())
+            stop()
+            assertEquals(1, policy.releases)
+            assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.state)
+            // Closing capture releases only its retain, not the current output owner.
+            val outputStillOwned = replacementReference.retain()
+            assertNotNull(outputStillOwned)
+            outputStillOwned?.close()
+        } finally {
+            lateOldWriter.close()
+        }
     }
 
     @Test fun microphoneMuteStateIsReported() {

@@ -548,7 +548,9 @@ class AndroidMediaSink(
             val uplink = microphoneUplinks.computeIfAbsent(id) {
                 MicrophoneUplink(config, onAudioDiagnostic,
                     speakerphoneCall = false,
-                    echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null,
+                    // Capture follows a recovered output without reopening AudioRecord or its effects.
+                    // This lookup must stay lock-free: the capture owns its own reference monitor.
+                    echoReferenceSource = { if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null },
                     audioManager = audioManager,
                     onCaptureState = { reportMicrophoneState(id, "capture") })
             }

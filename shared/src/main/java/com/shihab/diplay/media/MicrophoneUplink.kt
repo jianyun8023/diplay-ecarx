@@ -31,8 +31,8 @@ internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
     private val speakerphoneCall: Boolean = false,
-    /** The call's far-end audio; when set, telephony capture runs DiPlay's own echo canceller. */
-    echoReference: EchoReference? = null,
+    /** Current output owner; queried without sink locks so a recovered renderer can replace its ring. */
+    private val echoReferenceSource: () -> EchoReference? = { null },
     private val echoCancellerFactory: (Int, Int, Int) -> CallEchoCanceller? = { frame, rate, tail ->
         SpeexEchoCanceller.create(frame, rate, tail)
     },
@@ -54,7 +54,9 @@ internal class MicrophoneUplink(
     /** Read for a report window that recorded no sound; see [silenceDetail]. */
     private val audioManager: AudioManager? = null,
 ) : Closeable {
-    private val echoReferenceSource = echoReference
+    // The source is borrowed only for identity; this capture owns a separate retained reference.
+    // Replacement and reads share release()'s monitor, never the sink's lifecycle monitor.
+    private var echoReferenceOwner: EchoReference? = null
     @Volatile private var echoReference: EchoReference? = null
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
@@ -73,7 +75,7 @@ internal class MicrophoneUplink(
     fun start(): Boolean {
         NativeMedia.requireAvailable()
         if (!running.compareAndSet(false, true)) return true
-        echoReference = echoReferenceSource?.retain()
+        refreshEchoReference()
 
         val channelMask = if (config.channels >= 2) {
             AndroidAudioFormat.CHANNEL_IN_STEREO
@@ -216,6 +218,34 @@ internal class MicrophoneUplink(
         }
         stats.recorderSource(runCatching { recorder.audioSource }.getOrNull())
         return recorder
+    }
+
+    /** A fresh output ring is independent of any late writes from the failed renderer. */
+    @Synchronized
+    private fun refreshEchoReference() {
+        if (!running.get()) return
+        val source = echoReferenceSource()
+        if (source === echoReferenceOwner && echoReference != null) return
+        val retained = source?.retain()
+        val previous = echoReference
+        echoReference = retained
+        // A source can close between the lookup and retain; retry rather than caching that failure.
+        echoReferenceOwner = source.takeIf { retained != null }
+        previous?.close()
+    }
+
+    /** False means incompatible output, not ordinary silence while the replacement prebuffers. */
+    @Synchronized
+    private fun readEchoReference(out: ShortArray, endNs: Long): Boolean {
+        refreshEchoReference()
+        val reference = echoReference
+        if (reference != null && reference.sampleRate != config.sampleRate) {
+            out.fill(0)
+            return false
+        }
+        // Missing/closed output is temporary; never replay the preceding frame's reference.
+        reference?.read(out, endNs) ?: out.fill(0)
+        return true
     }
 
     private fun createEchoCanceller(): CallEchoCanceller? {
@@ -369,9 +399,12 @@ internal class MicrophoneUplink(
                     if (filled == frame.size) {
                         if (canceller != null && clock != null && reference != null) {
                             // Ask slightly ahead of the frame so speaker latency the clock misses stays inside the tail.
-                            echoReference?.read(reference, clock.frameEndNs(offset / 2) + ECHO_REFERENCE_LEAD_NS)
+                            val compatible = readEchoReference(reference, clock.frameEndNs(offset / 2) + ECHO_REFERENCE_LEAD_NS)
                             val processed = try {
-                                canceller.process(frame, reference)
+                                if (compatible) canceller.process(frame, reference) else {
+                                    Log.w(TAG, "microphone echo reference rate changed; restoring platform AEC")
+                                    false
+                                }
                             } catch (error: RuntimeException) {
                                 Log.w(TAG, "microphone native echo processing failed; restoring platform AEC", error)
                                 false
@@ -540,6 +573,7 @@ internal class MicrophoneUplink(
         running.set(false)
         val currentReference = echoReference
         echoReference = null
+        echoReferenceOwner = null
         currentReference?.close()
         val currentEffects = effects
         effects = emptyList()
