@@ -33,18 +33,6 @@ internal sealed interface VideoJob {
     data class NativeEvent(val kind: Int, val detail: String?) : VideoJob
 }
 
-/** The reference-chain state is one Rust value; packet classification uses the shared wire codec. */
-internal class VideoReferenceChain {
-    private var owner = NativeVideoFlow.reference(0, 0)
-    val needsKeyFrame: Boolean get() = NativeVideoFlow.referenceNeeds(owner)
-    fun reset() { owner = NativeVideoFlow.reference(owner, 1) }
-    fun accepts(bytes: ByteArray, codec: VideoCodec): Boolean =
-        NativeVideoFlow.referenceAccepts(owner, needsKeyFrame && MediaCodecSupport.isRandomAccess(bytes, codec))
-    fun accepts(annexB: MediaPacket, codec: VideoCodec): Boolean =
-        NativeVideoFlow.referenceAccepts(owner, needsKeyFrame && annexB.isRandomAccess(codec))
-    fun onQueued() { owner = NativeVideoFlow.reference(owner, 2) }
-}
-
 /** Rust owns admission, order and recovery; the GC carrier holds the actual Android jobs. */
 internal class VideoDecodeQueue(maxFrames: Int = 60, maxBytes: Int = 8 * 1024 * 1024) {
     private val lock = Object()

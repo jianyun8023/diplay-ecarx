@@ -51,6 +51,12 @@ class ShadowNativeAudioScheduler {
         @JvmStatic @Implementation fun navigationRoute(follows: Boolean, configured: Int, ducking: Boolean): Int =
             HostNative.call("media.NativeAudioScheduler", "navigationRoute", follows, configured, ducking) as Int
 
+        @JvmStatic @Implementation fun captureRecovery(state: LongArray, event: Int, nowNanos: Long, timeoutMillis: Long): Int =
+            HostNative.call("media.NativeAudioScheduler", "captureRecovery", state, event, nowNanos, timeoutMillis) as Int
+
+        @JvmStatic @Implementation fun promptFocus(state: LongArray, event: Int, enabled: Boolean, held: Boolean): Int =
+            HostNative.call("media.NativeAudioScheduler", "promptFocus", state, event, enabled, held) as Int
+
         @JvmStatic @Implementation fun create(frameBytes: Int): Long =
             HostNative.call("media.NativeAudioScheduler", "create", frameBytes) as Long
 
@@ -82,9 +88,6 @@ class ShadowNativeAudioScheduler {
 @Implements(className = "com.shihab.diplay.media.NativeVideoPolicy", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeVideoPolicy {
     companion object {
-        @JvmStatic @Implementation fun decoderAttempts(rate: Int, software: Boolean, lowLatency: Boolean, mtkMode: Int): IntArray =
-            HostNative.call("media.NativeVideoPolicy", "decoderAttempts", rate, software, lowLatency, mtkMode) as IntArray
-
         @JvmStatic @Implementation fun nameFlags(folded: String, advertised: Boolean): Int =
             HostNative.call("media.NativeVideoPolicy", "nameFlags", folded, advertised) as Int
 
@@ -100,12 +103,6 @@ class ShadowNativeVideoPolicy {
         @JvmStatic @Implementation fun operatingRate(type: Int, labelled: Boolean, frameRate: Int): Int =
             HostNative.call("media.NativeVideoPolicy", "operatingRate", type, labelled, frameRate) as Int
 
-        @JvmStatic @Implementation fun nextOperatingRate(requested: Int, used: Boolean, usedRate: Int): Int =
-            HostNative.call("media.NativeVideoPolicy", "nextOperatingRate", requested, used, usedRate) as Int
-
-        @JvmStatic @Implementation fun keepLowLatency(requested: Boolean, used: Boolean, same: Boolean): Boolean =
-            HostNative.call("media.NativeVideoPolicy", "keepLowLatency", requested, used, same) as Boolean
-
         @JvmStatic @Implementation fun lowLatency(flags: IntArray): Int =
             HostNative.call("media.NativeVideoPolicy", "lowLatency", flags) as Int
 
@@ -118,23 +115,25 @@ class ShadowNativeVideoPolicy {
         @JvmStatic @Implementation fun defaultDecoder(flags: IntArray, software: Boolean, hardwareFailed: Boolean): Int =
             HostNative.call("media.NativeVideoPolicy", "defaultDecoder", flags, software, hardwareFailed) as Int
 
-        @JvmStatic @Implementation fun firstSoftware(flags: IntArray): Int =
-            HostNative.call("media.NativeVideoPolicy", "firstSoftware", flags) as Int
-
         @JvmStatic @Implementation fun softwareOutcome(owner: LongArray, hardware: Boolean, software: Boolean, preferred: Boolean, sameHardware: Boolean): Int =
             HostNative.call("media.NativeVideoPolicy", "softwareOutcome", owner, hardware, software, preferred, sameHardware) as Int
 
         @JvmStatic @Implementation fun configurationCreate(rate: Int, mtk: Boolean, vendorRefused: Boolean): LongArray =
             HostNative.call("media.NativeVideoPolicy", "configurationCreate", rate, mtk, vendorRefused) as LongArray
 
+        @JvmStatic @Implementation fun configurationBegin(owner: LongArray, rate: Int, flags: Int, mode: Int, sdk: Int) {
+            HostNative.call("media.NativeVideoPolicy", "configurationBegin", owner, rate, flags, mode, sdk)
+        }
+        @JvmStatic @Implementation fun configurationNext(owner: LongArray): IntArray =
+            HostNative.call("media.NativeVideoPolicy", "configurationNext", owner) as IntArray
+        @JvmStatic @Implementation fun configurationResult(owner: LongArray, success: Boolean, sameLowLatency: Boolean): Int =
+            HostNative.call("media.NativeVideoPolicy", "configurationResult", owner, success, sameLowLatency) as Int
+
         @JvmStatic @Implementation fun configurationQuery(owner: LongArray, field: Int, capability: Boolean): Long =
             HostNative.call("media.NativeVideoPolicy", "configurationQuery", owner, field, capability) as Long
 
         @JvmStatic @Implementation fun configurationEvent(owner: LongArray, event: Int, a: Int, b: Int, c: Int, flags: Int): Int =
             HostNative.call("media.NativeVideoPolicy", "configurationEvent", owner, event, a, b, c, flags) as Int
-
-        @JvmStatic @Implementation fun attemptAllowed(owner: LongArray, defaultDecoder: Boolean, software: Boolean, sdk: Int): Boolean =
-            HostNative.call("media.NativeVideoPolicy", "attemptAllowed", owner, defaultDecoder, software, sdk) as Boolean
 
         @JvmStatic @Implementation fun formatFlags(owner: LongArray, tuned: Boolean, atOnce: Boolean, vendorRequested: Boolean, sdk: Int, advertised: Boolean, pictureListed: Boolean, nameFlags: Int): Int =
             HostNative.call("media.NativeVideoPolicy", "formatFlags", owner, tuned, atOnce, vendorRequested, sdk, advertised, pictureListed, nameFlags) as Int

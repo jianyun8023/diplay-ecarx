@@ -149,6 +149,9 @@ internal object NativeMedia {
         detailOut: Array<String?>,
     ): Int
     @JvmStatic external fun pipeRelease(handle: Long, failedConfigHolds: Int)
+    @JvmStatic external fun pipeRequestKeyframe(handle: Long, nowNanos: Long, force: Boolean): Boolean
+    @JvmStatic external fun pipeRememberConfiguration(handle: Long, codec: Int, data: ByteArray, hasCodec: Boolean): Int
+    @JvmStatic external fun pipeLastConfiguration(handle: Long): ByteArray?
     @JvmStatic external fun pipeSetSurface(handle: Long, surface: android.view.Surface, shown: Boolean): Int
     @JvmStatic external fun pipeHold(handle: Long, hold: Boolean)
     @JvmStatic external fun pipeSetAccepting(handle: Long, accepting: Boolean, resetChain: Boolean)

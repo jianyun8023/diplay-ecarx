@@ -16,6 +16,25 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 class NativeVideoStartupDeviceTest {
+    @Test fun forcedRefreshThrottlesNativeRecoveryUntilTheDeadline() {
+        val requested = CountDownLatch(1)
+        val pipe = NativeVideoPipe.create(0, false) { kind, _ ->
+            if (kind == NativeVideoPipe.EVENT_REQUEST_KEYFRAME) requested.countDown()
+        }
+        try {
+            pipe.setAccepting(true, resetChain = false)
+            assertTrue(pipe.requestKeyframe(System.nanoTime(), force = true))
+            val dependent = byteArrayOf(0, 0, 0, 1, 0x41, 0)
+            pipe.submit(HeapPacket(dependent), 0, 0)
+            assertFalse("A forced request must suppress an immediate native recovery request", requested.await(250, TimeUnit.MILLISECONDS))
+            Thread.sleep(1_000)
+            pipe.submit(HeapPacket(dependent), 0, 0)
+            assertTrue("Native recovery must request again after the deadline", requested.await(2, TimeUnit.SECONDS))
+        } finally {
+            pipe.destroy()
+        }
+    }
+
     @Test fun avcKeyframeReceivedBeforeWorkerStartsIsRendered() = firstFrameBeforeWorker(AVC)
 
     @Test fun hevcKeyframeReceivedBeforeWorkerStartsIsRendered() = firstFrameBeforeWorker(HEVC)

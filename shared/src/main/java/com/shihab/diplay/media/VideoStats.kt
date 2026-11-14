@@ -85,7 +85,7 @@ internal class VideoStats(
     /** A paced frame left the decoder after its display time and was shown at once. */
     @Synchronized fun onLate() { late++ }
 
-    /** Smooth video's current display delay ([PacingDelay]). */
+    /** Smooth video's current display delay. */
     @Synchronized fun onPacingDelay(ns: Long) { pacingDelayNanos = ns }
 
     private fun decodeSummary(): String {

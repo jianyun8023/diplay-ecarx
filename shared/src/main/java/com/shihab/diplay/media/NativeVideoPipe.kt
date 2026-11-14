@@ -7,10 +7,10 @@ import com.shihab.diplay.airplay.NativePacket
 import com.shihab.diplay.airplay.NativeVideoCallbacks
 
 /**
- * A screen stream's decode loop in `libdiplay_media`: frames go from the receiver straight into an
- * NDK MediaCodec in async mode, and the codec's callbacks release pictures paced as [VideoDecoder]
- * paces them, so nothing polls the codec. [VideoDecoder] keeps every decision (which decoder, which
- * format keys, which surface, when to rebuild) and acts on the pipe's events from its worker.
+ * A screen stream's Rust decode loop: frames go directly from the receiver into async NDK MediaCodec.
+ * Rust owns pacing, configuration policy and memory, recovery, and shared keyframe throttling.
+ * [VideoDecoder] supplies platform capabilities and executes codec/Surface operations from its worker,
+ * preserving resource ownership and reporting actual operation results to the core.
  */
 internal class NativeVideoPipe private constructor(private val handle: Long) {
     fun retainTarget(): Long = NativeMedia.pipeRetain(handle)
@@ -48,6 +48,12 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
     }
 
     fun release() = NativeMedia.pipeRelease(handle, -1)
+    fun requestKeyframe(nowNanos: Long, force: Boolean) = NativeMedia.pipeRequestKeyframe(handle, nowNanos, force)
+    fun rememberConfiguration(config: VideoJob.Config, hasCodec: Boolean): Int =
+        NativeMedia.pipeRememberConfiguration(handle, config.codec.ordinal, config.codecData, hasCodec)
+    fun lastConfiguration(): VideoJob.Config? = NativeMedia.pipeLastConfiguration(handle)?.let {
+        VideoJob.Config(com.shihab.diplay.airplay.VideoCodec.entries[it[0].toInt()], it.copyOfRange(1, it.size))
+    }
 
     /** Discard the failed chain only when no newer Config has acquired a hold. */
     fun configurationFailed(completingConfigHold: Boolean) =

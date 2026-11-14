@@ -12,6 +12,7 @@ import com.shihab.diplay.media.NativeVideoPipe
 import com.shihab.diplay.media.VideoDecodeQueue
 import com.shihab.diplay.media.VideoJob
 import com.shihab.diplay.media.VideoReferenceChain
+import com.shihab.diplay.media.VideoKeyFrameRequests
 import java.nio.ByteBuffer
 
 /** SDK adapter for host control/lifecycle tests. This does not validate NDK callbacks or frame timing. */
@@ -35,6 +36,9 @@ object HostVideoPipe {
         private val lock = Object()
         private val queue = VideoDecodeQueue()
         private val reference = VideoReferenceChain()
+        private val keyframes = VideoKeyFrameRequests()
+        private var configuration: ByteArray? = null
+        private var duplicateLogged = false
         @Volatile var codec: MediaCodec? = null
             private set
         private var hevc = false
@@ -178,7 +182,19 @@ object HostVideoPipe {
             if (interrupted) Thread.currentThread().interrupt()
         }
 
-        private fun event(kind: Int, detail: String? = null) = callbacks.onEvent(kind, detail)
+        fun requestKeyframe(now: Long, force: Boolean): Boolean = synchronized(lock) {
+            if (force) { keyframes.record(now); true } else keyframes.requestIfDue(now)
+        }
+        fun rememberConfiguration(codec: Int, data: ByteArray, hasCodec: Boolean): Int = synchronized(lock) {
+            val next = byteArrayOf(codec.toByte()) + data
+            if (hasCodec && configuration.contentEquals(next)) {
+                if (duplicateLogged) 2 else { duplicateLogged = true; 1 }
+            } else { configuration = next; duplicateLogged = false; 0 }
+        }
+        fun lastConfiguration(): ByteArray? = synchronized(lock) { configuration?.copyOf() }
+        private fun event(kind: Int, detail: String? = null) {
+            if (kind != NativeVideoPipe.EVENT_REQUEST_KEYFRAME || requestKeyframe(System.nanoTime(), false)) callbacks.onEvent(kind, detail)
+        }
         private fun hasPending(): Boolean = queue.backlogAfterCurrent().pendingFrames > 0 || queue.resyncPending()
 
         private fun run() {

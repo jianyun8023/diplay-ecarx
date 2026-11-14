@@ -56,7 +56,7 @@ class AndroidMediaSink(
     private val callSpeakerphone: () -> Boolean = { false },
     /**
      * Smooth video: show main-screen frames at the iPhone's frame time plus a delay that starts here and
-     * then follows how late the decoder releases frames ([PacingDelay]); 0 shows each as soon as it is
+     * then follows how late the decoder releases frames; 0 shows each as soon as it is
      * decoded. Only a SurfaceView honours the timestamps, so the host sets it with one.
      */
     private val videoPacingDelayMillis: Int = 0,

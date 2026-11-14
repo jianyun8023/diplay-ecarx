@@ -67,6 +67,7 @@ class CoreShadowProvider : ShadowProvider {
         "com.shihab.diplay.media.NativeAudioRouting" to "com.shihab.diplay.testcore.ShadowNativeAudioRouting",
         "com.shihab.diplay.network.NativeP2pStartup" to "com.shihab.diplay.testcore.ShadowNativeP2pStartup",
         "com.shihab.diplay.media.NativePlaybackCore" to "com.shihab.diplay.testcore.ShadowNativePlaybackCore",
+        "com.shihab.diplay.media.PlaybackMetadataCore" to "com.shihab.diplay.testcore.ShadowPlaybackMetadataCore",
         "com.shihab.diplay.network.NativeHotspotAddress" to "com.shihab.diplay.testcore.ShadowNativeHotspotAddress",
         "com.shihab.diplay.network.NativeHotspotRecovery" to "com.shihab.diplay.testcore.ShadowNativeHotspotRecovery",
         "com.shihab.diplay.iap2.message.NativeLaneGuidance" to "com.shihab.diplay.testcore.ShadowNativeLaneGuidance",

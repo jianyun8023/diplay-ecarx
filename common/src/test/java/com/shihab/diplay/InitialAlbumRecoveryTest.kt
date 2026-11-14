@@ -16,6 +16,18 @@ class InitialAlbumRecoveryTest {
         return recovery.pendingToken.also { assertTrue(recovery.beginRequest(it, info, false)) }
     }
 
+    @Test fun reentrantRetryCallbackCannotReviveCancelledTimer() {
+        val recovery = InitialAlbumRecovery()
+        assertTrue(recovery.observe(media(), false))
+        val token = recovery.pendingToken
+        assertFalse(recovery.beginRequest(token, media(), false) {
+            recovery.observe(media(playing = false), false)
+            true
+        })
+        assertFalse(recovery.claimSend(token, media(), false))
+        assertEquals(listOf("cancelled reason=paused"), recovery.takeEvents())
+    }
+
     @Test fun connectionPausedThenManualPlayChoosesCurrentMediaWithoutSpendingBudget() {
         val recovery = InitialAlbumRecovery()
         repeat(50) {

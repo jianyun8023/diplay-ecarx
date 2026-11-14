@@ -23,7 +23,7 @@ internal object HostNative {
     fun call(owner: String, name: String, vararg arguments: Any?): Any? {
         check(loaded)
         val type = Class.forName("com.shihab.diplay.$owner", true, hostLoader)
-        val method = type.declaredMethods.single { it.name == name && Modifier.isStatic(it.modifiers) }
+        val method = type.declaredMethods.single { it.name == name && Modifier.isStatic(it.modifiers) }.apply { isAccessible = true }
         return try {
             method.invoke(null, *arguments)
         } catch (failure: InvocationTargetException) {

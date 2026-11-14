@@ -2,6 +2,7 @@ package com.shihab.diplay.mediacenter
 
 import android.net.Uri
 import com.shihab.diplay.media.CarPlayNowPlaying
+import com.shihab.diplay.media.PlaybackMetadataCore
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -31,8 +32,7 @@ internal class MediaCenterSessionEngine(
     private var failedOwner: Any? = null
     @Volatile private var timedOutOwner: Any? = null
     private var uncertainOwner: Any? = null
-    private var last: CarPlayNowPlaying? = null
-    private var lastArtwork: Uri? = null
+    private var publication = PlaybackMetadataCore.publicationCreate()
     @Volatile private var selectionOwner: Any? = null
 
     fun update(value: Desired?) { synchronized(desiredLock) { desired = value }; queue() }
@@ -101,7 +101,7 @@ internal class MediaCenterSessionEngine(
         if (transport == null) {
             val owner = target.owner
             currentOwner = owner
-            last = null; lastArtwork = null
+            publication = PlaybackMetadataCore.publicationCreate()
             try {
                 phase("CONNECTING")
                 transport = factory(owner) { desired?.let { it.owner === owner && usable(it) } == true }
@@ -139,30 +139,24 @@ internal class MediaCenterSessionEngine(
         val frame = desired ?: return
         if (frame.owner !== currentOwner || !usable(frame)) { cleanup(); return }
         try {
-            val previous = last
             val selected = selectionOwner === frame.owner
             selectionOwner = null
-            val acquire = previous == null || selected ||
-                (frame.now.playing && (!previous.playing || previous.sourceApp != frame.now.sourceApp))
-            if (acquire) {
+            val plan = PlaybackMetadataCore.publicationPlan(publication, frame.now, frame.artwork?.toString(), selected)
+            if (plan and 1 != 0) {
                 phase("REQUEST_PLAY")
                 val claimed = transport!!.requestPlay()
                 finishOperation()
                 status = status.copy(claimed = claimed, detail = if (claimed) "PLAY_GRANTED" else "PLAY_NOT_GRANTED")
             }
             if (desired?.owner !== frame.owner || !usable(desired) || status.uncertain) { cleanup(); return }
-            // Progress can change independently; no recurring requestPlay while playing.
-            // artworkTransferId is a transfer handle, not a media field. Preserve it for the
-            // transport (it can signal that media exists), but exclude it from publication equality.
-            val media = frame.now.copy(artworkTransferId = null)
-            if (media != previous || frame.artwork != lastArtwork) {
+            if (plan and 2 != 0) {
                 phase("PUBLISHING")
                 val accepted = transport!!.publish(frame.now, frame.artwork)
                 finishOperation()
                 if (desired?.owner !== frame.owner || !usable(desired) || status.uncertain) { cleanup(); return }
                 status = Status("REGISTERED", if (accepted) "PLAYBACK_ACCEPTED" else "PLAYBACK_REJECTED", true, accepted, false, status.claimed, transport!!.artworkSupported)
                 callbackOwner = if (accepted) frame.owner else null
-                last = media; lastArtwork = frame.artwork
+                PlaybackMetadataCore.publicationCommit(publication, frame.now, frame.artwork?.toString())
             }
         } catch (error: Exception) {
             finishOperation(); failedOwner = currentOwner
@@ -194,7 +188,7 @@ internal class MediaCenterSessionEngine(
             try { original.close() } catch (_: Exception) { cleaned = false } catch (_: LinkageError) { cleaned = false }
             finishOperation()
             transport = null; registeredOwner = null; currentOwner = null
-            last = null; lastArtwork = null
+            publication = PlaybackMetadataCore.publicationCreate()
             status = if (cleaned) {
                 if (before.phase == "UNAVAILABLE" || before.phase == "PUBLISH_FAILED")
                     before.copy(registered = false, accepted = false, uncertain = false, claimed = false)

@@ -9,7 +9,7 @@
 
 use crate::protocols::crypto::TAG_LEN;
 use crate::platform::jvm::Env;
-use jni_sys::{jbyteArray, jclass, jint, jlong, JNIEnv};
+use jni_sys::{jbyteArray, jclass, jint, jlong, jlongArray, JNIEnv};
 use libopus_sys::{
     opus_encode, opus_encoder_create, opus_encoder_ctl, opus_encoder_destroy, OpusEncoder,
     OPUS_APPLICATION_VOIP, OPUS_OK, OPUS_SET_BITRATE_REQUEST, OPUS_SET_COMPLEXITY_REQUEST,
@@ -26,6 +26,34 @@ const OPUS_RATE: i32 = 48_000;
 const OPUS_FRAME_SAMPLES: usize = 960;
 // CarPlay sends one 20 ms frame; libopus's packet fits this budget.
 const OPUS_PACKET_BYTES: usize = 1275;
+
+// Capture recovery counts successful error restarts, but counts every no-audio attempt.
+fn capture_recovery(state: &mut [i64; 3], event: i32, now: i64, timeout_ms: i64) -> i32 {
+    match event {
+        0 => { state[2] = now; 0 }
+        1 => if state[0] < 3 { state[0] as i32 + 1 } else { 0 },
+        2 => { state[0] += 1; state[0] as i32 }
+        3 if state[1] < 3 && now.wrapping_sub(state[2]) >= timeout_ms.wrapping_mul(1_000_000) => {
+            state[1] += 1;
+            state[2] = now;
+            state[1] as i32
+        }
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_captureRecovery(
+    env: *mut JNIEnv, _: jclass, owner: jlongArray, event: jint, now: jlong, timeout_ms: jlong,
+) -> jint {
+    let f = &**env;
+    let mut state = [0; 3];
+    (f.GetLongArrayRegion.unwrap())(env, owner, 0, 3, state.as_mut_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return 0; }
+    let result = capture_recovery(&mut state, event, now, timeout_ms);
+    (f.SetLongArrayRegion.unwrap())(env, owner, 0, 3, state.as_ptr());
+    result
+}
 
 /// A 48 kHz mono VoIP encoder backed by the statically linked C libopus (same settings the
 /// former JNI bridge used: VoIP, complexity 5, voice signal). `None` when libopus refuses.
@@ -217,6 +245,27 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_opusEnc
 mod tests {
     use super::*;
     use libopus_sys::{opus_decode, opus_decoder_create, opus_decoder_destroy};
+
+    #[test]
+    fn capture_recovery_preserves_independent_budgets_and_commit_order() {
+        let mut state = [0, 0, 100];
+        assert_eq!(capture_recovery(&mut state, 1, 0, 0), 1);
+        assert_eq!(capture_recovery(&mut state, 1, 0, 0), 1); // failed restart is not committed
+        for attempt in 1..=3 {
+            assert_eq!(capture_recovery(&mut state, 1, 0, 0), attempt);
+            assert_eq!(capture_recovery(&mut state, 2, 0, 0), attempt);
+        }
+        assert_eq!(capture_recovery(&mut state, 1, 0, 0), 0);
+        assert_eq!(capture_recovery(&mut state, 3, 1_000_099, 1), 0);
+        for attempt in 1..=3 {
+            assert_eq!(capture_recovery(&mut state, 3, 100 + attempt as i64 * 1_000_000, 1), attempt);
+        }
+        assert_eq!(capture_recovery(&mut state, 3, 4_000_100, 1), 0);
+        let mut state = [0, 0, 0];
+        capture_recovery(&mut state, 0, 900_000, 1);
+        assert_eq!(capture_recovery(&mut state, 3, 1_000_000, 1), 0);
+        assert_eq!(capture_recovery(&mut state, 3, 1_900_000, 1), 1);
+    }
 
     /// Decode one packet with the same static libopus the encoder links against.
     unsafe fn decode_opus(packet: &[u8], pcm: &mut [i16]) -> i32 {

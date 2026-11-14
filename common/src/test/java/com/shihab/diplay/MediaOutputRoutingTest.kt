@@ -78,7 +78,7 @@ class MediaOutputRoutingTest {
         field(CarPlayMediaSession, "mediaCenterTicking").setBoolean(CarPlayMediaSession, true)
         savedEngine = listOf("clock", "worker", "factory", "desired", "status", "registeredOwner", "callbackOwner",
             "operationAt", "operation", "operationOwner", "transport", "currentOwner", "failedOwner", "timedOutOwner",
-            "uncertainOwner", "last", "lastArtwork", "selectionOwner").associateWith { field(engine, it).get(engine) }
+            "uncertainOwner", "publication", "selectionOwner").associateWith { field(engine, it).get(engine) }
         savedScheduled = (field(engine, "scheduled").get(engine) as AtomicBoolean).get()
         savedDirty = (field(engine, "dirty").get(engine) as AtomicBoolean).get()
         field(engine, "worker").set(engine, Executor { it.run() })

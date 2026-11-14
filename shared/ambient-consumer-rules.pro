@@ -126,7 +126,6 @@
 -keep class com.shihab.diplay.airplay.NativeAirPlayNegotiation { native <methods>; }
 
 -keep class com.shihab.diplay.media.NativeVideoPolicy { native <methods>; }
--keep class com.shihab.diplay.media.NativeVideoTiming { native <methods>; }
 -keep class com.shihab.diplay.media.NativeVideoFlow { native <methods>; }
 -keep class com.shihab.diplay.airplay.NativeScreenCodec { native <methods>; }
 -keep class com.shihab.diplay.airplay.NativeMicrophonePacketizer { native <methods>; }
@@ -176,6 +175,7 @@
 }
 
 -keep class com.shihab.diplay.media.NativePlaybackCore { *; }
+-keep class com.shihab.diplay.media.PlaybackMetadataCore { *; }
 -keep class com.shihab.diplay.media.CarPlayNowPlaying {
     public <init>(java.lang.String, java.lang.String, java.lang.String, java.lang.Integer, java.lang.String, java.lang.Long, java.lang.Long, boolean);
 }

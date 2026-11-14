@@ -20,6 +20,12 @@ import org.robolectric.shadows.ShadowAudioManager
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [25, 28, 33], manifest = Config.NONE)
 class NavigationPromptFocusTest {
+    private companion object {
+        const val RELEASE_DELAY_MILLIS = 1_000L
+        const val TIMEOUT_MILLIS = 30_000L
+        const val STREAM_TIMEOUT_MILLIS = 60_000L
+        const val AUDIBLE_RELEASE_DELAY_MILLIS = 400L
+    }
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private val manager get() = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val reports = mutableListOf<String>()
@@ -65,15 +71,15 @@ class NavigationPromptFocusTest {
         focus.onDuck()
         val sent = shadowOf(manager).lastAudioFocusRequest
         focus.onUnduck()
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS - 1)
+        idle(RELEASE_DELAY_MILLIS - 1)
         assertFalse(abandoned(sent))
         // 08:54:27 in #946: unduckAudio, then duckAudio 67 ms later for the next prompt.
         focus.onDuck()
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS)
+        idle(RELEASE_DELAY_MILLIS)
         assertSame(sent, shadowOf(manager).lastAudioFocusRequest)
         assertFalse(abandoned(sent))
         focus.onUnduck()
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS)
+        idle(RELEASE_DELAY_MILLIS)
         assertTrue(abandoned(sent))
         assertEquals(2, reports.size)
         assertTrue(reports.last(), reports.last().startsWith("Audio: navigation prompt focus released reason=unduck result="))
@@ -83,15 +89,15 @@ class NavigationPromptFocusTest {
         val focus = focus()
         focus.onDuck()
         val sent = shadowOf(manager).lastAudioFocusRequest
-        idle(NavigationPromptFocus.TIMEOUT_MILLIS - 1_000)
+        idle(TIMEOUT_MILLIS - 1_000)
         focus.onDuck()
-        idle(NavigationPromptFocus.TIMEOUT_MILLIS - 1)
+        idle(TIMEOUT_MILLIS - 1)
         assertFalse(abandoned(sent))
         idle(1)
         assertTrue(abandoned(sent))
         assertTrue(reports.last().contains("released reason=timeout"))
         focus.onUnduck()
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS)
+        idle(RELEASE_DELAY_MILLIS)
         assertEquals(2, reports.size)
     }
 
@@ -102,7 +108,7 @@ class NavigationPromptFocusTest {
         val denied = shadowOf(manager).lastAudioFocusRequest
         assertTrue(reports.single().endsWith("granted=0"))
         focus.onUnduck()
-        idle(NavigationPromptFocus.TIMEOUT_MILLIS)
+        idle(TIMEOUT_MILLIS)
         assertEquals(1, reports.size)
         shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
         focus.onDuck()
@@ -118,7 +124,7 @@ class NavigationPromptFocusTest {
         assertTrue(abandoned(sent))
         assertTrue(reports.last().contains("released reason=closed"))
         focus.onDuck()
-        idle(NavigationPromptFocus.TIMEOUT_MILLIS)
+        idle(TIMEOUT_MILLIS)
         assertSame(sent, shadowOf(manager).lastAudioFocusRequest)
         assertEquals(2, reports.size)
     }
@@ -129,7 +135,7 @@ class NavigationPromptFocusTest {
         focusOff.onDuck()
         focusOff.onUnduck()
         focusOff.onDuck()
-        idle(NavigationPromptFocus.TIMEOUT_MILLIS)
+        idle(TIMEOUT_MILLIS)
         assertNull(shadowOf(manager).lastAudioFocusRequest)
         assertEquals(listOf("Audio: navigation prompt focus skipped audioFocus=off"), reports)
     }
@@ -182,10 +188,10 @@ class NavigationPromptFocusTest {
         assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, sent.durationHint)
         assertEquals("held", prompt.state())
         assertTrue(reports.toString(), reports.single().startsWith("Audio: navigation prompt focus requested trigger=audio "))
-        idle(NavigationPromptFocus.TIMEOUT_MILLIS + 1)
+        idle(TIMEOUT_MILLIS + 1)
         assertFalse("sound that still plays outlives the duck timeout", abandoned(sent))
         prompt.onNavigationAudio(false)
-        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS - 1)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS - 1)
         assertFalse(abandoned(sent))
         idle(2)
         assertTrue(abandoned(sent))
@@ -198,9 +204,9 @@ class NavigationPromptFocusTest {
         prompt.onNavigationAudio(true)
         val sent = shadowOf(manager).lastAudioFocusRequest
         prompt.onNavigationAudio(false)
-        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS - 1)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS - 1)
         prompt.onNavigationAudio(true)
-        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS + 1)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS + 1)
         assertSame(sent, shadowOf(manager).lastAudioFocusRequest)
         assertFalse(abandoned(sent))
     }
@@ -212,10 +218,10 @@ class NavigationPromptFocusTest {
         prompt.onNavigationAudio(true)
         assertSame(sent, shadowOf(manager).lastAudioFocusRequest)
         prompt.onUnduck()
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS + 1)
+        idle(RELEASE_DELAY_MILLIS + 1)
         assertFalse("the prompt is still playing", abandoned(sent))
         prompt.onNavigationAudio(false)
-        idle(NavigationPromptFocus.AUDIBLE_RELEASE_DELAY_MILLIS + 1)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS + 1)
         assertTrue(abandoned(sent))
     }
 
@@ -225,10 +231,10 @@ class NavigationPromptFocusTest {
         val sent = shadowOf(manager).lastAudioFocusRequest
         prompt.onNavigationAudio(true)
         prompt.onNavigationAudio(false)
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS + 1)
+        idle(RELEASE_DELAY_MILLIS + 1)
         assertFalse(abandoned(sent))
         prompt.onUnduck()
-        idle(NavigationPromptFocus.RELEASE_DELAY_MILLIS + 1)
+        idle(RELEASE_DELAY_MILLIS + 1)
         assertTrue(abandoned(sent))
     }
 
@@ -236,7 +242,7 @@ class NavigationPromptFocusTest {
         val prompt = focus()
         prompt.onNavigationAudio(true)
         val sent = shadowOf(manager).lastAudioFocusRequest
-        idle(NavigationPromptFocus.STREAM_TIMEOUT_MILLIS + 1)
+        idle(STREAM_TIMEOUT_MILLIS + 1)
         assertTrue(abandoned(sent))
     }
 

@@ -1,96 +1,30 @@
 package com.shihab.diplay
 
 import com.shihab.diplay.media.CarPlayNowPlaying
+import com.shihab.diplay.media.PlaybackMetadataCore
 
-/** One send attempt for each identifiable playing media item, independent of artwork transfer ids. */
+/** Android executes the retry callback between the core's prepare and completion steps. */
 internal class InitialAlbumRecovery {
-    private var observed: CarPlayNowPlaying? = null
-    private var bound = false
-    private var colorComplete = false
-    private var attempted = false
-    private var scheduled = false
-    private var inFlight = false
-    private var generation = 0L
-    private val events = ArrayDeque<String>()
+    private val owner = PlaybackMetadataCore.recoveryCreate()
+    val pendingToken: Long get() = PlaybackMetadataCore.recoveryQuery(owner, 0)
+    val timerPending: Boolean get() = PlaybackMetadataCore.recoveryQuery(owner, 1) != 0L
 
-    val pendingToken: Long get() = generation
-    val timerPending: Boolean get() = scheduled
-
-    fun takeEvents(): List<String> = events.toList().also { events.clear() }
-
-    fun observe(info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean = { true }): Boolean {
-        if (!eligible(info, hasColor, allowRetry)) return false
-        if (scheduled || inFlight || attempted) return false
-        scheduled = true
-        generation++
-        return true
+    fun takeEvents(): List<String> = PlaybackMetadataCore.recoveryEvents(owner).map {
+        "cancelled reason=${when (it.toInt()) { 1 -> "trackChanged"; 2 -> "paused"; 3 -> "colorReady"; else -> "settingDisabled" }}"
     }
 
-    /** A cancelled timer/worker cannot resume under a newer generation. */
-    fun beginRequest(token: Long, info: CarPlayNowPlaying, hasColor: Boolean,
-                     allowRetry: () -> Boolean = { true }): Boolean {
-        if (token != generation || !scheduled || !eligible(info, hasColor, allowRetry)) return false
-        if (token != generation || !scheduled) return false
-        scheduled = false
-        inFlight = true
-        return true
+    private fun action(action: Int, token: Long, info: CarPlayNowPlaying, color: Boolean, allowRetry: () -> Boolean): Boolean {
+        if (!PlaybackMetadataCore.recoveryPrepare(owner, action, token, info, color)) return false
+        return PlaybackMetadataCore.recoveryComplete(owner, action, token, allowRetry())
     }
 
-    fun stillNeeded(token: Long, info: CarPlayNowPlaying, hasColor: Boolean,
-                    allowRetry: () -> Boolean = { true }): Boolean =
-        token == generation && inFlight && !attempted && eligible(info, hasColor, allowRetry) &&
-            token == generation && inFlight
-
-    /** Called immediately before channel.send; a failed send also spends the attempt. */
-    fun claimSend(token: Long, info: CarPlayNowPlaying, hasColor: Boolean,
-                  allowRetry: () -> Boolean = { true }): Boolean {
-        if (!stillNeeded(token, info, hasColor, allowRetry)) return false
-        attempted = true
-        return true
-    }
-
-    /** Preflight skips release the worker but never start another timer by themselves. */
-    fun finished(token: Long) {
-        if (token == generation) inFlight = false
-    }
-
-    private fun eligible(info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean): Boolean {
-        val previous = observed
-        if (bound && previous != null && albumTrackChanged(previous, info)) {
-            cancelPending("trackChanged")
-            bound = false
-            colorComplete = false
-            attempted = false
-        }
-        observed = info
-
-        if (attempted) return false
-        // Paused connection metadata never chooses a media item or spends the send budget.
-        if (!info.playing) {
-            cancelPending("paused")
-            return false
-        }
-        if (info.artworkTransferId == null) return false
-        if (!bound) {
-            bound = true
-            colorComplete = false
-        }
-        if (hasColor) {
-            if (!colorComplete) cancelPending("colorReady", report = true)
-            colorComplete = true
-        }
-        if (colorComplete) return false
-        if (!allowRetry()) {
-            cancelPending("settingDisabled")
-            return false
-        }
-        return true
-    }
-
-    private fun cancelPending(reason: String, report: Boolean = false) {
-        if (scheduled || inFlight || report) events.addLast("cancelled reason=$reason")
-        if (scheduled || inFlight) generation++
-        scheduled = false
-        inFlight = false
-    }
+    fun observe(info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean = { true }): Boolean =
+        action(0, 0, info, hasColor, allowRetry)
+    fun beginRequest(token: Long, info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean = { true }): Boolean =
+        action(1, token, info, hasColor, allowRetry)
+    fun stillNeeded(token: Long, info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean = { true }): Boolean =
+        action(2, token, info, hasColor, allowRetry)
+    fun claimSend(token: Long, info: CarPlayNowPlaying, hasColor: Boolean, allowRetry: () -> Boolean = { true }): Boolean =
+        action(3, token, info, hasColor, allowRetry)
+    fun finished(token: Long) = PlaybackMetadataCore.recoveryFinished(owner, token)
 }

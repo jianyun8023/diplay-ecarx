@@ -77,29 +77,6 @@ internal data class DecoderAttempt(
     val mtkMode: MtkDecoderMode = MtkDecoderMode.NONE,
 )
 
-/**
- * Configure attempts in order. Some vendor decoders (e.g. MediaTek c2.mtk.avc.decoder) reject the tuned
- * parameters with BAD_VALUE, so a minimal format and then software follow. An [operatingRate] is tried
- * first on its own, so a decoder that refuses it keeps the tuned format it gets without one. A
- * [lowLatencyDecoder] gets its tuned attempts before the default decoder's.
- */
-internal fun videoDecoderAttempts(
-    operatingRate: Int,
-    softwareDecoder: String?,
-    lowLatencyDecoder: String? = null,
-    maximumMtkMode: MtkDecoderMode = MtkDecoderMode.NONE,
-): List<DecoderAttempt> = NativeVideoPolicy.decoderAttempts(operatingRate, softwareDecoder != null, lowLatencyDecoder != null, maximumMtkMode.ordinal)
-    .asList().chunked(4).map { (name, tuned, rate, mode) ->
-        DecoderAttempt(when (name) { 1 -> lowLatencyDecoder; 2 -> softwareDecoder; else -> null }, tuned != 0, rate, MtkDecoderMode.entries[mode])
-    }
-
-/**
- * The operating rate to ask for at the next configure: none once a later attempt ([used]) worked after
- * the rate was refused, so the refusal is not paid again; unchanged when every attempt failed.
- */
-internal fun nextOperatingRate(requested: Int, used: DecoderAttempt?): Int =
-    NativeVideoPolicy.nextOperatingRate(requested, used != null, used?.operatingRate ?: 0)
-
 /** Qualcomm's private request can be submitted to older OMX drivers, including on API 28.
  * Picture order is separate: do not request it here without a guarantee of no reordered frames.
  */
@@ -117,10 +94,6 @@ internal data class DecoderCandidate(val name: String, val hardware: Boolean, va
  */
 internal fun lowLatencyDecoderName(candidates: List<DecoderCandidate>): String? =
     candidates.getOrNull(NativeVideoPolicy.lowLatency(candidates.map { (if (it.hardware) 1 else 0) or (if (it.alias) 2 else 0) or (if (it.lowLatency) 4 else 0) }.toIntArray()))?.name
-
-/** The low-latency decoder to try at the next configure: none once another decoder ([used]) worked after it. */
-internal fun nextLowLatencyDecoder(requested: String?, used: DecoderAttempt?): String? =
-    requested.takeIf { NativeVideoPolicy.keepLowLatency(requested != null, used != null, used?.codecName == requested) }
 
 /**
  * Qualcomm's decoder parameter for output in decoding order. Without it my Tang's decoders released a frame
@@ -191,8 +164,6 @@ internal class VideoDecoder(
     // [outputSurface]; the fanout then draws onto [outputSurface] and every mirror. Worker only.
     private val mirrors = LinkedHashMap<String, Surface>()
     private var fanout: VideoFanout? = null
-    private var lastConfig: VideoJob.Config? = null
-    @Volatile private var renderedFrameLogged = false
     private val configuration = DecoderConfigurationPolicy(operatingRate, mtkDecoderTuningEnabled, vendorLowLatencyRefusedEarlier)
     private val operatingRate get() = configuration.operatingRate
     private val configuredRate get() = configuration.configuredRate
@@ -202,7 +173,6 @@ internal class VideoDecoder(
     private val vendorLowLatencyRefused get() = configuration.vendorLowLatencyRefused
     private val startedLowLatency get() = configuration.startedLowLatency
     private val startedPictureOrder get() = configuration.startedPictureOrder
-    private var duplicateConfigLogged = false
     // Installed decoders per MIME type, read once: the list does not change while the app runs.
     private val installedDecoders = HashMap<String, List<InstalledDecoder>>()
     // Set within one configure pass once the hardware decoder could not be created even after its retries;
@@ -214,7 +184,6 @@ internal class VideoDecoder(
     private var hardwareProbe: HardwareDecoderProbe? = null
     private val hardwareProbeIntervalMillis get() = configuration.probeIntervalMillis
     private var failureReports = 0
-    private val keyframes = VideoKeyFrameRequests()
     // The main screen keeps the historical log format; other screens are labelled.
     private val stats = VideoStats(statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType")
     fun liveCounters(): LiveVideoCounters = synchronized(pipeLock) {
@@ -316,7 +285,7 @@ internal class VideoDecoder(
                         // Once per new surface, so it skips the rate limit an earlier request may still hold.
                         is VideoJob.NativeEvent -> onPipeEvent(job.kind, job.detail)
                         is VideoJob.RefreshPicture -> if (hasCodec()) {
-                            keyframes.record(System.nanoTime())
+                            pipe.requestKeyframe(System.nanoTime(), force = true)
                             requestKeyFrame()
                         }
                         is VideoJob.Resync -> Unit
@@ -377,12 +346,11 @@ internal class VideoDecoder(
     private fun onPipeEvent(kind: Int, detail: String?) {
         when (kind) {
             NativeVideoPipe.EVENT_REQUEST_KEYFRAME -> {
-                keyframes.record(System.nanoTime())
                 requestKeyFrame()
             }
             NativeVideoPipe.EVENT_REPORT -> detail?.let(report)
             NativeVideoPipe.EVENT_LOG -> if (detail?.startsWith("Video recovery") == true) Log.w(TAG, detail) else Log.i(TAG, detail ?: "")
-            NativeVideoPipe.EVENT_NEED_DECODER -> if (!hasCodec()) lastConfig?.let { configureDecoder(it, resetChain = false) }
+            NativeVideoPipe.EVENT_NEED_DECODER -> if (!hasCodec()) pipe.lastConfiguration()?.let { configureDecoder(it, resetChain = false) }
             NativeVideoPipe.EVENT_RELEASE_DECODER -> releaseDecoder()
             NativeVideoPipe.EVENT_CODEC_ERROR -> onJobFailure("native", IllegalStateException("native video decoder failed: $detail"))
             NativeVideoPipe.EVENT_INPUT_STALLED -> {
@@ -391,7 +359,7 @@ internal class VideoDecoder(
                 dropMtkCodec2LowLatency("video decoder input stalled")
             }
             NativeVideoPipe.EVENT_FIRST_FRAME -> {
-                renderedFrameLogged = true
+                configuration.firstFrame()
                 report("first frame rendered")
                 if (vendorLowLatency) report("QTI first output released for rendering " +
                     "qtiLowLatencySubmitted=$configuredVendorLowLatency effectiveness=unverified")
@@ -412,7 +380,7 @@ internal class VideoDecoder(
         }
         // A codec can accept the rate and still fail once it runs (start errors may surface on
         // later calls): one that failed before its first frame with it is not given it again.
-        if (configuration.dropsRateAfterFailure(error is MediaCodec.CodecException, renderedFrameLogged)) {
+        if (configuration.dropsRateAfterFailure(error is MediaCodec.CodecException)) {
             dropOperatingRate("codec failed before its first frame")
         }
         releaseDecoder()
@@ -422,21 +390,12 @@ internal class VideoDecoder(
 
     /** [resetChain] false only when the pipe asks for a decoder for the keyframe it holds. */
     private fun configureDecoder(config: VideoJob.Config, resetChain: Boolean = true, completingConfigHold: Boolean = false) {
-        val previous = lastConfig
-        if (
-            hasCodec() &&
-            previous?.codec == config.codec &&
-            previous.codecData.contentEquals(config.codecData)
-        ) {
-            if (!duplicateConfigLogged) {
-                duplicateConfigLogged = true
-                if (debugLogsEnabled()) Log.i(TAG, "video decoder config unchanged; keeping existing decoder")
-            }
+        val memory = pipe.rememberConfiguration(config, hasCodec())
+        if (memory != 0) {
+            if (memory == 1 && debugLogsEnabled()) Log.i(TAG, "video decoder config unchanged; keeping existing decoder")
             return
         }
         if (!resetChain) Log.i(TAG, "video decoder rebuilt for the native pipe's keyframe")
-        lastConfig = config
-        duplicateConfigLogged = false
         releaseDecoder()
         val surface = codecSurface() ?: return
         val codec = config.codec
@@ -460,35 +419,32 @@ internal class VideoDecoder(
         val requestedLowLatency = requestedMtkCodec2
             ?: if (framesAtOnce && configuration.tryLowLatency) findLowLatencyDecoder(mime) else null
         val requestedMtkMode = configuration.requestedMtkMode(mtkDecoderTuningEnabled && MtkDecoderTuning.legacyAcodecDecoderName(mime) != null)
+        val softwareDecoder = softwareDecoderName(mime)
         var configured: ConfiguredVideoDecoder? = null
-        var used: DecoderAttempt? = null
-        configuration.begin()
+        var outcome = 0
+        configuration.begin(requestedRate, softwareDecoder, requestedLowLatency, requestedMtkMode, Build.VERSION.SDK_INT)
         hardwareProbe = null
-        for (attempt in videoDecoderAttempts(
-            requestedRate,
-            softwareDecoderName(mime),
-            requestedLowLatency,
-            requestedMtkMode,
-        )) {
-            if (!configuration.allows(attempt, attempt.codecName?.let(::isSoftwareDecoderName) == true, Build.VERSION.SDK_INT)) continue
+        while (true) {
+            val attempt = configuration.next(softwareDecoder, requestedLowLatency) ?: break
             configured = tryConfigureNative(mime, csd, surface, attempt, framesAtOnce)
-            if (configured != null) { used = attempt; break }
+            outcome = configuration.result(configured != null, attempt.codecName == requestedLowLatency)
+            if (configured != null) break
         }
         if (configured != null) noteSoftwareFallback(mime, configured.codecName)
         if (configured == null) {
             queue.discardCurrentChain()
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }
-        if (nextOperatingRate(requestedRate, used) != requestedRate) dropOperatingRate("refused at configure")
-        if (nextLowLatencyDecoder(requestedLowLatency, used) != requestedLowLatency) {
+        if (outcome and 1 != 0) dropOperatingRate("refused at configure")
+        if (outcome and 2 != 0) {
             report("low-latency decoder $requestedLowLatency dropped: refused at configure")
             configuration.refuseLowLatency()
         }
-        renderedFrameLogged = false
+        configuration.finishedAttempt()
         nativeCodecName = configured?.codecName
         // Retire only this failure's chain; a newer Config may already have delivered its only IDR.
         if (configured == null) pipe.configurationFailed(completingConfigHold)
-        val mtkFallback = configuration.finish(used?.operatingRate ?: 0, configured?.mtkMode ?: MtkDecoderMode.NONE,
+        val mtkFallback = configuration.finish(if (configured != null) configuration.successfulRate else 0, configured?.mtkMode ?: MtkDecoderMode.NONE,
             requestedMtkMode, configured != null,
             configured != null && requestedMtkCodec2 != null && configured.codecName.equals(requestedMtkCodec2, ignoreCase = true),
             configured?.codecName?.let(MtkDecoderTuning::supportsLegacyAcodecKeys) == true)
@@ -555,72 +511,73 @@ internal class VideoDecoder(
         attempt: DecoderAttempt,
         atOnce: Boolean,
     ): ConfiguredVideoDecoder? {
-        val startedNs = System.nanoTime()
-        val requestedName = attempt.codecName ?: nativeDefaultDecoderName(mime)
-        val codecName = requestedName ?: "default"
-        val mtkMode = appliedMtkDecoderMode(attempt.mtkMode, requestedName.orEmpty())
-        val keys = LinkedHashMap<String, Int>()
-        if (attempt.tuned) {
-            keys[MediaFormat.KEY_MAX_INPUT_SIZE] = MAX_INPUT_SIZE
-            keys[MediaFormat.KEY_PRIORITY] = 0
-            if (attempt.operatingRate > 0) keys[MediaFormat.KEY_OPERATING_RATE] = attempt.operatingRate
-        }
-        mtkMode.formatKeys().forEach { keys[it] = 1 }
-        val advertised = attempt.tuned && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && requestedName != null &&
-            runCatching {
-                MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { it.name == requestedName }
-                    ?.getCapabilitiesForType(mime)?.isFeatureSupported("low-latency") == true
-            }.getOrDefault(false)
-        val flags = configuration.formatFlags(attempt.tuned, atOnce, vendorLowLatency, Build.VERSION.SDK_INT, advertised, false, videoCodecNameFlags(requestedName.orEmpty()))
-        val lowLatency = flags and 1 != 0
-        if (lowLatency) keys[MediaFormat.KEY_LOW_LATENCY] = 1
-        val vendorKeys = if (flags and 2 != 0) listOf(QTI_LOW_LATENCY_PARAMETER) else emptyList()
-        vendorKeys.forEach { keys[it] = 1 }
-        val pictureOrder = flags and 4 != 0
-        val privateParameters = flags and 8 != 0
-        if (pictureOrder) keys[PICTURE_ORDER_PARAMETER] = 1
-        if (vendorKeys.isNotEmpty()) {
-            report("QTI low-latency attempt decoder=$codecName api=${Build.VERSION.SDK_INT} " +
-                "request=${vendorKeys.joinToString { "$it=1" }} pictureOrder=$pictureOrder")
-        }
-        val hevc = mime == MediaFormat.MIMETYPE_VIDEO_HEVC
-        // Hardware sessions are freed asynchronously, so retry creation before selecting software.
-        val retries = if (attempt.codecName == null && requestedName != null) HARDWARE_CREATE_RETRY_MILLIS else emptyList()
-        val result = try {
-            createWithRetries(retries, sleep = Thread::sleep, onRetry = { tries, failure ->
-                report("hardware decoder $requestedName create failed attempt=$tries ${MediaFailureSummary.describe(failure)}; retrying")
-            }) {
-                pipe.configure(requestedName, mime, width, height, keys, csd, surface, hevc, vendorLowLatency).also {
-                    if (it.status == -1) throw java.io.IOException("native create failed: ${it.detail}")
-                }
+        while (true) {
+            val startedNs = System.nanoTime()
+            val requestedName = attempt.codecName ?: nativeDefaultDecoderName(mime)
+            val codecName = requestedName ?: "default"
+            val mtkMode = appliedMtkDecoderMode(attempt.mtkMode, requestedName.orEmpty())
+            val keys = LinkedHashMap<String, Int>()
+            if (attempt.tuned) {
+                keys[MediaFormat.KEY_MAX_INPUT_SIZE] = MAX_INPUT_SIZE
+                keys[MediaFormat.KEY_PRIORITY] = 0
+                if (attempt.operatingRate > 0) keys[MediaFormat.KEY_OPERATING_RATE] = attempt.operatingRate
             }
-        } catch (failure: Exception) {
-            if (attempt.codecName == null) hardwareCreateFailed = true
-            if (failure is InterruptedException) Thread.currentThread().interrupt()
-            reportFailure("stage=configure phase=create decoder=$codecName native=true mime=$mime", failure)
-            return null
+            mtkMode.formatKeys().forEach { keys[it] = 1 }
+            val advertised = attempt.tuned && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && requestedName != null &&
+                runCatching {
+                    MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull { it.name == requestedName }
+                        ?.getCapabilitiesForType(mime)?.isFeatureSupported("low-latency") == true
+                }.getOrDefault(false)
+            val flags = configuration.formatFlags(attempt.tuned, atOnce, vendorLowLatency, Build.VERSION.SDK_INT, advertised, false, videoCodecNameFlags(requestedName.orEmpty()))
+            val lowLatency = flags and 1 != 0
+            if (lowLatency) keys[MediaFormat.KEY_LOW_LATENCY] = 1
+            val vendorKeys = if (flags and 2 != 0) listOf(QTI_LOW_LATENCY_PARAMETER) else emptyList()
+            vendorKeys.forEach { keys[it] = 1 }
+            val pictureOrder = flags and 4 != 0
+            val privateParameters = flags and 8 != 0
+            if (pictureOrder) keys[PICTURE_ORDER_PARAMETER] = 1
+            if (vendorKeys.isNotEmpty()) {
+                report("QTI low-latency attempt decoder=$codecName api=${Build.VERSION.SDK_INT} " +
+                    "request=${vendorKeys.joinToString { "$it=1" }} pictureOrder=$pictureOrder")
+            }
+            val hevc = mime == MediaFormat.MIMETYPE_VIDEO_HEVC
+            // Hardware sessions are freed asynchronously, so retry creation before selecting software.
+            val retries = if (attempt.codecName == null && requestedName != null) HARDWARE_CREATE_RETRY_MILLIS else emptyList()
+            val result = try {
+                createWithRetries(retries, sleep = Thread::sleep, onRetry = { tries, failure ->
+                    report("hardware decoder $requestedName create failed attempt=$tries ${MediaFailureSummary.describe(failure)}; retrying")
+                }) {
+                    pipe.configure(requestedName, mime, width, height, keys, csd, surface, hevc, vendorLowLatency).also {
+                        if (it.status == -1) throw java.io.IOException("native create failed: ${it.detail}")
+                    }
+                }
+            } catch (failure: Exception) {
+                if (attempt.codecName == null) hardwareCreateFailed = true
+                if (failure is InterruptedException) Thread.currentThread().interrupt()
+                reportFailure("stage=configure phase=create decoder=$codecName native=true mime=$mime", failure)
+                return null
+            }
+            if (result.status != 0) {
+                val phase = when (result.status) { -2 -> "configure"; -3 -> "start"; else -> "async" }
+                val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
+                reportFailure("stage=configure phase=$phase elapsedMs=$elapsedMs decoder=$codecName " +
+                    "qtiRequest=${vendorKeys.joinToString()} tuned=${attempt.tuned} operatingRate=${attempt.operatingRate} " +
+                    "mtkTuning=${mtkMode.diagnosticName} mime=$mime native=true", IllegalStateException(result.detail))
+                Log.w(TAG, "native video decoder configure failed name=$codecName phase=$phase ${result.detail} " +
+                    "tuned=${attempt.tuned} operatingRate=${attempt.operatingRate} mime=$mime size=${width}x$height")
+                if (!configuration.retryWithoutPrivateParameters(privateParameters)) return null
+                onVendorLowLatencyRefused()
+                report("QTI low-latency fallback decoder=$codecName phase=$phase; " +
+                    "retry=same-format-without-private-parameters for this session")
+                continue
+            }
+            configuration.noteParameters(vendorKeys.isNotEmpty(), privateParameters)
+            if (configuredVendorLowLatency) {
+                report("QTI low-latency configure/start returned decoder=$codecName; effectiveness=unverified")
+            }
+            configuration.noteFeatures(lowLatency, pictureOrder)
+            return ConfiguredVideoDecoder(result.detail?.takeIf { it.isNotEmpty() } ?: codecName, mtkMode)
         }
-        if (result.status != 0) {
-            val phase = when (result.status) { -2 -> "configure"; -3 -> "start"; else -> "async" }
-            val elapsedMs = (System.nanoTime() - startedNs) / 1_000_000
-            reportFailure("stage=configure phase=$phase elapsedMs=$elapsedMs decoder=$codecName " +
-                "qtiRequest=${vendorKeys.joinToString()} tuned=${attempt.tuned} operatingRate=${attempt.operatingRate} " +
-                "mtkTuning=${mtkMode.diagnosticName} mime=$mime native=true", IllegalStateException(result.detail))
-            Log.w(TAG, "native video decoder configure failed name=$codecName phase=$phase ${result.detail} " +
-                "tuned=${attempt.tuned} operatingRate=${attempt.operatingRate} mime=$mime size=${width}x$height")
-            if (!privateParameters) return null
-            configuration.declineVendor(force = true)
-            onVendorLowLatencyRefused()
-            report("QTI low-latency fallback decoder=$codecName phase=$phase; " +
-                "retry=same-format-without-private-parameters for this session")
-            return tryConfigureNative(mime, csd, surface, attempt, atOnce)
-        }
-        configuration.noteParameters(vendorKeys.isNotEmpty(), privateParameters)
-        if (configuredVendorLowLatency) {
-            report("QTI low-latency configure/start returned decoder=$codecName; effectiveness=unverified")
-        }
-        configuration.noteFeatures(lowLatency, pictureOrder)
-        return ConfiguredVideoDecoder(result.detail?.takeIf { it.isNotEmpty() } ?: codecName, mtkMode)
     }
 
     /** Resolve an unnamed attempt; null keeps the platform's own decoder choice. */
@@ -781,7 +738,7 @@ internal class VideoDecoder(
         }
         releaseDecoder()
         queue.discardCurrentChain()
-        lastConfig?.let(::configureDecoder)
+        pipe.lastConfiguration()?.let(::configureDecoder)
     }
 
     /** Mirrors: one decoder for all of them, through a fanout that also draws onto the stream's own surface. */
@@ -882,7 +839,7 @@ internal class VideoDecoder(
 
     private fun requestKeyFrameIfDue() {
         val now = System.nanoTime()
-        if (!keyframes.requestIfDue(now)) return
+        if (!pipe.requestKeyframe(now, force = false)) return
         requestKeyFrame()
     }
 

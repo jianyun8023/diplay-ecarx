@@ -357,6 +357,11 @@ open class ShadowNativeMedia {
             HostVideoPipe.get(handle).configure(name, mime, width, height, keys, values, csd0, csd1,
                 surface, hevc, reportVendorFormat, detailOut)
         @JvmStatic @Implementation fun pipeRelease(handle: Long, failedConfigHolds: Int) { HostVideoPipe.get(handle).release(failedConfigHolds) }
+        @JvmStatic @Implementation fun pipeRequestKeyframe(handle: Long, nowNanos: Long, force: Boolean): Boolean =
+            HostVideoPipe.get(handle).requestKeyframe(nowNanos, force)
+        @JvmStatic @Implementation fun pipeRememberConfiguration(handle: Long, codec: Int, data: ByteArray, hasCodec: Boolean): Int =
+            HostVideoPipe.get(handle).rememberConfiguration(codec, data, hasCodec)
+        @JvmStatic @Implementation fun pipeLastConfiguration(handle: Long): ByteArray? = HostVideoPipe.get(handle).lastConfiguration()
         @JvmStatic @Implementation fun pipeSetSurface(handle: Long, surface: android.view.Surface, shown: Boolean): Int =
             HostVideoPipe.get(handle).setSurface(surface, shown)
         @JvmStatic @Implementation fun pipeHold(handle: Long, hold: Boolean) { HostVideoPipe.get(handle).hold(hold) }

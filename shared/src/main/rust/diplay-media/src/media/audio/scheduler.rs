@@ -134,9 +134,50 @@ pub fn navigation_route(follows: bool, configured: i32, ducking: bool) -> i32 {
     if !follows { configured } else if ducking { 0 } else { 3 }
 }
 
+// 1 requests focus; release decisions return milliseconds. The tails cover buffered playout,
+// while 30/60 s bound missing unduck/silence events observed on head units.
+fn prompt_focus(state: &mut [i64; 3], event: i32, enabled: bool, held: bool) -> i32 {
+    match event {
+        0 if state[2] == 0 && enabled => { state[0] = 1; 1 }
+        1 => { state[0] = 0; if state[2] == 0 && held && state[1] == 0 { 1_000 } else { 0 } }
+        2 | 3 => {
+            state[1] = (state[1] as i32).wrapping_add(if event == 2 { 1 } else { -1 }).max(0) as i64;
+            if state[2] != 0 || !enabled { 0 }
+            else if event == 2 { 1 }
+            else if state[1] == 0 && state[0] == 0 && held { 400 }
+            else { 0 }
+        }
+        4 if state[2] == 0 => { state[2] = 1; 1 }
+        5 => if state[1] > 0 { 60_000 } else { 30_000 },
+        6 => 60_000,
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prompt_focus_tracks_duck_and_overlapping_audio_until_silence_or_close() {
+        let mut state = [0; 3];
+        assert_eq!(prompt_focus(&mut state, 0, false, false), 0);
+        assert_eq!(prompt_focus(&mut state, 0, true, false), 1);
+        assert_eq!(prompt_focus(&mut state, 5, true, false), 30_000);
+        assert_eq!(prompt_focus(&mut state, 2, true, false), 1);
+        assert_eq!(prompt_focus(&mut state, 2, true, true), 1);
+        assert_eq!(prompt_focus(&mut state, 5, true, true), 60_000);
+        assert_eq!(prompt_focus(&mut state, 6, true, true), 60_000);
+        assert_eq!(prompt_focus(&mut state, 1, true, true), 0);
+        assert_eq!(prompt_focus(&mut state, 3, true, true), 0);
+        assert_eq!(prompt_focus(&mut state, 3, true, true), 400);
+        assert_eq!(prompt_focus(&mut state, 1, true, true), 1_000);
+        assert_eq!(prompt_focus(&mut state, 1, true, false), 0);
+        assert_eq!(prompt_focus(&mut state, 4, true, true), 1);
+        assert_eq!(prompt_focus(&mut state, 4, true, true), 0);
+        assert_eq!(prompt_focus(&mut state, 2, true, false), 0);
+        assert_eq!(prompt_focus(&mut state, 0, true, false), 0);
+    }
 
     #[test]
     fn queued_bytes_follows_the_unsigned_head_forward_without_flushing() {
@@ -221,7 +262,20 @@ mod tests {
 
 // ---- JNI boundary: `com.shihab.diplay.media.NativeAudioScheduler` ----
 
-use jni_sys::{jboolean, jclass, jint, jintArray, jlong, JNIEnv};
+use jni_sys::{jboolean, jclass, jint, jintArray, jlong, jlongArray, JNIEnv};
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_promptFocus(
+    env: *mut JNIEnv, _: jclass, owner: jlongArray, event: jint, enabled: jboolean, held: jboolean,
+) -> jint {
+    let f = &**env;
+    let mut state = [0; 3];
+    (f.GetLongArrayRegion.unwrap())(env, owner, 0, 3, state.as_mut_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return 0; }
+    let result = prompt_focus(&mut state, event, enabled != 0, held != 0);
+    (f.SetLongArrayRegion.unwrap())(env, owner, 0, 3, state.as_ptr());
+    result
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_create(

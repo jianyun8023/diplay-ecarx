@@ -14,7 +14,7 @@
 use crate::media::video::annexb::{FLAG_ANNEX_B, FLAG_RANDOM_ACCESS_H264, FLAG_RANDOM_ACCESS_H265};
 use crate::platform::jvm::{Attached, Env};
 use crate::platform::ndk::*;
-use crate::media::video::flow::{frame_overflow, keyframe_due, touch_latency, ReferenceChain};
+use crate::media::video::flow::{frame_overflow, keyframe_request, keeps_unused_decoder, touch_latency, ConfigurationMemory, ReferenceChain};
 use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, OutputTiming};
 use crate::media::packet;
 use crate::media::stats::{clock, VideoInputStats};
@@ -58,6 +58,7 @@ struct Inner {
     codec: *mut AMediaCodec,
     window: *mut ANativeWindow,
     hevc: bool,
+    configuration: ConfigurationMemory,
     /// A surface is available: frames may wait for their configuration to finish.
     accepting: bool,
     /// Nothing is fed: recovery asked Kotlin to release this codec. A retired codec shows nothing more.
@@ -125,8 +126,7 @@ type Events = Vec<(i32, Option<String>)>;
 
 impl Inner {
     fn request_keyframe(&mut self, now: i64, events: &mut Events) {
-        if !keyframe_due(self.last_keyframe_request_ns, now) { return; }
-        self.last_keyframe_request_ns = now;
+        if !keyframe_request(&mut self.last_keyframe_request_ns, now, false) { return; }
         events.push((EVENT_REQUEST_KEYFRAME, None));
     }
 
@@ -139,7 +139,7 @@ impl Inner {
     /// `VideoDecoder.recover`: drop the chain and wait for a keyframe; the decoder is rebuilt unless it
     /// is unused and [keep_unused].
     fn recover(&mut self, reason: &str, keep_unused: bool, now: i64, events: &mut Events) {
-        let keep = keep_unused && !self.codec.is_null() && self.frames_since_configure == 0;
+        let keep = keeps_unused_decoder(keep_unused, !self.codec.is_null(), self.frames_since_configure);
         self.stats.recoveries += 1;
         events.push((EVENT_LOG, Some(format!("Video recovery: {reason}; waiting for keyframe"))));
         events.push((EVENT_REPORT, Some(format!("recovery: {reason}; waiting for keyframe{}",
@@ -233,6 +233,33 @@ impl Inner {
             if plan.late { self.stats.late += 1; }
             actions.push(Action::Render { index, at_ns: plan.render_at, shown, bytes: info.size });
         }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRequestKeyframe(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong, now: jlong, force: jboolean,
+) -> jboolean {
+    keyframe_request(&mut pipe(handle).inner.lock().unwrap().last_keyframe_request_ns, now, force != 0) as jboolean
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRememberConfiguration(
+    env: *mut JNIEnv, _class: jclass, handle: jlong, codec: jint, data: jbyteArray, has_codec: jboolean,
+) -> jint {
+    let e = Env(env);
+    let mut bytes = vec![0; e.array_len(data)];
+    e.read_array(data, 0, &mut bytes);
+    pipe(handle).inner.lock().unwrap().configuration.remember(codec as u8, bytes, has_codec != 0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeLastConfiguration(
+    env: *mut JNIEnv, _class: jclass, handle: jlong,
+) -> jbyteArray {
+    match pipe(handle).inner.lock().unwrap().configuration.encoded() {
+        Some(bytes) => Env(env).byte_array(&bytes),
+        None => std::ptr::null_mut(),
     }
 }
 
@@ -481,7 +508,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
     let pipe = Arc::new(Pipe {
         inner: Mutex::new(Inner {
             // Held until Kotlin has a configuration: frames before it have nothing to decode with.
-            codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, accepting: false, retired: true, pending_configs: 0, codec_held: false,
+            codec: std::ptr::null_mut(), window: std::ptr::null_mut(), hevc: false, configuration: ConfigurationMemory::default(), accepting: false, retired: true, pending_configs: 0, codec_held: false,
             shown: true, need_decoder_sent: false, reference: ReferenceChain::default(), frames: VecDeque::new(), frame_bytes: 0,
             inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, timing: OutputTiming::new(pacing_delay_nanos, true),
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),

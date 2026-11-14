@@ -1,3 +1,4 @@
+@file:Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
 package com.shihab.diplay.media
 
 /** Presentation slots, pause history and adaptive output delay are one GC-managed Rust owner. */
