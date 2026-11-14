@@ -299,7 +299,7 @@
     <string name="preparing_mfi_authentication">正在準備 MFi 認證</string>
     <string name="ready">就緒</string>
     <string name="ready_when_you_are">一切就緒</string>
-    <string name="receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay">接收器以 xcertplay（GPL-3.0）為基礎，介面改編自 DiAuto（AGPL-3.0）。\n\nCarPlay 和 CarPlay 圖示為 Apple Inc. 所有。DiPlay 為獨立專案。</string>
+    <string name="receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay">本專案源自 DiPlay、DiPlay-ECARX 和 xcertplay，並持續針對領克／ECARX 車機適配。協定、工作階段、音訊與視訊處理及排程等核心現已使用 Rust 重寫，Kotlin 負責 Android 介面與平台適配。\n\n接收端及相關修改保留 GPL-3.0 授權；部分介面改編自 DiAuto，保留 AGPL-3.0 授權。\n\n感謝 LIVI（Lasse Heitgres）的協定參考與測試向量，以及 Showcase 的協定研究。核心相依元件包括 ring、RustCrypto、curve25519-dalek、num-bigint、libopus 和 SpeexDSP。完整相依元件與授權見「授權與原始碼」。\n\nCarPlay 和 CarPlay 圖示為 Apple Inc. 所有。DiPlay 為獨立專案。</string>
     <string name="reconnecting_to_your_iphone">正在重新連線 iPhone…</string>
     <string name="remote">遠端</string>
     <string name="remote_server_address_contains_u_0000">遠端伺服器位址包含 U+0000</string>
