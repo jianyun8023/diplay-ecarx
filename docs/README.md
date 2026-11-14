@@ -1,7 +1,7 @@
 # 文档索引
 
 DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里登记一行，并放进对应分组。
-仓库只收随代码长期成立的说明；按日期或版本的试车清单、实车证据、评审和合并记录放在本地工作区，结论写进平台笔记的验证矩阵。变更记录以仓库根目录的 [CHANGELOG.md](../CHANGELOG.md) 为准。
+仓库维护长期说明和按版本标注的脱敏验证摘要；原始日志、APK、私有车机资料与认证资产留在本地工作区。当前验收状态集中在验收矩阵，历史实验保留各自的版本与测量边界。变更记录以仓库根目录的 [CHANGELOG.md](../CHANGELOG.md) 为准。
 
 ## 使用说明（车主与安装者）
 
@@ -17,7 +17,9 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 
 ## 开发与构建
 
-- [技术架构](ARCHITECTURE.zh-CN.md) — 模块与会话组成、当前 Kotlin／Rust 分工、完整 Rust 核心迁移目标、LIVI 参考路线与分阶段验收（issue #96）。
+- [技术架构](ARCHITECTURE.zh-CN.md) — 当前模块、会话数据流、Rust 核心与 Kotlin 平台适配边界及代码归属。
+- [Rust 核心验收矩阵](RUST_CORE_REMAINING.zh-CN.md) — 当前已验证范围、剩余项和历史迁移审计；已关闭的 issue 不作为当前待办清单。
+- [协议样本与黄金向量](PROTOCOL_VECTORS.zh-CN.md) — 样本来源、独立预期、测试入口和外部证据缺口。
 - [领克 01 / ECARX 753 平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md) — 厂商接口、固件行为、权限、验证矩阵与证据索引，长期维护；新接口先登记再使用。
 - [构建 DiPlay 领克 01 / ECARX 753 移植版](../BUILD.md) — 本移植版特有的签名与 MFi 身份；通用流程见下一条。
 - [Build DiPlay](BUILD.md) ／ [從原始碼建置 DiPlay](BUILD.zh-TW.md) — 模块、Android Studio、单测与 lint 的通用流程。
@@ -61,7 +63,8 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 
 - [verification/navigation-v109](verification/navigation-v109/) — 导航接管决策引用的 v109 导航验证素材。
 - [预编译 libopus 实测（2026-11-10）](benchmarks/native-opus-2026-11-10.md) — 当时选用原生 Opus 编码的依据；后续 Opus 统一为静态链接的 libopus，见技术架构。
-- [原生媒体阶段 1–6 实验（2026-11-12）](benchmarks/native-media-2026-11-12.md) — A/B/C/D 台架 CPU、两路接收帧率、音频统计缺口与未验收范围，含逐轮 CSV。
+- [原生媒体迁移历史实验（2026-11-12 起）](benchmarks/native-media-2026-11-12.md) — 各阶段 A/B/C/D 台架测量和后续迁移验证，含逐轮 CSV；待办与开关默认值按当时版本理解。
+- [原生视频首帧与配置失败交错验证（2026-11-14）](benchmarks/native-video-startup-2026-11-14.md) — #113 已合并结果与后续失败交错修复分批登记，包含有效 red、本地检查和实机待验范围。
 - [媒体流原生解密实测（2026-11-11）](benchmarks/native-chacha-2026-11-11.md) — 原生 ChaCha 的性能依据（现并入 `libdiplay_media.so`）。
 
 ## 发布

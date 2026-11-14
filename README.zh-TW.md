@@ -1,6 +1,6 @@
 # DiPlay · 領克 01 CarPlay
 
-正式環境：Android 9（API 28）／753／820A，使用現有平台簽章。應用程式內不使用 ADB，APK 僅含 ARM64／ARMv7；其他 Android 版本僅用於除錯。見 [權限清單](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
+正式環境：Android 9（API 28）／753／820A，使用現有平台簽章。應用程式內不使用 ADB。發行套件按 ABI 分為獨立的 ARM64、ARMv7 和 x86_64 APK；目前適配的 820A 車機選 ARM64，ARMv7 為相容備援，x86_64 僅供模擬器測試。其他 Android 版本僅用於除錯。見 [權限清單](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
 
 [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
 
@@ -8,13 +8,13 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 
 連接、日常設定和排錯，見 [車主使用說明（含設定圖）](docs/USER-GUIDE.zh-CN.md)。功能細節與驗證範圍見 [詳細說明](docs/FEATURES.zh-CN.md)（兩份皆為簡體中文）。
 
-各文件開頭標註其適用版本：車主使用說明對齊 v142 車測包，詳細說明以 v134 為基線。導航聲音、自動熱點保護、開機服務與短按 Siri 的新實作仍待實車複測。
+兩份指南以 v148 車測包為介面說明基線，截圖來源按各頁標註保留，尚未完整核對最新介面。目前發行版見 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已驗證場景與剩餘項目見[目前驗收矩陣](docs/RUST_CORE_REMAINING.zh-CN.md)。
 
 | 功能 | 需要開啟的設定 |
 | --- | --- |
 | 儀表和 HUD 導航提示 | **設定 → 導航 → 億咖通導航**，開啟「HUD／儀表導航提示」 |
 | 車道指引 | 隨「HUD／儀表導航提示」輸出手機提供的有效車道，無需獨立開關 |
-| 歌曲資訊和封面 | **設定 → 音訊 → 車機媒體整合**，選擇「DiPlay 直接接管」或「HY 代理」，歌曲資訊隨所選後端輸出 |
+| 歌曲資訊和封面 | **設定 → 音訊 → 車機媒體整合**，選擇「DiPlay 直接接管」或「Android 標準」，歌曲資訊隨所選後端輸出 |
 | 日夜模式跟隨車輛 | **設定 → 顯示 → 顯示方式與效能**，把「CarPlay 日夜模式」設為「跟隨車輛」 |
 | 音樂走 CarPlay、保留藍牙電話 | **設定 → 音訊 → 音訊路由 → 聲音異常排查**，開啟「CarPlay 期間停用藍牙媒體」，關閉「透過車輛藍牙播放 CarPlay 音訊」 |
 | 導航壓低音樂或共同播報 | **設定 → 音訊 → 音訊路由**，預設開啟「導航聲音跟隨 iPhone 和車機」；手機地圖選播報方式，車機調導航音量，修改開關後重新連線 |
