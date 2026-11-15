@@ -73,28 +73,25 @@ class VideoSurfaceHandoffTest {
         assertEquals(DetachOutcome.NOT_RENDERING, detachAction(null, leaving, park = true, hasDecoder = false))
     }
 
-    @Test fun theQueueKeepsSurfaceWorkInOrderAndHandsItToAShutdown() {
-        val queue = VideoDecodeQueue(maxFrames = 1)
+    @Test fun theMailboxKeepsSurfaceWorkInOrderAndHandsItToAShutdown() {
+        val mailbox = VideoControlMailbox()
         val newHost = VideoJob.SurfaceChanged(null)
         val detach = VideoJob.DetachSurface(SurfaceDetachRequest(Any(), park = true))
-        queue.offer(newHost)
-        queue.offer(VideoJob.Frame(byteArrayOf(1)))
-        queue.offer(detach)
-        queue.offer(VideoJob.Frame(byteArrayOf(2))) // overflow discards frames, never surface work
-        val pending = queue.drain()
-        assertEquals(listOf(newHost, detach), pending.filter { it !is VideoJob.Frame && it !is VideoJob.Resync })
-        assertTrue(queue.drain().isEmpty())
-        assertNull(queue.poll(0))
+        mailbox.offer(newHost)
+        mailbox.offer(detach)
+        assertEquals(listOf<VideoJob>(newHost, detach), mailbox.drain())
+        assertTrue(mailbox.drain().isEmpty())
+        assertNull(mailbox.poll(0))
     }
 
     @Test fun completingOnTheDrainWakesAWaiter() {
         val request = SurfaceDetachRequest(Any(), park = true)
-        val queue = VideoDecodeQueue()
-        queue.offer(VideoJob.DetachSurface(request))
+        val mailbox = VideoControlMailbox()
+        mailbox.offer(VideoJob.DetachSurface(request))
         val woke = CountDownLatch(1)
         thread { if (request.await(5 * second, workerAlive = { true })) woke.countDown() }
         // What a worker does in its finally block after releasing the codec.
-        queue.drain().forEach { (it as? VideoJob.DetachSurface)?.request?.complete(DetachOutcome.RELEASED) }
+        mailbox.drain().forEach { (it as? VideoJob.DetachSurface)?.request?.complete(DetachOutcome.RELEASED) }
         assertTrue(woke.await(2, TimeUnit.SECONDS))
         assertEquals(DetachOutcome.RELEASED, request.outcome)
     }

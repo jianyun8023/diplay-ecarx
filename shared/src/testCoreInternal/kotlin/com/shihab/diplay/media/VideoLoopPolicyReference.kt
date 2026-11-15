@@ -1,10 +1,11 @@
 package com.shihab.diplay.media
 
-/** Use the existing hard backlog age only when a newer frame remains in this control segment. */
+/** A keyframe that waited 1.5 s with a newer frame 100 ms later behind it is not worth decoding. */
 internal object VideoRecoveryFrameAge {
-    fun isObsolete(nowNs: Long, receivedNs: Long, backlog: VideoDecodeQueue.Backlog): Boolean =
-        NativeVideoFlow.obsolete(nowNs, receivedNs, backlog.pendingFrames,
-            backlog.newestPendingReceivedNs ?: 0, backlog.newestPendingReceivedNs != null)
+    fun isObsolete(nowNs: Long, receivedNs: Long, pendingFrames: Int, newestPendingReceivedNs: Long?): Boolean =
+        nowNs >= receivedNs && nowNs - receivedNs >= 1_500_000_000 && pendingFrames > 0 &&
+            newestPendingReceivedNs != null && newestPendingReceivedNs <= nowNs &&
+            newestPendingReceivedNs - receivedNs >= 100_000_000
 }
 
 internal const val VIDEO_DRAIN_POLL_MS = 5L
