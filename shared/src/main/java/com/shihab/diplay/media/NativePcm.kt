@@ -1,41 +1,43 @@
+@file:Suppress("UNCHECKED_CAST")
 package com.shihab.diplay.media
 
+import android.media.MediaCodec
+import com.shihab.diplay.airplay.AudioCodecKind
 import com.shihab.diplay.airplay.MediaPacket
 import com.shihab.diplay.airplay.NativeMedia
 import com.shihab.diplay.airplay.NativePacket
 import java.io.Closeable
 import java.nio.ByteBuffer
 
-/**
- * An [AudioRenderer]'s PCM work in `libdiplay_media`: Opus decoding with libopus, wired
- * LPCM byte order, and the steps before each track write (call high-pass, navigation sound
- * detection, navigation attenuation, fade-in), all on the renderer's direct PCM buffer. Only the
- * renderer's worker uses it, and closes it.
- */
-internal class NativePcm private constructor(private var handle: Long, val decodesOpus: Boolean) : Closeable {
-    /** PCM bytes written from the start of [out]; negative is an Opus decode error. */
-    fun decodeOpus(packet: MediaPacket, offset: Int, length: Int, out: ByteBuffer): Int =
-        withHandle(packet) { NativeMedia.pcmDecodeOpus(handle, it, offset, length, out) }
+/** The output worker owns this native decoder and PCM storage; callbacks borrow PCM synchronously. */
+internal class NativePcm private constructor(private var handle: Long) : Closeable {
+    data class Configuration(val mime: String, val adts: Boolean, val csd: Array<ByteArray>)
 
-    /** Big-endian LPCM from [packet] into the start of [out] as little-endian; -1 when it does not fit. */
-    fun copySwapped(packet: MediaPacket, offset: Int, length: Int, out: ByteBuffer): Int =
-        withHandle(packet) { NativeMedia.pcmCopySwapped(it, offset, length, out) }
+    fun configuration(): Configuration? = NativeMedia.pcmConfiguration(owner())?.let {
+        Configuration(it[0] as String, it[1] as Boolean, it[2] as Array<ByteArray>)
+    }
 
-    /** Runs the PCM steps on the first [length] bytes of [buffer]; true when [DETECT_AUDIBLE] found sound. */
+    fun feed(packet: MediaPacket, sample: Int, codec: MediaCodec?, host: Any) {
+        val owner = owner()
+        val nativePacket = if (packet is NativePacket) packet.nativeHandle()
+            else NativeMedia.packetWrap(packet.toByteArray(), packet.size)
+        if (nativePacket == 0L) return
+        try { NativeMedia.pcmFeed(owner, nativePacket, packet.size, sample, codec, host) }
+        finally { if (packet !is NativePacket) NativeMedia.packetRelease(nativePacket) }
+    }
+
+    fun drain(codec: MediaCodec, info: MediaCodec.BufferInfo, host: Any) =
+        NativeMedia.pcmDrain(owner(), codec, info, host)
+
+    /** PCM is borrowed until the current callback returns; hardware writes must finish synchronously. */
     fun process(buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Boolean =
-        NativeMedia.pcmProcess(handle, buffer, length, flags, attenuationDb, peak) == 1
+        NativeMedia.pcmProcess(owner(), buffer, length, flags, attenuationDb, peak) == 1
+
+    private fun owner(): Long = handle.also { check(it != 0L) { "Native PCM processor is closed" } }
 
     override fun close() {
         if (handle != 0L) NativeMedia.pcmDestroy(handle)
         handle = 0L
-    }
-
-    /** Heap-backed SDK input is copied into a pooled packet at this boundary. */
-    private inline fun withHandle(packet: MediaPacket, block: (Long) -> Int): Int {
-        if (packet is NativePacket) return block(packet.nativeHandle())
-        val copy = NativeMedia.packetWrap(packet.toByteArray(), packet.size)
-        if (copy == 0L) return -1
-        return try { block(copy) } finally { NativeMedia.packetRelease(copy) }
     }
 
     companion object {
@@ -43,15 +45,12 @@ internal class NativePcm private constructor(private var handle: Long, val decod
         const val ATTENUATE = 2
         const val FADE_IN = 4
 
-        /** Core DSP is mandatory; an unavailable Opus decoder still uses the SDK MediaCodec. */
-        fun create(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): NativePcm {
+        fun create(sampleRate: Int, channels: Int, voiceFilter: Boolean, codec: AudioCodecKind): NativePcm {
             NativeMedia.requireAvailable()
-            if (opus) NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, true).let {
-                if (it != 0L) return NativePcm(it, true)
-            }
-            val handle = NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, false)
+            val kind = when (codec) { AudioCodecKind.LPCM -> 0; AudioCodecKind.AAC_LC -> 1; AudioCodecKind.OPUS -> 2 }
+            val handle = NativeMedia.pcmCreate(sampleRate, channels, voiceFilter, kind)
             check(handle != 0L) { "Native PCM processor could not be created" }
-            return NativePcm(handle, false)
+            return NativePcm(handle)
         }
     }
 }

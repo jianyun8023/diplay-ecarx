@@ -25,6 +25,11 @@ class BootReceiverNavigationRestoreTest {
     private val bridge = Class.forName("com.shihab.diplay.hud.EcarxHudBridge")
     private val store get() = app.getSharedPreferences("diplay_factory_navigation_control", Context.MODE_PRIVATE)
 
+    private fun setPublication(name: String, value: Boolean) {
+        val owner = bridge.getDeclaredField("publication").apply { isAccessible = true }.get(null)
+        owner.javaClass.getMethod("set${name.replaceFirstChar { it.uppercaseChar() }}", Boolean::class.javaPrimitiveType).invoke(owner, value)
+    }
+
     @Before fun setup() {
         AirPlayPersistence.saveAutoStartOnBoot(app, false)
         shadowOf(app.packageManager).installPackage(PackageInfo().apply {
@@ -36,7 +41,7 @@ class BootReceiverNavigationRestoreTest {
         store.edit().putBoolean("owned", true)
             .putInt("original", PackageManager.COMPONENT_ENABLED_STATE_DEFAULT).commit()
         for (name in listOf("guidanceActive", "hudActive")) {
-            bridge.getDeclaredField(name).apply { isAccessible = true }.setBoolean(null, false)
+            setPublication(name, false)
         }
     }
 
@@ -67,12 +72,11 @@ class BootReceiverNavigationRestoreTest {
 
     @Test fun lateBootDoesNotRestoreOverGuidanceOrHudStartedAtUnlock() {
         for (name in listOf("guidanceActive", "hudActive")) {
-            val field = bridge.getDeclaredField(name).apply { isAccessible = true }
-            field.setBoolean(null, true)
+            setPublication(name, true)
             BootReceiver().onReceive(app, Intent(Intent.ACTION_BOOT_COMPLETED))
             assertEquals(name, PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,
                 app.packageManager.getApplicationEnabledSetting(navigation))
-            field.setBoolean(null, false)
+            setPublication(name, false)
         }
     }
 

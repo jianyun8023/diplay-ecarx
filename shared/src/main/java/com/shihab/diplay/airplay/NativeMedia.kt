@@ -137,13 +137,12 @@ internal object NativeMedia {
     /** A pooled copy of the first [length] bytes of [bytes]; 0 on bad arguments. */
     @JvmStatic external fun packetWrap(bytes: ByteArray, length: Int): Long
 
-    /** An audio renderer's PCM state (see `NativePcm`); 0 on bad arguments. */
-    @JvmStatic external fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): Long
+    /** An output worker's native dispatch and PCM storage; 0 on bad configuration. */
+    @JvmStatic external fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, codec: Int): Long
     @JvmStatic external fun pcmDestroy(handle: Long)
-    /** PCM bytes written from the start of the direct [out], or negative when the packet does not decode. */
-    @JvmStatic external fun pcmDecodeOpus(handle: Long, packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
-    /** Big-endian LPCM bytes copied into the start of the direct [out] as little-endian, or -1. */
-    @JvmStatic external fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int
+    @JvmStatic external fun pcmConfiguration(handle: Long): Array<Any>?
+    @JvmStatic external fun pcmFeed(handle: Long, packet: Long, size: Int, sample: Int, codec: Any?, host: Any)
+    @JvmStatic external fun pcmDrain(handle: Long, codec: Any, info: Any, host: Any)
     /** A screen stream's native decode loop (see `NativeVideoPipe`); 0 when this system cannot run one. */
     @JvmStatic external fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long
     /** A separately owned reference for a receiver route; survives destruction of the Kotlin pipe handle. */

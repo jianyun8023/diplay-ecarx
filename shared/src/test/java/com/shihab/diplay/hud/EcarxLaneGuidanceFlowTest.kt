@@ -70,6 +70,8 @@ class EcarxLaneGuidanceFlowTest {
 
     private fun field(name: String) = EcarxHudBridge.javaClass.getDeclaredField(name).apply { isAccessible = true }
     private fun set(name: String, value: Any?) = field(name).set(EcarxHudBridge, value)
+    private val publication get() = field("publication").get(EcarxHudBridge) as HudPublicationState
+    private val laneKeys get() = publication.cachedLaneIndices.toSet()
     private fun tick() = EcarxHudBridge.javaClass.getDeclaredMethod("tick").apply { isAccessible = true }
         .invoke(EcarxHudBridge)
     private fun send(id: Int, body: Iap2BodyBuilder.() -> Unit) =
@@ -89,10 +91,11 @@ class EcarxLaneGuidanceFlowTest {
         awaitOutputWorker()
         EcarxHudBridge.clear()
         DimInteraction.reset()
+        publication.reset()
+        publication.clusterVisibleWanted = false
         for (name in listOf("context", "dim", "navi", "protocol", "dimCallback", "naviCallback",
-            "lastPushed", "lastArrowChannel", "lastNavigationRefreshOutcome", "presentedPackage", "lanes", "lastLanePushed")) set(name, null)
-        for (name in listOf("ecarxDetected", "presentationWanted", "releaseStalePresentation", "clusterVisibleWanted", "guidanceActive", "hudActive", "hudOutputTouched")) set(name, false)
-        for (name in listOf("presentationOption", "presentationCountdown", "presentationAttempts", "ticksSinceRefresh")) set(name, 0)
+            "lastArrowChannel", "lastNavigationRefreshOutcome", "presentedPackage")) set(name, null)
+        set("ecarxDetected", false)
         // Only the scheduler is suppressed: tests explicitly run the production tick below.
         set("tickerStarted", true)
         route = field("route").get(EcarxHudBridge) as RouteGuidanceState
@@ -225,14 +228,14 @@ class EcarxLaneGuidanceFlowTest {
     @Test fun disablingHudDuringATurnGapStillWithdrawsItsOutputAndCanResume() {
         initialize(); maneuver(); guidance()
         send(0x5201) { u16List(0x0d, listOf(8)); u16(0x10, 2); u8(0x12, 1) }
-        assertNull(field("lastPushed").get(EcarxHudBridge))
-        assertTrue(field("hudActive").getBoolean(EcarxHudBridge))
+        assertNull(publication.lastPushed)
+        assertTrue(publication.hudActive)
         val panels = panelRequests.toList()
         EcarxOutputSettings.setEnabled(context, false)
         EcarxHudBridge.settingsChanged()
         assertTrue(EcarxHudBridge.isActive())
         assertFalse(DimInteraction.navi.ongoingNavigationActive)
-        assertFalse(field("hudActive").getBoolean(EcarxHudBridge))
+        assertFalse(publication.hudActive)
         send(0x5204) {
             u16(0, 42); u16(1, 2); group(2) { u16(0, 0); u8(1, 2); i16(2, -90) }
         }
@@ -367,7 +370,7 @@ class EcarxLaneGuidanceFlowTest {
         EcarxOutputSettings.setEnabled(context, false)
         EcarxHudBridge.settingsChanged()
         assertTrue(EcarxHudBridge.isActive())
-        assertFalse(field("hudActive").getBoolean(EcarxHudBridge))
+        assertFalse(publication.hudActive)
         assertNull(calls("updateLaneInfo").last().payload["lanes"])
         val count = calls("updateNavigationInfo").size
         guidance(distance = 120)
@@ -434,7 +437,7 @@ class EcarxLaneGuidanceFlowTest {
             // Exit application kills the process; a fresh bridge must read the saved initial choice.
             set("context", null)
             NavigationOutputs.onAppOpened(context)
-            assertEquals(0, field("presentationOption").getInt(EcarxHudBridge))
+            assertEquals(0, publication.presentationOption)
             maneuver(); guidance()
             assertEquals(initial, panelRequests.last())
             EcarxHudBridge.clear()
@@ -526,14 +529,13 @@ class EcarxLaneGuidanceFlowTest {
 
     @Test fun lanePrefetchIsBoundedBeforeGuidanceWithoutAssumingIndexOrder() {
         initialize()
-        val cache = field("lanesByIndex").get(EcarxHudBridge) as Map<*, *>
         for (index in listOf(100) + (0..31)) {
             send(0x5204) {
                 u16(0, 42); u16(1, index); group(2) { u16(0, 0); u8(1, 2); i16(2, 90) }
             }
-            assertTrue(cache.size <= 32)
+            assertTrue(laneKeys.size <= 32)
         }
-        assertEquals((0..31).toSet(), cache.keys)
+        assertEquals((0..31).toSet(), laneKeys)
         assertTrue(calls("updateLaneInfo").isEmpty())
         maneuver(); guidance()
         send(0x5201) { u16(0x10, 0) }
@@ -548,27 +550,25 @@ class EcarxLaneGuidanceFlowTest {
         }
         val current = calls("updateLaneInfo").last().payload["lanes"]
         send(0x5201) { u8(0x12, 0) }
-        val cache = field("lanesByIndex").get(EcarxHudBridge) as Map<*, *>
         for (index in 1..64) {
             send(0x5204) {
                 u16(0, 42); u16(1, index); group(2) { u16(0, 0); u8(1, 2); i16(2, 12) }
             }
-            assertTrue(cache.size <= 32)
-            assertTrue(cache.containsKey(0))
+            assertTrue(laneKeys.size <= 32)
+            assertTrue(laneKeys.contains(0))
         }
-        assertEquals(setOf(0) + (34..64), cache.keys)
+        assertEquals(setOf(0) + (34..64), laneKeys)
         send(0x5201) { u8(0x12, 1) }
         assertEquals(current, calls("updateLaneInfo").last().payload["lanes"])
         // Replacing an existing event must not evict another slot.
         send(0x5204) {
             u16(0, 42); u16(1, 64); group(2) { u16(0, 0); u8(1, 2); i16(2, 90) }
         }
-        assertEquals(setOf(0) + (34..64), cache.keys)
+        assertEquals(setOf(0) + (34..64), laneKeys)
     }
 
     @Test fun onlyLaneCursorChangesRetireOldEventsAndReplanningCanPrefetchLowerIndices() {
         initialize(); maneuver(); guidance()
-        val cache = field("lanesByIndex").get(EcarxHudBridge) as Map<*, *>
         for (index in 0..3) {
             send(0x5204) {
                 u16(0, 42); u16(1, index); group(2) { u16(0, 0); u8(1, 2); i16(2, -90) }
@@ -577,10 +577,10 @@ class EcarxLaneGuidanceFlowTest {
         send(0x5201) { u16(0x10, 0) }
         maneuver(index = 8)
         send(0x5201) { u16List(0x0d, listOf(8)); u32(0x0a, 100) }
-        assertEquals((0..3).toSet(), cache.keys)
+        assertEquals((0..3).toSet(), laneKeys)
         for (cursor in 1..3) {
             send(0x5201) { u16(0x10, cursor) }
-            assertEquals((cursor..3).toSet(), cache.keys)
+            assertEquals((cursor..3).toSet(), laneKeys)
             assertNotNull(calls("updateLaneInfo").last().payload["lanes"])
         }
         // New-route prefetch may arrive while the old cursor is still selected.
@@ -589,12 +589,12 @@ class EcarxLaneGuidanceFlowTest {
         }
         send(0x5201) { u32(0x0a, 50) }
         send(0x5201) { u16(0x10, 3) }
-        assertEquals(setOf(0, 3), cache.keys)
+        assertEquals(setOf(0, 3), laneKeys)
         send(0x5201) { u16(0x10, 0) }
         assertEquals(listOf(mapOf("number" to 1, "iconId" to 18, "bitmap" to null)),
             calls("updateLaneInfo").last().payload["lanes"])
         send(0x5201) { u8(1, 2) }
-        assertTrue(cache.isEmpty())
+        assertTrue(laneKeys.isEmpty())
         maneuver(); guidance()
         send(0x5201) { u16(0x10, 0) }
         assertNull(calls("updateLaneInfo").last().payload["lanes"])
@@ -604,7 +604,7 @@ class EcarxLaneGuidanceFlowTest {
         assertEquals(listOf(mapOf("number" to 1, "iconId" to 15, "bitmap" to null)),
             calls("updateLaneInfo").last().payload["lanes"])
         EcarxHudBridge.clear()
-        assertTrue(cache.isEmpty())
+        assertTrue(laneKeys.isEmpty())
     }
 
     @Test fun pendingLanesAreWithdrawnOnDisconnectAndExplicitClear() {
@@ -649,7 +649,7 @@ class EcarxLaneGuidanceFlowTest {
             val prefs = context.getSharedPreferences("diplay_ecarx_outputs_v2", Context.MODE_PRIVATE)
             prefs.edit().clear().putBoolean("dim_presentation_switch", saved).commit()
             NavigationOutputs.onAppOpened(context)
-            assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+            assertTrue(publication.clusterVisibleWanted)
             assertFalse(prefs.contains("dim_presentation_switch"))
             repeat(12) { tick() }
             assertTrue(calls("setPresentationToDimSwitch").none { it.payload["show"] == true })
@@ -673,13 +673,13 @@ class EcarxLaneGuidanceFlowTest {
         assertFalse(NavigationOutputs.requestPresentation(context, true, "stale surface"))
         repeat(25) { tick() }
         assertEquals(before, calls("setPresentationToDimSwitch").size)
-        assertFalse(field("presentationWanted").getBoolean(EcarxHudBridge))
+        assertFalse(publication.presentationWanted)
         fly(2); fly(2)
         assertEquals(listOf(ClusterMapIntent.SHOWN, ClusterMapIntent.SHOWN), intents.takeLast(2))
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
         fly(1)
         assertEquals(ClusterMapIntent.SHOWN, intents.last())
-        assertEquals(1, field("presentationOption").getInt(EcarxHudBridge))
+        assertEquals(1, publication.presentationOption)
         send(0x5201) { u8(1, 0) }
         assertEquals(ClusterMapIntent.NO_ROUTE, intents.last())
     }
@@ -812,21 +812,21 @@ class EcarxLaneGuidanceFlowTest {
         initialize(); maneuver(); guidance()
         DimInteraction.instance().callback.onShowPresentationOptionChanged(3)
         shadowOf(Looper.getMainLooper()).idle()
-        assertFalse(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertFalse(publication.clusterVisibleWanted)
         EcarxHudBridge.clear()
         initialize(); maneuver(); guidance()
         assertFalse(panelRequests.last())
         EcarxHudBridge.clear()
         for (name in listOf("context", "dim", "navi", "dimCallback", "naviCallback")) set(name, null)
-        set("presentationOption", 0)
-        set("clusterVisibleWanted", false)
-        set("presentationWanted", false)
+        publication.presentationOption = 0
+        publication.clusterVisibleWanted = false
+        publication.presentationWanted = false
         FixtureLog.reset()
         panelRequests.clear()
         initialize(); maneuver(); guidance()
         assertTrue(EcarxHudBridge.isActive())
         assertTrue(panelRequests.last())
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
         assertTrue(calls("setPresentationToDimSwitch").isEmpty())
     }
 
@@ -835,7 +835,7 @@ class EcarxLaneGuidanceFlowTest {
         NavigationOutputs.requestPresentation(context, true, "cluster surface ready")
         send(0x5201) { u8(1, 0) }
         NavigationOutputs.requestPresentation(context, false, "cluster surface detached")
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
         assertFalse(panelRequests.last())
         maneuver(); guidance()
         assertTrue(panelRequests.last())
@@ -875,7 +875,7 @@ class EcarxLaneGuidanceFlowTest {
         assertNull(route.current())
         assertEquals(stopped + 1, calls("notifyTurnByTurnStopped").size)
         assertFalse(panelRequests.last())
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
     }
 
     @Test fun startupWithoutResidueDoesNotTouchProjection() {
@@ -905,10 +905,10 @@ class EcarxLaneGuidanceFlowTest {
         EcarxOutputSettings.setPresentationReleasePending(context, true)
         DimInteraction.nullCreate = true
         NavigationOutputs.onAppOpened(context)
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
         assertTrue(EcarxOutputSettings.presentationReleasePending(context))
         set("context", null)
-        set("releaseStalePresentation", false)
+        publication.releaseStalePresentation = false
         context.getSharedPreferences("diplay_ecarx_outputs_v2", Context.MODE_PRIVATE).edit()
             .putBoolean("dim_navigation_enabled", false).commit()
         NavigationOutputs.onAppOpened(context)
@@ -966,7 +966,7 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(calls("setPresentationToDimSwitch").all { it.payload["show"] == true })
         NavigationOutputs.requestPresentation(context, false, "cluster surface detached")
         assertTrue(EcarxOutputSettings.presentationReleasePending(context))
-        assertTrue("Window cleanup must not erase the user choice", field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue("Window cleanup must not erase the user choice", publication.clusterVisibleWanted)
         send(0x5201) { u8(1, 0) }
         assertFalse(EcarxOutputSettings.presentationReleasePending(context))
     }
@@ -984,8 +984,8 @@ class EcarxLaneGuidanceFlowTest {
 
     @Test fun manualDisplayIntentWaitsForTheWindowAndStopsRetriesWhenHidden() {
         initialize(); maneuver(); guidance()
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
+        assertTrue(publication.clusterVisibleWanted)
         assertTrue(calls("setPresentationToDimSwitch").isEmpty())
         NavigationOutputs.requestPresentation(context, true, "cluster surface ready")
         val enabled = calls("setPresentationToDimSwitch").single().payload
@@ -997,7 +997,7 @@ class EcarxLaneGuidanceFlowTest {
         assertTrue(calls("setPresentationToDimSwitch").size > 1)
         DimInteraction.instance().callback.onShowPresentationOptionChanged(3)
         shadowOf(Looper.getMainLooper()).idle()
-        assertFalse(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertFalse(publication.clusterVisibleWanted)
         NavigationOutputs.requestPresentation(context, false, "cluster surface detached")
         val stopped = calls("setPresentationToDimSwitch").size
         repeat(12) { tick() }
@@ -1008,8 +1008,8 @@ class EcarxLaneGuidanceFlowTest {
         DimInteraction.nullCreate = true
         assertTrue(EcarxCapabilities.detect(context).identified)
         initialize()
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
+        assertTrue(publication.clusterVisibleWanted)
         assertTrue(calls("setPresentationToDimSwitch").isEmpty())
         DimInteraction.nullCreate = false
         tick()
@@ -1025,7 +1025,7 @@ class EcarxLaneGuidanceFlowTest {
         DimInteraction.nullCreate = true
         assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster surface ready"))
         assertTrue(NavigationOutputs.requestPresentation(context, false, "cluster surface detached"))
-        assertTrue(field("clusterVisibleWanted").getBoolean(EcarxHudBridge))
+        assertTrue(publication.clusterVisibleWanted)
         DimInteraction.nullCreate = false
         repeat(12) { tick() }
         assertTrue(calls("setPresentationToDimSwitch").isEmpty())
@@ -1630,7 +1630,7 @@ class EcarxLaneGuidanceFlowTest {
         NavigationOutputs.onSessionActive(replacePrevious = true) { sessionB }
         awaitOutputWorker()
         assertFalse(EcarxHudBridge.isActive())
-        assertNull(field("lastPushed").get(EcarxHudBridge))
+        assertNull(publication.lastPushed)
         assertEquals("", route.destinationName)
         assertEquals(1, calls("notifyTurnByTurnStopped").size)
         assertFalse(panelRequests.last())

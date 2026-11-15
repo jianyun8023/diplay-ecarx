@@ -43,6 +43,11 @@ class EcarxClusterFirstFrameTest {
     private val events = mutableListOf<String>()
     private val display = CarPlaySessionDisplay(1920, 1080, Surface.ROTATION_0, true, true, 1920, 1080)
 
+    private fun setGuidanceActive(active: Boolean) {
+        val owner = ReflectionHelpers.getStaticField<Any>(Class.forName("com.shihab.diplay.hud.EcarxHudBridge"), "publication")
+        owner.javaClass.getMethod("setGuidanceActive", Boolean::class.javaPrimitiveType).invoke(owner, active)
+    }
+
     @Before fun setup() {
         CarPlayBackgroundSession.clear()
         NavigationOutputs.attachReport(events::add)
@@ -62,7 +67,7 @@ class EcarxClusterFirstFrameTest {
         CarPlayBackgroundSession.bindClusterOutput(app, controller)
         output = ReflectionHelpers.getField(CarPlayBackgroundSession, "clusterOutput")
         NavigationOutputs.onAppOpened(app)
-        ReflectionHelpers.setStaticField(Class.forName("com.shihab.diplay.hud.EcarxHudBridge"), "guidanceActive", true)
+        setGuidanceActive(true)
         idle()
     }
 
@@ -71,7 +76,7 @@ class EcarxClusterFirstFrameTest {
         idle()
         panels.close()
         NavigationOutputs.attachReport {}
-        ReflectionHelpers.setStaticField(Class.forName("com.shihab.diplay.hud.EcarxHudBridge"), "guidanceActive", false)
+        setGuidanceActive(false)
         com.shihab.diplay.hud.EcarxOutputSettings.setMirrorMainScreen(app, false)
     }
 

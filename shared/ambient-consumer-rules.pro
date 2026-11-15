@@ -36,6 +36,12 @@
 }
 
 # The route JNI boundary owns a handle and constructs the existing maneuver DTO.
+-keep class com.shihab.diplay.hud.NativeHudPublication {
+    native <methods>;
+}
+-keep class com.shihab.diplay.hud.NativeEcarxMqtt {
+    native <methods>;
+}
 -keep class com.shihab.diplay.hud.NativeRouteGuidance {
     native <methods>;
 }
@@ -198,6 +204,11 @@
 }
 -keepclassmembers class com.shihab.diplay.media.AudioRenderer {
     private boolean aacInputRunning();
+    private void pcmInputResult(int, int, int);
+    private boolean decoderOutputRunning();
+    private void decoderOutputFormat(android.media.MediaCodec);
+    private void decoderOutputSize(int);
+    private void writePcm(java.nio.ByteBuffer, int);
     private void decoderInputResult(int, int);
     private void drainCodec(android.media.MediaCodec);
 }
@@ -212,3 +223,10 @@
 -keep class com.shihab.diplay.network.NativeHotspotRecovery { native <methods>; }
 
 -keep class com.shihab.diplay.iap2.message.NativeLaneGuidance { native <methods>; }
+
+-keepclassmembers class com.shihab.diplay.hud.EcarxProjectionChannel {
+    private boolean mqttConnect();
+    private java.lang.String mqttConnectReason();
+    private java.lang.String mqttPublish(java.lang.String, java.lang.String);
+    private void mqttDrop();
+}

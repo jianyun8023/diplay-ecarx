@@ -23,7 +23,7 @@ fn frequency_index(rate: i32) -> u8 {
         _ => 3,
     }
 }
-fn header(access_unit_bytes: i32, rate: i32, channels: i32) -> [u8; 7] {
+pub(super) fn header(access_unit_bytes: i32, rate: i32, channels: i32) -> [u8; 7] {
     let frequency = frequency_index(rate) as u32;
     let channels = channels.clamp(1, 7) as u32;
     // The public Kotlin API accepted every Int, including wrapping lengths and values outside
@@ -39,7 +39,7 @@ fn header(access_unit_bytes: i32, rate: i32, channels: i32) -> [u8; 7] {
         0xfc,
     ]
 }
-fn audio_specific_config(rate: i32, channels: i32) -> [u8; 2] {
+pub(super) fn audio_specific_config(rate: i32, channels: i32) -> [u8; 2] {
     let value =
         (2u16 << 11) | ((frequency_index(rate) as u16) << 7) | ((channels.clamp(1, 7) as u16) << 3);
     value.to_be_bytes()

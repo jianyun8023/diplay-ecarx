@@ -4,6 +4,9 @@ import javax.crypto.AEADBadTagException
 
 /** Native cryptographic primitives; Android retains byte encoding and identity/storage adapters. */
 object AirPlayCrypto {
+    /** Load the core without creating a controller, sockets, audio outputs or vehicle observers. */
+    fun prepare() = NativeMedia.requireAvailable()
+
     val chachaImplementation: String get() = "ring"
     data class X25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)
     data class Ed25519KeyPair(val privateKey: ByteArray, val publicKey: ByteArray)

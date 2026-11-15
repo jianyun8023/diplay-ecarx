@@ -61,12 +61,8 @@ internal class AudioRenderer(
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
     private val voiceFilterEnabled = voiceFilter && format.sampleRate > 0
-    /**
-     * The worker's native PCM path ([NativePcm]), null without the library. With it, decoded PCM stays in
-     * [pcmBuffer] (direct) from the decoder to the track, and Opus is decoded by libopus, not MediaCodec.
-     */
+    /** Created and closed by the output worker; PCM storage belongs to Rust. */
     private var nativePcm: NativePcm? = null
-    private var pcmBuffer: ByteBuffer = ByteBuffer.allocateDirect(0)
 
     private var trackAttributes: AudioAttributes? = null
     private var mappedChannel: AudioChannel? = null
@@ -225,14 +221,12 @@ internal class AudioRenderer(
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
                 "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} " +
                 "mediaChannel=$mediaChannel navigationChannel=$navigationChannel navigationOemContent=$navigationOemContent focus=$audioFocusEnabled") }
-            nativePcm = NativePcm.create(format.sampleRate, pcmChannels, voiceFilterEnabled, format.codec == AudioCodecKind.OPUS)
-            pcmBuffer = ByteBuffer.allocateDirect(PCM_BUFFER_BYTES)
-            when (format.codec) {
-                AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
-                AudioCodecKind.OPUS -> if (nativePcm?.decodesOpus == true) {
-                    runCatching { report("Audio: decoder ready audioType=${format.audioType} codec=${format.codec} name=libopus") }
-                } else configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
-                AudioCodecKind.LPCM -> Unit
+            val native = NativePcm.create(format.sampleRate, format.channels, voiceFilterEnabled, format.codec)
+            nativePcm = native
+            val configuration = native.configuration()
+            if (configuration != null) configureCodec(configuration)
+            else if (format.codec == AudioCodecKind.OPUS) {
+                runCatching { report("Audio: decoder ready audioType=${format.audioType} codec=${format.codec} name=libopus") }
             }
             createTrack()
             diagnosticStage = "focus"
@@ -300,27 +294,22 @@ internal class AudioRenderer(
         runCatching { onNavigationRouteChanged(wanted) }
     }
 
-    private fun configureCodec(mime: String) {
+    private fun configureCodec(configuration: NativePcm.Configuration) {
+        val mime = configuration.mime
         diagnosticStage = "decoder-format"
         val mediaFormat = MediaFormat().apply {
             setString(MediaFormat.KEY_MIME, mime)
             setInteger(MediaFormat.KEY_SAMPLE_RATE, format.sampleRate)
             setInteger(MediaFormat.KEY_CHANNEL_COUNT, format.channels)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 64 * 1024)
-            if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
-                setInteger(MediaFormat.KEY_IS_ADTS, 1)
-                setByteBuffer("csd-0", ByteBuffer.wrap(aacAudioSpecificConfig()))
-            } else {
-                setByteBuffer("csd-0", ByteBuffer.wrap(opusHead()))
-                setByteBuffer("csd-1", ByteBuffer.wrap(opusCodecDelay()))
-                setByteBuffer("csd-2", ByteBuffer.wrap(opusSeekPreRoll()))
-            }
+            if (configuration.adts) setInteger(MediaFormat.KEY_IS_ADTS, 1)
+            configuration.csd.forEachIndexed { index, bytes -> setByteBuffer("csd-$index", ByteBuffer.wrap(bytes)) }
         }
         if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
             Log.i(
                 TAG,
                 "audio AAC config rate=${format.sampleRate} channels=${format.channels} " +
-                    "csd0=${aacAudioSpecificConfig().toHexString()}",
+                    "csd0=${configuration.csd[0].toHexString()}",
             )
         }
         codec = try {
@@ -571,9 +560,6 @@ internal class AudioRenderer(
         ).streamType
     }
 
-    private fun aacAudioSpecificConfig(): ByteArray =
-        NativeAac.audioSpecificConfig(format.sampleRate, format.channels)
-
     private fun usageFor(channel: AudioChannel): Int = when (channel) {
         AudioChannel.MEDIA -> AudioAttributes.USAGE_MEDIA
         AudioChannel.PHONE -> AudioAttributes.USAGE_VOICE_COMMUNICATION
@@ -587,33 +573,6 @@ internal class AudioRenderer(
         AudioContentType.SPEECH -> AudioAttributes.CONTENT_TYPE_SPEECH
     }
 
-    /** Minimal OpusHead CSD for the mono 48 kHz stream CarPlay negotiates. */
-    private fun opusHead(): ByteArray {
-        val head = ByteArray(19)
-        "OpusHead".toByteArray(Charsets.US_ASCII).copyInto(head, 0)
-        head[8] = 1
-        head[9] = format.channels.toByte()
-        head[10] = 0x38
-        head[11] = 0x01
-        head[12] = format.sampleRate.toByte()
-        head[13] = (format.sampleRate ushr 8).toByte()
-        head[14] = (format.sampleRate ushr 16).toByte()
-        head[15] = (format.sampleRate ushr 24).toByte()
-        return head
-    }
-
-    private fun opusCodecDelay(): ByteArray =
-        java.nio.ByteBuffer.allocate(8)
-            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            .putLong(OPUS_CODEC_DELAY_NANOS)
-            .array()
-
-    private fun opusSeekPreRoll(): ByteArray =
-        java.nio.ByteBuffer.allocate(8)
-            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
-            .putLong(OPUS_SEEK_PRE_ROLL_NANOS)
-            .array()
-
     private fun handle(packet: AudioPacket) {
         try {
             handleRtp(packet)
@@ -623,111 +582,43 @@ internal class AudioRenderer(
     }
 
     private fun handleRtp(packet: AudioPacket) {
-        val rtp = packet.rtp
-        packetKind = rtp.javaClass.simpleName
-        val payloadBytes = (rtp.size - RTP_HEADER_BYTES).coerceAtLeast(0)
-        val timestampUs = sampleTimestampUs(packet.sample)
-        val native = checkNotNull(nativePcm)
-        when (format.codec) {
-            AudioCodecKind.LPCM -> {
-                ensurePcmCapacity(payloadBytes)
-                val length = native.copySwapped(rtp, RTP_HEADER_BYTES, payloadBytes, pcmBuffer)
-                if (length > 0) writePcm(pcmBuffer, length)
+        packetKind = packet.rtp.javaClass.simpleName
+        checkNotNull(nativePcm).feed(packet.rtp, packet.sample, codec, this)
+    }
+
+    /** Diagnostics only: codec dispatch and input results are owned by Rust. */
+    private fun pcmInputResult(event: Int, payloadBytes: Int, length: Int) {
+        when (event) {
+            0 -> if (!firstAacPayloadLogged) {
+                firstAacPayloadLogged = true
+                Log.i(TAG, "audio AAC access unit bytes=$payloadBytes")
             }
-            AudioCodecKind.AAC_LC -> {
-                if (payloadBytes > 0) {
-                    if (!firstAacPayloadLogged) {
-                        firstAacPayloadLogged = true
-                        Log.i(
-                            TAG,
-                            "audio AAC access unit bytes=$payloadBytes",
-                        )
-                    }
-                    val decoder = codec
-                    if (decoder == null) decoderUnavailablePackets++ else {
-                        diagnosticStage = "decoder-input"
-                        NativeAac.feedDecoder(rtp, RTP_HEADER_BYTES, payloadBytes, format.sampleRate, format.channels,
-                            timestampUs, decoder, this)
-                    }
+            1 -> decoderUnavailablePackets++
+            2 -> diagnosticStage = "decoder-input"
+            3 -> {
+                shortOpusPackets++
+                if (!firstOpusShortPacketLogged) {
+                    firstOpusShortPacketLogged = true
+                    Log.i(TAG, "audio Opus skipping short packet bytes=$payloadBytes")
                 }
             }
-            AudioCodecKind.OPUS -> {
-                if (payloadBytes < MIN_OPUS_PACKET_BYTES) {
-                    shortOpusPackets++
-                    if (!firstOpusShortPacketLogged) {
-                        firstOpusShortPacketLogged = true
-                        Log.i(
-                            TAG,
-                            "audio Opus skipping short packet bytes=$payloadBytes",
-                        )
-                    }
+            4 -> {
+                if (length < 0) {
+                    inputDropped++
+                    if (inputDropped == 1) Log.w(TAG, "audio Opus packet did not decode bytes=$payloadBytes error=$length")
                     return
                 }
-                if (native?.decodesOpus == true) decodeOpus(native, rtp, payloadBytes)
-                else feedCodec(payloadBytes, timestampUs) { input -> rtp.copyInto(input, RTP_HEADER_BYTES, payloadBytes) }
+                inputQueued++
+                if (!firstInputQueuedLogged) {
+                    firstInputQueuedLogged = true
+                    Log.i(TAG, "audio decoder first input codec=${format.codec} bytes=$payloadBytes packet=$packetKind decoder=libopus")
+                }
+                if (length > 0) {
+                    outputBuffers++
+                    if (outputBuffers == 1) Log.i(TAG, "audio decoder output codec=${format.codec} buffers=1 bytes=$length decoder=libopus")
+                }
             }
         }
-    }
-
-    /** libopus in place of MediaCodec: no input queue to wait on, the PCM goes straight to the track. */
-    private fun decodeOpus(native: NativePcm, rtp: MediaPacket, payloadBytes: Int) {
-        diagnosticStage = "decoder-input"
-        val length = native.decodeOpus(rtp, RTP_HEADER_BYTES, payloadBytes, pcmBuffer)
-        if (length < 0) {
-            inputDropped++
-            if (inputDropped == 1) Log.w(TAG, "audio Opus packet did not decode bytes=$payloadBytes error=$length")
-            return
-        }
-        inputQueued++
-        if (!firstInputQueuedLogged) {
-            firstInputQueuedLogged = true
-            Log.i(TAG, "audio decoder first input codec=${format.codec} bytes=$payloadBytes packet=$packetKind decoder=libopus")
-        }
-        if (length > 0) {
-            outputBuffers++
-            if (outputBuffers == 1) Log.i(TAG, "audio decoder output codec=${format.codec} buffers=1 bytes=$length decoder=libopus")
-            writePcm(pcmBuffer, length)
-        }
-    }
-
-    private fun ensurePcmCapacity(bytes: Int) {
-        if (pcmBuffer.capacity() < bytes) pcmBuffer = ByteBuffer.allocateDirect(bytes)
-    }
-
-    private fun sampleTimestampUs(sample: Int): Long =
-        (sample.toLong() and 0xffff_ffffL) * 1_000_000L / format.sampleRate
-
-    /** Queues [length] bytes that [write] puts into the codec's input buffer at its position. */
-    private fun feedCodec(length: Int, presentationTimeUs: Long, write: (ByteBuffer) -> Unit) {
-        val codec = codec ?: run { decoderUnavailablePackets++; return }
-        diagnosticStage = "decoder-input"
-        // While a blocking track write holds this thread, decoded output fills up and the decoder
-        // stops taking input. Dropping the packet after one 10 ms wait cut ~21 ms of music every
-        // 10-20 s on one head unit (#381); drain the output and wait again instead. One drain and
-        // retry is enough for that, and the pump always makes it. Waiting the video's 500 ms
-        // for every packet let a slowed decoder fall ever further behind instead: with the
-        // CarPlay screen in the background, the queue grew to 190 packets and the track
-        // underran every few seconds (#649).
-        val index = DecoderInputPump.acquire(
-            running = { running }, drain = { drainCodec(codec) },
-            dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
-            timeoutNs = AUDIO_INPUT_WAIT_NS,
-        )
-        if (index < 0) {
-            decoderInputResult(1, length)
-            return
-        }
-        val input = codec.getInputBuffer(index) ?: return
-        input.clear()
-        if (length <= input.remaining()) {
-            write(input)
-            codec.queueInputBuffer(index, 0, length, presentationTimeUs, 0)
-            decoderInputResult(2, length)
-        } else {
-            codec.queueInputBuffer(index, 0, 0, 0, 0)
-            decoderInputResult(3, length)
-        }
-        drainCodec(codec)
     }
 
     private fun aacInputRunning(): Boolean = running
@@ -753,65 +644,32 @@ internal class AudioRenderer(
 
     private fun drainCodec(codec: MediaCodec) {
         diagnosticStage = "decoder-output"
-        val info = MediaCodec.BufferInfo()
-        while (running) {
-            diagnosticStage = "decoder-output"
-            val index = codec.dequeueOutputBuffer(info, 0)
-            when {
-                index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
-                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    // Vendor metadata inspection must not interrupt otherwise working playback.
-                    if (decoderOutputReports < 4) runCatching {
-                        val outputFormat = codec.outputFormat
-                        val metadata = "rate=${outputFormat.intOrNull(MediaFormat.KEY_SAMPLE_RATE)} " +
-                            "channels=${outputFormat.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)} " +
-                            "pcmEncoding=${outputFormat.intOrNull(MediaFormat.KEY_PCM_ENCODING)}"
-                        if (metadata != lastDecoderOutputMetadata) {
-                            lastDecoderOutputMetadata = metadata
-                            decoderOutputReports++
-                            report("Audio: decoded format audioType=${format.audioType} codec=${format.codec} $metadata")
-                        }
-                    }
-                }
-                index >= 0 -> {
-                    val size = info.size
-                    if (size > 0) {
-                        outputBuffers++
-                        if (outputBuffers == 1) {
-                            Log.i(
-                                TAG,
-                                "audio decoder output codec=${format.codec} " +
-                                    "buffers=$outputBuffers bytes=$size " +
-                                    "queued=$inputQueued dropped=$inputDropped",
-                            )
-                        }
-                    }
-                    var copied = false
-                    try {
-                        if (size > 0) {
-                            val output = codec.getOutputBuffer(index)
-                            if (output != null) {
-                                output.position(info.offset)
-                                output.limit(info.offset + size)
-                                // Direct to direct: the PCM never reaches the Java heap.
-                                ensurePcmCapacity(size)
-                                pcmBuffer.clear()
-                                pcmBuffer.put(output)
-                                copied = true
-                            }
-                        }
-                    } finally {
-                        codec.releaseOutputBuffer(index, false)
-                    }
-                    if (copied) writePcm(pcmBuffer, size)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
-                }
-                else -> return
+        checkNotNull(nativePcm).drain(codec, MediaCodec.BufferInfo(), this)
+    }
+
+    private fun decoderOutputRunning(): Boolean = running.also { if (it) diagnosticStage = "decoder-output" }
+
+    private fun decoderOutputFormat(codec: MediaCodec) {
+        // Vendor metadata inspection must not interrupt otherwise working playback.
+        if (decoderOutputReports < 4) runCatching {
+            val outputFormat = codec.outputFormat
+            val metadata = "rate=${outputFormat.intOrNull(MediaFormat.KEY_SAMPLE_RATE)} " +
+                "channels=${outputFormat.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)} " +
+                "pcmEncoding=${outputFormat.intOrNull(MediaFormat.KEY_PCM_ENCODING)}"
+            if (metadata != lastDecoderOutputMetadata) {
+                lastDecoderOutputMetadata = metadata
+                decoderOutputReports++
+                report("Audio: decoded format audioType=${format.audioType} codec=${format.codec} $metadata")
             }
         }
     }
 
-    /** Processes the first [length] direct-buffer bytes before the hardware output write. */
+    private fun decoderOutputSize(size: Int) {
+        outputBuffers++
+        if (outputBuffers == 1) Log.i(TAG, "audio decoder output codec=${format.codec} " +
+            "buffers=$outputBuffers bytes=$size queued=$inputQueued dropped=$inputDropped")
+    }
+
     private fun writePcm(buffer: ByteBuffer, length: Int) {
         val track = output ?: return
         val native = checkNotNull(nativePcm)
@@ -1112,14 +970,6 @@ internal class AudioRenderer(
 
     private companion object {
         const val TAG = "diplay-usb"
-        const val RTP_HEADER_BYTES = 12
-        // Holds the largest decoder output seen in practice (1024 AAC frames, stereo, 16-bit is 4 KiB).
-        const val PCM_BUFFER_BYTES = 64 * 1024
-        const val MIN_OPUS_PACKET_BYTES = 4
-        const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
-        const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
-        const val INPUT_TIMEOUT_US = 10_000L
-        const val AUDIO_INPUT_WAIT_NS = 100_000_000L
         const val AUDIO_POLL_MILLIS = 10L
         /** About -54 dBFS: above dither, below any spoken prompt. */
         const val NAVIGATION_AUDIBLE_PEAK = 64

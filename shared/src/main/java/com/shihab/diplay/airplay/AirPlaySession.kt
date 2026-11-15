@@ -98,7 +98,6 @@ class AirPlaySession(
     internal val pairVerify = PairVerify(identity, pairings)
     private val controlCipherLock = Any()
     @Volatile internal var cipher: ControlCipher? = null
-    internal var encBuf = ByteArray(0)
     var deviceBtMac = ""
         private set
     private val negotiation = AirPlayNegotiation(config)
@@ -498,7 +497,7 @@ class AirPlaySession(
         com.shihab.diplay.network.TcpLiveness.configure(socket) { debugLog(it) }
         val input = BufferedInputStream(socket.getInputStream())
         val output = BufferedOutputStream(socket.getOutputStream())
-        var accumulated = ByteArray(0)
+        val controlInput = RtspInput()
         val buffer = ByteArray(READ_CHUNK_BYTES)
         var closeReason = "session closed"
         try {
@@ -508,24 +507,15 @@ class AirPlaySession(
                     closeReason = "peer EOF"
                     break
                 }
-                var plaintext = buffer.copyOf(count)
-                val activeCipher = cipher
-                if (activeCipher != null) {
-                    encBuf += plaintext
-                    val decrypted = try {
-                        activeCipher.decrypt(encBuf)
-                    } catch (error: Exception) {
-                        closeReason = "control decrypt failed: ${error.message ?: error.javaClass.simpleName}"
-                        Log.e(TAG, "airplay $closeReason encrypted=${encBuf.size}", error)
-                        break
-                    }
-                    encBuf = decrypted.rest
-                    plaintext = decrypted.data
+                val messages = try {
+                    controlInput.read(buffer, count, cipher)
+                } catch (error: Exception) {
+                    if (error is java.net.ProtocolException) throw error
+                    closeReason = "control decrypt failed: ${error.message ?: error.javaClass.simpleName}"
+                    Log.e(TAG, "airplay $closeReason encrypted=${controlInput.encryptedBytes}", error)
+                    break
                 }
-                accumulated += plaintext
-                val parsed = RtspMessage.parseMessages(accumulated)
-                accumulated = parsed.rest
-                for (request in parsed.messages) {
+                for (request in messages) {
                     val cseq = request.headers["cseq"] ?: "-"
                     val path = request.path.lowercase()
                     val showInDebugOverlay =
@@ -581,6 +571,7 @@ class AirPlaySession(
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
             if (!negotiation.isClosed) Log.e(TAG, "airplay $closeReason", error)
         } finally {
+            controlInput.close()
             debugLog("airplay control closing reason=$closeReason activeStreams=$activeStreams")
             close()
         }
@@ -1002,27 +993,22 @@ class AirPlaySession(
     }
 
     private fun runEventRead(socket: Socket, cipher: ControlCipher) {
+        val eventInput = RtspInput()
         try {
             val input = BufferedInputStream(socket.getInputStream())
             val output = BufferedOutputStream(socket.getOutputStream())
-            var encrypted = ByteArray(0)
-            var plaintext = ByteArray(0)
             val buffer = ByteArray(READ_CHUNK_BYTES)
             while (!negotiation.isClosed) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                encrypted += buffer.copyOf(count)
-                val decrypted = try {
-                    cipher.decrypt(encrypted)
+                val messages = try {
+                    eventInput.read(buffer, count, cipher)
                 } catch (error: Exception) {
-                    Log.e(TAG, "airplay event decrypt failed encrypted=${encrypted.size}", error)
+                    if (error is java.net.ProtocolException) throw error
+                    Log.e(TAG, "airplay event decrypt failed encrypted=${eventInput.encryptedBytes}", error)
                     break
                 }
-                encrypted = decrypted.rest
-                plaintext += decrypted.data
-                val parsed = RtspMessage.parseMessages(plaintext)
-                plaintext = parsed.rest
-                for (message in parsed.messages) {
+                for (message in messages) {
                     if (message.method.startsWith("RTSP/") || message.method.startsWith("HTTP/")) {
                         if (!listener.debugLogsEnabled) continue
                         val seq = message.headers["cseq"]?.toIntOrNull() ?: continue
@@ -1053,6 +1039,7 @@ class AirPlaySession(
         } catch (error: Exception) {
             if (!negotiation.isClosed) Log.e(TAG, "airplay event read failed", error)
         } finally {
+            eventInput.close()
             safeClose(socket)
             debugLog("airplay event connection closed")
             if (!negotiation.isClosed) videoPlaybackAvailability.setEventReady(false)

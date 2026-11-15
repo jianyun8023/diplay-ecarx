@@ -2,7 +2,7 @@
 
 现有 Rust 核心主体迁移已经完成。下一步围绕仍在 Kotlin 中的协议语义、媒体决策，以及不必要的 JNI 往返做局部收敛：Rust 负责核心规则和逻辑状态，Kotlin 负责平台资源、实际操作及结果。以完整职责为迁移单位，不以 Rust 代码占比或 Kotlin 文件行数衡量进度。
 
-最初按歌曲状态、普通音频 feedback、视频控制邮箱、媒体协商、音频焦点和 JNI 门面的顺序安排；音频输入准备与麦克风 PCM 原列后续可选项。用户随后明确授权 AAC 输入和连续原生采集链，当前范围以下方实施清单为准。
+最初按歌曲状态、普通音频 feedback、视频控制邮箱、媒体协商、音频焦点和 JNI 门面的顺序安排；音频输入准备与麦克风 PCM 原列后续可选项。用户随后明确授权 AAC 输入和连续原生采集链，当前范围以下方实施清单为准。2026-11-15 又授权根据工作区 dump 提出的四项候选，列为 I–L。
 
 ## 基线与范围
 
@@ -14,7 +14,7 @@
 
 ## 实施清单（2026-11-15）
 
-前两批 A–F 已在下列 PR 中实现；用户随后授权 G 的 AAC 输入与 H 连续采集链，并要求无 Kotlin 数据回退，当前工作分支已实现如下边界。“已实现”指代码范围，合并状态和 CI 结果以各 PR 为准，不代表新增实机验收。[#115](https://github.com/jianyun8023/diplay-ecarx/pull/115) 承载本方案、原 #114 验证记录及对应设备测试入库。
+前两批 A–F 已在下列 PR 中实现；G 的 AAC 输入与 H 连续采集链已由 [#122](https://github.com/jianyun8023/diplay-ecarx/pull/122) 合入 `dev`。用户随后授权 I–L，当前工作分支已实现如下边界。“已实现”指代码范围，不代表新增实车验收；各 PR 的合并与 CI 状态分别记录。[#115](https://github.com/jianyun8023/diplay-ecarx/pull/115) 承载本方案、原 #114 验证记录及对应设备测试入库。
 
 | 工作包 | 实施状态与 PR | 已落实的职责边界 |
 | --- | --- | --- |
@@ -26,10 +26,23 @@
 | F | 已实现：[#119](https://github.com/jianyun8023/diplay-ecarx/pull/119)，依赖 #115 | Artwork event/数组布局和发布位掩码封装为具名结果；Rust/JNI 签名不变，Bitmap 生命周期与发布提交顺序留在 Kotlin。#115 的设备测试同步迁移到新门面。 |
 | G | 已实施：AAC 输入 | Rust 组装 ADTS＋payload，并复用原输入泵完成 MediaCodec 输入获取、重试与提交；保留 Google AAC 配置、输出排空和包释放。 |
 | H | 已实施：连续原生采集链 | Rust 持有分帧残留、采集时钟、逐帧 echo 引用、统计窗口、编码／RTP／加密和 UDP socket；Speex C 原地处理 PCM。删除 Kotlin 数据处理、Java 发送及 SDK Opus 编码回退。 |
+| I | 已实施：ECARX MQTT 与投屏消息 | `protocols::mqtt` 负责 framing、ACK、packet ID、JSON 生成／解释、发布重试／去重和订阅观察状态；Kotlin 保留平台 JSONObject／UTF-8 适配、Socket、锁、执行器与诊断。 |
+| J | 已实施：HUD 发布策略 | `vehicle::hud` 持有投屏意图、快慢重试、32 项车道缓存、发布快照、差异／刷新／清理计划；Kotlin 保留 DIM 调用、实际成功提交和持久设置。 |
+| K | 已实施：AirPlay 控制通道缓冲 | `protocols::rtsp::Input` 持有加密／明文残留，复用原 cipher 的计数与解析限制，只输出完整 DTO；Socket 收发、上层事件仍在 Kotlin。 |
+| L | 已实施：下行音频控制链 | `media::audio::renderer` 统一 LPCM／AAC／Opus 分派、SDK codec 配置字节、输入／输出循环与 PCM 缓冲；libopus／SDK 解码能力选择由 Rust 决定，Kotlin 保留 SDK 对象与硬件操作。 |
 
 合并依赖为 #115 → #119、#117 → #121；父 PR 合并后，子 PR 改向 `dev`。实施和评审修复的验证记录放在各 PR：主机 JVM/Rust 测试、androidTest 编译、Android ABI 构建与实机验收分别记录，不相互替代。A–E 的 JNI 导出变更同时修复构建检查：按 Rust 声明逐项核对实际导出，保留 JNI_OnLoad、ELF 和各 ABI 导出一致性校验，避免旧固定总数阻塞合法的接口增删。
 
 既有验收矩阵保持原范围；G/H 新增的小米手机验证单独记在下方，不追认为实车验收或性能收益。
+
+## I–L 的实施约束与交付
+
+基线为 G/H 合入后的 `23838d88829b5b62cc99bf5d311ed9ac692ca4ba`。保留最初清单与 A–H 历史，I–L 的源码、合同与设备记录单独见[本轮实施记录](benchmarks/native-platform-boundaries-2026-11-15.md)。四项均要求原生核心，不新增依赖或 Kotlin 算法回退。
+
+- MQTT 保留原发布端宽松 ACK、观察端严格 ACK、三字节 remaining-length 上限和独立 client ID。投屏只在 PUBACK 成功后提交；ongoing 保留排队前去重；失败连接不消耗发布重试，失败发布仅断开后再试一次。
+- HUD 保留实际 SDK 调用和提交时点：先持久化清理责任再打开投屏，成功隐藏后才清除标记；半成功发布仍进入清理。快重试 2 秒／30 次后转 10 秒，刷新周期 5 tick，缓存保护当前车道索引。
+- 控制／event 读取器分别持有 native 残留，借用当前 cipher；加密／解密计数独立，关闭与使用仍串行，接收长度和 ProtocolException 边界不变。控制 Socket 下沉留作后续选择。
+- 音频输出采用 worker 独占的 Rust PCM 缓冲；JNI 直接驱动既有 MediaCodec，不更换硬件路径。复制异常仍释放输出，释放异常遵循 Java finally 优先级，完成释放后才同步借出 PCM 写声卡。跨 Java 回调前结束 Rust 可变借用，因为写入回调会重入 PCM DSP。没有 Kotlin PCM 工作缓冲或输入／输出算法副本；AudioTrack／AAudio、焦点、路由、增益与 SDK 能力兼容保持原义。
 
 ## 目标职责
 
