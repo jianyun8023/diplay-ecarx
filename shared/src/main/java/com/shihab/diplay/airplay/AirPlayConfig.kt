@@ -77,9 +77,8 @@ data class AirPlayConfig(
     val disableAudioOutput: Boolean = false,
     val microphone: Boolean = false,
     /**
-     * Whether to offer Opus alongside PCM for the microphone. Both platform and bundled software
-     * encoding count toward [com.shihab.diplay.media.OpusEncoderSupport]; an older Android
-     * version or absent MediaCodec encoder alone must not remove the wireless Opus formats.
+     * Whether to offer Opus alongside PCM for the microphone. The bundled native encoder must
+     * pass [com.shihab.diplay.media.OpusEncoderSupport]; the platform codec list is not sufficient.
      */
     val microphoneOpus: Boolean = true,
     val manufacturer: String = "Lynk&Co",

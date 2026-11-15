@@ -60,7 +60,7 @@ Gradle dependency declarations and version catalog accompany the source. License
 
 ## Native call echo cancellation
 
-DiPlay vendors a subset of [SpeexDSP 1.2.1](https://github.com/xiph/speexdsp/tree/SpeexDSP-1.2.1) from Xiph.org Foundation and its contributors, including the acoustic echo canceller, preprocessor and FFT/filterbank support. It is compiled into `libspeex_echo.so` for the optional experimental **Call echo cancellation** feature.
+DiPlay vendors a subset of [SpeexDSP 1.2.1](https://github.com/xiph/speexdsp/tree/SpeexDSP-1.2.1) from Xiph.org Foundation and its contributors, including the acoustic echo canceller, preprocessor and FFT/filterbank support. Cargo statically links it into `libdiplay_media.so` for the optional experimental **Call echo cancellation** feature. Rust owns microphone buffers and invokes `shared/src/main/jni/speex_echo.c` directly; there is no separate Speex JNI library.
 
 SpeexDSP uses a BSD-style three-clause license. The full copyright notices, redistribution conditions and disclaimer are retained in [the vendored COPYING file](../shared/src/main/jni/speexdsp/COPYING). Component source headers retain their additional notices, including KISS FFT's Mark Borgerding attribution, also copied to [KISS-FFT-LICENSE.txt](licenses/dependencies/KISS-FFT-LICENSE.txt). The [vendoring notes](../shared/src/main/jni/speexdsp/README.md) identify the source version and build configuration.
 

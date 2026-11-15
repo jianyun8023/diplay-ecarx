@@ -1,14 +1,14 @@
 # Prebuilt native libraries — provenance
 
-APK builds consume the three C libraries from this directory without compiling C code.
-They are rebuilt from `shared/src/main/jni` (`local_hotspot_radio`, `speex_echo`, `diplay_i2c`)
+APK builds consume the two prebuilt C libraries from this directory.
+They are rebuilt from `shared/src/main/jni` (`local_hotspot_radio`, `diplay_i2c`)
 with NDK `28.2.13676358`. Historical Rust `libdiplay_media.so` copies here are excluded
 from Gradle packaging. Rust artifacts must be built and verified from the current source.
 
 ## Why the C libraries are checked in
 
-`shared/src/main/jni/` holds the real sources (`local_hotspot_radio.c`, `speex_echo_jni.c`,
-`linux_i2c_jni.c`, `speexdsp/`) and `Android.mk` / `Application.mk`; upstream builds them with
+`shared/src/main/jni/` holds the real sources (`local_hotspot_radio.c`,
+`linux_i2c_jni.c`) and `Android.mk` / `Application.mk`; upstream builds them with
 `ndkBuild`. Ordinary Gradle APK builds do not run `ndk-build`, so the compiled libraries are kept
 under `jniLibs/` as prebuilt binaries. They were rebuilt from these sources on 2026-11-13 with NDK
 `28.2.13676358` at API 28 from an ASCII-only checkout path. Rebuild with:
@@ -33,13 +33,10 @@ ARM64 default, ARMv7 fallback, and x86_64 test-only for the emulator):
 | ABI | File | Bytes | SHA-256 |
 |---|---|---:|---|
 | arm64-v8a | liblocal_hotspot_radio.so | 4,880 | `7d226e17f474678b1c0c8cb8de203b5f15df46e8939303443fc1df01fd925c70` |
-| arm64-v8a | libspeex_echo.so | 56,856 | `fadea4a56f1593d14d2bee1a7401441d14c4fddaf863d694c7de1591bbb67ab3` |
 | arm64-v8a | libdiplay_i2c.so | 6,728 | `3c804d5fde1ab20407d1a56df3e324efa5a7de555db5e613b9918ccb296f2fcd` |
 | armeabi-v7a | liblocal_hotspot_radio.so | 3,532 | `2f927a99d46ace2fa7ddc51261d57ee71e9601a499cb1ef97ffc440c72235f7f` |
-| armeabi-v7a | libspeex_echo.so | 33,580 | `a2aada56c83ba5d89a6d8696bbd61b0ff564fb1602784c27dc852834c845bb04` |
 | armeabi-v7a | libdiplay_i2c.so | 4,660 | `0c61f8374ae442043481116d6fb4333b4ed0b76cc95d5364e9e5488b8d9fdf69` |
 | x86_64 | liblocal_hotspot_radio.so | 4,848 | `cb4e90c3c6e0b8e8bb19fd562c5b6be417e2e54c7f5480d7a7b77b7700e50031` |
-| x86_64 | libspeex_echo.so | 72,712 | `541b9bd49607619182edc5ddc264837151c15e5375d57eb79987de515c5ec0cb` |
 | x86_64 | libdiplay_i2c.so | 6,616 | `a6fa3e8603b87547f3d503e2e40c912794f253d4104f0465f24f071001ac0cbc` |
 
 `libandroidx.graphics.path.so` is **not** copied: it ships inside the
@@ -47,13 +44,17 @@ ARM64 default, ARMv7 fallback, and x86_64 test-only for the emulator):
 
 ## Source and distribution boundary
 
-The table covers the nine native binaries rebuilt from the retained C sources. Their bytes and hashes
+The table covers the six native binaries rebuilt from the retained C sources. Their bytes and hashes
 above match the repository's current files. GPL compliance does not require byte-for-byte
 reproducible builds; these binaries are built from the in-repo sources listed above with the pinned
 NDK, so they are the corresponding source-built artifacts (they are no longer byte-identical to the
 old `DiPlay-0.2.15.apk` copies).
 
-`Android.mk` still declares only `diplay_i2c`, `local_hotspot_radio` and `speex_echo`.
+`Android.mk` declares only `diplay_i2c` and `local_hotspot_radio`.
+
+SpeexDSP and `../jni/speex_echo.c` are now compiled by the Rust crate's `build.rs` and statically
+linked into `libdiplay_media.so`. Its content-bound receipts include both the C bridge and vendored
+Speex sources/headers. The separate `libspeex_echo.so` prebuilts are no longer packaged.
 
 SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source headers.
 Release builds ship one APK per ABI: ARM64 (default), ARMv7 (fallback) and x86_64 (test-only).
@@ -74,11 +75,12 @@ EV/identification/PASCD/NMEA and existing HUD conversions. Platform SDK actions,
 Calendar/Formatter and storage remain Kotlin. The experimental native NCM USB/TUN FD fast path is attempted by default unless explicitly disabled; if it cannot start, the Java I/O adapter still uses the Rust NCM core. It is built from
 `../rust/diplay-media` (our code plus [ring 0.17.14](https://crates.io/crates/ring/0.17.14), whose ChaCha20
 and Poly1305 come from BoringSSL's assembly; [libopus](https://github.com/xiph/opus) 1.5 series, vendored through [libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3) and compiled statically with its NEON/SSE assembly; libopus_sys (MIT), jni-sys and libc).
-The C libopus is compiled into this same `.so` from vendored sources; no separate `libopus.so` is shipped. `Cargo.lock` pins every crate.
+The C libopus and SpeexDSP are compiled into this same `.so` from vendored sources; no separate
+`libopus.so` or `libspeex_echo.so` is shipped. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 scripts/check_rust_android_native.sh`;
 it needs Rust 1.97.1 and rustup targets `aarch64-linux-android`, `armv7-linux-androideabi`
-and `x86_64-linux-android`. The script checks ELF architecture, the 494 Java JNI exports,
+and `x86_64-linux-android`. The script checks ELF architecture, all Java JNI exports,
 `JNI_OnLoad` and identical JNI export sets, then writes content-bound per-ABI provenance receipts.
 Gradle stages all three verified artifacts from `.native/rust-android` (or `DIPLAY_JNI_LIBS_DIR`)
 and the C prebuilts into a generated JNI directory. Missing, stale or mismatched Rust inputs

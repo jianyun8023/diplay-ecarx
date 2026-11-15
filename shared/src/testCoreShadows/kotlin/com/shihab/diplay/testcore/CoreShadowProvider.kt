@@ -64,6 +64,8 @@ class CoreShadowProvider : ShadowProvider {
         "com.shihab.diplay.airplay.NativePairVerify" to "com.shihab.diplay.testcore.ShadowNativePairVerify",
         "com.shihab.diplay.airplay.NativePairSetup" to "com.shihab.diplay.testcore.ShadowNativePairSetup",
         "com.shihab.diplay.media.NativeEchoReference" to "com.shihab.diplay.testcore.ShadowNativeEchoReference",
+        "com.shihab.diplay.media.NativeMicrophone" to "com.shihab.diplay.testcore.ShadowNativeMicrophone",
+        "com.shihab.diplay.media.NativeCaptureStats" to "com.shihab.diplay.testcore.ShadowNativeCaptureStats",
         "com.shihab.diplay.media.NativeAudioRouting" to "com.shihab.diplay.testcore.ShadowNativeAudioRouting",
         "com.shihab.diplay.network.NativeP2pStartup" to "com.shihab.diplay.testcore.ShadowNativeP2pStartup",
         "com.shihab.diplay.media.NativePlaybackCore" to "com.shihab.diplay.testcore.ShadowNativePlaybackCore",

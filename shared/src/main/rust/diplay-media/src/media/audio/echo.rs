@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 
 const NOT_PLAYING: i64 = i64::MIN;
 
-struct EchoReference {
-    rate: i64,
+pub(super) struct EchoReference {
+    pub(super) rate: i64,
     ring: Vec<i16>,
     written: i64,
     anchor_sample: i64,
@@ -17,12 +17,12 @@ struct EchoReference {
 }
 
 impl EchoReference {
-    fn new(rate: i32, capacity: usize) -> Self {
+    pub(super) fn new(rate: i32, capacity: usize) -> Self {
         Self { rate: rate as i64, ring: vec![0; capacity], written: 0, anchor_sample: NOT_PLAYING,
             anchor_ns: 0, cursor: NOT_PLAYING, settled: false, errors: [0; 10], error_at: 0, error_count: 0 }
     }
 
-    fn append(&mut self, pcm: &[u8], channels: usize, pending: Option<i64>, now: i64) {
+    pub(super) fn append(&mut self, pcm: &[u8], channels: usize, pending: Option<i64>, now: i64) {
         for frame in pcm.chunks_exact(2 * channels) {
             let sum = frame.chunks_exact(2).fold(0i32, |sum, pair| sum.wrapping_add(i16::from_le_bytes([pair[0], pair[1]]) as i32));
             let index = (self.written % self.ring.len() as i64) as usize;
@@ -44,7 +44,7 @@ impl EchoReference {
         self.cursor = NOT_PLAYING;
     }
 
-    fn read(&mut self, out: &mut [i16], end: i64) -> bool {
+    pub(super) fn read(&mut self, out: &mut [i16], end: i64) -> bool {
         if self.anchor_sample == NOT_PLAYING {
             self.cursor = NOT_PLAYING;
             out.fill(0);
@@ -95,7 +95,7 @@ impl EchoReference {
 }
 
 // Opaque GC values keep this per-capture clock independent of native resource lifetimes.
-fn capture_read(state: &mut [i64; 3], rate: i32, samples: i32, now: i64, stamped: bool, timestamp: i64, position: i64) {
+pub(super) fn capture_read(state: &mut [i64; 3], rate: i32, samples: i32, now: i64, stamped: bool, timestamp: i64, position: i64) {
     state[0] = state[0].wrapping_add(samples as i64);
     state[1] = samples as i64;
     state[2] = if stamped && timestamp > 0 {
@@ -103,11 +103,11 @@ fn capture_read(state: &mut [i64; 3], rate: i32, samples: i32, now: i64, stamped
     } else { now.wrapping_sub(20_000_000) };
 }
 
-fn capture_end(state: &[i64; 3], rate: i32, samples: i32) -> i64 {
+pub(super) fn capture_end(state: &[i64; 3], rate: i32, samples: i32) -> i64 {
     state[2].wrapping_sub((state[1] as i32).wrapping_sub(samples).max(0) as i64 * 1_000_000_000 / rate as i64)
 }
 
-type SharedReference = Arc<Mutex<EchoReference>>;
+pub(super) type SharedReference = Arc<Mutex<EchoReference>>;
 use crate::platform::jvm::Env;
 use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jshortArray, JNIEnv, JNI_ABORT};
 

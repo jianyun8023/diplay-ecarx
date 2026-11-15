@@ -8,7 +8,7 @@ import org.junit.runner.RunWith
 
 /** The SDK array failure is delegated to ART, rather than emulating desktop JVM messages. */
 @RunWith(AndroidJUnit4::class)
-class NativeAacDeviceTest {
+class NativeAacDeviceTest : AacInputContract() {
     @Test fun artArrayFailuresAndAacPayloadsMatchThePlatformReference() {
         assertTrue(NativeMedia.available)
         for (size in 0..10) {

@@ -94,7 +94,6 @@ internal class AudioRenderer(
         }
     @Volatile private var navigationAttenuationDb = 0
     private var appliedNavigationAttenuationDb: Int? = null
-    private val adtsHeader = ByteArray(MediaCodecSupport.ADTS_HEADER_BYTES)
     private var packetKind = ""
     private val playbackStarted: Boolean get() = bufferProgress.playing
     private val prebufferBytes: Int get() = bufferProgress.prebufferBytes
@@ -644,10 +643,11 @@ internal class AudioRenderer(
                             "audio AAC access unit bytes=$payloadBytes",
                         )
                     }
-                    MediaCodecSupport.writeAdtsHeader(adtsHeader, payloadBytes, format.sampleRate, format.channels)
-                    feedCodec(adtsHeader.size + payloadBytes, timestampUs) { input ->
-                        input.put(adtsHeader)
-                        rtp.copyInto(input, RTP_HEADER_BYTES, payloadBytes)
+                    val decoder = codec
+                    if (decoder == null) decoderUnavailablePackets++ else {
+                        diagnosticStage = "decoder-input"
+                        NativeAac.feedDecoder(rtp, RTP_HEADER_BYTES, payloadBytes, format.sampleRate, format.channels,
+                            timestampUs, decoder, this)
                     }
                 }
             }
@@ -714,14 +714,7 @@ internal class AudioRenderer(
             timeoutNs = AUDIO_INPUT_WAIT_NS,
         )
         if (index < 0) {
-            inputDropped++
-            if (inputDropped == 1) {
-                Log.w(
-                    TAG,
-                    "audio decoder input unavailable codec=${format.codec} " +
-                        "queued=$inputQueued dropped=$inputDropped",
-                )
-            }
+            decoderInputResult(1, length)
             return
         }
         val input = codec.getInputBuffer(index) ?: return
@@ -729,19 +722,33 @@ internal class AudioRenderer(
         if (length <= input.remaining()) {
             write(input)
             codec.queueInputBuffer(index, 0, length, presentationTimeUs, 0)
-            inputQueued++
-            if (!firstInputQueuedLogged) {
-                firstInputQueuedLogged = true
-                Log.i(
-                    TAG,
-                    "audio decoder first input codec=${format.codec} bytes=$length packet=$packetKind",
-                )
-            }
+            decoderInputResult(2, length)
         } else {
             codec.queueInputBuffer(index, 0, 0, 0, 0)
-            inputDropped++
+            decoderInputResult(3, length)
         }
         drainCodec(codec)
+    }
+
+    private fun aacInputRunning(): Boolean = running
+
+    /** SDK diagnostics for the native AAC driver and platform Opus input. */
+    private fun decoderInputResult(result: Int, length: Int) {
+        when (result) {
+            1 -> {
+                inputDropped++
+                if (inputDropped == 1) Log.w(TAG,
+                    "audio decoder input unavailable codec=${format.codec} queued=$inputQueued dropped=$inputDropped")
+            }
+            2 -> {
+                inputQueued++
+                if (!firstInputQueuedLogged) {
+                    firstInputQueuedLogged = true
+                    Log.i(TAG, "audio decoder first input codec=${format.codec} bytes=$length packet=$packetKind")
+                }
+            }
+            3 -> inputDropped++
+        }
     }
 
     private fun drainCodec(codec: MediaCodec) {

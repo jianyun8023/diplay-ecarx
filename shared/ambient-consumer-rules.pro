@@ -185,6 +185,22 @@
 
 # Shared call PCM/clock ownership and CarPlay-to-platform route decisions.
 -keep class com.shihab.diplay.media.NativeEchoReference { native <methods>; }
+-keep class com.shihab.diplay.media.NativeMicrophone { native <methods>; }
+-keep class com.shihab.diplay.media.NativeCaptureStats { native <methods>; }
+-keepnames class com.shihab.diplay.media.EchoReference
+-keepclassmembers class com.shihab.diplay.media.EchoReference {
+    public long retainForNativeCapture();
+}
+-keepclassmembers class com.shihab.diplay.media.MicrophoneUplink {
+    private boolean captureRunning();
+    private com.shihab.diplay.media.EchoReference captureEchoSource();
+    private void restorePlatformEchoCancellation();
+}
+-keepclassmembers class com.shihab.diplay.media.AudioRenderer {
+    private boolean aacInputRunning();
+    private void decoderInputResult(int, int);
+    private void drainCodec(android.media.MediaCodec);
+}
 -keep class com.shihab.diplay.media.NativeAudioRouting { native <methods>; }
 -keep class com.shihab.diplay.network.NativeP2pStartup { native <methods>; }
 

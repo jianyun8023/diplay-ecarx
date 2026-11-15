@@ -60,7 +60,7 @@ class MicrophoneCounters(sequence: Int = 0, timestamp: Int = 0, nonce: Long = 0)
         set(value) { NativeMicrophonePacketizer.counter(owner, 2, true, value) }
 }
 
-/** The Java-socket path shares the native sender's RTP seal and owns no Kotlin protocol counters. */
+/** RTP sealing facade; production microphone capture uses the Rust pipeline directly. */
 object MicrophonePacketizer {
     const val RTP_HEADER_LEN = 12
     const val TAG_LEN = 16

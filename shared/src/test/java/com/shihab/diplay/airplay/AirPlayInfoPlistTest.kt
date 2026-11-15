@@ -259,7 +259,7 @@ class AirPlayInfoPlistTest {
             sourceVersion = "366.0", main = AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720),
             microphone = true,
             microphoneOpus = OpusEncoderSupport.isAvailable(
-                platformAvailable = { false }, software = { SoftwareOpusEncoder(48_000) },
+                software = { SoftwareOpusEncoder(48_000) },
             ),
         )
         val formats = AirPlayInfoPlist.build(config)["audioFormats"] as List<*>

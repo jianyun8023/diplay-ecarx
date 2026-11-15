@@ -162,6 +162,13 @@ class ShadowNativeIapStreamQueue {
 @Implements(className = "com.shihab.diplay.media.NativeAac", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeAac {
     companion object {
+        @JvmStatic @Implementation fun feedDecoderNative(packet: Long, offset: Int, length: Int, rate: Int, channels: Int,
+            timeUs: Long, codec: Any, host: Any) {
+            HostNative.call("media.NativeAac", "feedDecoderNative", packet, offset, length, rate, channels, timeUs, codec, host)
+        }
+        @JvmStatic @Implementation fun writeDecoderInputNative(packet: Long, offset: Int, length: Int,
+            target: java.nio.ByteBuffer, position: Int, sampleRate: Int, channels: Int): Int =
+            HostNative.call("media.NativeAac", "writeDecoderInputNative", packet, offset, length, target, position, sampleRate, channels) as Int
         @JvmStatic @Implementation fun frequencyIndex(sampleRate: Int): Int =
             HostNative.call("media.NativeAac", "frequencyIndex", sampleRate) as Int
 

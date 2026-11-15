@@ -3,7 +3,7 @@ package com.shihab.diplay.media
 import org.junit.Assert.*
 import org.junit.Test
 
-class AacCodecContractTest {
+class AacCodecContractTest : AacInputContract() {
     private val rates = listOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, -1, 0, 12345, Int.MIN_VALUE, Int.MAX_VALUE)
     private val channels = listOf(Int.MIN_VALUE, -1, 0, 1, 2, 7, 8, Int.MAX_VALUE)
 

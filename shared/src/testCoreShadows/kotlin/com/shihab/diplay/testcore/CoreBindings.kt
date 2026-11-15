@@ -311,16 +311,6 @@ open class ShadowNativeMedia {
             HostNative.call("airplay.NativeMedia", "opusEncoderDestroy", handle)
         }
 
-        @JvmStatic @Implementation fun uplinkCreate(fd: Int, key: ByteArray, payloadType: Int, address: ByteArray, scopeId: Int, port: Int, opusBitrate: Int, rtpSamplesPerPacket: Int): Long =
-            HostNative.call("airplay.NativeMedia", "uplinkCreate", fd, key, payloadType, address, scopeId, port, opusBitrate, rtpSamplesPerPacket) as Long
-
-        @JvmStatic @Implementation fun uplinkSend(handle: Long, frame: ByteArray, length: Int): Int =
-            HostNative.call("airplay.NativeMedia", "uplinkSend", handle, frame, length) as Int
-
-        @JvmStatic @Implementation fun uplinkClose(handle: Long) {
-            HostNative.call("airplay.NativeMedia", "uplinkClose", handle)
-        }
-
         @JvmStatic @Implementation fun outOpen(sampleRate: Int, channels: Int, usage: Int, contentType: Int, capacityFrames: Int): Long =
             HostNative.call("airplay.NativeMedia", "outOpen", sampleRate, channels, usage, contentType, capacityFrames) as Long
 

@@ -1,10 +1,11 @@
 package com.shihab.diplay.media
 
 import android.media.MediaRecorder
+import com.shihab.diplay.airplay.NativeMedia
 import com.shihab.diplay.airplay.MicrophoneConfig
 
 internal enum class MicrophoneFailureStage {
-    MIN_BUFFER, ENCODER, RECORDER_CREATION, RECORDER_INITIALIZATION, SOCKET_CREATION,
+    MIN_BUFFER, NATIVE_PIPELINE, ENCODER, RECORDER_CREATION, RECORDER_INITIALIZATION, SOCKET_CREATION,
     RECORDING, READ, CAPTURE, START,
 }
 
@@ -18,24 +19,7 @@ internal class MicrophoneCaptureStats(
     private val type = audioType(config.audioType)
     private val format = format(config)
     private var metadata = metadata(config)
-    private var windowStart = nowNs()
-    private var readStart = windowStart
-    private var capturedBytes = 0L
-    private var reads = 0L
-    private var zeroReads = 0L
-    private var readErrors = 0L
-    private var readMaxNs = 0L
-    private var encodedFrames = 0L
-    private var emptyEncodedFrames = 0L
-    private var udpSent = 0L
-    private var sendErrors = 0L
-    private var lastSentNs: Long? = null
-    private var sendGapMaxNs = 0L
-    private var sampleCount = 0L
-    private var squareSum = 0.0
-    private var zeroSamples = 0L
-    private var clippedSamples = 0L
-    private var peakSample = 0
+    internal val owner = NativeCaptureStats.create(nowNs())
     private var routedDeviceType: Int? = null
 
     fun started(routeType: Int?) {
@@ -54,48 +38,13 @@ internal class MicrophoneCaptureStats(
         metadata += " actualSource=${sourceName(source)}"
     }
 
-    fun reading() { readStart = nowNs() }
-
-    fun read(count: Int) {
-        reads++
-        readMaxNs = maxOf(readMaxNs, (nowNs() - readStart).coerceAtLeast(0))
-        when {
-            count > 0 -> capturedBytes += count
-            count == 0 -> zeroReads++
-            else -> readErrors++
-        }
-    }
-
-    /**
-     * The loudest 16-bit little-endian sample sent in this window. Without it, a microphone that
-     * delivers silence and an uplink the iPhone discards looked the same in a report (#647).
-     */
-    fun level(pcm: ByteArray) {
-        var index = 0
-        while (index + 1 < pcm.size) {
-            val sample = (pcm[index].toInt() and 0xff) or (pcm[index + 1].toInt() shl 8)
-            peakSample = maxOf(peakSample, kotlin.math.abs(sample))
-            sampleCount++
-            squareSum += sample.toDouble() * sample
-            if (sample == 0) zeroSamples++
-            if (sample == Short.MIN_VALUE.toInt() || sample == Short.MAX_VALUE.toInt()) clippedSamples++
-            index += 2
-        }
-    }
-
-    fun encoded(frameCount: Int, emptyCount: Int) {
-        encodedFrames += frameCount.coerceAtLeast(0)
-        emptyEncodedFrames += emptyCount.coerceAtLeast(0)
-    }
-
-    fun sent() {
-        val now = nowNs()
-        lastSentNs?.let { sendGapMaxNs = maxOf(sendGapMaxNs, (now - it).coerceAtLeast(0)) }
-        lastSentNs = now
-        udpSent++
-    }
-
-    fun sendFailed() { sendErrors++ }
+    fun reading() = NativeCaptureStats.event(owner, 0, 0, 0, nowNs())
+    fun read(count: Int) = NativeCaptureStats.event(owner, 1, count.toLong(), 0, nowNs())
+    fun level(pcm: ByteArray) = NativeCaptureStats.level(owner, pcm)
+    fun encoded(frameCount: Int, emptyCount: Int) =
+        NativeCaptureStats.event(owner, 2, frameCount.toLong(), emptyCount.toLong(), 0)
+    fun sent() = NativeCaptureStats.event(owner, 3, 0, 0, nowNs())
+    fun sendFailed() = NativeCaptureStats.event(owner, 4, 0, 0, 0)
 
     fun restarted(attempt: Int, reason: String, routeType: Int?) {
         emit("Microphone: recording restarted $metadata attempt=$attempt reason=$reason " +
@@ -112,50 +61,32 @@ internal class MicrophoneCaptureStats(
      */
     fun flush(ended: Boolean = false, routeType: (() -> Int?)? = null, silence: (() -> String)? = null) {
         val now = nowNs()
-        if (!ended && now - windowStart < REPORT_INTERVAL_NS) return
+        val snapshot = NativeCaptureStats.snapshot(owner, now, ended) ?: return
         if (routeType != null) routedDeviceType = runCatching { routeType() }.getOrNull()
-        val silenceDetail = if (peakSample <= 0 && silence != null) runCatching { " " + silence() }.getOrDefault("") else ""
+        val silenceDetail = if (snapshot[10] <= 0 && silence != null) runCatching { " " + silence() }.getOrDefault("") else ""
         emit("Microphone: stats $metadata routedDeviceType=${routedDeviceType ?: "unknown"} " +
-            "captureBytes=$capturedBytes reads=$reads zeroReads=$zeroReads readErrors=$readErrors " +
-            "readMaxMs=${readMaxNs / 1_000_000} encodedFrames=$encodedFrames " +
-            "emptyEncodedFrames=$emptyEncodedFrames udpSent=$udpSent sendErrors=$sendErrors " +
-            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} peakDbfs=${peakDbfs(peakSample)} " +
-            "rmsDbfs=${rmsDbfs()} zeroSamplePct=${if (sampleCount == 0L) "unknown" else (100 * zeroSamples / sampleCount).toString()} " +
-            "clippedSamples=$clippedSamples$silenceDetail ended=$ended")
+            "captureBytes=${snapshot[0]} reads=${snapshot[1]} zeroReads=${snapshot[2]} readErrors=${snapshot[3]} " +
+            "readMaxMs=${snapshot[4]} encodedFrames=${snapshot[5]} " +
+            "emptyEncodedFrames=${snapshot[6]} udpSent=${snapshot[7]} sendErrors=${snapshot[8]} " +
+            "sendGapMaxMs=${snapshot[9]} peakDbfs=${dbfs(snapshot[11])} " +
+            "rmsDbfs=${dbfs(snapshot[12])} zeroSamplePct=${if (snapshot[13] < 0) "unknown" else snapshot[13].toString()} " +
+            "clippedSamples=${snapshot[14]}$silenceDetail ended=$ended")
         runCatching(onSnapshot)
-        windowStart = now
-        capturedBytes = 0
-        reads = 0
-        zeroReads = 0
-        readErrors = 0
-        readMaxNs = 0
-        encodedFrames = 0
-        emptyEncodedFrames = 0
-        udpSent = 0
-        sendErrors = 0
-        sendGapMaxNs = 0
-        peakSample = 0
-        sampleCount = 0
-        squareSum = 0.0
-        zeroSamples = 0
-        clippedSamples = 0
-    }
-
-    // No voice-activity claim: zero samples and low RMS can also describe quiet/background noise.
-    private fun rmsDbfs(): String = when {
-        sampleCount == 0L -> "unknown"
-        squareSum == 0.0 -> "silent"
-        else -> Math.round(10 * kotlin.math.log10(squareSum / sampleCount / (32768.0 * 32768.0))).toString()
+        NativeCaptureStats.event(owner, 5, 0, 0, now)
     }
 
     private fun emit(message: String) { runCatching { report(message) } }
 
     companion object {
-        private const val REPORT_INTERVAL_NS = 5_000_000_000L
-
         /** Whole dBFS of a 16-bit peak; "silent" when every sample was zero. */
         internal fun peakDbfs(peak: Int): String =
-            if (peak <= 0) "silent" else Math.round(20 * kotlin.math.log10(peak / 32768.0)).toString()
+            dbfs(NativeCaptureStats.peakDbfs(peak))
+
+        private fun dbfs(value: Long): String = when (value) {
+            Long.MIN_VALUE -> "unknown"
+            Long.MIN_VALUE + 1 -> "silent"
+            else -> value.toString()
+        }
 
         private fun audioType(audioType: String): String = when (audioType) {
             "telephony", "speechrecognition" -> audioType
@@ -199,4 +130,13 @@ internal class MicrophoneCaptureStats(
             runCatching { report(failureMessage(metadata(config), MicrophoneFailureStage.START, error, null)) }
         }
     }
+}
+
+internal object NativeCaptureStats {
+    init { NativeMedia.requireAvailable() }
+    @JvmStatic external fun create(now: Long): LongArray
+    @JvmStatic external fun event(owner: LongArray, event: Int, value: Long, extra: Long, now: Long)
+    @JvmStatic external fun level(owner: LongArray, pcm: ByteArray)
+    @JvmStatic external fun snapshot(owner: LongArray, now: Long, ended: Boolean): LongArray?
+    @JvmStatic external fun peakDbfs(peak: Int): Long
 }

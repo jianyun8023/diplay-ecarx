@@ -1,4 +1,4 @@
-//! The microphone uplink's send path (Kotlin's `MicrophoneUplink.sendFrame`): one captured frame in,
+//! The native capture owner's send path: one captured frame in,
 //! one sealed RTP datagram out. Opus frames are encoded with the statically linked C libopus at the settings the
 //! former JNI bridge used (VoIP, complexity 5, voice signal); PCM goes in CarPlay's big-endian wire order. The
 //! packet layout is `MicrophonePacketizer`'s: a clear 12-byte RTP header whose timestamp and SSRC are
@@ -72,9 +72,8 @@ fn voice_encoder(bitrate: i32) -> Option<*mut OpusEncoder> {
 }
 
 pub struct Uplink {
-    fd: i32,
-    address: libc::sockaddr_storage,
-    address_len: libc::socklen_t,
+    socket: std::net::UdpSocket,
+    address: std::net::SocketAddr,
     key: LessSafeKey,
     payload_type: u8,
     samples_per_packet: u32,
@@ -106,101 +105,66 @@ pub fn seal(key: &LessSafeKey, payload_type: u8, sequence: u16, timestamp: u32, 
     true
 }
 
-unsafe fn uplink<'a>(handle: jlong) -> &'a mut Uplink { &mut *(handle as *mut Uplink) }
-
-/// A sender on `fd` (a duplicate the uplink owns) to `address` (4 or 16 bytes) and `port`. With
-/// `opus_bitrate` > 0 frames are encoded as 20 ms 48 kHz mono Opus. 0 when an argument is wrong.
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_uplinkCreate(
-    env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, payload_type: jint, address: jbyteArray,
-    scope_id: jint, port: jint, opus_bitrate: jint, rtp_samples_per_packet: jint,
-) -> jlong {
-    let e = Env(env);
-    let mut key_bytes = [0u8; 32];
-    if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
-    let Ok(unbound) = UnboundKey::new(&CHACHA20_POLY1305, &key_bytes) else { return 0 };
-    let mut storage: libc::sockaddr_storage = std::mem::zeroed();
-    let length = match e.array_len(address) {
-        4 => {
-            let mut raw = [0u8; 4];
-            e.read_array(address, 0, &mut raw);
-            let v4 = &mut *(&mut storage as *mut _ as *mut libc::sockaddr_in);
-            v4.sin_family = libc::AF_INET as _;
-            v4.sin_port = (port as u16).to_be();
-            v4.sin_addr.s_addr = u32::from_ne_bytes(raw);
-            std::mem::size_of::<libc::sockaddr_in>()
-        }
-        16 => {
-            let mut raw = [0u8; 16];
-            e.read_array(address, 0, &mut raw);
-            let v6 = &mut *(&mut storage as *mut _ as *mut libc::sockaddr_in6);
-            v6.sin6_family = libc::AF_INET6 as _;
-            v6.sin6_port = (port as u16).to_be();
-            v6.sin6_addr.s6_addr = raw;
-            v6.sin6_scope_id = scope_id as u32;
-            std::mem::size_of::<libc::sockaddr_in6>()
-        }
-        _ => return 0,
-    };
-    let encoder = if opus_bitrate > 0 {
-        match voice_encoder(opus_bitrate) { Some(encoder) => Some(encoder), None => return 0 }
-    } else { None };
-    Box::into_raw(Box::new(Uplink {
-        fd, address: storage, address_len: length as libc::socklen_t, key: LessSafeKey::new(unbound),
-        payload_type: (payload_type & 0x7f) as u8, samples_per_packet: rtp_samples_per_packet as u32, encoder,
-        sequence: 0, timestamp: 0, nonce: 0, pcm: Vec::new(), packet: Vec::new(),
-    })) as jlong
-}
-
-/// Sends one captured frame (`length` bytes of 16-bit little-endian PCM). Returns the packets sent
-/// (0 when the encoder produced nothing), -1 when encoding failed, or -errno when the send failed.
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_uplinkSend(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, frame: jbyteArray, length: jint,
-) -> jint {
-    let e = Env(env);
-    let up = uplink(handle);
-    let length = length.max(0) as usize & !1;
-    if length > e.array_len(frame) { return -1; }
-    let mut bytes = vec![0u8; length];
-    if !e.read_array(frame, 0, &mut bytes) { return -1; }
-    up.packet.clear();
-    up.packet.resize(RTP_HEADER_LEN, 0);
-    match up.encoder {
-        Some(encoder) => {
-            up.pcm.clear();
-            up.pcm.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
-            if up.pcm.len() < OPUS_FRAME_SAMPLES { return -1; }
-            let mut out = [0u8; OPUS_PACKET_BYTES];
-            let size = unsafe { opus_encode(encoder, up.pcm.as_ptr(), OPUS_FRAME_SAMPLES as i32,
-                out.as_mut_ptr(), OPUS_PACKET_BYTES as i32) };
-            if size == 0 { return 0; }
-            if size < 0 {
-                // As the libopus bridge did: start the next frame from a clean state.
-                unsafe { opus_encoder_ctl(encoder, OPUS_RESET_STATE_REQUEST) };
-                return -1;
-            }
-            up.packet.extend_from_slice(&out[..size as usize]);
-        }
-        None => up.packet.extend(bytes.chunks_exact(2).flat_map(|s| [s[1], s[0]])),
+impl Uplink {
+    pub(super) fn new(key: &[u8], payload_type: i32, address: &[u8], scope_id: i32, port: i32,
+                      opus_bitrate: i32, rtp_samples_per_packet: i32) -> Option<Box<Self>> {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket};
+        if !(1..=65535).contains(&port) { return None; }
+        let unbound = UnboundKey::new(&CHACHA20_POLY1305, key).ok()?;
+        let address = match address.len() {
+            4 => SocketAddr::new(IpAddr::V4(Ipv4Addr::from(<[u8; 4]>::try_from(address).ok()?)), port as u16),
+            16 => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from(<[u8; 16]>::try_from(address).ok()?), port as u16, 0, scope_id as u32)),
+            _ => return None,
+        };
+        let socket = UdpSocket::bind(if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).ok()?;
+        let encoder = if opus_bitrate > 0 {
+            Some(voice_encoder(opus_bitrate)?)
+        } else { None };
+        Some(Box::new(Uplink {
+            socket, address, key: LessSafeKey::new(unbound),
+            payload_type: (payload_type & 0x7f) as u8, samples_per_packet: rtp_samples_per_packet as u32, encoder,
+            sequence: 0, timestamp: 0, nonce: 0, pcm: Vec::new(), packet: Vec::new(),
+        }))
     }
-    if !seal(&up.key, up.payload_type, up.sequence, up.timestamp, up.nonce, &mut up.packet) { return -1; }
-    up.sequence = up.sequence.wrapping_add(1);
-    up.timestamp = up.timestamp.wrapping_add(up.samples_per_packet);
-    up.nonce += 1;
-    let sent = libc::sendto(up.fd, up.packet.as_ptr() as *const _, up.packet.len(), 0,
-        &up.address as *const _ as *const libc::sockaddr, up.address_len);
-    if sent < 0 { -std::io::Error::last_os_error().raw_os_error().unwrap_or(1) } else { 1 }
-}
 
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_uplinkClose(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) {
-    if handle == 0 { return; }
-    let up = Box::from_raw(handle as *mut Uplink);
-    if let Some(encoder) = up.encoder { unsafe { opus_encoder_destroy(encoder) }; }
-    libc::close(up.fd);
+    /// Sends one captured frame (16-bit little-endian PCM). Returns the packets sent
+    /// (0 when the encoder produced nothing), -1 when encoding failed, or -errno when the send failed.
+    pub(super) fn send(&mut self, bytes: &[u8]) -> i32 {
+        let up = self;
+        up.packet.clear();
+        up.packet.resize(RTP_HEADER_LEN, 0);
+        match up.encoder {
+            Some(encoder) => {
+                up.pcm.clear();
+                up.pcm.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
+                if up.pcm.len() < OPUS_FRAME_SAMPLES { return -1; }
+                let mut out = [0u8; OPUS_PACKET_BYTES];
+                let size = unsafe { opus_encode(encoder, up.pcm.as_ptr(), OPUS_FRAME_SAMPLES as i32,
+                    out.as_mut_ptr(), OPUS_PACKET_BYTES as i32) };
+                if size == 0 { return 0; }
+                if size < 0 {
+                    // As the libopus bridge did: start the next frame from a clean state.
+                    unsafe { opus_encoder_ctl(encoder, OPUS_RESET_STATE_REQUEST) };
+                    return -1;
+                }
+                up.packet.extend_from_slice(&out[..size as usize]);
+            }
+            None => up.packet.extend(bytes.chunks_exact(2).flat_map(|s| [s[1], s[0]])),
+        }
+        if !seal(&up.key, up.payload_type, up.sequence, up.timestamp, up.nonce, &mut up.packet) { return -1; }
+        up.sequence = up.sequence.wrapping_add(1);
+        up.timestamp = up.timestamp.wrapping_add(up.samples_per_packet);
+        up.nonce = up.nonce.wrapping_add(1);
+        match up.socket.send_to(&up.packet, up.address) {
+            Ok(_) => 1,
+            Err(error) => -error.raw_os_error().unwrap_or(1),
+        }
+    }
+}
+impl Drop for Uplink {
+    fn drop(&mut self) {
+        if let Some(encoder) = self.encoder { unsafe { opus_encoder_destroy(encoder) }; }
+    }
 }
 
 /// A standalone 48 kHz mono VoIP encoder (Kotlin's `NativeOpusEncoder`); 0 when the bitrate is refused.

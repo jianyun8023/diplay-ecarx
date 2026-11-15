@@ -5,16 +5,9 @@ import android.media.AudioRecord
 import com.shihab.diplay.airplay.AudioCodecKind
 import com.shihab.diplay.airplay.MicrophoneConfig
 import java.net.InetAddress
-import java.net.DatagramSocket
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertThrows
+import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,15 +17,10 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAudioRecord
 
-/**
- * SDK attachment replay only: sender and encoder are fakes, not Opus/JNI encoding acceptance.
- * A shareable socket selects the sender before any separate encoder; Java socket I/O needs one.
- */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class MicrophoneEncoderAttachmentTest {
     private val diagnostics = CopyOnWriteArrayList<String>()
-    private val factoryCalls = AtomicInteger()
     private var uplink: MicrophoneUplink? = null
 
     @Before fun setUp() {
@@ -52,133 +40,63 @@ class MicrophoneEncoderAttachmentTest {
         ShadowAudioRecord.clearSource()
     }
 
-    @Test fun nativeSenderPathNeverBuildsTheKotlinEncoder() {
-        val next = MicrophoneUplink(
-            config(),
-            onDiagnostic = diagnostics::add,
-            opusEncoderFactory = { factoryCalls.incrementAndGet(); fakeEncoder() },
-            nativeSenderFactory = { _, _ -> fakeNativeSender() },
-        )
+    @Test fun realNativePipelineStartsAndReleasesItsRecorder() {
+        val next = MicrophoneUplink(config(), onDiagnostic = diagnostics::add)
         uplink = next
-
         assertTrue(next.start())
-
-        assertEquals("Kotlin encoder must not be built when the native sender encodes", 0, factoryCalls.get())
-        assertTrue(
-            diagnostics.joinToString("\n"),
-            diagnostics.any { it.contains("implementation=native encoder=libopus") },
-        )
+        val recorder = field(next, "recorder") as AudioRecord
+        assertNotNull(field(next, "nativeSender"))
+        assertTrue(diagnostics.any { it.contains("implementation=native encoder=libopus") })
+        next.close()
+        assertReleased(next, recorder)
     }
 
-    @Test fun unshareableSocketBuildsExactlyOneKotlinEncoder() {
-        val next = MicrophoneUplink(
-            config(),
-            onDiagnostic = diagnostics::add,
-            opusEncoderFactory = { factoryCalls.incrementAndGet(); fakeEncoder() },
-            nativeSenderFactory = { _, _ -> null },
-        )
-        uplink = next
-
-        assertTrue(next.start())
-
-        assertEquals(1, factoryCalls.get())
-        assertTrue(
-            diagnostics.joinToString("\n"),
-            diagnostics.any { it.contains("implementation=kotlin encoder=fake") },
-        )
-    }
-
-    @Test fun missingEncoderFailsStartOnlyWhenThereIsNoNativeSender() {
+    @Test fun missingNativePipelineFailsWithoutStartingTheRecorder() {
         lateinit var recorder: AudioRecord
-        lateinit var socket: DatagramSocket
-        val next = MicrophoneUplink(
-            config(),
-            onDiagnostic = diagnostics::add,
-            opusEncoderFactory = { factoryCalls.incrementAndGet(); null },
-            nativeSenderFactory = { created, _ ->
-                socket = created
-                recorder = MicrophoneUplink::class.java.getDeclaredField("recorder")
-                    .apply { isAccessible = true }.get(uplink) as AudioRecord
-                null
-            },
-        )
+        val next = MicrophoneUplink(config(), onDiagnostic = diagnostics::add, nativeSenderFactory = {
+            recorder = field(uplink!!, "recorder") as AudioRecord
+            null
+        })
         uplink = next
-
         assertFalse(next.start())
-        assertEquals(1, factoryCalls.get())
-        assertReleased(next, recorder, socket)
+        assertTrue(diagnostics.any { it.contains("stage=NATIVE_PIPELINE") })
+        assertFalse(diagnostics.any { it.startsWith("Microphone: start") })
+        assertReleased(next, recorder)
     }
 
-    @Test fun encoderFactoryExceptionReleasesSdkResourcesAndPreservesTheFailure() {
-        val failure = IllegalStateException("encoder creation failed")
-        lateinit var recorder: AudioRecord
-        lateinit var socket: DatagramSocket
-        val next = MicrophoneUplink(
-            config(),
-            opusEncoderFactory = { throw failure },
-            nativeSenderFactory = { created, _ ->
-                socket = created
-                recorder = MicrophoneUplink::class.java.getDeclaredField("recorder")
-                    .apply { isAccessible = true }.get(uplink) as AudioRecord
-                null
-            },
-        )
+    @Test fun rejectedNativeConfigurationCannotSelectAJavaSender() {
+        val next = MicrophoneUplink(config().copy(key = ByteArray(1)), onDiagnostic = diagnostics::add)
         uplink = next
-        assertSame(failure, assertThrows(IllegalStateException::class.java) { next.start() })
-        assertReleased(next, recorder, socket)
+        assertFalse(next.start())
+        assertTrue(diagnostics.any { it.contains("stage=NATIVE_PIPELINE") })
+        assertNull(field(next, "recorder"))
+        assertNull(field(next, "nativeSender"))
     }
 
-    @Test fun senderFactoryExceptionReleasesSdkResourcesWithoutCreatingAnEncoder() {
+    @Test fun senderFactoryExceptionReleasesSdkResourcesAndPreservesTheFailure() {
         val failure = IllegalStateException("sender creation failed")
         lateinit var recorder: AudioRecord
-        lateinit var socket: DatagramSocket
-        val next = MicrophoneUplink(
-            config(),
-            opusEncoderFactory = { factoryCalls.incrementAndGet(); fakeEncoder() },
-            nativeSenderFactory = { created, _ ->
-                socket = created
-                recorder = MicrophoneUplink::class.java.getDeclaredField("recorder")
-                    .apply { isAccessible = true }.get(uplink) as AudioRecord
-                throw failure
-            },
-        )
+        val next = MicrophoneUplink(config(), nativeSenderFactory = {
+            recorder = field(uplink!!, "recorder") as AudioRecord
+            throw failure
+        })
         uplink = next
         assertSame(failure, assertThrows(IllegalStateException::class.java) { next.start() })
-        assertEquals(0, factoryCalls.get())
-        assertReleased(next, recorder, socket)
+        assertReleased(next, recorder)
     }
 
-    private fun assertReleased(next: MicrophoneUplink, recorder: AudioRecord, socket: DatagramSocket) {
+    private fun assertReleased(next: MicrophoneUplink, recorder: AudioRecord) {
         assertEquals(AudioRecord.STATE_UNINITIALIZED, recorder.state)
-        assertTrue(socket.isClosed)
-        for (field in listOf("recorder", "socket", "opusEncoder", "nativeSender")) {
-            assertNull(MicrophoneUplink::class.java.getDeclaredField(field).apply { isAccessible = true }.get(next))
-        }
+        assertNull(field(next, "recorder"))
+        assertNull(field(next, "nativeSender"))
         next.close()
     }
 
-    private fun fakeEncoder(): MicrophoneOpusEncoder = object : MicrophoneOpusEncoder {
-        override val implementation = "fake"
-        override val available = true
-        override fun encode(pcm: ByteArray): List<ByteArray> = emptyList()
-        override fun close() = Unit
-    }
-
-    private fun fakeNativeSender(): NativeUplinkSender {
-        val constructor = NativeUplinkSender::class.java.getDeclaredConstructor(Long::class.javaPrimitiveType)
-        constructor.isAccessible = true
-        return constructor.newInstance(0L)
-    }
+    private fun field(owner: Any, name: String): Any? = owner.javaClass.getDeclaredField(name)
+        .apply { isAccessible = true }.get(owner)
 
     private fun config() = MicrophoneConfig(
-        audioType = "media",
-        sampleRate = 16_000,
-        channels = 1,
-        payloadType = 100,
-        frameMillis = 20,
-        host = InetAddress.getLoopbackAddress(),
-        port = 9,
-        key = ByteArray(32),
-        codec = AudioCodecKind.OPUS,
+        audioType = "media", sampleRate = 48_000, channels = 1, payloadType = 100, frameMillis = 20,
+        host = InetAddress.getLoopbackAddress(), port = 9, key = ByteArray(32), codec = AudioCodecKind.OPUS,
     )
 }

@@ -80,32 +80,8 @@ class SoftwareOpusEncoderTest {
     }
 
     @Test
-    fun platformEncoderIsPreferredAndSoftwareIsTheFallback() {
-        val platform = FakeEncoder(available = true)
-        assertSame(platform, MicrophoneOpusEncoders.create(48_000, platform = { platform }, software = { error("unused") }))
-
-        val missing = FakeEncoder(available = false)
-        val software = FakeEncoder(available = true)
-        assertSame(software, MicrophoneOpusEncoders.create(48_000, platform = { missing }, software = { software }))
-        assertTrue(missing.closed)
-
-        val brokenSoftware = FakeEncoder(available = false)
-        assertNull(MicrophoneOpusEncoders.create(48_000, platform = { FakeEncoder(false) }, software = { brokenSoftware }))
-        assertTrue(brokenSoftware.closed)
-    }
-
-    @Test
-    fun softwareFactoryRetainsTheRequiredNativeEncoderIncludingRefusal() {
-        val native = FakeEncoder(available = true)
-        assertSame(native, MicrophoneOpusEncoders.createSoftware(48_000, native = { native }))
-        val refused = FakeEncoder(available = false)
-        assertSame(refused, MicrophoneOpusEncoders.createSoftware(48_000, native = { refused }))
-        assertFalse(refused.closed)
-    }
-
-    @Test
     fun bundledRustEncoderProducesDecodablePackets() {
-        MicrophoneOpusEncoders.createSoftware(48_000).use { encoder ->
+        NativeOpusEncoder(48_000).use { encoder ->
             assertEquals("libopus", encoder.implementation)
             val packet = encoder.encode(toneFrame(0)).single()
             val pcm = ShortArray(960)
@@ -137,12 +113,4 @@ class SoftwareOpusEncoderTest {
         return bytes
     }
 
-    private class FakeEncoder(override val available: Boolean) : MicrophoneOpusEncoder {
-        override val implementation = "fake"
-        var closed = false
-        override fun encode(pcm: ByteArray): List<ByteArray> = emptyList()
-        override fun close() {
-            closed = true
-        }
-    }
 }

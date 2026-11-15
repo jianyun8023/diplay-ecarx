@@ -1,6 +1,6 @@
 # Rust 核心验收状态与历史审计
 
-## 当前状态与验收矩阵（2026-11-14）
+## 当前状态与验收矩阵（2026-11-15）
 
 **源码层面的完整 Rust 核心迁移已由 [PR #97](https://github.com/jianyun8023/diplay-ecarx/pull/97) 合入 `dev`。** 当前工作是具体缺陷修复与按版本补验，不再沿用旧迁移分支。本文是当前剩余项的仓库入口；已关闭的 [#96](https://github.com/jianyun8023/diplay-ecarx/issues/96)、[#98](https://github.com/jianyun8023/diplay-ecarx/issues/98)、[#99](https://github.com/jianyun8023/diplay-ecarx/issues/99) 保留历史证据，其正文中的旧清单和关闭状态都不能单独作为当前验收结论。
 
@@ -22,6 +22,10 @@
 | 独立协议样本 | 保留数学参考、旧实现差分及已登记的外部向量。 | PairVerify／PairSetup 外部完整 transcript 的资料来源缺口保留；HUD／车道已确认 OK，不再要求补固定输入输出回放。自写 fixture 不改称外部独立证据。 |
 
 当前平台状态另见 [ECARX 验收表](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵)。新增结果须注明源码／包、环境、场景和未覆盖范围；历史实车通过、最新变更未补验与确实未覆盖的目标硬件分别记录。原始日志、认证资产和设备标识留在本地，不提交仓库。
+
+## G/H 本次改动的验证边界（2026-11-15）
+
+本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[方案 G/H](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。
 
 ## 当前剩余项的处理范围（2026-11-14 澄清）
 
@@ -52,7 +56,7 @@ USB 本轮已收尾；#113 首帧修复及历史 AAudio 关闭修复已有验收
 | 真实缺口 | 收敛到的 Rust owner | Kotlin 保留 |
 | --- | --- | --- |
 | AirPlay `/info` 能力声明、固定 event／command 请求体、VideoInCar 控制协议、Bonjour TXT／connect probe 编码及 probe 重试计划 | `protocols::airplay`，复用既有 bplist／RTSP／平台字符串桥 | 配置／DTO、socket／SDK 调用、平台文本转换和回调 |
-| 通话／导航的音频路由映射、speaker fallback、far-end PCM ring 与 capture timestamp／clock | `media::audio::{routing, echo}` | Android 音路能力、AudioTrack／AudioRecord、AEC／Speex 调用、对象句柄和关闭执行 |
+| 通话／导航路由、far-end PCM、采集时钟／分帧／echo lease／统计／编码发送 | `media::audio::{routing, echo, capture, uplink}`，Speex C 静态连接 | Android 音路能力、AudioTrack／AudioRecord／timestamp、平台 AEC／effects、关闭执行与诊断文字 |
 | BufferedAudioStream anchor／feedback map schema、NTP epoch／fraction 换算 | `media::audio::buffered` 的原生回复入口，复用 bplist 桥 | Java BigInteger／数值对象转换与平台提交 |
 | iAP2 0x5001 NowPlaying 增量字段解析、保留及清空 | `session::playback` | 不可变 `CarPlayNowPlaying` 发布 DTO、平台 UTF-8 replacement／trim、监听器 |
 | 导航 renderer lease、queued playback＋900 ms quiet tail、路由冲突和 priority voice 聚合 | `session::playback` | renderer token 对象和时钟；UI 只读取快照 |

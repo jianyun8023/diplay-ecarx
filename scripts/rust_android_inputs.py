@@ -31,6 +31,9 @@ def source_fingerprints(root):
              and p.suffix not in IGNORED_SUFFIXES and not p.name.endswith('~')]
     paths += [root / 'scripts/check_rust_android_native.sh', root / 'scripts/rust_android_inputs.py',
               root / 'shared/rust-android-inputs.gradle']
+    native = root / 'shared/src/main/jni'
+    paths += [native / 'speex_echo.c', native / 'speex_echo.h']
+    paths += [p for p in (native / 'speexdsp').rglob('*') if p.is_file()]
     return {path.relative_to(root).as_posix(): sha256(path) for path in sorted(paths)}
 
 

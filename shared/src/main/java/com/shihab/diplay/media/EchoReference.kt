@@ -14,6 +14,10 @@ internal class EchoReference private constructor(val sampleRate: Int, private va
     @Synchronized
     fun retain(): EchoReference? = if (handle == 0L) null else EchoReference(sampleRate, NativeEchoReference.retain(handle))
 
+    /** JNI transfers this independent lease to the Rust capture owner under the producer lock. */
+    @Synchronized
+    fun retainForNativeCapture(): Long = if (handle == 0L) 0L else NativeEchoReference.retain(handle)
+
     @Synchronized
     fun append(pcm: ByteArray, offset: Int, length: Int, channels: Int, pendingFrames: Long?, nowNs: Long) {
         if (handle != 0L) NativeEchoReference.append(handle, pcm, offset, length, channels, pendingFrames != null, pendingFrames ?: 0L, nowNs)

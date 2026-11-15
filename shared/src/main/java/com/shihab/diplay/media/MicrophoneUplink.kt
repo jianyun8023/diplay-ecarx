@@ -10,14 +10,8 @@ import android.media.audiofx.NoiseSuppressor
 import android.util.Log
 import com.shihab.diplay.airplay.AudioCodecKind
 import com.shihab.diplay.airplay.MicrophoneConfig
-import com.shihab.diplay.airplay.MicrophoneCounters
-import com.shihab.diplay.airplay.MicrophonePacketizer
 import com.shihab.diplay.airplay.NativeMedia
 import java.io.Closeable
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import com.shihab.diplay.telecom.PhoneAudioRoute
 
@@ -33,49 +27,26 @@ internal class MicrophoneUplink(
     private val speakerphoneCall: Boolean = false,
     /** Current output owner; queried without sink locks so a recovered renderer can replace its ring. */
     private val echoReferenceSource: () -> EchoReference? = { null },
-    private val echoCancellerFactory: (Int, Int, Int) -> CallEchoCanceller? = { frame, rate, tail ->
-        SpeexEchoCanceller.create(frame, rate, tail)
-    },
-    private val opusEncoderFactory: (Int) -> MicrophoneOpusEncoder? = { bitrate ->
-        MicrophoneOpusEncoders.create(
-            bitrate = bitrate,
-            software = { value ->
-                MicrophoneOpusEncoders.createSoftware(
-                    value,
-                    native = { NativeOpusEncoder(it, onError = { message, error -> Log.w(TAG, message, error) }) },
-                )
-            },
-        )
-    },
-    /** Creates the native send path; injectable so tests can prove the Kotlin encoder is not built for it. */
-    private val nativeSenderFactory: (DatagramSocket, MicrophoneConfig) -> NativeUplinkSender? = NativeUplinkSender::create,
+    private val nativeSenderFactory: (MicrophoneConfig) -> NativeUplinkSender? = NativeUplinkSender::create,
     private val noAudioRestartMillis: Long = NO_AUDIO_RESTART_MILLIS,
     private val onCaptureState: () -> Unit = {},
     /** Read for a report window that recorded no sound; see [silenceDetail]. */
     private val audioManager: AudioManager? = null,
 ) : Closeable {
-    // The source is borrowed only for identity; this capture owns a separate retained reference.
-    // Replacement and reads share release()'s monitor, never the sink's lifecycle monitor.
-    private var echoReferenceOwner: EchoReference? = null
-    @Volatile private var echoReference: EchoReference? = null
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
         onDiagnostic(message)
     }, onSnapshot = onCaptureState)
     @Volatile private var recorder: AudioRecord? = null
-    @Volatile private var socket: DatagramSocket? = null
-    @Volatile private var opusEncoder: MicrophoneOpusEncoder? = null
-    // Encodes, seals and sends each frame natively when the socket can be shared.
     @Volatile private var nativeSender: NativeUplinkSender? = null
     @Volatile private var effects: List<AudioEffect> = emptyList()
-    @Volatile private var echoCanceller: CallEchoCanceller? = null
+    @Volatile private var softwareEcho = false
     private var thread: Thread? = null
 
     fun start(): Boolean {
         NativeMedia.requireAvailable()
         if (!running.compareAndSet(false, true)) return true
-        refreshEchoReference()
 
         val channelMask = if (config.channels >= 2) {
             AndroidAudioFormat.CHANNEL_IN_STEREO
@@ -125,60 +96,31 @@ internal class MicrophoneUplink(
             return false
         }
 
-        val nextSocket = try {
-            DatagramSocket(null).apply {
-                reuseAddress = true
-                bind(InetSocketAddress(InetAddress.getByName("::"), 0))
-            }
-        } catch (error: Exception) {
-            Log.e(TAG, "microphone socket creation failed", error)
-            stats.failure(MicrophoneFailureStage.SOCKET_CREATION, error)
-            nextRecorder.release()
-            release()
-            return false
-        }
-
         recorder = nextRecorder
-        socket = nextSocket
-        try {
-            nativeSender = nativeSenderFactory(nextSocket, config)
-            // The native sender encodes itself; a separate encoder is needed only for Java socket I/O.
-            opusEncoder = if (nativeSender == null && config.codec == AudioCodecKind.OPUS) {
-                val encoder = opusEncoderFactory(config.bitrate ?: 48_000)
-                if (encoder == null) {
-                    Log.w(TAG, "microphone Opus encoder is unavailable")
-                    stats.failure(MicrophoneFailureStage.ENCODER)
-                    release()
-                    return false
-                }
-                encoder
-            } else {
-                null
+        val nextSender = try {
+            nativeSenderFactory(config)?.also { nativeSender = it } ?: run {
+                Log.w(TAG, "microphone native pipeline is unavailable")
+                stats.failure(MicrophoneFailureStage.NATIVE_PIPELINE)
+                release()
+                return false
             }
         } catch (error: Throwable) {
-            // Encoder creation used to precede these SDK resources; delayed creation owns them now.
             runCatching { release() }.onFailure { error.addSuppressed(it) }
             throw error
         }
-        val implementation = when {
-            nativeSender != null && config.codec == AudioCodecKind.OPUS -> "native encoder=libopus"
-            nativeSender != null -> "native"
-            else -> opusEncoder?.implementation?.let { "kotlin encoder=$it" } ?: "kotlin"
-        }
+        val implementation = if (config.codec == AudioCodecKind.OPUS) "native encoder=libopus" else "native"
         val message = "Microphone: sender type=${config.audioType} codec=${config.codec} implementation=$implementation"
         Log.i(TAG, message)
         runCatching { onDiagnostic(message) }
         return try {
             if (config.audioType == "telephony") {
-                echoCanceller = createEchoCanceller()
+                softwareEcho = nextSender.enableEcho(echoReferenceSource())
                 if (!speakerphoneCall) effects = voiceEffects(nextRecorder.audioSessionId)
-                if (echoReference != null) {
-                    Log.i(TAG, "microphone echo canceller enabled=${echoCanceller != null} tail=${ECHO_TAIL_MILLIS}ms")
-                }
+                Log.i(TAG, "microphone echo canceller enabled=$softwareEcho tail=${ECHO_TAIL_MILLIS}ms")
             }
             nextRecorder.startRecording()
             stats.started(routeType(nextRecorder))
-            thread = Thread({ capture(nextRecorder, nextSocket) }, "carplay-mic").apply {
+            thread = Thread({ capture(nextRecorder, nextSender) }, "carplay-mic").apply {
                 isDaemon = true
                 start()
             }
@@ -220,42 +162,9 @@ internal class MicrophoneUplink(
         return recorder
     }
 
-    /** A fresh output ring is independent of any late writes from the failed renderer. */
-    @Synchronized
-    private fun refreshEchoReference() {
-        if (!running.get()) return
-        val source = echoReferenceSource()
-        if (source === echoReferenceOwner && echoReference != null) return
-        val retained = source?.retain()
-        val previous = echoReference
-        echoReference = retained
-        // A source can close between the lookup and retain; retry rather than caching that failure.
-        echoReferenceOwner = source.takeIf { retained != null }
-        previous?.close()
-    }
-
-    /** False means incompatible output, not ordinary silence while the replacement prebuffers. */
-    @Synchronized
-    private fun readEchoReference(out: ShortArray, endNs: Long): Boolean {
-        refreshEchoReference()
-        val reference = echoReference
-        if (reference != null && reference.sampleRate != config.sampleRate) {
-            out.fill(0)
-            return false
-        }
-        // Missing/closed output is temporary; never replay the preceding frame's reference.
-        reference?.read(out, endNs) ?: out.fill(0)
-        return true
-    }
-
-    private fun createEchoCanceller(): CallEchoCanceller? {
-        val reference = echoReference ?: return null
-        if (config.channels != 1 || config.sampleRate != reference.sampleRate) {
-            Log.i(TAG, "microphone echo canceller skipped rate=${config.sampleRate} channels=${config.channels}")
-            return null
-        }
-        return echoCancellerFactory(config.frameBytes / 2, config.sampleRate, ECHO_TAIL_MILLIS)
-    }
+    // Called by the native worker at every completed frame, without the release monitor.
+    private fun captureRunning(): Boolean = running.get()
+    private fun captureEchoSource(): EchoReference? = if (running.get()) echoReferenceSource() else null
 
     private fun voiceEffects(sessionId: Int): List<AudioEffect> {
         if (PhoneAudioRoute.carPlayCallsUseCarAudio()) {
@@ -265,25 +174,25 @@ internal class MicrophoneUplink(
             return emptyList()
         }
         var aec: AudioEffect? = null
-        if (echoCanceller != null) {
+        if (softwareEcho) {
             // VOICE_COMMUNICATION can enable AEC by default. Keep its controller alive and
             // explicitly disable it while Speex runs, rather than stacking two cancellers.
             val platformAvailable = runCatching { AcousticEchoCanceler.isAvailable() }.getOrDefault(true)
             if (platformAvailable) {
                 aec = configuredEffect("AEC", false) { AcousticEchoCanceler.create(sessionId) }
                 if (aec == null) {
-                    echoCanceller?.close()
-                    echoCanceller = null
+                    nativeSender?.disableEcho()
+                    softwareEcho = false
                     Log.w(TAG, "microphone native echo canceller skipped: platform AEC could not be disabled")
                 }
             }
         }
-        if (echoCanceller == null) {
+        if (!softwareEcho) {
             aec = enabledEffect("AEC") {
                 if (AcousticEchoCanceler.isAvailable()) AcousticEchoCanceler.create(sessionId) else null
             }
         }
-        val ns = if (echoCanceller != null) {
+        val ns = if (softwareEcho) {
             // Noise suppression before the canceller distorts the echo it has to model; Speex
             // denoises after cancelling instead. Keep the controller so a fallback can re-enable it.
             configuredEffect("NS", false) {
@@ -330,25 +239,23 @@ internal class MicrophoneUplink(
         }
     }
 
-    private fun capture(recorder: AudioRecord, socket: DatagramSocket) {
+    private fun capture(recorder: AudioRecord, sender: NativeUplinkSender) {
         runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
-        val frame = ByteArray(config.frameBytes)
-        val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
-        val counters = MicrophoneCounters()
+        val readBuffer = ByteArray(maxOf(config.frameBytes, MIN_READ_BYTES))
         val routeInfo = { routeType(recorder) }
         val ownSession = recorder.audioSessionId
         val silence = audioManager?.let { manager -> { silenceDetail(manager, ownSession) } }
-        var canceller = echoCanceller
-        val clock = canceller?.let { CaptureClock(config.sampleRate) }
-        val reference = canceller?.let { ShortArray(it.frameSamples) }
-        var filled = 0
+        val timestamp = android.media.AudioTimestamp()
         val recovery = longArrayOf(0L, 0L, System.nanoTime())
         try {
             while (running.get()) {
                 stats.reading()
                 val count = recorder.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING)
                 stats.read(count)
-                if (count > 0) clock?.read(recorder, count / 2)
+                val now = if (count > 0) System.nanoTime() else 0L
+                val stamped = if (count > 0 && softwareEcho) runCatching {
+                    recorder.getTimestamp(timestamp, android.media.AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS
+                }.getOrDefault(false) else false
                 if (count < 0) {
                     if (running.get()) {
                         Log.e(TAG, "microphone read failed code=$count")
@@ -385,38 +292,8 @@ internal class MicrophoneUplink(
                     continue
                 }
                 NativeAudioScheduler.captureRecovery(recovery, AUDIO_READ, System.nanoTime(), 0L)
-                var offset = 0
-                while (offset < count && running.get()) {
-                    val copied = minOf(frame.size - filled, count - offset)
-                    readBuffer.copyInto(frame, filled, offset, offset + copied)
-                    filled += copied
-                    offset += copied
-                    if (filled == frame.size) {
-                        if (canceller != null && clock != null && reference != null) {
-                            // Ask slightly ahead of the frame so speaker latency the clock misses stays inside the tail.
-                            val compatible = readEchoReference(reference, clock.frameEndNs(offset / 2) + ECHO_REFERENCE_LEAD_NS)
-                            val processed = try {
-                                if (compatible) canceller.process(frame, reference) else {
-                                    Log.w(TAG, "microphone echo reference rate changed; restoring platform AEC")
-                                    false
-                                }
-                            } catch (error: RuntimeException) {
-                                Log.w(TAG, "microphone native echo processing failed; restoring platform AEC", error)
-                                false
-                            } catch (error: LinkageError) {
-                                Log.w(TAG, "microphone native echo processing unavailable; restoring platform AEC", error)
-                                false
-                            }
-                            if (!processed) {
-                                restorePlatformEchoCancellation()
-                                canceller = null
-                            }
-                        }
-                        stats.level(frame)
-                        sendFrame(socket, counters, frame)
-                        filled = 0
-                    }
-                }
+                val result = sender.feed(readBuffer, count, now, stamped, timestamp.nanoTime, timestamp.framePosition, this, stats)
+                if (result < -1 && running.get()) throw java.io.IOException("microphone send failed errno=${-result}")
                 stats.flush(routeType = routeInfo, silence = silence)
             }
         } catch (error: Exception) {
@@ -440,61 +317,6 @@ internal class MicrophoneUplink(
         false
     }
 
-    private fun sendFrame(socket: DatagramSocket, counters: MicrophoneCounters, frame: ByteArray) {
-        nativeSender?.let { sender ->
-            val result = sender.send(frame)
-            when {
-                result >= 0 -> {
-                    stats.encoded(result, if (result == 0) 1 else 0)
-                    repeat(result) { stats.sent() }
-                }
-                result == -1 -> stats.encoded(0, 1)
-                else -> {
-                    stats.encoded(1, 0)
-                    stats.sendFailed()
-                    if (running.get()) throw java.io.IOException("microphone send failed errno=${-result}")
-                }
-            }
-            return
-        }
-        val bodies = if (config.codec == AudioCodecKind.OPUS) {
-            opusEncoder?.encode(frame).orEmpty()
-        } else {
-            listOf(MicrophonePacketizer.toWirePcm(frame))
-        }
-        stats.encoded(bodies.size, if (bodies.isEmpty()) 1 else bodies.count { it.isEmpty() })
-        bodies.forEach { body ->
-            sendPacket(
-                socket = socket,
-                counters = counters,
-                body = body,
-                samples = config.rtpSamplesPerPacket,
-            )
-        }
-    }
-
-    private fun sendPacket(
-        socket: DatagramSocket,
-        counters: MicrophoneCounters,
-        body: ByteArray,
-        samples: Int,
-    ) {
-        val packet = MicrophonePacketizer.sealPacket(
-            key = config.key,
-            payloadType = config.payloadType,
-            counters = counters,
-            body = body,
-            samples = samples,
-        )
-        try {
-            socket.send(DatagramPacket(packet, packet.size, config.host, config.port))
-            stats.sent()
-        } catch (error: Exception) {
-            stats.sendFailed()
-            if (running.get()) throw error
-        }
-    }
-
     private fun routeType(recorder: AudioRecord): Int? = runCatching { recorder.routedDevice?.type }.getOrNull()
 
     /**
@@ -511,11 +333,8 @@ internal class MicrophoneUplink(
     }
 
     /** Capture can continue with the same recorder if the optional native processor stops working. */
-    @Synchronized
     private fun restorePlatformEchoCancellation() {
-        val current = echoCanceller ?: return
-        echoCanceller = null
-        current.close()
+        softwareEcho = false
         if (!running.get()) return // close/release already owns all recorder effects.
         effects.filterIsInstance<NoiseSuppressor>().forEach { ns ->
             runCatching { ns.setEnabled(true) }
@@ -547,11 +366,6 @@ internal class MicrophoneUplink(
         } catch (_: Exception) {
             // Best effort; release below is authoritative.
         }
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-            // Best effort.
-        }
         thread?.let { worker ->
             try {
                 worker.join(CLOSE_JOIN_MILLIS)
@@ -566,15 +380,13 @@ internal class MicrophoneUplink(
     @Synchronized
     private fun release() {
         running.set(false)
-        val currentReference = echoReference
-        echoReference = null
-        echoReferenceOwner = null
-        currentReference?.close()
+        val currentSender = nativeSender
+        nativeSender = null
+        currentSender?.close()
+        softwareEcho = false
         val currentEffects = effects
         effects = emptyList()
         currentEffects.forEach(::releaseEffect)
-        echoCanceller?.close()
-        echoCanceller = null
         val currentRecorder = recorder
         recorder = null
         try {
@@ -582,19 +394,6 @@ internal class MicrophoneUplink(
         } catch (_: Exception) {
             // Best effort.
         }
-        val currentSocket = socket
-        socket = null
-        try {
-            currentSocket?.close()
-        } catch (_: Exception) {
-            // Best effort.
-        }
-        val currentEncoder = opusEncoder
-        opusEncoder = null
-        currentEncoder?.close()
-        val currentSender = nativeSender
-        nativeSender = null
-        currentSender?.close()
     }
 
     private companion object {
@@ -606,7 +405,6 @@ internal class MicrophoneUplink(
         const val MIN_READ_BYTES = 2_048
         const val CLOSE_JOIN_MILLIS = 500L
         const val ECHO_TAIL_MILLIS = 250
-        const val ECHO_REFERENCE_LEAD_NS = 30_000_000L
         const val READ_RESTART_PAUSE_MILLIS = 50L
         const val NO_AUDIO_RESTART_MILLIS = 1_000L
         const val EMPTY_READ_PAUSE_MILLIS = 5L

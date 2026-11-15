@@ -5,6 +5,7 @@ pub mod aac;
 pub mod buffered;
 pub mod buffered_state;
 pub mod clock_trim;
+mod capture;
 mod echo;
 pub mod pcm;
 pub(crate) mod packetizer;
