@@ -22,3 +22,240 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 | --- | --- | --- |
 | 视频配置与关键帧 | 配置候选推进、拒绝／降级、首帧状态、最近配置与重复判断；主动刷新与自动恢复共用 pipe 内的关键帧节流时间。帧队列、背压与参考链也只在 vpipe。 | codec 操作结果、Surface／GL、能力枚举、硬件探测、简单控制邮箱（`VideoControlMailbox`：FIFO、可中断、关闭唤醒、Detach 排空）与资源锁。 |
 | 封面恢复与队列 | 曲目识别、代际、一次发送预算、取消规则、版本淘汰、内容去重和缓存淘汰。 | Handler／Executor、发送和解码、图片引用／回收、平台会话对象身份、媒体发布；Kotlin 门面以具名结果消费 artwork 队列快照，业务不再读取变长布局。 |
+| MediaCenter | 播放申请条件、忽略 transfer ID 的发布比较及平台调用完成后的快照提交。 | Binder 注册／调用／清理、调用返回值及超时／不确定结果保护。 |
+| 音频恢复与导航提示音 | 录音读错／持续无音频的独立重试预算；duck、可听流计数与释放延迟；音频焦点的通道优先级、请求意图与各通道目标增益。 | AudioRecord 重启与取消、AudioFocusRequest／Runnable 身份、实际授权结果、active 输出表、应用音量记账、时钟及 AEC／renderer 资源寿命。 |
+
+平台动作返回后再按原有时点提交核心结果：读错重启成功才计数，持续无音频则每次尝试都计数；MediaCenter 正常返回但拒绝发布仍记录已尝试的快照，超时或会话失效不提交。测试专用的视频计时与参考链门面不再进入生产 Kotlin 源集。该批构建与测试结果单独登记，不能沿用此前实车通过记录。
+
+当前生产归属：
+
+1. 媒体闭环：音频接收器直入队列、逐包反馈、缓冲音乐锚点、SETRATE／FLUSH、PI 时钟、背压、输出门限、AAC 与 PCM／Opus 已接入 Rust；Java／NDK 视频的节拍、队列、参考链与 codec 策略也由 Rust 拥有。已通过的历史台架／实车场景与最新变更的组合缺口分别登记。
+2. 协议编解码、配对与控制加密：RTSP、bplist、control／event、PairVerify、PairSetup／SRP、完整 MFiSAP、NTP、iAP2 body／link／握手／文件传输、USBMUX、Lockdown 与默认 NCM 路径已接入 Rust；平台存储、PKIX／JCA 硬件密钥及真实 MFi I/O 保留适配层。
+3. 会话控制：WirelessRunState、WirelessBootstrapRecovery、wired Iap2ControlDeadline、wireless deadline、watchdog 决策、controller／VPN 代际和 AirPlay 流协商状态由 Rust 持有；Kotlin 执行平台资源动作和调度，平台结果携带所属代际。
+4. 导航、车辆转换和输入协议：EV 0xA101、导航状态、HID／触摸槽、IdentificationInformation、PASCD、NMEA 及仪表／HUD 转换、位置／EV 订阅与节流由 Rust 持有。Android／车机适配、Calendar／Formatter 保留 Kotlin；PASCD 生产车速由 `EcarxVehicleSpeedSource` 从 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION` 采集后送入既有 Rust 编码，实车订阅路径已有日志；动态 PASCD 输出与真实服务恢复边界见[专项复核](benchmarks/vehicle-speed-2026-11-14.md)。
+
+当前验收状态与恢复条件以[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)为准；历史批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)，#113 首包修复见[2026-11-14 验证摘要](benchmarks/native-video-startup-2026-11-14.md)。开发中运行定向回归，可交付批次最终运行完整 CI、所需 ABI 构建和可执行的设备验证，不把旧批通过替代最新变更验收。
+
+### LIVI 参考与复用
+
+[LIVI](https://github.com/f-io/LIVI) 是协议迁移的优先参考：`native/crates/livi-cp` 包含 RTSP、bplist、SRP、配对、控制加密、时钟、HID、UI Sync 和车辆状态，iAP2 在 `iap2-csm/link/mfi/usbmux/wired` 等 crate；`livi-cp` 还保留 `ts_vectors` 测试。现有 `Srp6a.kt` 注明移植自其早期 `srp.ts`；本地 2026-11-11 的 Ultra 调研已核对 Rust 提交 `870d2644`。2026-11-12 重新核查了当前 Rust 模块结构。
+
+每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。参考 workspace 包含 Tokio／OpenSSL，livi-cp 密码实现使用 aws-lc-rs；其 Android 10+ ARM64 分发不能代替本项目 API 28 和 ARMv7 的验证。bplist、control cipher、HID 与 PairVerify primitives 复用 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的黄金向量数据，未导入实现或运行时；PairVerify 没有完整握手黄金向量。已将其 [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE) 要求的署名加入 README 和应用可查看的第三方许可声明。
+
+## 1. 目标平台
+
+- 量产目标：Android 9 / API 28，ECARX 753（高通 820A），车机平台签名。当前适配的 820A 使用 `arm64-v8a`，作为默认生产包；另提供 `armeabi-v7a` 回退包和仅供模拟器测试的 `x86_64` 包。三个 ABI 分别打包，构建覆盖不等于全部运行时验收。
+- 其他 Android 版本（小米 8 台架、模拟器）只用于调试与对照，不作为性能结论的唯一依据。
+- 运行、权限与恢复不能依赖 ADB。
+
+## 2. 模块
+
+| Gradle 模块 | 目录 | 职责 |
+| --- | --- | --- |
+| `:mobile` | `mobile/` | 车机安装的应用（`com.shihab.diplay`），打包与签名、R8 规则。 |
+| `:common` | `common/` | 宿主界面与生命周期：`CarPlayHostActivity`、`DiPlayActivity`（设置）、侧边栏、媒体会话、持久化。 |
+| `:shared` | `shared/` | 协议、连接编排、媒体管线与原生库。车机无关的核心都在这里。 |
+| `:home` | `samples/home/` | 桌面集成示例。 |
+| `:maphost` | `samples/maphost/` | 仪表地图宿主示例。 |
+| `:siribridge` | `integrations/siri/` | 方向盘语音键到 Siri 的桥接。 |
+
+`shared` 的包分层：
+
+| 包 | 内容 |
+| --- | --- |
+| `orchestration` | `CarPlayController`／`WirelessRun`：执行 Rust 会话／恢复／watchdog owner 返回的动作，持有 SDK 资源、回调及线程交接；保留状态发布契约。 |
+| `bluetooth`、`transport`、`iap2`、`mfi` | 蓝牙 RFCOMM、iAP2 链路与消息、USB（usbmux / NCM）、MFi 认证。 |
+| `network` | 车机热点、本地热点、Wi-Fi Direct、现有 Wi-Fi、Bonjour、有线用的 `CarPlayVpnService` 与 IPv6 NCM 桥。 |
+| `airplay` | AirPlay 控制会话（RTSP、配对、加密控制通道、bplist）与各媒体流的接收端（`ScreenStream`、`AudioStream`、`BufferedAudioStream`）。 |
+| `media` | 渲染与采集：`AndroidMediaSink`、`VideoDecoder`、`AudioRenderer`、`MicrophoneUplink`、音频焦点与路由。 |
+| `hud`、`location`、`glance` | 仪表 / HUD 导航输出、车辆信号、定位上送。 |
+
+## 3. 一次会话的组成
+
+1. **发现与引导**：蓝牙 RFCOMM 上跑 iAP2，交换 Wi-Fi 凭据（无线）或经 USB 走 iAP2 / NCM（有线）。
+2. **网络**：无线时 iPhone 连到车机热点、本地热点、Wi-Fi Direct 或同一现有 Wi-Fi；有线时 `NcmUsbBridge` 收发 USB NCM 帧，经 `CarPlayVpnService` 的 tun 接口进入内核网络栈。
+3. **AirPlay 控制会话**：`AirPlaySession` 处理 RTSP、Pair-Setup / Pair-Verify、MFi SAP，之后控制通道加密（`ControlCipher`）。`SETUP` 按流类型建立媒体流，`CarPlayMediaEngine` 为每条流创建接收端并把解密后的数据交给 `MediaSink`。
+4. **媒体流**（类型号为 CarPlay 协议值）：
+
+| 流 | 传输 | 内容 | 接收端 → 消费者 |
+| --- | --- | --- | --- |
+| 110 主屏 / 111 第二屏（仪表） | TCP | 128 字节头 + ChaCha20-Poly1305 封装的 H.264/HEVC 帧，或明文 avcC/hvcC 配置 | `ScreenStream` → `AndroidMediaSink` → `VideoDecoder` |
+| 100/101/102 音频 | UDP RTP | 媒体、导航、通话、Siri；AAC-LC、Opus 或 LPCM，每包 ChaCha20-Poly1305 | `AudioStream` → `AudioRenderer` |
+| 103 缓冲音乐 | TCP | 长度前缀的加密 RTP，提前最多约两分钟 | `BufferedAudioStream` → `AudioRenderer` |
+| 麦克风 | UDP RTP | Opus 编码、ChaCha20-Poly1305 加密上行 | `MicrophoneUplink` |
+| 130 数据流 | TCP | iAP2 隧道等 | `IapTunnel` |
+
+## 4. 当前控制面与数据面
+
+当前边界：Rust 持有协议、会话与媒体核心状态，Kotlin 执行平台动作。SDK 线程间的简单 I/O 交接邮箱、资源保护与 PKIX 身份材料适配仍属于平台层。
+
+2026-11-14 生产入口复核：协议／配对（RTSP、bplist、控制加密、PairVerify／PairSetup、MFiSAP、iAP2）、会话代际／重试／watchdog、媒体队列／节拍／选型／音频调度、USBMUX／Lockdown／NCM 协议，以及导航／HID／车辆转换均已有 Rust owner。入口通过 `NativeMedia.requireAvailable()` 或同等检查要求原生核心；加载失败不会切回旧 Kotlin 核心。旧算法、Bouncy Castle 与 Concentus 参考仅接入 `test`／`androidTest`，见 `gradle/native-core-tests.gradle`，不作为发布 APK 的后备实现。
+
+生产树中剩余的 Kotlin 路径应按实际职责判断：
+
+| 路径 | 当前触发条件与职责 | 清理判断 |
+| --- | --- | --- |
+| Java MediaCodec 视频循环 | 已删除备用喂帧／出帧循环及输出线程开关；所有视频均创建 Rust／NDK pipe。API < 28 或 pipe 创建失败明确报错。 | v150 实车 18 次首输入、18 次首渲染均为原生路径。保留原生 codec 重试／软解／厂商参数降级，以及 Java 硬件可用性探测；详见[删除依据与验证边界](benchmarks/native-video-startup-2026-11-14.md#java-mediacodec-备用循环清理)。 |
+| AudioTrack／旧式流类型 | usage 音乐和导航尝试 AAudio；通话、Siri、指定 legacy stream 正常使用 AudioTrack，AAudio 打开失败也使用它。 | 属于正式音路，不能按旧核心后备删除。AAC 硬件／系统解码也仍是平台职责。 |
+| 麦克风 Java DatagramSocket | 无法共享 socket FD 或原生 sender 创建失败时使用 Java I/O；`MicrophonePacketizer` 的 RTP／计数／加密仍走 Rust，软件 Opus 为原生 libopus。 | 不是第二套 Kotlin 协议算法；删除会取消 FD 能力适配。日志 `implementation=kotlin` 只标记发送路径，不代表核心算法回退。 |
+| Kotlin USB／TUN I/O | 用户显式关闭原生通路或 `startNative` 无法启动时使用；NCM framing／路由核心仍是 Rust。 | 属于显式设置及 SDK I/O 适配；USB 已确认 OK 并收尾，不顺带取消设置或能力分支。 |
+| AEC、厂商麦克风、HUD SDK 回退 | Speex C/JNI／平台 AEC、厂商授权及显示接口按能力选择。 | 属于车机适配，不是 Rust 迁移残留；保留现有车辆校准。 |
+
+已有实车日志确认 v150 接收统计 `impl=rust`、PCM `native=true`、Siri sender `native encoder=libopus`；这些与生产入口共同确认 Rust 主路径已运行。已确认 OK 的功能不再追加验收（见[当前状态](RUST_CORE_REMAINING.zh-CN.md)）；是否取消上述平台分支属于兼容行为变更，不由正常路径日志自动决定。
+
+| 归属 | 内容 |
+| --- | --- |
+| 平台适配（Kotlin） | 平台连接建立与 Socket／USB／VPN 资源交接、能力回退分支的 I/O、SDK／watchdog 调度、取消执行、设置和持久化、证书／硬件密钥、格式参数、Surface／fanout／停放与硬件 codec 可用性探测；音频焦点、BUS／旧式流类型、AAC／AudioTrack 平台调用与回调顺序；仪表／HUD 输出、车辆 SDK provider／订阅及诊断报告。协议、配对、协商、代际、重试、codec 选型和输出调度决策由 Rust 返回动作。 |
+| 数据面（Rust） | 媒体套接字收发、ChaCha20-Poly1305 开封 / 封装、帧重组与 AVCC→Annex B、关键帧识别；解码器的创建、配置、喂帧、出帧、节拍（NDK `AMediaCodec` 异步模式）；Opus 解码与编码、PCM 处理（字节序、淡入、导航衰减、有声检测、通话高通滤波）、音频输出（AAudio）；RTP 打包；有线 NCM 与 tun 之间的转发。Speex 回声消除仍通过原有 C/JNI 库执行。 |
+
+Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kotlin 执行平台动作并保留焦点、SDK能力检测与设备校准。两点说明：
+
+- **视频**：解码由高通硬件完成，Java 与 NDK 走同一条 OMX/Codec2 路径，迁移省下的是轮询与线程交接。Java `MediaCodec` 以 `dequeueOutputBuffer` 超时轮询，台架上它的 `MediaCodec_loop` 线程单独占一个核的约 16%；API 28 起 NDK 提供 `AMediaCodec_setAsyncNotifyCallback`。Rust 返回选型、回退与节拍决策并执行 NDK 解码循环；Kotlin 执行控制和 Surface 动作。Java 轮询循环已删除，上述轮询开销是迁移前的历史测量。
+- **音频输出**：按 usage 路由的音乐与导航流尝试 AAudio，打开失败时回退到 `AudioTrack`。通话、Siri 和指定旧式流类型的流保留 `AudioTrack`。AAudio 路径用 Rust PCM 增益处理焦点衰减，用重采样处理原先由 `AudioTrack.setPlaybackRate` 执行的时钟微调。AAC 仍由系统 Google AAC 解码（实车上高通 AAC 解码器创建失败，见平台笔记）。
+
+## 5. 迁移前的开销与测量依据
+
+| 路径 | 迁移前实现 | 每包 / 每帧的 Java 侧工作 |
+| --- | --- | --- |
+| 视频接收 | `ScreenStream` 用 `InputStream` 读头和体 → `NativeChacha`（Rust）解密到新数组 → Kotlin 原地转 Annex B → 经 `LinkedBlockingQueue` 交给解码线程 → `ByteBuffer.put` 拷进输入缓冲 | 每帧一个与帧等长的新数组（关键帧达数百 KB）；解码前再扫描一次 NAL |
+| UDP 音频 | `AudioStream` 每包复制 wire、AAD、密文、nonce、明文、RTP 拼接共约 6 个数组 → 渲染队列 → 再复制 payload → MediaCodec | 每秒数百个小对象 |
+| 缓冲音乐 | `DataInputStream` 每帧新数组，解密再拼接 | 同上 |
+| 麦克风 | `AudioRecord` → Speex AEC（C/JNI）→ libopus（C/JNI）→ Kotlin 打包、Java Cipher 封装、`DatagramSocket.send` | 每 20 ms 三次跨 JNI，多次拷贝 |
+| 有线 | iPhone → USB bulk（Java `UsbRequest`）→ NTB16 解析（Kotlin）→ tun fd → 内核 TCP → 回到 Java 套接字 | 所有字节两次经过 Java |
+
+已测数据（小米 8，2026-11-11，原生 ChaCha 与 Java 对照，同等负载）：
+
+- 视频主屏解密平均 385 µs → 81 µs，但接收线程每包 CPU 只从 934 µs 降到 768 µs；单换解密只省一小部分，其余在套接字读、对象分配和线程交接上。接收线程内核态约占 35–40%。
+- 整进程约占一个核的 39–46%。
+- 实车：视频输入拷贝约 29 µs/帧，不是主要成本（`analysis/20261110-car-codec-kit`，工作区）。
+
+这些数据用于选择迁移方向。后续实验确认的主要收益来自视频解码循环变化；不能把减少数组分配直接等同于已测得的 GC 或体感改善。
+
+## 6. Rust 核心 `diplay-media`
+
+### 6.1 库与构建
+
+- 一个 crate：`shared/src/main/rust/diplay-media`，产物 `libdiplay_media.so`，取代 `libdiplay_chacha.so`。
+- 源码按职责组织，[lib.rs](../shared/src/main/rust/diplay-media/src/lib.rs) 只组装六个正常 Rust namespace，不保留平铺兼容导出或 `#[path]` 别名：
+
+| 目录（相对 `diplay-media/src`） | 职责 |
+| --- | --- |
+| `protocols/` | RTSP、bplist、control cipher、配对／SRP／MFiSAP、NTP、iAP2 编解码／link／文件传输、type130 和 tunnel 队列；JNI 与所属 owner 同目录。 |
+| `session/` | controller／VPN／wireless 代际、recovery／deadline／watchdog、AirPlay 协商、iAP2 握手与位置／EV 订阅；NowPlaying／导航播放状态、热点地址／readiness／radio-return 决策。 |
+| `media/audio/`、`media/video/` | 音频接收／直连队列／buffered／时钟／AAC／PCM／输出／上行与 scheduler；视频接收／Annex B／pacing／flow／selection／vpipe。`media/packet` 和 `media/stats` 为媒体共享设施。 |
+| `vehicle/` | HID／touch_slots、EV／identification／vehicle_speed／NMEA、导航状态及 cluster_arrow／lane_icon／day_night 转换。 |
+| `platform/` | JVM／NDK 桥接、共享 stream 句柄与关闭生命周期，包含 stop JNI。 |
+| `transport/` | USBMUX framing／TCP／队列、Lockdown XML／会话流程、NCM 编解码及 USB／tun engine。 |
+
+原 public owner 保持可达，私有字段及 JNI 子模块不因搬迁扩大权限。Android／Linux receiver、stream、NCM engine 与 Android-only NDK／vpipe 保留各自 cfg；纯算法和 AAudio 状态仍可 host 编译。NCM engine 沿用媒体 stats 的 clock，不为目录整理新增通用时间层。
+
+全部 owner 继续编入同一库，无额外应用运行时；必要密码依赖由 Cargo.lock 锁定，许可证保存在 docs/licenses。bplist 保留 32 层解码与工作／载荷预算，生产与测试参考编码统一限制为 128 层；Java 类型／畸形 UTF-16 替换留在 JNI 平台边界。导航两个进程级输出各持独立 owner，Kotlin 仅提供时钟、当前会话存活和 SDK 输出。
+- Opus 由 [libopus](https://github.com/xiph/opus)（经 [libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3) 的 bundled 源码静态链接）编解码，编进同一 `.so`；不再携带单独的 `libopus.so` 与 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。Speex 回声消除仍是原有的 `libspeex_echo.so`。
+  麦克风上行按 20 ms／1275 字节的单帧预算验证 Opus 缓冲，保留码率与 VoIP 校准。历史失败、修正过程与设备对照见[实验记录](benchmarks/native-media-2026-11-12.md)，当前台架／实车覆盖见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
+- 构建：Rust 1.97.1、NDK 28.2.13676358、CMake、Python 3，目标为 `aarch64-linux-android`、`armv7-linux-androideabi` 与 `x86_64-linux-android`，最低 API 28。ARM64 是当前车机默认目标，ARMv7 为回退包，x86_64 仅用于模拟器测试。APK／AAR 打包前运行 `scripts/check_rust_android_native.sh`：通过 `build.sh` 从 `CARGO_TARGET_DIR`（缺省 `target`）提取三 ABI 产物，校验 ELF 架构与 ET_DYN 类型、Java JNI 导出、`JNI_OnLoad` 及三 ABI 符号一致性，默认保留在 `.native/rust-android/`，并写入每 ABI 的 `provenance.json`。具体导出数随验证批次记录。
+- 产物来源：receipt 绑定 crate 输入（含 Cargo.lock／工具链配置）、构建／验证脚本、Gradle staging 脚本与实际库字节的 SHA-256，保存逐文件指纹以定位第一个新增／删除／变更路径。指纹不依赖 Git 提交号，未提交源码与无 `.git` 源码包使用同一契约；忽略 Cargo 输出及常见 OS／编辑器／Python 缓存，但不忽略 `.cargo/config.toml` 等实际构建输入。Gradle 的所有 variant 只打包验证后生成的 JNI 目录：保留检入的 C 预编译库，排除历史检入的 Rust `.so`。缺 ABI／receipt、旧 receipt 格式、源码变化或库字节不符都会在打包前失败并提示重跑验证构建脚本；单独运行 `build.sh` 不会产生有效 receipt。该机制防止意外陈旧／混用，不是抗恶意篡改签名。
+- 构建入口：本地、Android checks、release 和 source-only workflow 均使用同一验证／staging 入口，不再覆盖检入的 Rust 库。自定义输出时，构建脚本与 Gradle 必须使用同一个 `DIPLAY_JNI_LIBS_DIR`；默认目录由 `gradlew clean` 保留以便下次验证复用。Android checks 保留本次库与 receipt artifact，不要求其与历史检入库跨主机字节相等。JVM-only 测试不需要 Android 产物，另构建并加载真实 host JNI；CI 也执行 `cargo test --locked --lib`。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。完整命令见[构建文档](BUILD.md#prepare-rust-android-inputs)。
+- 第三方许可写进 `shared/src/main/jniLibs/NOTICE.md` 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+### 6.2 边界约定
+
+- **套接字移交**：Kotlin 照旧负责绑定、`accept`、对端校验（只接受控制会话的 iPhone），之后把 fd 交给 Rust（`ParcelFileDescriptor.detachFd`），Rust 拥有它直到关闭。关闭流时 Kotlin 调 `close(handle)`，Rust 用 `shutdown` 唤醒阻塞读并在线程退出时 `close(fd)`。
+- **线程**：每条流一个 Rust 接收线程，名字沿用 `airplay-screen`、`airplay-audio-rx`、`airplay-buffered-rx`，诊断和 `/proc` 采样脚本不必改。音频线程设 `THREAD_PRIORITY_AUDIO` 对应的 nice 值。
+- **AAudio 输出**：`NativeAudioOut` 的原生句柄仅由音频 worker 访问；焦点回调只更新 Kotlin volatile 目标增益，由 worker 在写入／排空前应用。原生写入返回消费的输入字节；衰减／重采样后的未写完 PCM 留在 Rust，排空前不接受下一块输入，零长度写入只排空。输入／生成输出分别计数，部分写入不重算重采样、不重复消费；worker 空闲时继续排空，原生写入失败结束 renderer，关闭前取消焦点，FLUSH 丢弃待写 PCM 和插值历史。
+- **视频直连**：每条接收流持有 Rust route，直接把解密后的包送入一个或多个原生解码队列；镜像各持有包引用，逐帧不回调 Kotlin、不经 JNI 提交。Kotlin 在配置／拓扑变化时更新目的地；route 与解码器通过 Arc 保持内存所有权，已销毁的解码器只释放新到的包。换流、关闭先断开旧 route，接收线程即使尚未退出也不能向新流提交。
+- **向上回调**：视频仅回调配置、首次接收、诊断与结束，解码器事件走既有事件线程；任一目标没有原生 pipe 时保留原有句柄回调分发，避免镜像漏帧。UDP 音频默认从 Rust receiver 直入 renderer 的 Rust 队列，Kotlin 只接收开始、时钟／队列动作和诊断；wiretap 或无直连目的地时仍可交付原生包句柄。缓冲音乐接收器直接入 Rust 队列，Kotlin 输出 worker 按 Rust 返回的步骤执行开始／交付，保留平台调用边界，不传字节数组。
+- **音频状态**：缓冲音乐的 queue 与尚未听到的 fed 包、字节和帧数上限、15 秒后四倍速填充、400 ms 锚点、1 秒预填、RTP 回绕、SETRATE／FLUSH／GETANCHOR／feedback 均由 Rust 计算。平台回调外不持 Rust 锁；Kotlin 输出锁排序暂停／切歌／关闭与交付，开始回调后用 core generation 验证，重入控制使旧交付失效。关闭先销毁／唤醒 owner，再停止接收线程；Arc 保持接收器结束前的内存安全。
+- **音频队列与时钟**：渲染器压缩包在 Rust 持有，保持 192 包上限及持续拥塞恢复阈值，语音不执行音乐积压跳过。入队／关闭唤醒 Android worker；Rust 计算压缩积压与到达加权样本、PI 误差平均、目标测量和进程级 learned drift。Kotlin 只向输出设置请求的速率；系统拒绝时关闭该时钟控制。JNI 句柄销毁与生产者串行，已取出的包独立持引用；时钟随 output worker 释放。生产路径要求原生核心；独立 Kotlin 算法仅留测试源码。
+- **帧句柄**：`NativePacket` 持有引用计数的池化缓冲，Kotlin 通过 `MediaPacket` 传递所有权。镜像消费方各持有自己的引用；写入解码器、被队列丢弃或流关闭时释放。
+- **写入解码器**：原生视频路径的 NDK 回调只排队，由专用线程喂帧和释放输出；Kotlin worker 执行配置、Surface 操作和恢复请求，核心选型与恢复策略由 Rust 持有。生产视频不再通过 Java MediaCodec 输入缓冲喂帧；桌面测试的 SDK pipe 替身仅验证宿主动作，不构成 NDK 解码验收。
+- **配置与首包顺序**：原生 pipe 在发布到接收路由前，按已有 Surface 初始化接收能力。接收线程先登记待处理配置，再收后续帧；Rust 保留这些帧，直到 Kotlin worker 逐个完成所有待处理配置，才按实际 codec 类型检查关键帧并喂入。配置暂停与故障退休状态独立，旧配置完成不能放行新配置的帧。配置失败时，worker 告知该任务是否持有 Config hold；Rust 在同一把锁内判断并清理失败旧链，保留更新配置的帧，无更新配置时允许新关键帧重试。无 Surface 时仍不缓存。#113 及后续失败交错修复的验收边界见[验证摘要](benchmarks/native-video-startup-2026-11-14.md)，各批次通过数分别登记。
+- **统计**：`StreamReceiveStats` 的字段与日志格式不变，计数在 Rust 内累计，按原有心跳与异常间隔回调一行文本。
+- **视频输入统计**：输入帧数、字节、活跃／静止间隔和触摸到下一帧由 Rust 累积，随解码统计定期拉取；主屏独占触摸样本。FPS 直接读取原生计数，保留原有日志字段，不为统计恢复逐帧回调。
+- **核心加载与能力回退**：协议、会话、媒体和车辆领域 facade 要求 Rust 核心；启动失败显式通知并回收已交接资源。JVM 核心测试加载真实 host JNI，旧算法留 testCore 独立对照；SDK socket／codec 边界另做 Android FD 验收。AudioTrack／AAudio、MediaCodec、平台 AEC 等硬件／SDK 能力分支保留。
+
+### 6.3 协议、会话和领域首批
+
+协议样本、固定来源与独立合同的区别见[向量清单](PROTOCOL_VECTORS.zh-CN.md)；测试入口不等于该批已完成设备验收。
+
+- `protocols::iap2_body` 持有CSM参数编码／解析、长度校验、顺序与重复项，以及builder的未知／类型／重复／必选字段规则。`iap2_wire`持有标量、列表／NUL布局和reader字段长度校验；Kotlin只保留DTO、描述性schema、builder／reader接口及平台UTF-8转换，schema错误由Rust返回输入索引，保留UTF-16字段名。encode保留65529字节body上限，standalone parse沿用更宽的旧输入合同；独立旧算法移至pure testCore，不进入生产。R8保留DTO及协议异常类名／现有构造器。
+- `protocols::iap2_csm` 持有65535字节有界的外层分帧、重同步与link分块；`iap2_link` 持有同步协商、序号／ACK／窗口、重传、有限队列和定时器。同步facade串行使用／销毁，worker用`use`持有link owner；旧完整算法只留测试源码，生产不回退。对照LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的`iap2-csm/src/lib.rs`与`iap2-link/src/lib.rs`：保留本仓库严格分块校验、peer长度校验、有界输入／输出／事件、Dead清空语义、原始非control session payload及Long wrapping时钟；没有导入LIVI crate或运行时。
+- `protocols::timing`持有NTP request／peer／sample／filter状态，保留2次选择、8样本窗、128ms／1⁄8 slew和Java rounding／Long wrapping；socket和采钟留Kotlin。
+- `session::airplay`持有RTSP route、feature、stream／timing claim、TEARDOWN、night／navigation关联及本会话远程控制流 ID 的分配；平台socket、cipher安装、DTO和回调留Kotlin。
+- `session::iap2_handshake`唯一持有Identification／MFi／wired／wireless的实际下一动作、消息分派、一次安全省略重试、Wi-Fi前5后2预算、StartAgain、计数及deadline算术；Kotlin保留证书／签名、I/O、取消与回调，不再镜像stage或重试集合。
+- `transport::usbmux`持有可选1004B padding、mux／TCP序号、窗口、队列、16KiB分片和send-success commit；Kotlin保留真实I/O和等待。关闭后的尾队列是Rust解释的不透明GC值，native heap释放。`transport::lockdown` 已持有 XML／plist framing 和 Pair／StartSession／StartService 流程；Kotlin 保留 socket、等待及 PKIX 身份／存储适配。
+- wired USB结果携带所属run，取消／换代后迟到的Connected在交接边界释放。mux发布与close用既有resource monitor排序，锁内不做I/O或关闭。USB pipe只交给factory一次，局部finally只关自己的startup watchdog，不能终止替代run；controller／CSM／VPN代际和资源交接决策已由Rust token持有，SDK关闭与I/O保持在现有资源锁之外。
+- `RtspMessage` 的公开 DTO 与调用入口不变；Rust 解析合包／分片、限制头／体大小、生成响应，JNI 直接构造 Request／Parsed。边界保留 Kotlin US_ASCII 替换、trim／大小写、Content-Length、NUL、重复头和响应顺序语义；错误继续抛 ProtocolException。JNI 使用 UTF-16 并按消息释放局部引用，R8 保留 DTO 名称／构造器。
+- 对照 LIVI `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的 rtsp.rs／ts_vectors：其 16 MiB body、leading-digit 长度解析、非 ASCII 等规则与本项目不同，因此移植本仓库行为，保留 16 KiB header／1 MiB body 上限；标准 RTSP／500 响应与其向量逐字节相同。没有复制 LIVI 文件或导入依赖。
+- `WirelessRunState` 的生命周期、handoff、tunnelReady 与首次失败由 Rust 查询／转移。Kotlin 只串行保存一个 opaque value token，不解释其编码，不分配 native 堆句柄。关闭后首次迟到失败沿用相同转移规则；controller代际、关闭计划及超时决策已接入Rust，原资源锁和平台动作留Kotlin；无线state／recovery生产回退已移出，独立旧实现留testCore。
+- `Iap2VehicleStatus.update` 将 EV 快照的范围／电量／能量转换交给 Rust；保留未知能量省略、负值钳零、u32 溢出拒绝、缩放／舍入、NaN 拒绝和无穷钳制。对照 LIVI `870d26441e073cdb802c427c5ae8833dba694951` 的 iap2-csm vehicle_status 字段／类型一致；livi-cp vehicle_state 属于另一车辆特征协议，不能替代该参数体。SDK provider、订阅和 Iap2Frame 包装继续使用 Kotlin。
+- `ControlCipher` 的分帧、AEAD 与双向 wrapping nonce counter 由 Rust 持有。Kotlin 以同步的 Closeable owner 串行使用／释放句柄；AirPlaySession 关闭 control 和 event owner，拒绝关闭后的迟到安装，并在等待 event 写锁前关闭 socket 以唤醒阻塞写。保留空输入加密帧、u16 解密长度、部分帧 rest identity 及认证失败前已成功帧的计数进度。
+- `PairVerify` 的完整 M1/M2/M3/M4、临时／shared／加密 key、验证状态与 control keys 由 Rust 持有；同步 facade 和 Session 管理释放。Kotlin 只保留实时 PairingStore 查询及平台 UTF-8，JNI 显式保留回调／DTO 签名。保留 M2 阶段 shared 可读、M1 部分失败更新顺序、旧验证结果不被新／失败握手清空、长 key 前32字节计算而完整 raw 参与签名。原生边界保留 BC1.79 的 Ed25519 编码拒绝范围，拒绝低阶／非规范公钥。PairSetup／SRP完整M1–M6、proof和签名状态也已迁入Rust；保留save-before-sign、close／重入顺序。身份与配对存储、JCA硬件密钥及MFi真实I/O留Kotlin，DER／raw转换已原生化。SRP模幂仍是与原BigInteger同类的variable-time实现，不作constant-time承诺。
+- `WirelessBootstrapRecovery` 用 Rust value token 持有 run 预算与 attempt 状态，并决定 Java Throwable facts 的终止／重试／超时包装。保留一次 connect retry、一次 fallback、一次 bootstrap retry、400／800 ms 等待、验证及资源执行顺序；Kotlin 仅保留平台异常描述、100 ms 可取消等待、watchdog 调度与实际资源动作。
+- `Iap2ControlDeadline` 的有限认证窗口、认证后无限模式与30秒 poll 上限由 Rust 决定；Kotlin 保留时钟与原 Iap2WiredControlClient I/O。两 Long token 原样保留全部时间／预算位，认证无限态用独立空 token 表示；不分配 native 堆句柄。保留 Long wrapping、回拨、向上取整与时钟重入的单次查询快照，无限认证后不再读取时钟。
+- Rust `hid` 持有二指触摸、旋钮、媒体及电话报告和四类 descriptor 的编码，`touch_slots` 持有 pointer→slot 状态并合成报告。Kotlin 保留 UID／元数据、Android 输入及显示尺寸；facade 串行使用／关闭句柄，关闭后的迟到报告安全返回 false。保留按 slot id 首次匹配、Android Math.round 与低16位截断；这些与 LIVI 的列表顺序／饱和规则不同。
+- `media::audio::scheduler` 持有输出记账、unsigned head、playback／prebuffer、容量内启动门限、写入分块／结果动作、重缓冲／尾包期限、buffer校准和导航路由决策。worker惰性分配，同worker reset／释放；平台play／pause成功后才回报Rust，不在core锁内调用SDK。压缩包始终由Rust队列持有，UDP RTP 直连路径通过 `media::audio::route` 投递并回报队列事件，旧Kotlin恢复算法只留testCore。普通音频 feedback 的锚点、sampleTime 计算与单流回复 entry 也归 `media::audio::route`：Kotlin 在原有时点读取时钟、提交实际流启动并在发送前取回完整 entry；buffered 的回复 schema 不变。`media::video::selection`持有软硬解选择、重试与probe计划，保留首个非alias、2000／30000ms、Long wrapping和callback后才推进重试的顺序；平台保留Char折叠、枚举／create／sleep。
+- `media::audio::packetizer`让无法共享FD的Java麦克风发送路径也使用Rust协议核心：RTP／ChaCha计数、PCM换序、Opus时钟／帧长及MTU计划均原生，复用`uplink::seal`，SDK只发完整datagram。保留成功生成包后、socket发送前才提交counter、Int／Long wrapping、48／24／16kHz优先顺序和20／10／5ms校准。计数是GC opaque token，旧完整算法与Concentus仅作testCore对照；SDK录音、焦点／效果及一次启动资源门闩留平台。
+- `vehicle::identification` 编组20／21的字段与重复连接器；名称经既有平台字符串 codec，保留畸形UTF-16替换、NUL拒绝及既有参数／body预算。`vehicle_speed` 持有PASCD布局与XOR／CRLF，平台 Formatter 保留舍入、负零及非有限数拼写。`cluster_arrow／lane_icon／day_night` 持有OEM纯转换，车机适配保留；status0且angles为空仍以原始highlight推断方向，不激活高亮。
+- `session::playback` 持有 0x5001 NowPlaying 增量字段解析／保留／清空——主媒体与 Glance 两种投影都在这里（Glance 在播放状态 1/3/4 认为在播、显式空标题同时清除保留歌手），以及导航播放 renderer lease、quiet tail 与路由／priority voice 聚合。Kotlin 只发布不可变 DTO 并提供平台 UTF-8／trim、时钟与 renderer token 引用；Glance 卡片的标题／歌手组合与 UTF-16LE 255 字节裁剪留在 Kotlin。字段缺失、畸形字段和空文本保持原合同。
+- `session::{network_address, hotspot_recovery}` 持有热点地址／alternate 选择、scoped IPv6 readiness、首个 TCP 失败后的 family-flip 证据门槛、preferred-family deadline、稳定样本确认及 radio-return／outage 时间窗。SDK 接口识别、地址能力分类、取消、采样、等待和配置持久化保留 Kotlin。
+- `session::p2p_startup` 持有 remembered frequency、同频道／单 band／手动频道计划、BUSY 一次重试和 compatibility fallback；Kotlin 执行 Wi-Fi Direct 请求，保留外部异常身份与 SDK 前置互斥，不在结果不确定的 timeout 后重新创建。
+- `vehicle::route_guidance::lane_update` 复用共享 iAP2 body parser 解析完整 0x5204，保留 known-field duplicate 的精确长度、稳定 lane index 排序、角度 wire 顺序与 ±1000 unknown 值，空 body 才是清空。Glance／HUD 调用原 facade 获取不可变 DTO。
+- `protocols::airplay` 持有 `/info` 能力、固定 event／command、VideoInCar、Bonjour TXT／connect probe 编码，以及 SETUP 流字段解释、回复布局、DataStream-Salt 密钥派生和麦克风参数规则（audioType 请求规则含显式 input 优先、等待下行标志、端口范围、Opus 帧长／码率／时钟，参数复用 `media::audio::packetizer`）。Kotlin 保留 audioType／UUID 的平台文本转换、socket 绑定、MicrophoneConfig DTO 和实际执行；feedback／buffered 仍用的无符号回复编码留在各自 owner 旁。`media::audio::{routing, echo}` 持有路由与 speaker fallback、far-end PCM 和 capture clock；buffered owner 也持有 anchor／feedback 回复 schema 和 NTP 换算。Java bplist 数值／字符串转换与实际 SDK 执行继续保留。
+- 已迁协议、配对、媒体、导航／HUD、NTP、会话状态与恢复要求原生核心；旧算法只作为testCore对照。所有权与当前验收见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)，issue #96 保留已完成迁移的历史证据。PASCD／VehicleSpeedLocationProvider 的生产车速源已接入：`EcarxVehicleSpeedSource` 读取 ECARX `ISensor` 1048832（m/s）并经 VHAL `GEAR_SELECTION` 取得挡位，平台笔记已登记接口与单位；真实车机已记录订阅路径，完整动态数据链和服务断线恢复仍需对应证据。
+
+生产核心 facade 必须加载 Rust；独立旧算法只供测试对照，库加载失败显式上报。Bouncy Castle 已从 shared 生产依赖移除，仅作测试 oracle。AudioTrack、MediaCodec、AAudio 等真实硬件／SDK 能力回退保留。历史候选的双 ABI／设备结果仅适用于其构建源码；各批 JNI／R8／设备验收见[验收矩阵与历史审计](RUST_CORE_REMAINING.zh-CN.md)，不能用历史记录替代当前变更验收。
+
+### 6.4 各路径的实现
+
+| 路径 | 目标 |
+| --- | --- |
+| 视频 | Rust：`recv` 进池化缓冲 → 原地开封 → 原地 AVCC→Annex B、解析 NAL 类型 → route 直接分发至解码队列 → NDK `AMediaCodec` 异步循环。关键帧门控、输入背压恢复、按 iPhone 帧时间的节拍与统计在 Rust；`VideoDecoder` 的 worker 处理配置、Surface、镜像、停放与 Rust 发来的事件（要关键帧、要解码器、重建、出错）。无原生 pipe 的目标保留句柄回调路径。 |
+| UDP 音频 | Rust 接收、开封并默认直入 renderer Rust 队列；诊断 wiretap 保留原生包句柄交付。Opus 用 libopus 解码；AAC 保留系统 MediaCodec；LPCM 字节序、通话高通、有声检测、导航衰减与淡入在 Rust 处理。音乐和导航的 usage 路径尝试 AAudio；通话、Siri、旧式流类型及打开失败时使用 `AudioTrack`。 |
+| 缓冲音乐 | Rust 读长度前缀、开封并直接入有界队列，拥有锚点、SETRATE／FLUSH、暂停预填保留、填充节奏与 TCP 回压；Android worker 拉取核心发送步骤，串行执行平台开始／交付／停止。 |
+| 麦克风 | Kotlin 保留 `AudioRecord` 采集、音效会话与原有 Speex C/JNI 回声处理。可共享 socket FD 时 Rust 编码／RTP／封装／发送；不能共享时 Java DatagramSocket 执行发送，编码、packetizer 和密码仍要求 Rust。 |
+| 有线 | Kotlin 保留 USB 接口认领、VPN 与生命周期。未保存过原生数据通路选择时，默认尝试 Rust usbdevfs 同步 bulk、NTB16 重组、邻居通告修补与 tun 转发；显式关闭或原生引擎无法启动时使用 Java USB／tun I/O 适配，NCM framing／路由核心仍由 Rust 执行。 |
+
+## 7. 分阶段与验收
+
+以下是已完成源码迁移时使用的阶段与验收目标：阶段 1 经 PR #94、阶段 2–6 经 PR #97 合入。表中目标不代表每项已在所有硬件／版本通过；当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。小米 8 台架对照与实车验收分别记录，不能互相替代。
+
+| 阶段 | 内容 | 验收 |
+| --- | --- | --- |
+| 0 | 基线：60 fps 会话 + 音乐，记录各线程与整进程 CPU、每包接收耗时、恢复次数 | 两轮可复现的数字 |
+| 1 | 接收与开封：视频、UDP 音频、缓冲音乐；池化包句柄，解码器从包直接拷入输入缓冲 | 接收线程每包 CPU 下降；包无泄漏（`pooled` 稳定）；无新增恢复、欠载 |
+| 2 | 音频解码与 PCM 处理（libopus、LPCM、PCM 步骤；AAC 输出经直接缓冲） | 与 Kotlin 实现同一黄金向量；Siri 走原生 Opus；导航衰减、通话路由、焦点不变 |
+| 3 | 视频解码循环：NDK `AMediaCodec` 异步模式，回调只排队、专用喂帧线程调用编解码器；Rust 内节拍、关键帧门控与背压恢复 | `MediaCodec_loop` 与解码线程 CPU 下降；首帧、恢复、Surface 切换与停放行为不变 |
+| 4 | 音频输出：AAudio（按 usage 路由的音乐与导航），通话、Siri 与旧式流类型保留 `AudioTrack`；焦点压低音量改为 PCM 增益，时钟微调改为 Rust 重采样 | 实车各声道路由、焦点、欠载不变 |
+| 5 | 麦克风发送：libopus 编码、RTP、封装、`sendto` 一次调用；采集仍是 `AudioRecord`（车机麦克风策略与平台音效挂在它的会话上），Speex 回声消除仍是原 C 库 | Siri 与通话实车可用；同输入下上行包与 Kotlin 逐字节一致 |
+| 6 | 有线 NCM ↔ tun：usbdevfs 同步 bulk、NTB16 重组与重同步、邻居通告修补、流量计数全在 Rust；高级设置“有线数据通路原生化（实验性）”未保存选择时默认开启，保留显式关闭和能力回退 | 有线连接、断开、重连实车可用；有线帧率与 CPU 对照 |
+
+阶段 0 / 1 结果（小米 8，Android 15，请求 60 fps，两路视频合计约 57 个接收消息/秒，并播放音乐；A/B/A/B 各 300 秒，2026-11-11）。两路均值约为 22 和 35，日志没有流 ID，不把合计值写成主屏帧率：
+
+| 指标 | 基线 A1 / A2 | 阶段 1 B1 / B2 |
+| --- | --- | --- |
+| 整进程 CPU（一个核） | 50.7% / 50.8% | 49.7% / 50.2% |
+| 视频接收线程 | 3.55% / 3.75%，每帧 633 / 666 µs | 3.21% / 3.26%，每帧 571 / 578 µs |
+| 音乐接收线程 | 0.61% / 0.62%，每包 132 µs | 0.34% / 0.34%，每包 73 / 72 µs |
+| 未释放的包（`pooled` 峰值） | — | 8 |
+
+接收线程每帧 / 每包 CPU 分别降约 11% 与 45%；整进程只降约 0.8 个点，在噪声范围内。
+
+阶段 2–5 结果（同一台架与流程，2026-11-12）：
+
+| 指标 | 基线 A | 阶段 1–3（C1 / C2） | 阶段 1–5（D1 / D2） |
+| --- | --- | --- | --- |
+| 整进程 CPU | 50.7% / 50.8% | 40.7% / 40.5% | 41.3% / 41.6% |
+| `MediaCodec_loop` | 16.3% / 16.2% | 9.4% / 9.2% | 9.3% / 9.3% |
+| 视频解码（Kotlin worker → Rust 喂帧线程 + NDK 回调线程） | 9.0% / 8.9% | 0.4% + 2.0% + 2.2% | 0.4% + 2.0% + 2.2–2.4% |
+| `carplay-audio` | 6.6% / 6.5% | 7.2% / 7.1% | 7.4% / 7.4% |
+
+包含原生视频解码循环的 C 版本比 A 基线低约 10.16 个百分点（20.0%）；主要线程下降与视频循环变化相符，但这不是单一改动的隔离实验。D 版本约为 41.45%，比 C 均值高约 0.87 个百分点，没有测出 AAudio 带来的 CPU 改善。台架日志观察到 AAudio 使用 AudioStreamTrack，尚不能推断 753 车机的 MMAP 能力或实际延迟。台架 GC 线程 CPU 接近计数精度下限，没有测得明确的 GC 收益。各轮数据、版本与限制见[实验记录](benchmarks/native-media-2026-11-12.md)。
+
+测量方法：接收线程 CPU 取 `/proc/<pid>/task/*/stat` 的 utime/stime，会话日志里的 `Receive:` 心跳行给出每包读、处理与解密耗时；A/B 为同一流程构建的两个 release 车测包交替安装，脚本与原始结果放在本地工作区，结论回填到本节或平台笔记。
+
+## 8. 新代码放在哪
+
+- 按包、按帧执行的逻辑放进 `diplay-media`，在 Kotlin 侧只暴露句柄与配置；不要在接收或渲染循环里新建 `ByteArray`。
+- 核心选型、回退、路由和恢复决策放在对应 Rust owner；平台焦点请求、SDK 调用和设置存储保留 Kotlin 适配层。改动时同步其调用方与测试，不新增第二份核心状态。
+- 新的 JNI 入口跟随所属 owner 的边界；独立桥接放在 owner 的私有 `jni` 子模块，共享 JVM／NDK 设施留在 `platform`。每个入口检查参数边界后才触碰内存；Rust 侧不 `panic` 跨越 FFI（发布配置为 abort），错误以返回码或既有异常契约交给 Kotlin。
+- 新的车机接口或属性先登记到平台笔记，再使用。
