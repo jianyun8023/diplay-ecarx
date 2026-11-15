@@ -36,7 +36,7 @@ pub(super) fn wants_microphone(audio_type: &str, input: Option<bool>, data_port:
 /// Calls wait for their downlink: call capture uses the far-end audio as its echo reference.
 /// Other eligible streams may start silently after SETUP.
 pub(super) fn wait_downlink(audio_type: &str) -> bool {
-    audio_type != "telephony"
+    audio_type == "telephony"
 }
 
 /// One negotiated microphone stream's numeric plan; the platform DTO carries it to capture.
@@ -188,10 +188,10 @@ mod tests {
 
     #[test]
     fn calls_wait_for_downlink_and_other_streams_start_silently() {
-        assert!(!wait_downlink("telephony"));
-        assert!(wait_downlink("speechrecognition"));
-        assert!(wait_downlink("default"));
-        assert!(wait_downlink("media"));
+        assert!(wait_downlink("telephony"));
+        assert!(!wait_downlink("speechrecognition"));
+        assert!(!wait_downlink("default"));
+        assert!(!wait_downlink("compatibility"));
     }
 
     #[test]
@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(call.frame_millis, 20);
         assert_eq!(call.bitrate, Some(96_000));
         assert_eq!(call.opus_clock_rate, 48_000);
-        assert!(!call.wait_downlink);
+        assert!(call.wait_downlink);
         let siri = microphone_plan("default", 100, true, 0x2000_0000, 0, Some(50_000), Some(true)).unwrap();
         assert_eq!(siri.bitrate, Some(64_000));
         assert_eq!(siri.opus_clock_rate, 24_000);

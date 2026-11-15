@@ -49,9 +49,10 @@ class MicrophoneStartTest {
     @Test fun callsWaitForTheirDownlinkAndOtherInputStreamsDoNot() {
         // The per-audioType rule travels with the Rust microphone plan (`waitDownlink`); this
         // class only keeps the platform start guard and the 500 ms scheduling parameter.
-        assertFalse(waitsForDownlink("telephony"))
-        assertTrue(waitsForDownlink("speechrecognition"))
-        assertTrue(waitsForDownlink("default"))
+        assertTrue(waitsForDownlink("telephony"))
+        assertFalse(waitsForDownlink("speechrecognition"))
+        assertFalse(waitsForDownlink("default"))
+        assertFalse(waitsForDownlink("compatibility"))
     }
 
     private fun waitsForDownlink(audioType: String): Boolean =

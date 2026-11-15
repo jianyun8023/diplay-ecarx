@@ -59,11 +59,11 @@ class AppMicrophoneRequestTest {
         assertEquals(20, call["frameMillis"])
         assertEquals(96_000, call["bitrate"])
         assertEquals(48_000, call["opusClockRate"])
-        assertEquals(false, call["waitDownlink"])
+        assertEquals(true, call["waitDownlink"])
         val siri = mic("default", "audioFormat" to 0x20000000L, "input" to true, "dataPort" to 50_000L)!!
         assertEquals(64_000, siri["bitrate"])
         assertEquals(24_000, siri["opusClockRate"])
-        assertEquals(true, siri["waitDownlink"])
+        assertEquals(false, siri["waitDownlink"])
         val quiet = mic("default", "audioFormat" to 0x10000000L, "input" to true, "dataPort" to 50_000L)!!
         assertEquals(48_000, quiet["bitrate"])
         assertEquals(16_000, quiet["opusClockRate"])
