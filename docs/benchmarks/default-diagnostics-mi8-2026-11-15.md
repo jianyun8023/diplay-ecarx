@@ -50,3 +50,5 @@
 两轮最终媒体行的同步持久化返回标记均为 `persisted=false`；随后读取磁盘 XML，且第一轮经正式报告导出，均证实对应最终记录已保存。因此这里以实际落盘证据判定正常断开通过，不把同步返回值解释为已确认成功；立即杀进程场景未验收。
 
 本地 Rust/JVM/三 ABI 构建记录见[默认模式诊断](../DIAGNOSTICS_DEFAULT_MODE.zh-CN.md)。未覆盖实车 ECARX DIM/MQTT 服务、原厂导航和蓝牙恢复实际效果、AEC/通话、长时间运行、ACC/冷启动十轮及 x86_64 设备执行；合同测试通过不等于这些硬件场景验收。
+
+PR CI 首轮发现 `AndroidMediaSinkStateTest` 的普通 JVM 环境不能调用新增身份字段使用的 `Process.myPid()`。按相邻 sink 测试补齐 Robolectric / API 28 配置后，原断言定向复测通过；生产代码和被测 APK 行为未因此改变。完整回归以 PR CI 的最终结果为准。
