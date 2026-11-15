@@ -94,6 +94,11 @@ internal object NativeMedia {
     @JvmStatic external fun audioRouteCreate(clockRate: Int, direct: Boolean): Long
     @JvmStatic external fun audioRouteSetQueue(handle: Long, retainedQueue: Long)
     @JvmStatic external fun audioRouteFeedback(handle: Long, reported: Long, nowNs: Long): LongArray?
+    /** The route owner computes sampleTime and the reply entry; times arrive sampled once. */
+    @JvmStatic external fun audioRouteFeedbackEntry(
+        handle: Long, type: Int, nowNs: Long, latencyMs: Int, connection: Any?, timestamp: Any?,
+    ): Any?
+    @JvmStatic external fun audioRouteAnchor(handle: Long, firstSample: Int, originNs: Long)
     @JvmStatic external fun audioRouteDestroy(handle: Long)
     @JvmStatic external fun audioQueueRetain(handle: Long): Long
     @JvmStatic external fun audioQueueRelease(handle: Long)

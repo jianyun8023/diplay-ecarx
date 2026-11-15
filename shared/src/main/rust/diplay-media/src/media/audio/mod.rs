@@ -7,7 +7,7 @@ pub mod buffered_state;
 pub mod clock_trim;
 mod echo;
 pub mod pcm;
-mod packetizer;
+pub(crate) mod packetizer;
 pub mod queue;
 pub mod route;
 mod routing;

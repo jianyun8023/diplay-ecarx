@@ -630,6 +630,21 @@ pub(crate) unsafe fn write_value(env: *mut JNIEnv, value: &Value) -> Option<jobj
     output.write(env, value)
 }
 
+/// Puts a platform-built value into a map produced by [write_value]; reply placeholders carry
+/// Null so external objects keep their identity instead of crossing the charset bridge.
+pub(crate) unsafe fn replace_map_value(
+    env: *mut JNIEnv, map: jobject, name: &str, value: jobject,
+) {
+    let f = &**env;
+    let class = (f.GetObjectClass.unwrap())(env, map);
+    let method = (f.GetMethodID.unwrap())(env, class, c"put".as_ptr(),
+        c"(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".as_ptr());
+    if method.is_null() { return; }
+    let Some(key) = text(env, &name.encode_utf16().collect::<Vec<_>>()) else { return; };
+    (f.CallObjectMethodA.unwrap())(env, map, method,
+        [jni_sys::jvalue { l: key }, jni_sys::jvalue { l: value }].as_ptr());
+}
+
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeBplist_encode(
     env: *mut JNIEnv,

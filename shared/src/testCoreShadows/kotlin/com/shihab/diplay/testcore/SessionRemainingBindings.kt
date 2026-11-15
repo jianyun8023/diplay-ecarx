@@ -2,6 +2,7 @@
 
 package com.shihab.diplay.testcore
 
+import com.shihab.diplay.media.CarPlayGlanceSong
 import com.shihab.diplay.media.CarPlayNowPlaying
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
@@ -17,6 +18,13 @@ class ShadowNativePlaybackCore {
             HostNative.call("media.NativePlaybackCore", "nowAccept", owner, id, payload)?.let(::snapshot)
         @JvmStatic @Implementation fun nowClear(owner: Array<LongArray>, all: Boolean): CarPlayNowPlaying? =
             HostNative.call("media.NativePlaybackCore", "nowClear", owner, all)?.let(::snapshot)
+        @JvmStatic @Implementation fun glanceCreate(): LongArray = HostNative.call("media.NativePlaybackCore", "glanceCreate") as LongArray
+        @JvmStatic @Implementation fun glanceSnapshot(owner: Array<LongArray>): CarPlayGlanceSong? =
+            HostNative.call("media.NativePlaybackCore", "glanceSnapshot", owner)?.let(::glance)
+        @JvmStatic @Implementation fun glanceAccept(owner: Array<LongArray>, id: Int, payload: ByteArray): CarPlayGlanceSong? =
+            HostNative.call("media.NativePlaybackCore", "glanceAccept", owner, id, payload)?.let(::glance)
+        @JvmStatic @Implementation fun glanceClear(owner: Array<LongArray>): CarPlayGlanceSong? =
+            HostNative.call("media.NativePlaybackCore", "glanceClear", owner)?.let(::glance)
         @JvmStatic @Implementation fun navigationCreate(): LongArray = HostNative.call("media.NativePlaybackCore", "navigationCreate") as LongArray
         @JvmStatic @Implementation fun navigationEvent(owner: Array<LongArray>, event: Int, id: Long,
             stream: Int, hasStream: Boolean, now: Long, buffered: Long, tail: Long, priority: Boolean): Long =
@@ -29,6 +37,11 @@ class ShadowNativePlaybackCore {
             HostNative.component(value, 3) as String?, HostNative.component(value, 4) as Int?,
             HostNative.component(value, 5) as String?, HostNative.component(value, 6) as Long?,
             HostNative.component(value, 7) as Long?, HostNative.component(value, 8) as Boolean,
+        )
+
+        private fun glance(value: Any) = CarPlayGlanceSong(
+            HostNative.component(value, 1) as String?, HostNative.component(value, 2) as String?,
+            HostNative.component(value, 3) as Boolean,
         )
     }
 }

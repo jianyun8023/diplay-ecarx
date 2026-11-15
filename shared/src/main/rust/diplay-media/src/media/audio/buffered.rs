@@ -120,14 +120,6 @@ fn anchor_reply(snapshot: &[i64; 5]) -> Value {
     ])
 }
 
-unsafe fn replace_reply_value(env: *mut JNIEnv, map: jni_sys::jobject, name: &str, value: jni_sys::jobject) {
-    let f = &**env;
-    let class = (f.GetObjectClass.unwrap())(env, map);
-    let method = (f.GetMethodID.unwrap())(env, class, c"put".as_ptr(), c"(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;".as_ptr());
-    if method.is_null() { return; }
-    (f.CallObjectMethodA.unwrap())(env, map, method, [jni_sys::jvalue { l: Env(env).string(name) }, jni_sys::jvalue { l: value }].as_ptr());
-}
-
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedAnchor(
     env: *mut JNIEnv, _: jclass, snapshot: jni_sys::jlongArray,
@@ -144,7 +136,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_buffere
     let fraction = ((values[2] as u32 as u64) << 32).to_string();
     let big = (f.NewObjectA.unwrap())(env, class, ctor, [jni_sys::jvalue { l: Env(env).string(&fraction) }].as_ptr());
     if big.is_null() { return std::ptr::null_mut(); }
-    replace_reply_value(env, map, "networkTimeFrac", big);
+    bplist::jni::replace_map_value(env, map, "networkTimeFrac", big);
     map
 }
 
@@ -167,9 +159,9 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_buffere
     }
     let Some(map) = bplist::jni::write_value(env, &Value::Dict(fields)) else { return std::ptr::null_mut(); };
     if position >= 0 {
-        replace_reply_value(env, map, "streamConnectionID", connection);
+        bplist::jni::replace_map_value(env, map, "streamConnectionID", connection);
         if ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
-        replace_reply_value(env, map, "timestamp", ntp);
+        bplist::jni::replace_map_value(env, map, "timestamp", ntp);
     }
     map
 }

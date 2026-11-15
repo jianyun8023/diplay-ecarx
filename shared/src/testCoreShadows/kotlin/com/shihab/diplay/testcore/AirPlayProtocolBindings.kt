@@ -54,5 +54,30 @@ class ShadowNativeAirPlayProtocol {
 
         @JvmStatic @Implementation fun cornerMask(value: Any?, depth: Int): ByteArray? =
             HostNative.call("airplay.NativeAirPlayProtocol", "cornerMask", value, depth) as ByteArray?
+
+        @JvmStatic @Implementation fun audioSetup(
+            type: Int,
+            audioType: String,
+            stream: Map<String, Any?>,
+            sharedSecret: ByteArray?,
+            microphoneEnabled: Boolean,
+        ): Map<String, Any?>? =
+            HostNative.call("airplay.NativeAirPlayProtocol", "audioSetup", type, audioType, stream, sharedSecret, microphoneEnabled) as Map<String, Any?>?
+
+        @JvmStatic @Implementation fun dataStreamSetup(stream: Map<String, Any?>): Map<String, Any?>? =
+            HostNative.call("airplay.NativeAirPlayProtocol", "dataStreamSetup", stream) as Map<String, Any?>?
+
+        @JvmStatic @Implementation fun dataStreamKey(sharedSecret: ByteArray, seed: String, label: String): ByteArray? =
+            HostNative.call("airplay.NativeAirPlayProtocol", "dataStreamKey", sharedSecret, seed, label) as ByteArray?
+
+        @JvmStatic @Implementation fun setupReply(
+            operation: Int,
+            type: Int,
+            streamId: Long,
+            dataPort: Int,
+            controlPort: Int,
+            connectionId: Any?,
+        ): Map<String, Any?>? =
+            HostNative.call("airplay.NativeAirPlayProtocol", "setupReply", operation, type, streamId, dataPort, controlPort, connectionId) as Map<String, Any?>?
     }
 }

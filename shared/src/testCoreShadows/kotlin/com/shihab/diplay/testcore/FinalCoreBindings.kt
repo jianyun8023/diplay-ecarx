@@ -226,39 +226,6 @@ class ShadowNativeVideoTiming {
 @Implements(className = "com.shihab.diplay.media.NativeVideoFlow", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeVideoFlow {
     companion object {
-        @JvmStatic @Implementation fun queueCreate(maxFrames: Int, maxBytes: Int, resync: Any): Array<Any?> =
-            HostNative.call("media.NativeVideoFlow", "queueCreate", maxFrames, maxBytes, resync) as Array<Any?>
-
-        @JvmStatic @Implementation fun queueOffer(owner: Array<Any?>, job: Any, kind: Int, size: Int, received: Long): Array<Any?> =
-            HostNative.call("media.NativeVideoFlow", "queueOffer", owner, job, kind, size, received) as Array<Any?>
-
-        @JvmStatic @Implementation fun queueRemove(owner: Array<Any?>, op: Int): Array<Any?> =
-            HostNative.call("media.NativeVideoFlow", "queueRemove", owner, op) as Array<Any?>
-
-        @JvmStatic @Implementation fun queueBacklog(owner: Array<Any?>): LongArray =
-            HostNative.call("media.NativeVideoFlow", "queueBacklog", owner) as LongArray
-
-        @JvmStatic @Implementation fun queueResync(owner: Array<Any?>): Boolean =
-            HostNative.call("media.NativeVideoFlow", "queueResync", owner) as Boolean
-
-        @JvmStatic @Implementation fun reference(owner: Long, event: Int): Long =
-            HostNative.call("media.NativeVideoFlow", "reference", owner, event) as Long
-
-        @JvmStatic @Implementation fun referenceNeeds(owner: Long): Boolean =
-            HostNative.call("media.NativeVideoFlow", "referenceNeeds", owner) as Boolean
-
-        @JvmStatic @Implementation fun referenceAccepts(owner: Long, randomAccess: Boolean): Boolean =
-            HostNative.call("media.NativeVideoFlow", "referenceAccepts", owner, randomAccess) as Boolean
-
-        @JvmStatic @Implementation fun obsolete(now: Long, received: Long, pending: Int, newest: Long, hasNewest: Boolean): Boolean =
-            HostNative.call("media.NativeVideoFlow", "obsolete", now, received, pending, newest, hasNewest) as Boolean
-
-        @JvmStatic @Implementation fun keyframeCreate(): LongArray =
-            HostNative.call("media.NativeVideoFlow", "keyframeCreate") as LongArray
-
-        @JvmStatic @Implementation fun keyframeRequest(owner: LongArray, now: Long, force: Boolean): Boolean =
-            HostNative.call("media.NativeVideoFlow", "keyframeRequest", owner, now, force) as Boolean
-
         @JvmStatic @Implementation fun inputCreate(start: Long, timeout: Long): LongArray =
             HostNative.call("media.NativeVideoFlow", "inputCreate", start, timeout) as LongArray
 

@@ -42,6 +42,8 @@ internal class AirPlayNegotiation(config: AirPlayConfig) {
     }
     @Synchronized fun nightModeResponse(sequence: Int): Boolean? =
         NativeAirPlayNegotiation.nightResponse(state, sequence).let { if (it < 0) null else it != 0 }
+    /** This session's next remote-control stream id; the core allocates and advances it. */
+    @Synchronized fun remoteControlStream(): Long = NativeAirPlayNegotiation.remoteControlStream(state)
     @Synchronized fun beginNavigationExit(requestId: Long?): Int =
         NativeAirPlayNegotiation.navigation(state, 1, requestId ?: 0, requestId != null)
     @Synchronized fun releaseNavigationExit(): Int = NativeAirPlayNegotiation.navigation(state, 2, 0, false)
@@ -104,6 +106,7 @@ internal object NativeAirPlayNegotiation {
     @JvmStatic external fun finishTeardown(state: LongArray, all: Boolean): Boolean
     @JvmStatic external fun nightResponse(state: LongArray, sequence: Int): Int
     @JvmStatic external fun navigation(state: LongArray, event: Int, value: Long, present: Boolean): Int
+    @JvmStatic external fun remoteControlStream(state: LongArray): Long
     @JvmStatic external fun features(capabilities: Int, proposed: Array<String>): Array<String>
     @JvmStatic external fun teardownTypes(types: IntArray, ids: LongArray, present: BooleanArray): IntArray?
 }

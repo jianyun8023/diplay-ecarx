@@ -2,7 +2,9 @@
 //! Platform callbacks run between transitions, never while a Rust state borrow is alive.
 mod jni;
 
-const WORDS: usize = 53;
+const WORDS: usize = 54;
+/// The first remote-control data stream id a session hands out.
+const FIRST_REMOTE_CONTROL_STREAM_ID: i64 = 3;
 const CLOSED: u32 = 1;
 const NOTIFIED: u32 = 2;
 const CONNECTING: u32 = 4;
@@ -24,6 +26,7 @@ struct Session {
     night_requests: Vec<(i32, bool)>,
     navigation_request: Option<i64>,
     navigation_entity: Option<i32>,
+    next_remote_control_stream_id: i64,
 }
 
 impl Session {
@@ -41,6 +44,7 @@ impl Session {
             night_requests: Vec::new(),
             navigation_request: None,
             navigation_entity: None,
+            next_remote_control_stream_id: FIRST_REMOTE_CONTROL_STREAM_ID,
         }
     }
 
@@ -68,6 +72,7 @@ impl Session {
         words[50] = self.navigation_request.unwrap_or(0);
         words[51] = self.navigation_entity.is_some() as i64;
         words[52] = self.navigation_entity.unwrap_or(0) as i64;
+        words[53] = self.next_remote_control_stream_id;
         words
     }
 
@@ -82,6 +87,7 @@ impl Session {
             || !(0..=1).contains(&words[49])
             || !(0..=1).contains(&words[51])
             || words[52] != words[52] as i32 as i64
+            || words[53] < FIRST_REMOTE_CONTROL_STREAM_ID
         {
             return None;
         }
@@ -118,6 +124,7 @@ impl Session {
             night_requests,
             navigation_request: (words[49] != 0).then_some(words[50]),
             navigation_entity: (words[51] != 0).then_some(words[52] as i32),
+            next_remote_control_stream_id: words[53],
         })
     }
 
@@ -222,6 +229,14 @@ impl Session {
             Some(index) => self.night_requests.remove(index).1 as i32,
             None => -1,
         }
+    }
+
+    /// Hands out this session's next remote-control data stream id and advances the counter:
+    /// the iPhone tears a stream down by the streamID the SETUP reply carried.
+    fn remote_control_stream(&mut self) -> i64 {
+        let id = self.next_remote_control_stream_id;
+        self.next_remote_control_stream_id = self.next_remote_control_stream_id.wrapping_add(1);
+        id
     }
 
     /// Begin: -1 closed / 0 coalesced / 1 claim. Release: -1 absent / 0 closed / 1 write.
@@ -411,4 +426,35 @@ fn teardown_types(types: &[i32], ids: &[i64], present: &[u8]) -> Option<Vec<i32>
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_control_stream_ids_start_at_three_and_survive_the_token() {
+        let mut session = Session::new(0);
+        assert_eq!(session.remote_control_stream(), 3);
+        assert_eq!(session.remote_control_stream(), 4);
+        let mut restored = Session::from_token(session.token()).unwrap();
+        assert_eq!(restored.remote_control_stream(), 5);
+        // A session whose token carries a later counter continues from there.
+        let mut later = Session::new(0);
+        for _ in 0..9 {
+            later.remote_control_stream();
+        }
+        assert_eq!(Session::from_token(later.token()).unwrap().remote_control_stream(), 12);
+    }
+
+    #[test]
+    fn from_token_rejects_stream_id_counters_below_the_first_id() {
+        let mut words = Session::new(0).token();
+        words[53] = 2;
+        assert!(Session::from_token(words).is_none());
+        words[53] = 3;
+        assert!(Session::from_token(words).is_some());
+        words[53] = i64::MAX;
+        assert!(Session::from_token(words).is_some());
+    }
 }

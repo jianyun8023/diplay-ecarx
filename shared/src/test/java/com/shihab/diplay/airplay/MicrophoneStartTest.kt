@@ -47,10 +47,17 @@ class MicrophoneStartTest {
     }
 
     @Test fun callsWaitForTheirDownlinkAndOtherInputStreamsDoNot() {
-        assertFalse(MicrophoneStart.startsWithoutDownlink("telephony"))
-        assertTrue(MicrophoneStart.startsWithoutDownlink("speechrecognition"))
-        assertTrue(MicrophoneStart.startsWithoutDownlink("default"))
+        // The per-audioType rule travels with the Rust microphone plan (`waitDownlink`); this
+        // class only keeps the platform start guard and the 500 ms scheduling parameter.
+        assertTrue(waitsForDownlink("telephony"))
+        assertFalse(waitsForDownlink("speechrecognition"))
+        assertFalse(waitsForDownlink("default"))
+        assertFalse(waitsForDownlink("compatibility"))
     }
+
+    private fun waitsForDownlink(audioType: String): Boolean =
+        NativeAirPlayProtocol.audioSetupPlan(100, audioType, mapOf("dataPort" to 50_000L), null, true)
+            ?.microphone?.waitDownlink == true
 
     private fun drain() {
         // Delayed tasks still run after shutdown; cancelled ones are dropped.
