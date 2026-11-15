@@ -30,7 +30,7 @@ The module layout and current ownership are described in [the architecture notes
 
 The ownership below describes production boundaries. Change one coherent owner and its callers/tests at a time; preserve Android 9 calibration, routing and recovery behavior, and update these rules when ownership changes. Reuse existing Rust media code. Before importing protocol code, compare the relevant [LIVI Rust crates](https://github.com/f-io/LIVI/tree/main/native/crates) and test vectors against our wire behavior; record the source revision, preserve required attribution, and check API 28 and all supported ABIs. Do not import its complete application/runtime merely to reuse a protocol module.
 
-During development, run affected-module tests. Run the complete Checks command for a deliverable batch; do not repeat global checks for documentation-only changes. Track current acceptance and remaining work in [the acceptance matrix](docs/RUST_CORE_REMAINING.zh-CN.md), with links to supporting issues/PRs. Closed issues #96/#98/#99 preserve history; their closure does not establish every device/car acceptance item.
+For behavior changes, run affected-module tests according to the Checks policy above. Track current acceptance and remaining work in [the acceptance matrix](docs/RUST_CORE_REMAINING.zh-CN.md), with links to supporting issues/PRs. Closed issues #96/#98/#99 preserve history; their closure does not establish every device/car acceptance item.
 
 Keep shared-only internal-owner contracts in `shared/src/testCoreInternal/kotlin`, included by shared JVM/androidTest source sets only. General `testCore` references and `testCoreShadows` remain available to common/home tests; do not make production internal APIs public to compile fixtures in unrelated modules.
 
