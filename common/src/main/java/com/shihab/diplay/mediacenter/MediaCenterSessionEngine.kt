@@ -142,14 +142,14 @@ internal class MediaCenterSessionEngine(
             val selected = selectionOwner === frame.owner
             selectionOwner = null
             val plan = PlaybackMetadataCore.publicationPlan(publication, frame.now, frame.artwork?.toString(), selected)
-            if (plan and 1 != 0) {
+            if (plan.requestPlay) {
                 phase("REQUEST_PLAY")
                 val claimed = transport!!.requestPlay()
                 finishOperation()
                 status = status.copy(claimed = claimed, detail = if (claimed) "PLAY_GRANTED" else "PLAY_NOT_GRANTED")
             }
             if (desired?.owner !== frame.owner || !usable(desired) || status.uncertain) { cleanup(); return }
-            if (plan and 2 != 0) {
+            if (plan.publishMetadata) {
                 phase("PUBLISHING")
                 val accepted = transport!!.publish(frame.now, frame.artwork)
                 finishOperation()

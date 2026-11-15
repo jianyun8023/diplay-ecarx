@@ -1,6 +1,10 @@
 package com.shihab.diplay.media
 
 import com.shihab.diplay.airplay.NativeMedia
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkDecodeResult
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkNextDeliverable.Deliverable
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkNextRequest.Request
+import com.shihab.diplay.media.PlaybackMetadataCore.ArtworkSubmitResult.Accepted
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -40,59 +44,92 @@ class NativeMediaPolicyDeviceTest {
     @Test fun artworkQueueDeduplicatesContentAndRejectsStaleVersions() {
         assertTrue(NativeMedia.available)
         val owner = PlaybackMetadataCore.artworkCreate()
-        val session = PlaybackMetadataCore.artworkEvent(owner, 0)[0]
+        val session = PlaybackMetadataCore.artworkStartSession(owner).session
         val hash = PlaybackMetadataCore.artworkHash(byteArrayOf(1, 2, 3))
-        val old = PlaybackMetadataCore.artworkEvent(owner, 2, session, 1, hash = hash)[0]
-        val request = PlaybackMetadataCore.artworkEvent(owner, 3)
-        val newer = PlaybackMetadataCore.artworkEvent(owner, 2, session, 1, hash = hash)[0]
-        assertArrayEquals(longArrayOf(0, 0, 0), PlaybackMetadataCore.artworkEvent(owner, 4, id = 1, version = old).copyOf(3))
-        assertArrayEquals(longArrayOf(newer, 1, session), PlaybackMetadataCore.artworkEvent(owner, 3).copyOf(3))
-        assertEquals(old, request[0])
-        assertArrayEquals(longArrayOf(2, newer, 0), PlaybackMetadataCore.artworkEvent(owner, 4, id = 1, version = newer).copyOf(3))
-        val cached = PlaybackMetadataCore.artworkEvent(owner, 2, session, 2, hash = hash)[0]
-        assertArrayEquals(longArrayOf(newer, 1, newer), PlaybackMetadataCore.artworkEvent(owner, 5).copyOf(3))
-        assertArrayEquals(longArrayOf(cached, 2, newer), PlaybackMetadataCore.artworkEvent(owner, 5).copyOf(3))
-        PlaybackMetadataCore.artworkEvent(owner, 0)
-        assertEquals(0L, PlaybackMetadataCore.artworkEvent(owner, 6, session, 2, cached)[0])
+        val old = (PlaybackMetadataCore.artworkSubmit(owner, session, 1, hash) as Accepted).version
+        val request = PlaybackMetadataCore.artworkNextRequest(owner) as Request
+        val newer = (PlaybackMetadataCore.artworkSubmit(owner, session, 1, hash) as Accepted).version
+        assertTrue(PlaybackMetadataCore.artworkDecodeComplete(owner, true, old) is ArtworkDecodeResult.Dropped)
+        val next = PlaybackMetadataCore.artworkNextRequest(owner) as Request
+        assertEquals(newer, next.version)
+        assertEquals(1, next.id)
+        assertTrue(PlaybackMetadataCore.artworkIsCurrent(owner, session, next.id, next.version))
+        assertEquals(old, request.version)
+        val decoded = PlaybackMetadataCore.artworkDecodeComplete(owner, true, newer) as ArtworkDecodeResult.Stored
+        assertEquals(newer, decoded.imageToken)
+        val cached = (PlaybackMetadataCore.artworkSubmit(owner, session, 2, hash) as Accepted).version
+        assertDelivery(owner, newer, 1, newer)
+        assertDelivery(owner, cached, 2, newer)
+        PlaybackMetadataCore.artworkStartSession(owner)
+        assertFalse(PlaybackMetadataCore.artworkIsCurrent(owner, session, 2, cached))
     }
 
     @Test fun artworkCacheEvictsLeastRecentlyUsedContent() {
         assertTrue(NativeMedia.available)
         val owner = PlaybackMetadataCore.artworkCreate()
-        val session = PlaybackMetadataCore.artworkEvent(owner, 0)[0]
+        val session = PlaybackMetadataCore.artworkStartSession(owner).session
         val hashes = (1..5).map { PlaybackMetadataCore.artworkHash(byteArrayOf(it.toByte())) }
         val images = mutableListOf<Long>()
         for (id in 1..4) {
-            val version = PlaybackMetadataCore.artworkEvent(owner, 2, session, id.toLong(), hash = hashes[id - 1])[0]
-            assertArrayEquals(longArrayOf(version, id.toLong(), session), PlaybackMetadataCore.artworkEvent(owner, 3).copyOf(3))
-            assertArrayEquals(longArrayOf(2, version, 0), PlaybackMetadataCore.artworkEvent(owner, 4, id = 1, version = version).copyOf(3))
-            assertArrayEquals(longArrayOf(version, id.toLong(), version), PlaybackMetadataCore.artworkEvent(owner, 5).copyOf(3))
+            val version = (PlaybackMetadataCore.artworkSubmit(owner, session, id, hashes[id - 1]) as Accepted).version
+            val request = PlaybackMetadataCore.artworkNextRequest(owner) as Request
+            assertEquals(version, request.version)
+            assertEquals(id, request.id)
+            assertTrue(PlaybackMetadataCore.artworkIsCurrent(owner, session, id, version))
+            val decoded = PlaybackMetadataCore.artworkDecodeComplete(owner, true, version) as ArtworkDecodeResult.Stored
+            assertEquals(version, decoded.imageToken)
+            assertDelivery(owner, version, id, version)
             images.add(version)
         }
-        val touched = PlaybackMetadataCore.artworkEvent(owner, 2, session, 10, hash = hashes[0])[0]
-        assertArrayEquals(longArrayOf(touched, 10, images[0]), PlaybackMetadataCore.artworkEvent(owner, 5).copyOf(3))
-        val fifth = PlaybackMetadataCore.artworkEvent(owner, 2, session, 5, hash = hashes[4])[0]
-        assertArrayEquals(longArrayOf(fifth, 5, session), PlaybackMetadataCore.artworkEvent(owner, 3).copyOf(3))
-        assertArrayEquals(longArrayOf(2, fifth, 0), PlaybackMetadataCore.artworkEvent(owner, 4, id = 1, version = fifth).copyOf(3))
-        PlaybackMetadataCore.artworkEvent(owner, 5)
+        val touched = (PlaybackMetadataCore.artworkSubmit(owner, session, 10, hashes[0]) as Accepted).version
+        assertDelivery(owner, touched, 10, images[0])
+        val fifth = (PlaybackMetadataCore.artworkSubmit(owner, session, 5, hashes[4]) as Accepted).version
+        val fifthRequest = PlaybackMetadataCore.artworkNextRequest(owner) as Request
+        assertEquals(fifth, fifthRequest.version)
+        assertEquals(5, fifthRequest.id)
+        assertTrue(PlaybackMetadataCore.artworkIsCurrent(owner, session, 5, fifth))
+        val decoded = PlaybackMetadataCore.artworkDecodeComplete(owner, true, fifth) as ArtworkDecodeResult.Stored
+        assertEquals(fifth, decoded.imageToken)
+        PlaybackMetadataCore.artworkNextDeliverable(owner)
 
-        val retained = PlaybackMetadataCore.artworkEvent(owner, 2, session, 11, hash = hashes[0])[0]
-        assertArrayEquals(longArrayOf(retained, 11, images[0]), PlaybackMetadataCore.artworkEvent(owner, 5).copyOf(3))
-        val evicted = PlaybackMetadataCore.artworkEvent(owner, 2, session, 12, hash = hashes[1])[0]
-        assertArrayEquals(longArrayOf(evicted, 12, session), PlaybackMetadataCore.artworkEvent(owner, 3).copyOf(3))
+        val retained = (PlaybackMetadataCore.artworkSubmit(owner, session, 11, hashes[0]) as Accepted).version
+        assertDelivery(owner, retained, 11, images[0])
+        val evicted = (PlaybackMetadataCore.artworkSubmit(owner, session, 12, hashes[1]) as Accepted).version
+        val evictedRequest = PlaybackMetadataCore.artworkNextRequest(owner) as Request
+        assertEquals(evicted, evictedRequest.version)
+        assertEquals(12, evictedRequest.id)
+        assertTrue(PlaybackMetadataCore.artworkIsCurrent(owner, session, 12, evicted))
+    }
+
+    private fun assertDelivery(owner: Array<LongArray>, version: Long, id: Int, imageToken: Long) {
+        val result = PlaybackMetadataCore.artworkNextDeliverable(owner) as Deliverable
+        assertEquals(version, result.version)
+        assertEquals(id, result.id)
+        assertEquals(imageToken, result.imageToken)
     }
 
     @Test fun publicationIgnoresTransferIdOnlyAfterExplicitCommit() {
         assertTrue(NativeMedia.available)
         val owner = PlaybackMetadataCore.publicationCreate()
         val track = CarPlayNowPlaying(title = "歌😀", artworkTransferId = 1, playing = true)
-        assertEquals(3, PlaybackMetadataCore.publicationPlan(owner, track, null, false))
-        assertEquals(3, PlaybackMetadataCore.publicationPlan(owner, track, null, false))
+        repeat(2) {
+            val plan = PlaybackMetadataCore.publicationPlan(owner, track, null, false)
+            assertTrue(plan.requestPlay)
+            assertTrue(plan.publishMetadata)
+        }
         PlaybackMetadataCore.publicationCommit(owner, track, null)
-        assertEquals(0, PlaybackMetadataCore.publicationPlan(owner, track.copy(artworkTransferId = 2), null, false))
-        assertEquals(1, PlaybackMetadataCore.publicationPlan(owner, track, null, true))
-        assertEquals(2, PlaybackMetadataCore.publicationPlan(owner, track, "封面😀", false))
-        assertEquals(2, PlaybackMetadataCore.publicationPlan(owner, track.copy(elapsedMillis = 1), null, false))
+        val transferOnly = PlaybackMetadataCore.publicationPlan(owner, track.copy(artworkTransferId = 2), null, false)
+        assertFalse(transferOnly.requestPlay)
+        assertFalse(transferOnly.publishMetadata)
+        val selected = PlaybackMetadataCore.publicationPlan(owner, track, null, true)
+        assertTrue(selected.requestPlay)
+        assertFalse(selected.publishMetadata)
+        val artwork = PlaybackMetadataCore.publicationPlan(owner, track, "封面😀", false)
+        assertFalse(artwork.requestPlay)
+        assertTrue(artwork.publishMetadata)
+        val elapsed = PlaybackMetadataCore.publicationPlan(owner, track.copy(elapsedMillis = 1), null, false)
+        assertFalse(elapsed.requestPlay)
+        assertTrue(elapsed.publishMetadata)
     }
 
     @Test fun captureRecoveryKeepsIndependentAttemptBudgets() {
