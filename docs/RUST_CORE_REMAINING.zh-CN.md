@@ -27,6 +27,12 @@
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[方案 G/H](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。
 
+## 2026-11-15 dump 派生四项收敛
+
+用户确认继续实施的 ECARX MQTT、HUD 发布策略、控制通道缓冲与下行音频控制链均已接入生产 Rust owner，详见[清单 I–L](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)及[本轮实施／验证记录](benchmarks/native-platform-boundaries-2026-11-15.md)。Kotlin 保留 Socket／线程／锁、DIM SDK 与持久设置、MediaCodec 配置／关闭、AudioTrack／焦点／路由和诊断；没有新增 Kotlin 算法后备。
+
+小米 ARM64／ARMv7 各通过 8 项合同测试；同批 ARM64 Release 另完成真实 iPhone 无线连接、MediaSession 媒体键播放／暂停／切歌和正常断开重连，收到 AAC／Opus 原生 PCM，用户确认画面和声音正常。MQTT broker／DIM 真车发布、实车音路与长时间稳定性仍未由本轮证明；不根据代码行数或原生缓冲归属宣称性能改善。USB／TUN 和已收尾项目保持原验收范围。
+
 ## 当前剩余项的处理范围（2026-11-14 澄清）
 
 - **本批手机验收已完成**：39 项 ARM64 自动化及同批 Release 的切歌封面、暂停恢复、Siri／导航与听感均通过。ECARX 专有 Binder／目标车机音路仍需实车验证。

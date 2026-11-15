@@ -288,18 +288,17 @@ open class ShadowNativeMedia {
         @JvmStatic @Implementation fun packetWrap(bytes: ByteArray, length: Int): Long =
             HostNative.call("airplay.NativeMedia", "packetWrap", bytes, length) as Long
 
-        @JvmStatic @Implementation fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, opus: Boolean): Long =
-            HostNative.call("airplay.NativeMedia", "pcmCreate", sampleRate, channels, voiceFilter, opus) as Long
-
-        @JvmStatic @Implementation fun pcmDestroy(handle: Long) {
-            HostNative.call("airplay.NativeMedia", "pcmDestroy", handle)
+        @JvmStatic @Implementation fun pcmCreate(sampleRate: Int, channels: Int, voiceFilter: Boolean, codec: Int): Long =
+            HostNative.call("airplay.NativeMedia", "pcmCreate", sampleRate, channels, voiceFilter, codec) as Long
+        @JvmStatic @Implementation fun pcmDestroy(handle: Long) { HostNative.call("airplay.NativeMedia", "pcmDestroy", handle) }
+        @JvmStatic @Implementation fun pcmConfiguration(handle: Long): Array<Any>? =
+            HostNative.call("airplay.NativeMedia", "pcmConfiguration", handle) as Array<Any>?
+        @JvmStatic @Implementation fun pcmFeed(handle: Long, packet: Long, size: Int, sample: Int, codec: Any?, host: Any) {
+            HostNative.call("airplay.NativeMedia", "pcmFeed", handle, packet, size, sample, codec, host)
         }
-
-        @JvmStatic @Implementation fun pcmDecodeOpus(handle: Long, packet: Long, offset: Int, length: Int, out: ByteBuffer): Int =
-            HostNative.call("airplay.NativeMedia", "pcmDecodeOpus", handle, packet, offset, length, out) as Int
-
-        @JvmStatic @Implementation fun pcmCopySwapped(packet: Long, offset: Int, length: Int, out: ByteBuffer): Int =
-            HostNative.call("airplay.NativeMedia", "pcmCopySwapped", packet, offset, length, out) as Int
+        @JvmStatic @Implementation fun pcmDrain(handle: Long, codec: Any, info: Any, host: Any) {
+            HostNative.call("airplay.NativeMedia", "pcmDrain", handle, codec, info, host)
+        }
 
         @JvmStatic @Implementation fun opusEncoderCreate(bitrate: Int): Long =
             HostNative.call("airplay.NativeMedia", "opusEncoderCreate", bitrate) as Long
@@ -375,6 +374,12 @@ open class ShadowNativeMedia {
 @Implements(className = "com.shihab.diplay.airplay.NativeRtsp", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeRtsp {
     companion object {
+        @JvmStatic @Implementation fun inputCreate(): Long = HostNative.call("airplay.NativeRtsp", "inputCreate") as Long
+        @JvmStatic @Implementation fun inputDestroy(handle: Long) { HostNative.call("airplay.NativeRtsp", "inputDestroy", handle) }
+        @JvmStatic @Implementation fun inputEncryptedBytes(handle: Long): Int = HostNative.call("airplay.NativeRtsp", "inputEncryptedBytes", handle) as Int
+        @JvmStatic @Implementation fun inputFeed(handle: Long, buffer: ByteArray, count: Int, cipher: Long): RtspMessage.Parsed =
+            CoreDtos.rtsp(HostNative.call("airplay.NativeRtsp", "inputFeed", handle, buffer, count, cipher)!!)
+
         @JvmStatic @Implementation fun parse(buffer: ByteArray): RtspMessage.Parsed =
             CoreDtos.rtsp(HostNative.call("airplay.NativeRtsp", "parse", buffer)!!)
 

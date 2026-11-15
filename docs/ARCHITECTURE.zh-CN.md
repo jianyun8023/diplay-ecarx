@@ -4,7 +4,7 @@
 
 原生媒体阶段 1 由 PR #94 合入 `dev`，阶段 2–6 及 AAudio 正确性修复经 PR #97 合入，Rust 核心主体迁移已完成。后续修复与验收按批记录；实现完成不等于所有实车场景通过。历史台架结果见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)，当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
 
-2026-11-14 后续职责整理见 [Rust 与 Kotlin 职责收敛方案](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)：歌曲状态、普通音频 feedback、媒体协商及焦点策略仍有可收拢的规则，视频控制邮箱与 JNI 门面也有可简化的边界。该文列出待实施范围、调用方与分批条件，不改变本页已落地归属或重开既有验收。
+后续职责收敛的 A–H 清单及 2026-11-15 新增四项见 [Rust 与 Kotlin 职责收敛方案](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)。当前代码进一步将 ECARX MQTT、HUD 发布策略、控制通道残留与下行音频循环归入 Rust；本轮构建和小米验证独立记在[实施记录](benchmarks/native-platform-boundaries-2026-11-15.md)，不重开既有验收。
 
 ## 当前 Rust 核心与平台边界
 
@@ -12,7 +12,7 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 
 | 当前归属 | 职责 |
 | --- | --- |
-| Rust 核心 | AirPlay／RTSP、bplist、配对／控制加密、iAP2；有线／无线会话代际、超时、重试、拆除与恢复；媒体队列、锚点、时钟、背压、编解码及路由决策；导航状态、车辆数据转换、触摸与按键协议。 |
+| Rust 核心 | AirPlay／RTSP、bplist、配对／控制加密、iAP2；有线／无线会话代际、超时、重试、拆除与恢复；媒体队列、锚点、时钟、背压、编解码及路由决策；导航状态、HUD 发布策略、ECARX MQTT 消息与观察状态、车辆数据转换、触摸与按键协议。 |
 | Kotlin 宿主与适配 | UI、Activity／Service 生命周期、权限、平台对象和线程；蓝牙／热点、音频焦点、USB 认领／VPN、平台存储及车机 SDK 调用。向 Rust 报告能力、事件与动作结果，执行 Rust 请求。 |
 | 继续使用的平台／原生能力 | 硬件编解码器、Surface、AudioTrack／AAudio、AudioRecord、既有 Speex 库与车机接口，保留现有校准及兼容行为。 |
 
@@ -91,12 +91,14 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 
 2026-11-14 生产入口复核：协议／配对（RTSP、bplist、控制加密、PairVerify／PairSetup、MFiSAP、iAP2）、会话代际／重试／watchdog、媒体队列／节拍／选型／音频调度、USBMUX／Lockdown／NCM 协议，以及导航／HID／车辆转换均已有 Rust owner。入口通过 `NativeMedia.requireAvailable()` 或同等检查要求原生核心；加载失败不会切回旧 Kotlin 核心。旧算法、Bouncy Castle 与 Concentus 参考仅接入 `test`／`androidTest`，见 `gradle/native-core-tests.gradle`，不作为发布 APK 的后备实现。
 
+2026-11-15 补充：`protocols::mqtt` 解释 MQTT 字节、ACK、消息与发布／观察状态；`vehicle::hud` 持有投屏重试、32 项车道缓存和发布快照；`protocols::rtsp::Input` 持有 control／event 的加密和明文残留；`media::audio::renderer` 统一 LPCM／AAC／Opus 分派、SDK 输入／输出循环与可复用 PCM 缓冲。AAC／SDK Opus 仍使用原 Android MediaCodec，由 Rust JNI 驱动，不更换为另一套解码实现。原生 PCM 仅借给同步平台写入回调，释放 codec 输出后才能写 AudioTrack／AAudio。MQTT 的不透明 GC token 由宿主持有，仅 Rust 解释和更新；JSON 兼容解析仍使用平台 JSONObject。
+
 生产树中剩余的 Kotlin 路径应按实际职责判断：
 
 | 路径 | 当前触发条件与职责 | 清理判断 |
 | --- | --- | --- |
 | Java MediaCodec 视频循环 | 已删除备用喂帧／出帧循环及输出线程开关；所有视频均创建 Rust／NDK pipe。API < 28 或 pipe 创建失败明确报错。 | v150 实车 18 次首输入、18 次首渲染均为原生路径。保留原生 codec 重试／软解／厂商参数降级，以及 Java 硬件可用性探测；详见[删除依据与验证边界](benchmarks/native-video-startup-2026-11-14.md#java-mediacodec-备用循环清理)。 |
-| AudioTrack／旧式流类型 | usage 音乐和导航尝试 AAudio；通话、Siri、指定 legacy stream 正常使用 AudioTrack，AAudio 打开失败也使用它。 | 属于正式音路，不能按旧核心后备删除。AAC 硬件／系统解码也仍是平台职责。 |
+| AudioTrack／旧式流类型 | usage 音乐和导航尝试 AAudio；通话、Siri、指定 legacy stream 正常使用 AudioTrack，AAudio 打开失败也使用它。 | 属于正式音路，不能按旧核心后备删除。AAC／SDK Opus 对象创建、配置和关闭仍由平台执行，喂帧、取帧和 PCM 缓冲由 Rust 管理。 |
 | 麦克风原生采集链 | Rust 自建 UDP socket，持有分帧、echo lease、统计与编码发送；Speex C 直接处理原生 PCM。 | 按 2026-11-15 用户要求删除 Java socket／SDK Opus 编码后备；原生初始化失败明确报错并释放录音器。 |
 | Kotlin USB／TUN I/O | 用户显式关闭原生通路或 `startNative` 无法启动时使用；NCM framing／路由核心仍是 Rust。 | 属于显式设置及 SDK I/O 适配；USB 已确认 OK 并收尾，不顺带取消设置或能力分支。 |
 | AEC、厂商麦克风、HUD SDK 回退 | 静态链接的 Speex C／平台 AEC、厂商授权及显示接口按能力选择。 | 属于车机适配，不是 Rust 迁移残留；保留现有车辆校准。 |
@@ -140,7 +142,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 
 | 目录（相对 `diplay-media/src`） | 职责 |
 | --- | --- |
-| `protocols/` | RTSP、bplist、control cipher、配对／SRP／MFiSAP、NTP、iAP2 编解码／link／文件传输、type130 和 tunnel 队列；JNI 与所属 owner 同目录。 |
+| `protocols/` | MQTT、RTSP 及 control／event 残留、bplist、control cipher、配对／SRP／MFiSAP、NTP、iAP2 编解码／link／文件传输、type130 和 tunnel 队列；JNI 与所属 owner 同目录。 |
 | `session/` | controller／VPN／wireless 代际、recovery／deadline／watchdog、AirPlay 协商、iAP2 握手与位置／EV 订阅；NowPlaying／导航播放状态、热点地址／readiness／radio-return 决策。 |
 | `media/audio/`、`media/video/` | 音频接收／直连队列／buffered／时钟／AAC／PCM／输出／上行与 scheduler；视频接收／Annex B／pacing／flow／selection／vpipe。`media/packet` 和 `media/stats` 为媒体共享设施。 |
 | `vehicle/` | HID／touch_slots、EV／identification／vehicle_speed／NMEA、导航状态及 cluster_arrow／lane_icon／day_night 转换。 |

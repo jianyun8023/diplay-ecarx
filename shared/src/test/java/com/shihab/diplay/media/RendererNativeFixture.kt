@@ -17,7 +17,7 @@ internal class RendererNativeFixture(private val renderer: Any) : Closeable {
         val format = type.getDeclaredField("format").apply { isAccessible = true }.get(renderer) as AudioFormat
         val channels = type.getDeclaredField("pcmChannels").apply { isAccessible = true }.getInt(renderer)
         type.getDeclaredField("nativePcm").apply { isAccessible = true }
-            .set(renderer, NativePcm.create(format.sampleRate, channels, voiceFilter = false, opus = false))
+            .set(renderer, NativePcm.create(format.sampleRate, channels, voiceFilter = false, codec = format.codec))
     }
 
     fun write(bytes: Int) {

@@ -20,6 +20,11 @@ class ControlCipher(readKey: ByteArray, writeKey: ByteArray) : java.io.Closeable
         return NativeControlCipher.decrypt(handle, buffer)
     }
 
+    @Synchronized internal fun readRtsp(input: Long, buffer: ByteArray, count: Int): RtspMessage.Parsed {
+        check(!closed) { "ControlCipher is closed" }
+        return NativeRtsp.inputFeed(input, buffer, count, handle)
+    }
+
     @Synchronized fun encrypt(plaintext: ByteArray): ByteArray {
         check(!closed) { "ControlCipher is closed" }
         return NativeControlCipher.encrypt(handle, plaintext)

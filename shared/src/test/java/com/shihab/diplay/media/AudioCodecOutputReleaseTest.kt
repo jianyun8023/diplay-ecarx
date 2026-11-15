@@ -39,10 +39,29 @@ class AudioCodecOutputReleaseTest {
         assertEquals(listOf("copy", "release", "write"), OutputCodec.events)
     }
 
-    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false) {
+    @Test fun directAndReadOnlySdkBuffersPreserveOffsets() {
+        val bytes = byteArrayOf(9, 9, 1, 2, 3, 4, 9)
+        for (buffer in listOf(ByteBuffer.allocateDirect(7).put(bytes).apply { flip() }, ByteBuffer.wrap(bytes).asReadOnlyBuffer())) {
+            drain("media", buffer = buffer)
+            assertEquals(listOf("copy", "release", "write"), OutputCodec.events)
+            assertArrayEquals(byteArrayOf(1, 2, 3, 4), OutputTrack.written)
+            assertEquals(6, buffer.position())
+        }
+    }
+
+    @Test fun releaseFailureWinsOverCopyFailure() {
+        drain("media", failCopy = true, failRelease = true)
+        assertEquals(listOf("copy", "release"), OutputCodec.events)
+        assertNull(OutputTrack.written)
+    }
+
+    private fun drain(audioType: String, failCopy: Boolean = false, failWrite: Boolean = false,
+        failRelease: Boolean = false, buffer: ByteBuffer = ByteBuffer.wrap(byteArrayOf(9, 9, 1, 2, 3, 4, 9))) {
         OutputCodec.events.clear()
         OutputCodec.available = true
         OutputCodec.failCopy = failCopy
+        OutputCodec.failRelease = failRelease
+        OutputCodec.buffer = buffer
         OutputTrack.failWrite = failWrite
         OutputTrack.written = null
         val codec = MediaCodec.createDecoderByType("audio/mp4a-latm")
@@ -64,9 +83,10 @@ class AudioCodecOutputReleaseTest {
         native.progress.playback(true)
         try {
             type.getDeclaredMethod("drainCodec", MediaCodec::class.java).apply { isAccessible = true }.invoke(renderer, codec)
-            assertFalse("expected injected failure", failCopy || failWrite)
+            assertFalse("expected injected failure", failCopy || failWrite || failRelease)
         } catch (error: InvocationTargetException) {
-            assertTrue(error.cause is IllegalStateException && (failCopy || failWrite))
+            assertTrue(error.cause is IllegalStateException && (failCopy || failWrite || failRelease))
+            assertEquals(if (failRelease) "injected release failure" else if (failCopy) "injected copy failure" else "injected write failure", error.cause!!.message)
         } finally {
             native.close()
             codec.release()
@@ -84,13 +104,17 @@ class AudioCodecOutputReleaseTest {
         @Implementation override fun getBuffer(input: Boolean, index: Int): ByteBuffer {
             events.add("copy")
             check(!failCopy) { "injected copy failure" }
-            return ByteBuffer.wrap(byteArrayOf(9, 9, 1, 2, 3, 4, 9))
+            return buffer
         }
-        @Implementation override fun releaseOutputBuffer(index: Int, render: Boolean) { events.add("release") }
+        @Implementation override fun releaseOutputBuffer(index: Int, render: Boolean) {
+            events.add("release"); check(!failRelease) { "injected release failure" }
+        }
         companion object {
             val events = mutableListOf<String>()
             var available = true
             var failCopy = false
+            var failRelease = false
+            lateinit var buffer: ByteBuffer
         }
     }
 

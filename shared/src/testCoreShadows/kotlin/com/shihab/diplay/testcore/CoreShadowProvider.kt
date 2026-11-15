@@ -52,6 +52,8 @@ class CoreShadowProvider : ShadowProvider {
         "com.shihab.diplay.hud.NativeClusterArrow" to "com.shihab.diplay.testcore.ShadowNativeClusterArrow",
         "com.shihab.diplay.hud.NativeDayNight" to "com.shihab.diplay.testcore.ShadowNativeDayNight",
         "com.shihab.diplay.hud.NativeLaneIcon" to "com.shihab.diplay.testcore.ShadowNativeLaneIcon",
+        "com.shihab.diplay.hud.NativeEcarxMqtt" to "com.shihab.diplay.testcore.ShadowNativeEcarxMqtt",
+        "com.shihab.diplay.hud.NativeHudPublication" to "com.shihab.diplay.testcore.ShadowNativeHudPublication",
         "com.shihab.diplay.hud.NativeRouteGuidance" to "com.shihab.diplay.testcore.ShadowNativeRouteGuidance",
         "com.shihab.diplay.iap2.wire.NativeIap2Csm" to "com.shihab.diplay.testcore.ShadowNativeIap2Csm",
         "com.shihab.diplay.iap2.wire.NativeIap2Body" to "com.shihab.diplay.testcore.ShadowNativeIap2Body",
