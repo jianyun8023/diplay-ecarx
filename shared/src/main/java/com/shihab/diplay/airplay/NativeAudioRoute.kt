@@ -21,6 +21,20 @@ class NativeAudioRoute internal constructor(clockRate: Int, direct: Boolean) : j
     @Synchronized internal fun feedback(reported: Long, nowNs: Long): LongArray? =
         if (handle == 0L) null else NativeMedia.audioRouteFeedback(handle, reported, nowNs)
 
+    /** Commits the first decrypted sample and its monotonic origin from the start callback. */
+    @Synchronized internal fun anchor(firstSample: Int, originNs: Long) {
+        if (handle != 0L) NativeMedia.audioRouteAnchor(handle, firstSample, originNs)
+    }
+
+    /** The complete single-stream feedback entry, computed by the native route owner. */
+    @Synchronized internal fun feedbackEntry(
+        type: Int, nowNs: Long, latencyMs: Int, connection: Any?, timestamp: Any?,
+    ): Map<String, Any?>? =
+        if (handle == 0L) null
+        else @Suppress("UNCHECKED_CAST")
+        (NativeMedia.audioRouteFeedbackEntry(handle, type, nowNs, latencyMs, connection, timestamp)
+            as? Map<String, Any?>)
+
     @Synchronized override fun close() {
         if (handle == 0L) return
         NativeMedia.audioRouteDestroy(handle)

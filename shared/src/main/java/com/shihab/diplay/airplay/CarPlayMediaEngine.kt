@@ -103,8 +103,8 @@ class CarPlayMediaEngine(
         val format: AudioFormat,
         val connectionId: Any?,
         val playoutLatencyMs: Int,
-        @Volatile var firstSample: Int? = null,
-        @Volatile var originNs: Long? = null,
+        /** The platform's start-callback fact: the stream reported its first decrypted sample. */
+        @Volatile var started: Boolean = false,
     ) {
         @Volatile var route: NativeAudioRoute? = null
     }
@@ -274,8 +274,8 @@ class CarPlayMediaEngine(
 
                 override fun onStarted(firstSample: Int) {
                     if (!current()) return
-                    meta.firstSample = firstSample
-                    meta.originNs = System.nanoTime()
+                    meta.started = true
+                    audio.route.anchor(firstSample, System.nanoTime())
                     sink.onAudioStarted(streamId, format, firstSample)
                     sink.onNativeAudioRoute(streamId, format, audio.route)
                     microphoneStart?.onDownlink()
@@ -558,35 +558,27 @@ class CarPlayMediaEngine(
         val buffered = bufferedStreams[session]
         if (active.isEmpty() && buffered == null) return null
         val streams = active.map { meta ->
-            // sampleTime counts on the stream's RTP clock. Counted at the 48 kHz Opus decode rate,
-            // a 16 kHz call stream ran 3x ahead of the audio that had arrived, 14.5 s ahead after
-            // 20 s, in a call whose far end the driver could not understand (#473).
-            val clockRate = meta.format.rtpClockRate
-            val entry = linkedMapOf<String, Any?>(
-                "type" to meta.type,
-                "sampleRate" to clockRate,
-            )
-            val firstSample = meta.firstSample
-            val originNs = meta.originNs
-            if (firstSample != null && originNs != null) {
+            // sampleTime counts on the stream's RTP clock, never the decode rate: the #473
+            // note travels with the native calculation. Clock reads keep their count and order.
+            if (!meta.started) {
+                linkedMapOf<String, Any?>("type" to meta.type, "sampleRate" to meta.format.rtpClockRate)
+            } else {
                 val nowNs = System.nanoTime()
-                val elapsedSec = Math.max(
-                    0.0,
-                    (nowNs - originNs) / 1e9 - meta.playoutLatencyMs / 1000.0,
-                )
-                val firstUnsigned = firstSample.toLong() and 0xffff_ffffL
-                val sampleTime = (firstUnsigned + Math.round(elapsedSec * clockRate)) and
-                    0xffff_ffffL
-                entry["streamConnectionID"] = unsignedPlistInteger(meta.connectionId ?: 0L)
-                entry["timestamp"] = session.syncedNtp()
-                entry["timestampRawNs"] = nowNs
-                entry["sampleTime"] = sampleTime
-                meta.route?.feedback(sampleTime, nowNs)?.let { row ->
-                    session.logDebug("Audio: feedback type=${meta.type} id=${entry["streamConnectionID"] ?: 0} " +
-                        "reported=$sampleTime received=${row[0]} aheadMs=${row[1]}" + if (row[2] != 0L) " overrun=true" else "")
+                val entry = meta.route?.feedbackEntry(
+                    meta.type,
+                    nowNs,
+                    meta.playoutLatencyMs,
+                    unsignedPlistInteger(meta.connectionId ?: 0L),
+                    session.syncedNtp(),
+                ) ?: linkedMapOf("type" to meta.type, "sampleRate" to meta.format.rtpClockRate)
+                (entry["sampleTime"] as? Long)?.let { sampleTime ->
+                    meta.route?.feedback(sampleTime, nowNs)?.let { row ->
+                        session.logDebug("Audio: feedback type=${meta.type} id=${entry["streamConnectionID"] ?: 0} " +
+                            "reported=$sampleTime received=${row[0]} aheadMs=${row[1]}" + if (row[2] != 0L) " overrun=true" else "")
+                    }
                 }
+                entry
             }
-            entry
         } + listOfNotNull(buffered?.let { it.stream.feedback(session.syncedNtp(), it.connectionId) })
         return linkedMapOf("streams" to streams)
     }
