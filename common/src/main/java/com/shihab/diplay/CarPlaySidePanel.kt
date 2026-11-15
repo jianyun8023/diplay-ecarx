@@ -53,10 +53,6 @@ internal class CarPlaySidePanel(
     private var sidePanel: LinearLayout? = null
     // Everything on the panel's card, in one layout so the resize blur covers it as a whole.
     private var sidePanelContents: LinearLayout? = null
-    private var sidePanelBattery: TextView? = null
-    // The side panel's tyres (TPMS), front left, front right, rear left, rear right; hidden without a reading.
-    private var sidePanelTyres: LinearLayout? = null
-    private var sidePanelTyreTexts: List<TextView> = emptyList()
     // The side panel's whole screen in window pixels and the panel edge that faces CarPlay (Gravity.START when
     // the panel is right of CarPlay, END when left of it, TOP when below it), for dragging that edge.
     private var sidePanelScreen: RectF? = null
@@ -112,12 +108,6 @@ internal class CarPlaySidePanel(
     }
     var sidePanelShown = false
         private set
-    private val sidePanelTick = object : Runnable {
-        override fun run() {
-            refreshSidePanel()
-            if (sidePanelShown) mainHandler.postDelayed(this, SIDE_PANEL_REFRESH_MILLIS)
-        }
-    }
 
     fun attach(root: FrameLayout) {
         // Above the video and gesture layer, below the menus.
@@ -132,8 +122,6 @@ internal class CarPlaySidePanel(
     fun restore() {
         sidePanelShown = true
         sidePanel?.visibility = View.VISIBLE
-        mainHandler.post(::refreshSidePanel)
-        sidePanelTick.run()
         showSidePanelGripHint()
     }
 
@@ -142,16 +130,12 @@ internal class CarPlaySidePanel(
             panel.background = sidePanelBackground()
             val contents = sidePanelContents ?: return@let
             (contents.getChildAt(0) as? TextView)?.setTextColor(SIDE_PANEL_PRIMARY)
-            sidePanelBattery?.setTextColor(SIDE_PANEL_SECONDARY)
-            sidePanelTyreTexts.forEach { it.setTextColor(SIDE_PANEL_PRIMARY) }
-            (sidePanelTyres?.getChildAt(0) as? TextView)?.setTextColor(SIDE_PANEL_SECONDARY)
         }
     }
 
     // The side panel card follows the app theme: black when dark, white (for now) when light.
     private val SIDE_PANEL_CARD: Int get() = if (appNight) Color.BLACK else Color.WHITE
     private val SIDE_PANEL_PRIMARY: Int get() = DiPlayPalette.of(appNight).overlayPrimaryText
-    private val SIDE_PANEL_SECONDARY: Int get() = DiPlayPalette.of(appNight).overlaySecondaryText
 
     private fun buildSidePanel(): LinearLayout {
         val panel = LinearLayout(this).apply {
@@ -176,14 +160,6 @@ internal class CarPlaySidePanel(
             setTextColor(SIDE_PANEL_PRIMARY)
             gravity = Gravity.CENTER
         })
-        sidePanelBattery = TextView(this).apply {
-            textSize = 30f
-            setTextColor(SIDE_PANEL_SECONDARY)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(24), 0, dp(32))
-        }
-        contents.addView(sidePanelBattery)
-        contents.addView(buildSidePanelTyres())
         return panel
     }
 
@@ -319,37 +295,6 @@ internal class CarPlaySidePanel(
         Gravity.TOP -> (edge - screen.top) / screen.height()
         Gravity.END -> (screen.right - edge) / screen.width()
         else -> (edge - screen.left) / screen.width()
-    }
-
-    // TPMS as the cluster shows it: front tyres on the top row, rear on the bottom, left and right columns.
-    private fun buildSidePanelTyres(): LinearLayout {
-        val texts = List(4) { position ->
-            TextView(this).apply {
-                textSize = 24f
-                setTextColor(SIDE_PANEL_PRIMARY)
-                gravity = if (position % 2 == 0) Gravity.START else Gravity.END
-            }
-        }
-        sidePanelTyreTexts = texts
-        fun row(left: TextView, right: TextView) = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(left, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            setPadding(0, dp(8), 0, dp(8))
-        }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            setPadding(dp(8), 0, dp(8), dp(28))
-            addView(TextView(this@CarPlaySidePanel).apply {
-                text = "TPMS"
-                textSize = 18f
-                setTextColor(SIDE_PANEL_SECONDARY)
-                gravity = Gravity.CENTER
-            })
-            addView(row(texts[0], texts[1]))
-            addView(row(texts[2], texts[3]))
-        }.also { sidePanelTyres = it }
     }
 
     // The panel's strip of the stream, mapped through the video's layout in the window.
@@ -527,7 +472,6 @@ internal class CarPlaySidePanel(
                 }
                 if (panel.visibility != View.VISIBLE) {
                     panel.background = sidePanelBackground()
-                    refreshSidePanel()
                     panel.visibility = View.VISIBLE
                 }
                 return true
@@ -675,9 +619,6 @@ internal class CarPlaySidePanel(
         areas.use(target)
         sidePanelShown = show
         sidePanel?.visibility = if (show) View.VISIBLE else View.GONE
-        mainHandler.removeCallbacks(sidePanelTick)
-        if (show) mainHandler.post(::refreshSidePanel)
-        if (show) sidePanelTick.run()
         if (show) showSidePanelGripHint()
         updateVideoLayout(view.width, view.height)
     }
@@ -685,7 +626,6 @@ internal class CarPlaySidePanel(
     fun resetSidePanel() {
         sidePanelShown = false
         sidePanel?.visibility = View.GONE
-        mainHandler.removeCallbacks(sidePanelTick)
         videoView?.let { placeSidePanelTab(it.width, it.height) }
     }
 
@@ -717,16 +657,9 @@ internal class CarPlaySidePanel(
         }
     }
 
-    // The vehicle readouts came from a vendor autoservice; this head unit exposes none of them.
-    private fun refreshSidePanel() {
-        sidePanelBattery?.text = ""
-        sidePanelTyres?.visibility = View.GONE
-    }
-
     private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
 
     private companion object {
-        const val SIDE_PANEL_REFRESH_MILLIS = 5_000L
         /** Close when the edge is past halfway from two thirds to all of the screen. */
         const val SIDE_PANEL_CLOSE_SHARE = 5f / 6f
         const val SIDE_PANEL_TAB_HINT_MILLIS = 10_000L

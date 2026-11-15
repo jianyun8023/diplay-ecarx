@@ -44,7 +44,6 @@ class ClusterArtworkDeliveryTest {
         val art = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
         set("artwork", art)
         field<MutableMap<Int, Bitmap?>>("artworkCache")[song.artworkTransferId!!] = art
-        ClusterMusicState.publish(song, art); idle()
         return art
     }
 
@@ -57,10 +56,7 @@ class ClusterArtworkDeliveryTest {
         call("onNowPlayingChanged", controller); idle()
         assertSame(owner, field<Any>("artworkOwner"))
         assertSame(art, field<MutableMap<Int, Bitmap?>>("artworkCache")[7])
-        var shown: Bitmap? = null
-        val stop = ClusterMusicState.observe { shown = it.artwork }
-        assertSame(art, shown)
-        stop()
+        assertSame(art, field<Bitmap>("artwork"))
     }
 
     @Test fun artworkArrivingBeforeMetadataIsAdoptedWhenTheReferenceArrives() {
@@ -96,25 +92,6 @@ class ClusterArtworkDeliveryTest {
         assertSame(art, field<MutableMap<Int, Bitmap?>>("artworkCache")[7])
     }
 
-    @Test fun titleAndArtistLyricUpdatesDoNotAdvanceClusterTrackRevision() {
-        val song = CarPlayNowPlaying(title = "Song", artist = "Artist", album = "Album",
-            sourceApp = "Music", durationMillis = 180_000, artworkTransferId = 7,
-            elapsedMillis = 60_000, playing = true)
-        val art = seed(song)
-        var revision = -1L
-        val stop = ClusterMusicState.observe { revision = it.revision }
-        val initialRevision = revision
-        ClusterMusicState.publish(song.copy(title = "lyric 1", artist = "lyric 1",
-            elapsedMillis = 60_500), art)
-        idle()
-        assertEquals(initialRevision, revision)
-        ClusterMusicState.publish(song.copy(title = "lyric 2", artist = "lyric 2",
-            elapsedMillis = 61_000), art)
-        idle()
-        assertEquals(initialRevision, revision)
-        stop()
-    }
-
     @Test fun failedDecodeDoesNotOverwriteValidCoverAndLateOldOwnerCannotPublish() {
         val art = seed(CarPlayNowPlaying(title = "A", artworkTransferId = 7))
         call("onArtworkDecoded", field<Any>("artworkOwner"), 7, null)
@@ -130,12 +107,9 @@ class ClusterArtworkDeliveryTest {
         val art = seed(song)
         `when`(controller.nowPlayingSnapshot()).thenReturn(song.copy(title = "B", artworkTransferId = 8))
         call("onNowPlayingChanged", controller); idle()
-        var shown: Bitmap? = null
-        val stop = ClusterMusicState.observe { shown = it.artwork }
-        assertSame(art, shown)
+        assertSame(art, field<Bitmap>("artwork"))
         CarPlayMediaSession.detach(controller); idle()
-        assertNull(shown)
-        stop()
+        assertNull(field<Bitmap?>("artwork"))
     }
 
     @Test fun artworkRecoveryStaysEnabledForEcarx() {

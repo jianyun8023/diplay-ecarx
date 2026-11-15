@@ -9,7 +9,6 @@
 | Gradle 模組 | 用途 | Debug APK |
 | --- | --- | --- |
 | `:mobile` | 車機使用的主要 DiPlay 應用程式 | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk` |
-| `:home` | 選用的 DiPlay Home 啟動器 | `samples/home/build/outputs/apk/debug/home-debug.apk` |
 | `:maphost` | 接收 DiPlay 地圖的範例應用程式 | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
 | `:siribridge` | 方向盤語音鍵到 Siri 的橋接 | `integrations/siri/build/outputs/apk/debug/siribridge-debug.apk` |
 

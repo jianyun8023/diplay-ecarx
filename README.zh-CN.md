@@ -31,13 +31,13 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 **高德地图显示到仪表，需要 iPhone 使用 iOS 17.4 或更新版本。**
 
-自动热点会关闭车机连接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍须开启。关闭保护项后，若 CarPlay 正使用热点，车机 Wi-Fi 延至下次车辆启动恢复。开机配置齐全时可直达 CarPlay，v134 会先等原车桌面服务，最多 5 秒。
+自动热点会关闭车机连接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍须开启。关闭保护项后，若 CarPlay 正使用热点，车机 Wi-Fi 延至下次车辆启动恢复。开机配置齐全时可直达 CarPlay；桌面等待随版本变化，见[启动说明](docs/STARTUP_PRIORITY_AND_SYSTEM_APP.zh-CN.md)。
 
-建议首次使用无线配对。如果本车 CarPlay 记录首次通过 USB 建立，改无线前须在 iPhone 删除本车记录，再先无线配对。已配置无线时，插 USB 默认不接管；开关在 **连接 → 自动连接**。v122 的插线两条路径已实车确认，USB 卡顿和取消授权后的回退仍未解决。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
+建议首次使用无线配对。如果本车 CarPlay 记录首次通过 USB 建立，改无线前须在 iPhone 删除本车记录，再先无线配对。已配置无线时，插 USB 默认不接管；开关在 **连接 → 自动连接**。v122 的插线验证仅属历史记录；后续 USB 恢复与验收范围见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
 
 同包名、同签名且版本号不低于已安装版本时覆盖升级，保留设置；Actions 公开发布包不内置 MFi 认证，全新安装或清除数据后需另行配置。不要先卸载。
 
-开发参考：[构建说明](BUILD.md)、[753 车机 ADB 依赖与平台权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。ECARX 接口通过运行时反射和动态代理访问，编译与单测不需要厂商 JAR；见 [SDK 适配说明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。
+开发参考：[文档索引](docs/README.md)、[构建说明](BUILD.md)、[753 车机 ADB 依赖与平台权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。ECARX 接口通过运行时反射和动态代理访问，编译与单测不需要厂商 JAR；见 [SDK 适配说明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。
 
 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分界面改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。许可与第三方声明见 [LICENSE](LICENSE) 和 [相关说明](docs/THIRD_PARTY_NOTICES.md)。
 

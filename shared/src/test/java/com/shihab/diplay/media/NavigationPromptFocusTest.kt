@@ -164,7 +164,7 @@ class NavigationPromptFocusTest {
         assertEquals(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, automatic.usage)
         assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, automatic.contentType)
         assertEquals(AudioAttributes.USAGE_MEDIA, navigationRouteAttributes(AudioManager.STREAM_MUSIC).usage)
-        // BYD's stream 15 is not an Android legacy stream; the track keeps usage attributes for it.
+        // Stream 15 is not an Android legacy stream; the track keeps usage attributes for it.
         assertEquals(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, navigationRouteAttributes(15).usage)
     }
 

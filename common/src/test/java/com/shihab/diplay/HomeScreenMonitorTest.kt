@@ -25,15 +25,6 @@ class HomeScreenMonitorTest {
     }
 
     @Test
-    fun knownCarLaunchersContainDiYouDesktop() {
-        assertTrue(HomeScreenMonitor.KNOWN_CAR_LAUNCHERS.contains("com.smg.dydesktop"))
-        assertTrue(HomeScreenMonitor.KNOWN_CAR_LAUNCHERS.contains("com.smg.dydesktop.pro"))
-        assertTrue(HomeScreenMonitor.KNOWN_CAR_LAUNCHERS.contains("com.dy.launcher"))
-        assertTrue(HomeScreenMonitor.KNOWN_CAR_LAUNCHERS.contains("com.king.dyzm"))
-        assertTrue(HomeScreenMonitor.KNOWN_CAR_LAUNCHERS.contains("com.dudu.android.launcher"))
-    }
-
-    @Test
     fun isHomePackageRecognizesStandardAndThirdPartyLaunchers() {
         val monitor = HomeScreenMonitor(context) {}
         val isHomeMethod = HomeScreenMonitor::class.java.getDeclaredMethod("isHomePackage", String::class.java).apply {
@@ -44,10 +35,6 @@ class HomeScreenMonitorTest {
         assertTrue(isHomeMethod.invoke(monitor, "com.android.launcher3") as Boolean)
 
         // Third-party launchers
-        assertTrue(isHomeMethod.invoke(monitor, "com.smg.dydesktop") as Boolean)
-        assertTrue(isHomeMethod.invoke(monitor, "com.smg.dydesktop.pro") as Boolean)
-        assertTrue(isHomeMethod.invoke(monitor, "com.dy.launcher") as Boolean)
-        assertTrue(isHomeMethod.invoke(monitor, "com.king.dyzm") as Boolean)
         assertTrue(isHomeMethod.invoke(monitor, "com.dudu.android.launcher") as Boolean)
         assertFalse(isHomeMethod.invoke(monitor, "com.custom.carlauncher") as Boolean)
 
@@ -76,8 +63,8 @@ class HomeScreenMonitorTest {
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
         assertEquals(false, observedVisibility)
 
-        // Switch to DiYou Desktop -> should show (true)
-        HomeScreenMonitor.notifyForegroundPackage("com.smg.dydesktop")
+        // Switch to a third-party launcher -> should show (true)
+        HomeScreenMonitor.notifyForegroundPackage("com.dudu.android.launcher")
         org.robolectric.shadows.ShadowLooper.idleMainLooper()
         assertEquals(true, observedVisibility)
 

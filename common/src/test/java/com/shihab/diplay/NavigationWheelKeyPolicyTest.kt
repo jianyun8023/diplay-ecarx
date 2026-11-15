@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NavigationWheelKeyPolicyTest {
-    @Test fun clampsStream14LimitsAndRejectsInvalidReadbacks() {
+    @Test fun clampsVolumeLimitsAndRejectsInvalidReadbacks() {
         assertEquals(0, navigationWheelTarget(0, 0, 15, -1))
         assertEquals(15, navigationWheelTarget(15, 0, 15, 1))
         assertEquals(0, navigationWheelTarget(0, 0, 0, 1))
@@ -63,14 +63,14 @@ class NavigationWheelKeyPolicyTest {
     @Test fun preApi28NeverCallsUnavailablePublicMinimum() {
         for (sdk in listOf(25, 26, 27)) {
             assertEquals(0, navigationWheelMinimum(5, sdk) { fail("unavailable API"); 9 })
-            assertEquals(0, navigationWheelMinimum(14, sdk) { fail("private stream"); 9 })
+            assertEquals(0, navigationWheelMinimum(14, sdk) { fail("unavailable API"); 9 })
         }
     }
 
-    @Test fun respectsNonZeroMinimumAndPrivateNavigationMinimum() {
+    @Test fun respectsThePlatformMinimumForEveryStream() {
         assertEquals(2, navigationWheelTarget(2, 2, 10, -1))
         assertNull(navigationWheelTarget(1, 2, 10, 1))
-        assertEquals(0, navigationWheelMinimum(14, 28) { fail("private stream must not use public validator"); 9 })
+        assertEquals(9, navigationWheelMinimum(14, 28) { 9 })
         assertEquals(2, navigationWheelMinimum(5, 28) { 2 })
     }
 }

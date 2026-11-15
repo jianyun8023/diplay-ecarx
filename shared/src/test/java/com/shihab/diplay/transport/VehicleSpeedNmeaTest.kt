@@ -94,7 +94,7 @@ class VehicleSpeedNmeaTest {
             "lastWheelSpeed=50.0 km/h speedRequested=true"), logs)
     }
 
-    // #807: a DiLink 4.0 sent no wheel speed for a whole drive, and the report could not say which read failed.
+    // Missing wheel speed must remain distinguishable from a failed read.
     @Test
     fun aMinuteWithoutWheelSpeedSaysWhatTheReadsReturned() {
         var now = 1_000L

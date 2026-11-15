@@ -70,7 +70,7 @@ class SidePanelLayoutTest {
         }
     }
 
-    @Test fun adoptingAnOpenSidePanelRestoresItsViewAndRefreshWithoutChangingTheArea() {
+    @Test fun adoptingAnOpenSidePanelRestoresItsViewWithoutChangingTheArea() {
         val areas = CarPlayViewAreas.build(1920, 1080, CarPlayDock.AUTOMATIC, null, sidePanel = true)!!
         val selected = areas.sidePanel()!!
         areas.use(selected)
@@ -84,7 +84,38 @@ class SidePanelLayoutTest {
         assertEquals(selected, areas.current)
         assertEquals(true, get("sidePanelShown"))
         assertEquals(View.VISIBLE, panel.visibility)
-        assertTrue((get("mainHandler") as Handler).hasCallbacks(get("sidePanelTick") as Runnable))
+    }
+
+    @Test
+    @Config(sdk = [33], qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun clockPanelFitsTheCurrentHeadUnit() {
+        val ui = owner("sidePanel")
+        panel = ui.javaClass.getDeclaredMethod("buildSidePanel").apply { isAccessible = true }
+            .invoke(ui) as LinearLayout
+        root.removeAllViews()
+        root.addView(panel)
+        set("sidePanel", panel)
+        val areas = CarPlayViewAreas.build(1920, 1080, CarPlayDock.AUTOMATIC, null, sidePanel = true)!!
+        areas.use(areas.sidePanel()!!)
+        set("sessionDisplay", CarPlaySessionDisplay(1920, 1080, Surface.ROTATION_0,
+            true, true, 1920, 1080, areas))
+        panel.visibility = View.VISIBLE
+        place(1920, 1080)
+        root.measure(exact(1920), exact(1080))
+        root.layout(0, 0, 1920, 1080)
+        val contents = panel.getChildAt(0) as LinearLayout
+        assertEquals(1, contents.childCount)
+        val clock = contents.getChildAt(0) as android.widget.TextClock
+        assertTrue(clock.width > 0 && clock.height > 0)
+        assertEquals(640, panel.width)
+        assertEquals(1080, panel.height)
+        val bitmap = android.graphics.Bitmap.createBitmap(1920, 1080, android.graphics.Bitmap.Config.ARGB_8888)
+        root.draw(android.graphics.Canvas(bitmap))
+        val output = java.io.File("build/reports/side-panel-ui/current-head-unit.png")
+        output.parentFile.mkdirs()
+        output.outputStream().use { assertTrue(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)) }
+        bitmap.recycle()
     }
 
     private fun place(width: Int, height: Int) {

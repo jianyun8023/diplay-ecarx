@@ -533,7 +533,6 @@
     <string name="retry_auto_grant">重试一键授权</string>
     <string name="btn_open_accessibility_setting">前往系统设置开启【无障碍服务】</string>
     <string name="btn_open_overlay_setting">前往开启【显示在其他应用上层】</string>
-    <string name="adb_cluster_activity_label">仪表地图</string>
     <string name="open_diplay_settings_hint">在 CarPlay 中用 %1$d 指下滑，以打开快捷菜单。</string>
     <string name="carplay_controls">CarPlay 操作</string>
     <string name="settings_gesture_fingers">快捷菜单 · %1$d 指下滑（点按切换）</string>
@@ -743,7 +742,7 @@
     <string name="settings_harman_fullscreen_experimental">哈曼车机全屏（实验性）</string>
     <string name="settings_harman_fullscreen_experimental_description">让 CarPlay 占用受支持哈曼车机的原厂侧栏区域。下次打开 CarPlay 窗口时生效；其他固件可能显示异常。</string>
     <string name="settings_carplay_same_task">在桌面卡片中保留 CarPlay（实验性）</string>
-    <string name="settings_carplay_same_task_description">适用于在卡片或画中画窗口中显示 DiPlay 的桌面，例如迪友桌面卡片、嘟嘟桌面画中画。CarPlay 会像 0.2.11 及更早版本一样在 DiPlay 自己的窗口中打开，不再单独全屏打开。下次打开 CarPlay 时生效，不会断开连接。</string>
+    <string name="settings_carplay_same_task_description">适用于在卡片或画中画窗口中显示 DiPlay 的桌面。CarPlay 会像 0.2.11 及更早版本一样在 DiPlay 自己的窗口中打开，不再单独全屏打开。下次打开 CarPlay 时生效，不会断开连接。</string>
     <string name="settings_hotspot_name_non_english">热点名称含中文或其他非英文字符时，部分车机广播的名称 iPhone 找不到，CarPlay 会停在「正在准备 CarPlay…」。如出现这种情况，请把车机热点改为英文字母和数字的名称。</string>
     <string name="settings_speech_without_low_rates">USB 下更清晰的导航语音（实验性）</string>
     <string name="settings_speech_without_low_rates_description">USB 连接时，iPhone 可能以 8 kHz 电话音质发送导航播报和 Siri 的语音回答。开启后不再为这类声音提供 8 和 16 kHz，让 iPhone 选择更高的采样率。如果播报没有声音，请关闭。会重新连接 CarPlay。</string>
@@ -752,7 +751,6 @@
     <string name="bluetooth_connections_not_real">此车机的系统蓝牙回报“已连接”，但实际上没有连到 iPhone：连一个不存在的服务也回报成功。这里的蓝牙由厂商自己的模块处理，应用无法使用，所以此车机无法使用无线 CarPlay。请尝试 USB 连接。</string>
     <string name="bluetooth_cannot_open_connections">此车机的系统蓝牙无法为应用建立连接：固件没有提供应用连接要用的那一部分。车机自己的蓝牙通话和音乐不受影响，但此车机无法使用无线 CarPlay。请尝试 USB 连接。</string>
     <string name="bluetooth_will_not_stay_on_hint">如果蓝牙在那里打不开，或打开后又自己关闭，说明这台车机的蓝牙只供它自己的通话和音乐使用，应用无法使用。这种情况下无法使用无线 CarPlay，请改用 USB 线。</string>
-    <string name="settings_cluster_music_unknown">未知艺人</string>
     <string name="connection_help_reset_wifi">旧的 Wi-Fi Direct 连接可能阻止新连接。点击下方的“重置 CarPlay Wi-Fi”，然后重新连接。</string>
     <string name="connection_help_bluetooth_unusable">此车机的蓝牙无法向 iPhone 传输数据，因此无法使用无线 CarPlay。请使用支持数据传输的 USB 线。</string>
     <string name="connection_help_wifi_direct_beside_hotspot">请关闭车载热点后点“重新连接”；或在“连接设置”中选择“车载热点”，并保存热点名称和密码。</string>

@@ -17,9 +17,9 @@ Match local validation to the actual change:
 The full CI command from `.github/workflows/android.yml` is a reference, not a requirement for every delivery:
 
 ```sh
-./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest \
-  :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug \
-  :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
+./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest \
+  :mobile:lintDebug :maphost:lintDebug :siribridge:lintDebug \
+  :mobile:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
 ```
 
 Set `ANDROID_HOME` or `local.properties` if Gradle cannot find the SDK.
@@ -32,7 +32,7 @@ The ownership below describes production boundaries. Change one coherent owner a
 
 For behavior changes, run affected-module tests according to the Checks policy above. Track current acceptance and remaining work in [the acceptance matrix](docs/RUST_CORE_REMAINING.zh-CN.md), with links to supporting issues/PRs. Closed issues #96/#98/#99 preserve history; their closure does not establish every device/car acceptance item.
 
-Keep shared-only internal-owner contracts in `shared/src/testCoreInternal/kotlin`, included by shared JVM/androidTest source sets only. General `testCore` references and `testCoreShadows` remain available to common/home tests; do not make production internal APIs public to compile fixtures in unrelated modules.
+Keep shared-only internal-owner contracts in `shared/src/testCoreInternal/kotlin`, included by shared JVM/androidTest source sets only. General `testCore` references and `testCoreShadows` remain available to common tests; do not make production internal APIs public to compile fixtures in unrelated modules.
 
 Migrated production core facades require native, including protocols, pairing, NTP, session state, media queues/clocks/DSP, navigation/HUD and vehicle conversion. Keep independent Kotlin test references and an explicit required-core load failure at startup. Bouncy Castle and Concentus are test-only; hardware/SDK capability fallbacks have separate platform requirements. Source implementation and necessary compilation do not establish combined device acceptance.
 

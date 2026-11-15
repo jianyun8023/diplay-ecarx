@@ -225,7 +225,6 @@ internal object CarPlayMediaSession {
                 nowPlaying = update
                 val nextArtworkUri = artworkUri ?: clusterArtworkUris[update.artworkTransferId]
                 publishMediaCenter(update, nextArtworkUri, "metadata-applied")
-                if (metadataChanged || trackChanged) ClusterMusicState.publish(update, artwork)
                 updateInitialAlbumRecovery(expected)
                 // The iPhone repeats NowPlayingUpdate about twice a second for the position alone.
                 // Republishing the metadata each time sent a copy of the artwork through system_server
@@ -280,7 +279,6 @@ internal object CarPlayMediaSession {
             artworkUri = uri
             if (artworkChanged) {
                 publishMediaCenter(nowPlaying, uri, "artwork-decoded")
-                ClusterMusicState.publish(nowPlaying, artwork)
                 session?.setMetadata(androidMetadata(nowPlaying, artwork, artworkUri))
                 publishHyDisplayLocked()
             }
@@ -551,7 +549,6 @@ internal object CarPlayMediaSession {
             lastClusterArtworkReport = it.diagnosticReport()
         }
         clusterArtworkServer = null
-        ClusterMusicState.publish(CarPlayNowPlaying(), null)
         focusRequest?.let { request -> appContext?.getSystemService(AudioManager::class.java)?.let(request::abandon) }
         focusRequest = null
         focusHeld = false

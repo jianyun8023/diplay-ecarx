@@ -15,4 +15,4 @@ body:
     id: context
     attributes:
       label: Device information and additional context
-      description: 'If relevant, include the car/head-unit model, Android/DiLink/firmware version, DiPlay version and iPhone/iOS version.'
+      description: 'If relevant, include the car/head-unit model, Android/ECARX/firmware version, DiPlay version and iPhone/iOS version.'

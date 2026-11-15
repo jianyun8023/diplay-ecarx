@@ -25,7 +25,7 @@ android {
         unitTests.isIncludeAndroidResources = true
         // The UI suite covers several SDKs and locale-specific resource sandboxes. 1g sat right at the
         // ceiling: adding one more Robolectric class pushed a full run into OutOfMemoryError in
-        // unrelated tests, on CI and locally both, which is what BydSettingsDecoyTest measured.
+        // unrelated tests, on CI and locally both.
         unitTests.all { it.maxHeapSize = "2g" }
     }
 }

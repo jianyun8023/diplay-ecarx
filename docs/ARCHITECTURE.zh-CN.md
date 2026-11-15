@@ -4,7 +4,7 @@
 
 原生媒体阶段 1 由 PR #94 合入 `dev`，阶段 2–6 及 AAudio 正确性修复经 PR #97 合入，Rust 核心主体迁移已完成。后续修复与验收按批记录；实现完成不等于所有实车场景通过。历史台架结果见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)，当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
 
-后续职责收敛的 A–H 清单及 2026-11-15 新增四项见 [Rust 与 Kotlin 职责收敛方案](RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)。当前代码进一步将 ECARX MQTT、HUD 发布策略、控制通道残留与下行音频循环归入 Rust；本轮构建和小米验证独立记在[实施记录](benchmarks/native-platform-boundaries-2026-11-15.md)，不重开既有验收。
+后续职责收敛已实施，当前归属见下文；阶段性任务方案已退出当前文档集。AAC 输入与连续采集链见[设备验证](benchmarks/native-aac-capture-2026-11-15.md)。ECARX MQTT、HUD 发布策略、控制通道残留与下行音频循环也已归入 Rust，其构建和小米验证独立记在[实施记录](benchmarks/native-platform-boundaries-2026-11-15.md)，不重开既有验收。
 
 ## 当前 Rust 核心与平台边界
 
@@ -55,7 +55,6 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 | `:mobile` | `mobile/` | 车机安装的应用（`com.shihab.diplay`），打包与签名、R8 规则。 |
 | `:common` | `common/` | 宿主界面与生命周期：`CarPlayHostActivity`、`DiPlayActivity`（设置）、侧边栏、媒体会话、持久化。 |
 | `:shared` | `shared/` | 协议、连接编排、媒体管线与原生库。车机无关的核心都在这里。 |
-| `:home` | `samples/home/` | 桌面集成示例。 |
 | `:maphost` | `samples/maphost/` | 仪表地图宿主示例。 |
 | `:siribridge` | `integrations/siri/` | 方向盘语音键到 Siri 的桥接。 |
 

@@ -22,7 +22,7 @@ def configureCoreTests = { Project project ->
     android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreShadows/kotlin'))
     android.sourceSets.getByName('test').resources.srcDir(rootProject.file('shared/src/testCoreShadows/resources'))
     if (project.path == ':shared') {
-        // These contracts use shared's internal owners; common/home only need the shared JNI shadows.
+        // These contracts use shared's internal owners; common only needs the shared JNI shadows.
         android.sourceSets.getByName('test').kotlin.srcDir(rootProject.file('shared/src/testCoreInternal/kotlin'))
         android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCoreInternal/kotlin'))
         android.sourceSets.getByName('androidTest').kotlin.srcDir(rootProject.file('shared/src/testCore/kotlin'))
@@ -32,7 +32,6 @@ def configureCoreTests = { Project project ->
     def libraries = rootProject.extensions.getByType(VersionCatalogsExtension).named('libs')
     project.dependencies.add('testImplementation', libraries.findLibrary('bouncycastle').get())
     if (project.path == ':shared') project.dependencies.add('androidTestImplementation', libraries.findLibrary('bouncycastle').get())
-    if (project.path == ':home') project.dependencies.add('testImplementation', project.dependencies.project(path: ':shared'))
     project.tasks.withType(Test).configureEach {
         dependsOn prepareHostCore
         inputs.file(hostLibrary)
@@ -46,7 +45,7 @@ def configureCoreTests = { Project project ->
 }
 
 subprojects { project ->
-    if (project.path in [':shared', ':common', ':home']) {
+    if (project.path in [':shared', ':common']) {
         project.plugins.withId('com.android.library') { configureCoreTests(project) }
         project.plugins.withId('com.android.application') { configureCoreTests(project) }
     }

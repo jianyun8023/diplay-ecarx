@@ -116,8 +116,8 @@ jobs:
 
   # The suite used to run every module in one serial job (~9-11 min, the pipeline's
   # critical path). Split it into parallel legs so the slowest module alone bounds the
-  # time: `common` (largest UI/Robolectric suite) runs alone, `shared`+`home` (fast)
-  # share the other leg. Each leg runs its test classes in two forked JVMs (TEST_FORKS;
+  # time: `common` (largest UI/Robolectric suite) runs alone, `shared` runs in
+  # the other leg. Each leg runs its test classes in two forked JVMs (TEST_FORKS;
   # Robolectric sandboxes each class, forks are isolated processes) while legs run
   # concurrently. Build cache is enabled so repeated compiles are reused across runs.
   unit_tests:
@@ -129,8 +129,8 @@ jobs:
         include:
           - leg: common
             tasks: ':common:testDebugUnitTest'
-          - leg: shared-home
-            tasks: ':shared:testDebugUnitTest :home:testDebugUnitTest'
+          - leg: shared
+            tasks: ':shared:testDebugUnitTest'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -169,7 +169,7 @@ jobs:
             common/build/reports/album-artwork-ui/
             common/build/reports/foreground-layout-ui/
             common/build/reports/open-source-ui/
-            samples/home/build/reports/tests/
+            common/build/reports/side-panel-ui/
 
   build:
     needs: [changes, native]
@@ -204,9 +204,9 @@ jobs:
       - name: Lint, debug APKs and release optimization (parallel)
         run: >
           ./gradlew
-          :mobile:lintDebug :home:lintDebug :maphost:lintDebug :siribridge:lintDebug
-          :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
-          :mobile:minifyReleaseWithR8 :home:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8
+          :mobile:lintDebug :maphost:lintDebug :siribridge:lintDebug
+          :mobile:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
+          :mobile:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8
           --parallel --max-workers=4 --build-cache --configuration-cache --stacktrace
       - name: Verify each debug APK carries exactly its own Rust Android ABI
         run: |
@@ -248,7 +248,6 @@ jobs:
           name: build-reports
           path: |
             mobile/build/reports/lint-results-debug.html
-            samples/home/build/reports/lint-results-debug.html
             samples/maphost/build/reports/lint-results-debug.html
             integrations/siri/build/reports/lint-results-debug.html
 

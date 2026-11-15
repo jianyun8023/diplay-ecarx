@@ -15,7 +15,7 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 | 仪表和 HUD 导航提示 | **设置 → 导航 → 亿咖通导航**，开启「HUD／仪表导航提示」 |
 | 车道指引 | 随「HUD／仪表导航提示」输出手机提供的有效车道，无需单独开关 |
 | 歌曲信息和封面 | **设置 → 音频 → 车机媒体集成**，选择「DiPlay 直接接管」或「Android 标准」，歌曲信息随所选后端输出 |
-| 日夜模式跟随车辆 | **设置 → 显示 → 显示与性能**，把「CarPlay 日夜模式」设为「跟随车辆」 |
+| 日夜模式跟随车机 | 亿咖通车机默认「跟随车机」；按车外光线切换可在 **设置 → 显示 → 显示与性能** 选择「跟随车外光线」 |
 | 音乐走 CarPlay、保留蓝牙电话 | **设置 → 音频 → 音频路由 → 声音异常排查**，开启「CarPlay 期间停用蓝牙媒体」，关闭「通过车辆蓝牙播放 CarPlay 音频」 |
 | 导航压低音乐或共同播报 | **设置 → 音频 → 音频路由**，默认开启「导航声音跟随 iPhone 和车机」；手机地图选播报方式，车机调导航音量，改开关后重连 |
 | 无线连接 | 在连接设置中选择车机热点、Wi-Fi Direct 或已有 Wi-Fi，按提示完成配置 |
@@ -32,9 +32,9 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 **仪表地图需要 iPhone 使用 iOS 17.4 或更新版本**：仪表上的箭头、距离、车道走 iOS 17.4 起的导航元数据通道；地图画面系统自 iOS 16.4 起支持，高德另要求 iOS 17.4 及以上、iPhone 12 或更新机型。
 
-自动热点会关闭车机连接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍须开启。关闭保护项后，若 CarPlay 正使用热点，车机 Wi-Fi 延至下次车辆启动恢复。开机配置齐全时可直达 CarPlay，v134 会先等原车桌面服务，最多 5 秒。
+自动热点会关闭车机连接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍须开启。关闭保护项后，若 CarPlay 正使用热点，车机 Wi-Fi 延至下次车辆启动恢复。开机配置齐全时可直达 CarPlay；桌面等待随版本变化，见[启动说明](docs/STARTUP_PRIORITY_AND_SYSTEM_APP.zh-CN.md)。
 
-建议首次使用无线配对。如果本车 CarPlay 记录首次通过 USB 建立，改无线前须在 iPhone 删除本车记录，再先无线配对。已配置无线时，插 USB 默认不接管；开关在 **连接 → 自动连接**。v122 的插线两条路径已实车确认，USB 卡顿和取消授权后的回退仍未解决。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
+建议首次使用无线配对。如果本车 CarPlay 记录首次通过 USB 建立，改无线前须在 iPhone 删除本车记录，再先无线配对。已配置无线时，插 USB 默认不接管；开关在 **连接 → 自动连接**。v122 的插线验证仅属历史记录；后续 USB 恢复与验收范围见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。遇到异常，请到 **设置 → 诊断 → 保存诊断报告**。
 
 同包名、同签名且版本号不低于已安装版本时覆盖升级，保留设置；Actions 公开发布包不内置 MFi 认证，全新安装或清除数据后需另行配置。不要先卸载。
 
@@ -61,7 +61,7 @@ Both guides use the v148 car-test build as their UI baseline, with older screens
 | Cluster and HUD navigation | **Settings → Navigation → ECARX navigation**: enable “HUD and cluster guidance” |
 | Lane guidance | Follows “HUD and cluster guidance” when the iPhone supplies valid lanes; no separate switch |
 | Song information and artwork | **Settings → Audio → Vehicle media integration**: choose “DiPlay direct” or “Android standard”; song data follows the backend |
-| Day/night following the vehicle | **Settings → Display → Display and performance**: set “CarPlay day/night mode” to “Follow the vehicle” |
+| Day/night following the head unit | ECARX defaults to “Follow the head unit”; choose “Follow outside light” under **Settings → Display → Display and performance** to use ambient light instead |
 | Music through CarPlay, keep Bluetooth calls | **Settings → Audio → Audio routing → Sound troubleshooting**: enable “Pause Bluetooth media for CarPlay” and disable “CarPlay audio over the car's Bluetooth” |
 | Navigation over music or lowering it | **Settings → Audio → Audio routing**: “Navigation sound follows the iPhone and the car” is on by default on ECARX; choose the prompt mode on the iPhone and adjust navigation volume in the car. Reconnect after changing the switch |
 | Wireless connection | Choose the car hotspot, Wi-Fi Direct or existing Wi-Fi in connection setup, then follow the prompts |
@@ -78,9 +78,9 @@ Keep “Mirror the full screen to the instrument cluster” off when you only wa
 
 **The instrument-cluster map requires iOS 17.4 or later on the iPhone**: turn-by-turn, distance and lane prompts use the navigation-metadata channel added in iOS 17.4; the cluster map picture itself is supported from iOS 16.4, while Amap additionally requires iOS 17.4 and iPhone 12 or later.
 
-Automatic hotspot startup keeps the car's Wi-Fi client off; leave iPhone Wi-Fi on. Turning protection off restores the car's previous Wi-Fi choice, at the next vehicle start if CarPlay is using the hotspot. A configured boot can open CarPlay directly; v134 first waits up to five seconds for the original launcher services.
+Automatic hotspot startup keeps the car's Wi-Fi client off; leave iPhone Wi-Fi on. Turning protection off restores the car's previous Wi-Fi choice, at the next vehicle start if CarPlay is using the hotspot. A configured boot can open CarPlay directly; launcher waiting depends on the version, as described in the [startup notes](docs/STARTUP_PRIORITY_AND_SYSTEM_APP.zh-CN.md).
 
-Pair wirelessly first. If the car's record was first created over USB, remove it in iPhone CarPlay settings and pair wirelessly again. With wireless configured, USB insertion does not take over by default; the switch is under **Connection → Automatic connection**. Both USB insertion paths were tested on v122, but USB stutter and recovery after permission cancellation remain unresolved. To report a problem, choose **Settings → Diagnostics → Save diagnostic report**.
+Pair wirelessly first. If the car's record was first created over USB, remove it in iPhone CarPlay settings and pair wirelessly again. With wireless configured, USB insertion does not take over by default; the switch is under **Connection → Automatic connection**. The v122 USB insertion results are historical; later USB recovery and acceptance are tracked in the [current matrix](docs/RUST_CORE_REMAINING.zh-CN.md). To report a problem, choose **Settings → Diagnostics → Save diagnostic report**.
 
 Update in place with the same package and signature and an equal or higher version code. Public Actions release APKs contain no MFi credentials; a fresh install or cleared data needs credentials supplied separately. Do not uninstall first.
 

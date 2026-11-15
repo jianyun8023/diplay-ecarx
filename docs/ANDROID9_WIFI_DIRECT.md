@@ -31,5 +31,5 @@ Android 9 source references:
 - [SupplicantP2pIfaceHal](https://android.googlesource.com/platform/frameworks/opt/net/wifi/+/android-9.0.0_r1/service/java/com/android/server/wifi/p2p/SupplicantP2pIfaceHal.java)
 
 The author's Redmi K20 Pro/iPhone test supports basic bring-up; automated tests exercise default
-retry, close, late callbacks, foreign replacement and failed cleanup. BYD Android 9 cancellation
-and cleanup acceptance has not been run by this review.
+retry, close, late callbacks, foreign replacement and failed cleanup. Current vehicle cancellation and cleanup evidence is tracked in the
+[acceptance matrix](RUST_CORE_REMAINING.zh-CN.md).

@@ -11,7 +11,7 @@ import java.util.IdentityHashMap
 
 /**
  * Keeps DiPlay's last uncaught exception so the next diagnostic report shows where it crashed. Android 11+ only
- * records `reason=java_crash`, which left a crash inside the DiYou launcher card without a cause (#463). The record
+ * records `reason=java_crash`, which left a crash inside a launcher card without a cause (#463). The record
  * stays on the head unit, and the report redacts it like any log line.
  */
 internal object CrashRecord {
@@ -46,7 +46,7 @@ internal object CrashRecord {
             appendLine((if (seen.size == 1) "" else "caused by ") + current.javaClass.name + (message?.let { ": $it" } ?: ""))
             val frames = current.stackTrace
             frames.take(MAX_FRAMES).forEach { appendLine("  at $it") }
-            // A crash inside a framework call fills the first frames with Android's own; the DiYou card's
+            // A crash inside a framework call fills the first frames with Android's own; the launcher's
             // startActivity crash (#463) lost the DiPlay code that called it. Keep the first few of ours.
             val rest = frames.drop(MAX_FRAMES)
             val own = rest.filter(::ownFrame).take(MAX_OWN_FRAMES)

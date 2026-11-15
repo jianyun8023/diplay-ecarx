@@ -1,6 +1,6 @@
 # MQTT、HUD、控制缓冲与下行音频职责收敛（2026-11-15）
 
-本轮对应[原始方案](../RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)的 I–L，以 G/H 合入后的 `23838d88829b5b62cc99bf5d311ed9ac692ca4ba` 为基线，工作分支为 `refactor/native-platform-boundaries`。四项已实施，不新增第三方依赖或 Kotlin 算法回退。本记录区分源码检查、合同测试和真实连接，不将小米结果追认为 ECARX 实车验收。
+本轮为 MQTT、HUD、RTSP 输入与下行音频四项收敛（原工作包 I–L），以 AAC 输入与原生采集链合入后的 `23838d88829b5b62cc99bf5d311ed9ac692ca4ba` 为基线，工作分支为 `refactor/native-platform-boundaries`。四项已实施，不新增第三方依赖或 Kotlin 算法回退；当前归属见[架构说明](../ARCHITECTURE.zh-CN.md)。本记录区分源码检查、合同测试和真实连接，不将小米结果追认为 ECARX 实车验收。
 
 ## 最终边界
 
@@ -29,7 +29,6 @@ HUD、RTSP 残留、PCM 工作缓冲由原生堆所有者持有。MQTT 延续项
 | Rust `cargo test --locked --lib` | 262 通过；完整运行允许既有 UDP socket 测试所需的本机权限 |
 | shared JVM | 2029 项：2027 通过，2 项既有环境跳过，0 失败 |
 | common JVM | 首轮 1584 通过；另 20 项因 HUD 旧字段反射失效，改为访问新门面后定向重跑 20/0；原行为断言不变 |
-| samples/home JVM | 14/0 |
 | Android 三 ABI 构建与导出核对 | ARM64、ARMv7、x86_64 均通过；每个 ABI 568 个 Java JNI 导出及 `JNI_OnLoad` |
 | androidTest APK | 编译通过；APK 内三份 Rust 库与 Gradle stripped 输出逐字节一致 |
 | 主应用 Release／R8 | 三 ABI APK 构建通过；8 个 AudioRenderer 回调和 4 个 MQTT 发布回调保留；ARM64 本地签名包实测 |

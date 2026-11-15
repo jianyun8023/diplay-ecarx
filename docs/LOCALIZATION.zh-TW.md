@@ -4,7 +4,7 @@
 
 ## 語系與用語
 
-主要應用程式繁體中文資源位於 `common/src/main/res/values-zh-rTW/` 及 `shared/src/main/res/values-zh-rTW/`，分散於多個 XML，不只 `strings.xml`。選用的 Home 與地圖範例資源位於 `samples/home/src/main/res/values-zh-rTW/` 及 `samples/maphost/src/main/res/values-zh-rTW/`，依系統語言顯示。主要應用程式語言代碼維持 `zh-TW`，語言選單維持 **繁體中文**。舊靜態下載網站已退役。
+主要應用程式繁體中文資源位於 `common/src/main/res/values-zh-rTW/` 及 `shared/src/main/res/values-zh-rTW/`，分散於多個 XML，不只 `strings.xml`。地圖範例資源位於 `samples/maphost/src/main/res/values-zh-rTW/`，依系統語言顯示。主要應用程式語言代碼維持 `zh-TW`，語言選單維持 **繁體中文**。舊靜態下載網站已退役。
 
 | English | 繁體中文 |
 | --- | --- |
