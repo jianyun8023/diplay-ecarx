@@ -220,6 +220,43 @@ class AudioFocusAutoYieldTest {
         assertTrue(volumes(third).isEmpty())
     }
 
+    @Test fun repeatedFocusEventsRetryFailedVolumeChangesButSkipSuccessfulOnes() {
+        for ((change, target) in listOf(
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK to 0.2f,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT to 0f,
+            AudioManager.AUDIOFOCUS_GAIN to 1f,
+        )) {
+            val coordinator = coordinator()
+            val attempts = mutableListOf<Float>()
+            var applied = 1f
+            var rejectNext = false
+            coordinator.acquire(track(), AudioChannel.MEDIA, attributes) { volume ->
+                attempts.add(volume)
+                if (rejectNext) {
+                    rejectNext = false
+                    false
+                } else {
+                    applied = volume
+                    true
+                }
+            }
+            if (change == AudioManager.AUDIOFOCUS_GAIN) {
+                coordinator.onExternalFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)
+            }
+            val before = applied
+            attempts.clear()
+            rejectNext = true
+            coordinator.onExternalFocusChange(change)
+            assertEquals(listOf(target), attempts)
+            assertEquals(before, applied, 0f)
+            coordinator.onExternalFocusChange(change)
+            assertEquals(listOf(target, target), attempts)
+            assertEquals(target, applied, 0f)
+            coordinator.onExternalFocusChange(change)
+            assertEquals(listOf(target, target), attempts)
+        }
+    }
+
     private fun coordinator(enabled: Boolean = true, autoYield: Boolean = true) =
         AudioFocusCoordinator(context, enabled, autoYield).also(coordinators::add)
     private fun track(): AudioTrack = AudioTrack.Builder().setAudioAttributes(attributes)

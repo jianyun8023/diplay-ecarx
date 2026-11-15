@@ -48,6 +48,9 @@ internal object NativeAudioScheduler {
     @JvmStatic external fun navigationRoute(follows: Boolean, configured: Int, ducking: Boolean): Int
     @JvmStatic external fun captureRecovery(state: LongArray, event: Int, nowNanos: Long, timeoutMillis: Long): Int
     @JvmStatic external fun promptFocus(state: LongArray, event: Int, enabled: Boolean, held: Boolean): Int
+    /** One audio-focus event; the decision slots are documented on the Rust `focus_step`. */
+    @JvmStatic external fun focusStep(state: LongArray, event: Int, channel: Int, enabled: Boolean, muteTransient: Boolean): IntArray
+    @JvmStatic external fun mediaFocusHeld(state: LongArray): Boolean
     @JvmStatic external fun create(frameBytes: Int): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun reset(handle: Long)
