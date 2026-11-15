@@ -121,6 +121,7 @@ name = "diplay-media"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "cc",
  "ctr",
  "curve25519-dalek",
  "jni-sys 0.3.1",

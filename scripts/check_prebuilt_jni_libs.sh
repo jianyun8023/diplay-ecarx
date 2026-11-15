@@ -19,11 +19,11 @@ NOTICE="$ROOT/shared/src/main/jniLibs/NOTICE.md"
 
 class_for() { case "$1" in arm64-v8a) echo ELF64 ;; armeabi-v7a) echo ELF32 ;; x86_64) echo ELF64 ;; esac; }
 mach_for() { case "$1" in arm64-v8a) echo AArch64 ;; armeabi-v7a) echo ARM ;; x86_64) echo "Advanced Micro Devices X86-64" ;; esac; }
-src_for() { case "$1" in liblocal_hotspot_radio) echo local_hotspot_radio.c ;; libspeex_echo) echo speex_echo_jni.c ;; libdiplay_i2c) echo linux_i2c_jni.c ;; esac; }
+src_for() { case "$1" in liblocal_hotspot_radio) echo local_hotspot_radio.c ;; libdiplay_i2c) echo linux_i2c_jni.c ;; esac; }
 
 fail=0
 for abi in arm64-v8a armeabi-v7a x86_64; do
-  for lib in liblocal_hotspot_radio libspeex_echo libdiplay_i2c; do
+  for lib in liblocal_hotspot_radio libdiplay_i2c; do
     file="$ROOT/shared/src/main/jniLibs/$abi/$lib.so"
     if [[ ! -s "$file" ]]; then
       echo "FAIL $abi/$lib.so is missing" >&2; fail=1; continue

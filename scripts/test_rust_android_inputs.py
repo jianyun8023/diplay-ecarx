@@ -20,6 +20,11 @@ class RustAndroidInputsTest(unittest.TestCase):
         for name in ['check_rust_android_native.sh', 'rust_android_inputs.py']:
             (self.root / 'scripts' / name).write_text(name)
         (self.root / 'shared/rust-android-inputs.gradle').write_text('Gradle JNI staging')
+        self.speex = self.root / 'shared/src/main/jni'
+        (self.speex / 'speexdsp').mkdir(parents=True)
+        (self.speex / 'speex_echo.c').write_text('PCM bridge')
+        (self.speex / 'speex_echo.h').write_text('PCM ABI')
+        (self.speex / 'speexdsp/mdf.c').write_text('Speex implementation')
         for abi, (cls, machine) in native.ABIS.items():
             directory = self.inputs / abi
             directory.mkdir(parents=True)
@@ -61,6 +66,16 @@ class RustAndroidInputsTest(unittest.TestCase):
         (self.root / 'scripts/check_rust_android_native.sh').write_text('changed flags')
         with self.assertRaisesRegex(ValueError, 'Rust source inputs changed.*check_rust_android_native.sh'):
             native.verify(self.root, self.inputs)
+
+    def test_static_speex_inputs_invalidate_receipts(self):
+        for name in ['speex_echo.c', 'speex_echo.h', 'speexdsp/mdf.c']:
+            with self.subTest(name=name):
+                source = self.speex / name
+                original = source.read_text()
+                source.write_text('changed C input')
+                with self.assertRaisesRegex(ValueError, 'Rust source inputs changed'):
+                    native.verify(self.root, self.inputs)
+                source.write_text(original)
 
     def test_gradle_staging_change_invalidates_receipts(self):
         (self.root / 'shared/rust-android-inputs.gradle').write_text('changed staging')

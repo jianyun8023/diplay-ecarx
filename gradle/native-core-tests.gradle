@@ -3,7 +3,9 @@ def coreDirectory = rootProject.file('shared/src/main/rust/diplay-media')
 def hostTarget = rootProject.layout.buildDirectory.dir('native-core-tests')
 def hostLibrary = hostTarget.map { it.file('debug/' + System.mapLibraryName('diplay_media')) }
 def prepareHostCore = rootProject.tasks.register('prepareHostCoreForTests', Exec) {
-    inputs.files(rootProject.fileTree(coreDirectory) { include 'src/**/*.rs', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml' })
+    inputs.files(rootProject.fileTree(coreDirectory) { include 'src/**/*.rs', 'build.rs', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml' })
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(rootProject.fileTree('shared/src/main/jni') { include 'speex_echo.c', 'speex_echo.h', 'speexdsp/**' })
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.property('rustFlags', rootProject.providers.environmentVariable('RUSTFLAGS').orElse(''))
     inputs.property('rustCompiler', rootProject.providers.environmentVariable('RUSTC').orElse('rustc'))

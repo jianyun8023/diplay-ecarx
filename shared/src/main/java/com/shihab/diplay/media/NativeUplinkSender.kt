@@ -1,43 +1,49 @@
 package com.shihab.diplay.media
 
-import android.os.ParcelFileDescriptor
 import com.shihab.diplay.airplay.AudioCodecKind
 import com.shihab.diplay.airplay.MicrophoneConfig
 import com.shihab.diplay.airplay.NativeMedia
-import java.net.DatagramSocket
 import java.net.Inet6Address
 
-/**
- * The microphone's send path in `libdiplay_media`: each captured frame is encoded (libopus) or put
- * in wire order, sealed and sent in one call, in the layout of [com.shihab.diplay.airplay.MicrophonePacketizer].
- * Its own duplicate of the uplink's socket lets [close] race the capture thread's last send safely.
- */
+/** Owns one Rust capture pipeline, including residual PCM, echo leases, Speex, encoder and socket. */
 internal class NativeUplinkSender private constructor(private var handle: Long) : AutoCloseable {
-    /** Packets sent (0 when the encoder produced none), -1 on an encoding failure, -errno on a send failure. */
     @Synchronized
-    fun send(frame: ByteArray): Int = if (handle == 0L) -1 else NativeMedia.uplinkSend(handle, frame, frame.size)
+    fun enableEcho(source: EchoReference?): Boolean = handle != 0L && NativeMicrophone.enableEcho(handle, source)
+
+    @Synchronized
+    fun disableEcho() { if (handle != 0L) NativeMicrophone.disableEcho(handle) }
+
+    @Synchronized
+    fun feed(input: ByteArray, count: Int, now: Long, stamped: Boolean, timestamp: Long, position: Long,
+        host: MicrophoneUplink, stats: MicrophoneCaptureStats): Int =
+        if (handle == 0L) -1 else NativeMicrophone.feed(handle, input, count, now, stamped, timestamp, position, host, stats.owner)
 
     @Synchronized
     override fun close() {
-        if (handle != 0L) NativeMedia.uplinkClose(handle)
+        if (handle != 0L) NativeMicrophone.close(handle)
         handle = 0L
     }
 
     companion object {
-        /** Null when the socket cannot be shared or the sender rejects its configuration. */
-        fun create(socket: DatagramSocket, config: MicrophoneConfig): NativeUplinkSender? {
-            NativeMedia.requireAvailable()
-            val fd = runCatching { ParcelFileDescriptor.fromDatagramSocket(socket).detachFd() }.getOrNull() ?: return null
-            val bitrate = if (config.codec == AudioCodecKind.OPUS) config.bitrate ?: 48_000 else 0
-            val handle = NativeMedia.uplinkCreate(
-                fd, config.key, config.payloadType, config.host.address, (config.host as? Inet6Address)?.scopeId ?: 0,
-                config.port, bitrate, config.rtpSamplesPerPacket,
-            )
-            if (handle == 0L) {
-                runCatching { ParcelFileDescriptor.adoptFd(fd).close() }
-                return null
-            }
-            return NativeUplinkSender(handle)
+        /** Null means startup failed; capture requires the native pipeline. */
+        fun create(config: MicrophoneConfig): NativeUplinkSender? {
+            val handle = NativeMicrophone.create(config.key, config.payloadType, config.host.address,
+                (config.host as? Inet6Address)?.scopeId ?: 0, config.port,
+                if (config.codec == AudioCodecKind.OPUS) config.bitrate ?: 48_000 else 0,
+                config.rtpSamplesPerPacket, config.frameBytes, config.sampleRate, config.channels)
+            return if (handle == 0L) null else NativeUplinkSender(handle)
         }
     }
+}
+
+internal object NativeMicrophone {
+    init { NativeMedia.requireAvailable() }
+    @JvmStatic external fun create(key: ByteArray, payloadType: Int, address: ByteArray, scopeId: Int, port: Int,
+        bitrate: Int, samplesPerPacket: Int, frameBytes: Int, sampleRate: Int, channels: Int): Long
+    // JNI uses the actual platform object class, also across Robolectric's sandbox class loader.
+    @JvmStatic external fun enableEcho(handle: Long, source: Any?): Boolean
+    @JvmStatic external fun disableEcho(handle: Long)
+    @JvmStatic external fun feed(handle: Long, input: ByteArray, count: Int, now: Long, stamped: Boolean,
+        timestamp: Long, position: Long, host: Any, stats: LongArray): Int
+    @JvmStatic external fun close(handle: Long)
 }

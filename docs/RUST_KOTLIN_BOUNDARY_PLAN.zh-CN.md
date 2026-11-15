@@ -2,19 +2,19 @@
 
 现有 Rust 核心主体迁移已经完成。下一步围绕仍在 Kotlin 中的协议语义、媒体决策，以及不必要的 JNI 往返做局部收敛：Rust 负责核心规则和逻辑状态，Kotlin 负责平台资源、实际操作及结果。以完整职责为迁移单位，不以 Rust 代码占比或 Kotlin 文件行数衡量进度。
 
-建议先处理歌曲状态、普通音频 feedback 和视频控制邮箱，再处理媒体协商、音频焦点和 JNI 门面；音频输入准备、麦克风 PCM 管线列为后续可选项。
+最初按歌曲状态、普通音频 feedback、视频控制邮箱、媒体协商、音频焦点和 JNI 门面的顺序安排；音频输入准备与麦克风 PCM 原列后续可选项。用户随后明确授权 AAC 输入和连续原生采集链，当前范围以下方实施清单为准。
 
 ## 基线与范围
 
 - 分析日期：2026-11-14。`dev` 基线为 `21459bb60c0e548353b6abb035da0a343870dd42`，包含 PR #114；对应本地源码 HEAD 为 `368cf10353f96b13e2747d03cd30fe3c4cef8cda`。本方案涉及的生产 Kotlin／Rust 源码与该 `dev` 基线一致。
 - 本文保留最初的 A–H 工作包与职责约束；代码实施范围见下表。当前归属见[架构说明](ARCHITECTURE.zh-CN.md)，实施约束见 [AGENTS.md](../AGENTS.md)。历史迁移分支和已关闭议题不作为新任务入口。
 - 用户已确认现有测试足够。本方案不重开既有验收，不安排重复长测、回放或故障注入；[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)与原始记录保持其原有范围。后续代码变更只验证其实际影响，不把本方案当作新测试已通过的记录。
-- 保持 Android 9／API 28、ECARX 753、现有 ARM64／ARMv7 分发及 x86_64 测试构建边界；不改变路由、AEC、编解码器降级和设备校准策略。
-- 方案最初仅记录设计；后续实施按独立 PR 交付，不引入新依赖或扩展产品功能。
+- 保持 Android 9／API 28、ECARX 753、现有 ARM64／ARMv7 分发及 x86_64 测试构建边界；保留路由、平台 AEC 与设备校准。2026-11-15 用户进一步要求完整原生数据链且不保留 Kotlin 回退，因此删除麦克风 Java socket／SDK 编码器后备；其他硬件能力适配保持原义。
+- 方案最初仅记录设计；后续实施按独立 PR 交付，不新增算法库或扩展产品功能；G/H 复用既有 SpeexDSP、libopus 与锁文件中的 cc 构建工具。
 
 ## 实施清单（2026-11-15）
 
-前两批 A–F 已在下列 PR 中实现；G/H 仍是后续可选项。“已实现”指代码范围，合并状态和 CI 结果以各 PR 为准，不代表新增实机验收。[#115](https://github.com/jianyun8023/diplay-ecarx/pull/115) 承载本方案、原 #114 验证记录及对应设备测试入库。
+前两批 A–F 已在下列 PR 中实现；用户随后授权 G 的 AAC 输入与 H 连续采集链，并要求无 Kotlin 数据回退，当前工作分支已实现如下边界。“已实现”指代码范围，合并状态和 CI 结果以各 PR 为准，不代表新增实机验收。[#115](https://github.com/jianyun8023/diplay-ecarx/pull/115) 承载本方案、原 #114 验证记录及对应设备测试入库。
 
 | 工作包 | 实施状态与 PR | 已落实的职责边界 |
 | --- | --- | --- |
@@ -24,12 +24,12 @@
 | D | 已实现：[#121](https://github.com/jianyun8023/diplay-ecarx/pull/121)，依赖 B | SETUP 解释、回复布局、HKDF 字节和麦克风参数归 Rust；流 ID 按 session 分配。现有协议门面将 native Map 转成具名音频、麦克风及数据流计划，engine 使用明确字段并管理平台资源。仅 telephony 等待下行，其余合格输入流保留 500 ms 静默启动。 |
 | E | 已实现：[#120](https://github.com/jianyun8023/diplay-ecarx/pull/120) | Rust 决定焦点优先级、请求意图和目标增益；Kotlin 持有对象表、generation 守卫及 appliedVolume。平台设置音量失败后，同目标回调仍可重试。 |
 | F | 已实现：[#119](https://github.com/jianyun8023/diplay-ecarx/pull/119)，依赖 #115 | Artwork event/数组布局和发布位掩码封装为具名结果；Rust/JNI 签名不变，Bitmap 生命周期与发布提交顺序留在 Kotlin。#115 的设备测试同步迁移到新门面。 |
-| G | 未实施，后续可选 | 音频输入准备维持当前边界，不阻塞 A–F。 |
-| H | 未实施，后续可选 | 麦克风 PCM 管线维持当前边界；推进前先评估现有 Speex JNI 的局部收敛，不直接扩展三 ABI 的采集链路。 |
+| G | 已实施：AAC 输入 | Rust 组装 ADTS＋payload，并复用原输入泵完成 MediaCodec 输入获取、重试与提交；保留 Google AAC 配置、输出排空和包释放。 |
+| H | 已实施：连续原生采集链 | Rust 持有分帧残留、采集时钟、逐帧 echo 引用、统计窗口、编码／RTP／加密和 UDP socket；Speex C 原地处理 PCM。删除 Kotlin 数据处理、Java 发送及 SDK Opus 编码回退。 |
 
 合并依赖为 #115 → #119、#117 → #121；父 PR 合并后，子 PR 改向 `dev`。实施和评审修复的验证记录放在各 PR：主机 JVM/Rust 测试、androidTest 编译、Android ABI 构建与实机验收分别记录，不相互替代。A–E 的 JNI 导出变更同时修复构建检查：按 Rust 声明逐项核对实际导出，保留 JNI_OnLoad、ELF 和各 ABI 导出一致性校验，避免旧固定总数阻塞合法的接口增删。
 
-既有验收矩阵保持原范围；本轮不声明新的设备验收或性能收益。
+既有验收矩阵保持原范围；G/H 新增的小米手机验证单独记在下方，不追认为实车验收或性能收益。
 
 ## 目标职责
 
@@ -145,31 +145,53 @@ Kotlin 继续保留 active 输出对象表、AudioAttributes、AudioFocusRequest
 
 影响门面与实际消费数组的调用方。若 JNI 签名或构造的 DTO 变化，同批更新声明、导出、R8 规则及 host shadow；不为未变化的接口扩大修改范围。完成后，业务代码不再读取 native 快照的变长布局，而原有所有权保持不变。
 
-## G 可选的音频输入准备收敛
+## G 音频输入准备：本轮实施 AAC
 
-[AudioRenderer.handleRtp](../shared/src/main/java/com/shihab/diplay/media/AudioRenderer.kt) 仍在 Kotlin 中按 RTP 头偏移取 payload、转换 sample 时间、分派 LPCM／AAC／Opus、处理短 Opus 包，并准备 SDK 解码器输入。AAC 编码规则和 PCM／Opus 运算已有 Rust 实现，不需要重写。
+[AudioRenderer](../shared/src/main/java/com/shihab/diplay/media/AudioRenderer.kt) 保留 worker、codec 创建／Google AAC 配置、输出排空与诊断。Rust `media::audio::aac` 直接把 ADTS 与 native packet 的 payload 写入 SDK 输入缓冲，并调用已有 MediaCodec 方法获取／提交输入，复用 `media::video::flow::input_step` 的调度规则，保留 10 ms dequeue、100 ms 音频等待预算。
 
-**候选范围：** 复用现有 `media::audio` 和 [NativePcm](../shared/src/main/java/com/shihab/diplay/media/NativePcm.kt)，把属于协议与格式的输入准备组合为完整步骤；保留平台 worker、MediaCodec buffer 操作、AudioTrack 写入、焦点和输出资源管理。当前 sample 时间算法的采样率、整数运算、丢包／日志计数均保持原义，不能因 B 的 RTP feedback 规则顺带修改另一条路径。
+native packet＋直接缓冲不增加完整包副本；数组入口先成为 native packet，非直接缓冲由 Rust 写入其 backing array，同样没有 Kotlin AAC 组装分支。保持缺失 codec／input buffer、输入不足、空归还、时间戳、计数提交顺序、SDK 异常和外层包释放语义。LPCM／Opus 分派与原有下行 SDK Opus 能力适配未在本轮重写；G 的更宽候选范围不计为全部完成。
 
-这项只有在接口能合并实际工作、避免新增中间复制时值得推进。不要把每个条件和算式拆成独立 JNI 调用，也不要为此把整个 AudioRenderer 重写成 Rust。原生 Opus decoder 创建失败后仍有 SDK MediaCodec 路径，它是现有能力回退，不能按“旧 Kotlin 核心”删除。
+## H 麦克风连续原生处理链
 
-影响输入准备、NativePcm／AAC 门面、codec 配置和 host 替身。完成条件为输入格式决策有单一归属，包释放、SDK 降级和平台 buffer 行为不变。
+[MicrophoneUplink](../shared/src/main/java/com/shihab/diplay/media/MicrophoneUplink.kt) 只交付 AudioRecord 读取块、SDK timestamp 和当前输出引用，执行平台 effects、重启与取消，并格式化诊断。Rust `media::audio::capture` 持有帧残留、采集时钟、echo lease、采样统计与五秒报告窗口，连续调用 Speex C 和 `uplink`，音频帧不再返回 Kotlin 中转。
 
-## H 可选的麦克风 PCM 管线收敛
+PCM、残留、echo ring、DSP 和编码器资源位于原生侧；诊断计数沿用不透明 GC 值 token，由 Rust 解释和更新，Kotlin 仅把报告快照转为日志，不维护第二份计算状态。
 
-[MicrophoneUplink](../shared/src/main/java/com/shihab/diplay/media/MicrophoneUplink.kt) 在 AudioRecord 读取后仍由 Kotlin 拼完整帧；[SpeexEchoCanceller](../shared/src/main/java/com/shihab/diplay/media/SpeexEchoCanceller.kt) 来回转换 PCM 字节与 short 数组；[MicrophoneCaptureStats](../shared/src/main/java/com/shihab/diplay/media/MicrophoneCaptureStats.kt) 扫描样本计算电平。随后 [NativeUplinkSender](../shared/src/main/java/com/shihab/diplay/media/NativeUplinkSender.kt) 才进入原生编码、加密与发送链。
+[Speex C](../shared/src/main/jni/speex_echo.c) 接收 PCM16LE 字节帧和原生 reference，拥有复用的 short 输入／输出缓冲，完成字节转换、AEC、降噪与结果写回。复用 SpeexDSP 1.2.1；通过 Cargo 静态链接到 `libdiplay_media.so`，删除三个 ABI 的独立 Speex 预编译库。C 桥、vendored 源码和头文件纳入 Rust 来源校验，许可继续打包。
 
-**目标：** Kotlin 负责 AudioRecord、路由、平台 effects、重启／取消和采集事实；原生处理链接收采集块，拥有分帧、PCM 转换、样本统计、软件 AEC 协作及编码发送。统计样本的数值运算可下沉，Android 路由诊断、日志窗口和发布不必搬迁。
+用户明确要求“不需要 Kotlin 回退”，覆盖原计划“保留无法共享 FD 时 Java DatagramSocket”的条款：Rust 自建并拥有 UDP socket，不再借用 Java FD；原生创建失败释放 AudioRecord 并报告 `NATIVE_PIPELINE`，不启动另一条数据路径。Opus 能力探测只检查实际使用的原生编码器。
 
-优先评估把 PCM 转换移到现有 [Speex JNI](../shared/src/main/jni/speex_echo_jni.c) 是否足以完成局部收敛；只有决定合并连续处理链时，才安排 Rust 与既有 Speex C 库的连接。前者是小范围原生边界清理，不能计为整条 Rust 管线迁移完成。保留现有 Speex 实现、许可与校准，不引入新的 AEC 算法。
+每个软件 AEC 帧边界重新解析输出引用，先 retain 新 ring 再释放旧 ring；同一 producer 已关闭时保留已有尾部，取引用后关闭的候选不会被复活，缺失引用清零且可重试。同采样率恢复不重开录音器，采样率不兼容仍执行现有平台 AEC 适配。保留 30 ms 提前量、250 ms 尾长、-40/-15 dB 抑制，以及原有采集错误／无音频恢复预算、Opus 时钟和 RTP／加密计数提交点。
 
-**必须保持：** 每个软件 AEC 帧边界重新解析当前输出的 echo reference，先保留新引用再释放旧引用；同采样率 renderer 恢复不重开 AudioRecord／effects；不兼容采样率保持平台 AEC 降级；参考提前量、滤波尾长和抑制参数不变。保持部分读取／帧残留、Opus 时钟、RTP／加密计数提交时点，以及不能共享 FD 时的 Java DatagramSocket 路径。现有 Rust 读错／无音频恢复预算不再复制。
+```mermaid
+flowchart TB
+    K["Kotlin：权限、生命周期、Android SDK 适配"]
+    subgraph DOWN["播放"]
+        R1["Rust：接收／解密／队列"] --> R2["Rust：AAC 组装／输入调度／提交"]
+        R2 --> M["Android MediaCodec"]
+        M --> R3["Rust：PCM／播放时钟／回声参考缓冲"]
+        R3 --> O["Android 音频输出"]
+    end
+    subgraph UP["采集"]
+        A["Android AudioRecord"] --> R4["Rust：分帧／采集时钟／回声引用"]
+        R4 -->|"启用软件 AEC"| C1["C · Speex：PCM 转换／AEC／写回"]
+        C1 --> R5["Rust：统计／编码调度"]
+        R4 -->|"无需软件 AEC"| R5
+        R5 --> C2["C · Opus：编码"]
+        C2 --> R6["Rust：RTP／加密／UDP"]
+        R5 -->|"PCM"| R6
+    end
+    R3 --> R4
+    K -.-> A
+    K -.-> M
+    K -.-> O
+```
 
-影响录音线程、echo 门面、Speex JNI、Rust `uplink`／`packetizer`、native 声明和构建连接。完整实施时需覆盖三 ABI 构建边界；是否改动库连接方式是本工作包启动时的具体设计选择，不阻塞前面各项。完成后，Kotlin 不再逐样本处理 PCM，现有采集和恢复行为保留。
+该图描述代码目标与归属，不是新增实车验收记录。AudioRecord 读取字节和 MediaCodec 结果仍经过必要的 Android SDK 边界；原生计算和状态没有 Kotlin 后备副本。
 
 ## 调用方与验证入口
 
-以下是未来实施时的定向回归入口，名称表示相关范围，不表示现有测试已覆盖所有拟议行为。优先复用原用例；新增状态转换或改变接口时，只补对应缺口。当前文档变更不运行这些测试。
+下表保留原计划的定向回归入口，名称表示相关范围，不表示覆盖所有候选行为。实施时复用原用例，只为新增状态转换和接口补对应契约；本轮实际验证另行记录。
 
 | 工作包 | 已有入口与需覆盖的契约 |
 | --- | --- |
@@ -179,12 +201,25 @@ Kotlin 继续保留 active 输出对象表、AudioAttributes、AudioFocusRequest
 | D | `AppMicrophoneRequestTest`、`MicrophoneStartTest`、`CarPlayAudioStreamIsolationTest`、`AudioStreamCodecTest`、`MicrophonePacketizerGoldenTest`、`VideoInCarTest`；保留原始字段／无符号值和字节结果，覆盖创建失败与 SETUP 后动作顺序。 |
 | E | `AudioFocusAutoYieldTest`、`AudioFocusRequestCompatTest`、`NavigationPromptFocusTest`、`AudioFocusSettingsTest`、`NativeAudioOutGainTest`；在现有套件补核心优先级与平台授权／应用失败的连接契约。 |
 | F | `NowPlayingArtworkQueueTest`、`ClusterArtworkDeliveryTest`、`InitialAlbumRecoveryTest`、`MediaCenterSessionEngineTest`；验证门面转换、图片寿命、回调重入与提交时点。 |
-| G | `AacCodecContractTest`、`AudioStreamCodecTest` 及实际受影响的音频 renderer／NativePcm 用例；输入不足、SDK fallback、时间戳、包释放由迁移入口定向覆盖。 |
-| H | `MicrophoneCaptureStatsTest`、`MicrophoneCaptureLifecycleTest`、`MicrophoneEchoReferenceRecoveryTest`、`MicrophoneEncoderAttachmentTest`、`MicrophoneNoAudioRestartTest`、`MicrophonePacketizerGoldenTest`、`MicrophoneNativeContractTest`；补采集块跨帧边界和原生连接的必要回归。 |
+| G | `AacCodecContractTest`、`AacDecoderInputTest`、`AudioStreamCodecTest` 及实际受影响的音频 renderer／NativePcm 用例；覆盖输入不足、重试／取消、空归还、SDK 异常、时间戳、计数提交和包释放。 |
+| H | `MicrophoneCaptureStatsTest`、`MicrophoneCaptureLifecycleTest`、`MicrophoneEchoReferenceRecoveryTest`、`MicrophoneEncoderAttachmentTest`、`MicrophoneNoAudioRestartTest`、`MicrophonePacketizerGoldenTest`、`MicrophoneNativeContractTest`、`MicrophoneCaptureContract`；覆盖跨帧残留、回声源替换／关闭、真实 JNI 到 UDP 字节与统计，以及 Rust 内 Speex 新旧输入桥逐字节对照。 |
 
 共享测试位于 [shared JVM tests](../shared/src/test/java/com/shihab/diplay)，宿主测试位于 [common JVM tests](../common/src/test/java/com/shihab/diplay)。内部 owner 契约继续放在 [testCoreInternal](../shared/src/testCoreInternal/kotlin)；通用参考与 SDK 替身分别沿用 [testCore](../shared/src/testCore/kotlin) 和 [testCoreShadows](../shared/src/testCoreShadows/kotlin)，不为了 unrelated module 编译而扩大生产可见性。
 
 实施时按实际 diff 选择相关模块测试、Rust 用例，以及受影响的 JNI／R8／ABI 检查。构建与源码入口复用 [shared/build.gradle](../shared/build.gradle) 及现有 [CI](../.github/workflows/android.yml)，不新增平行检查框架。仅当新改动触及具体平台行为时才安排对应验证，不把用户已确认足够的历史测试列为所有工作包的前置门槛。
+
+### G/H 本轮验证（2026-11-15）
+
+实施基线为已合入 A–F 的 `dev bfd6b6a996319f79741b899836e377f41abcea9e`，当前工作分支为 `refactor/aac-input-speex-pcm`。
+
+- Rust 核心全量单测：253 通过；最后的测试 JNI 字符类型调整后，3 项 capture 定向用例再次通过。
+- shared JVM 定向回归：22 个测试类、156 项通过，无失败或跳过。覆盖 Microphone、AAC、CaptureClock、EchoReference、AudioRenderer、DecoderInput、Opus 编码能力及 AirPlay 能力通告。
+- Rust Android 来源校验脚本：21 项通过；三 ABI 构建与 ELF／JNI 导出检查通过，各为 521 个 Java JNI 导出及 JNI_OnLoad。剩余两种 C 预编译库的 ELF／导出／许可证哈希检查通过。
+- `:shared:assembleDebugAndroidTest`、`:mobile:minifyReleaseWithR8` 通过。测试 APK 包含三个 ABI 的核心及两种 C 适配库，共 9 个原生库；不再包含独立 Speex 库，SpeexDSP 与 KISS FFT 许可仍在。R8 mapping 和最终 DEX 已核对新增 JNI 入口及回调名称。
+
+用户随后授权小米手机测试：同一最终 Debug 测试 APK 在小米 8／API 35 的 ARM64、ARMv7 各通过 22 项，均无失败或跳过，包含真实 AudioRecord → Rust/Speex → PCM／Opus → 加密 UDP、关闭重开和真实 AAC 解码输出。包哈希、用时与范围见[设备验证记录](benchmarks/native-aac-capture-2026-11-15.md)。测试后已恢复 ARM64，并撤回临时录音权限。
+
+未做本批真实 iPhone／实车音路、声学 AEC 或性能测量。完整 Release 签名出包因环境缺少签名文件未完成；上述 R8 检查不依赖签名，不代表已生成可发布 APK 或已验证其设备运行。
 
 ## 每批完成条件
 

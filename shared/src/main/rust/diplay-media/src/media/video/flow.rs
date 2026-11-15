@@ -41,7 +41,7 @@ impl ConfigurationMemory {
 }
 
 // The SDK adapter executes one running/drain/dequeue/clock action at a time; no I/O lives here.
-fn input_step(v: &mut [i64; 4], event: i32, value: i64) -> i32 {
+pub(in crate::media) fn input_step(v: &mut [i64; 4], event: i32, value: i64) -> i32 {
     match event {
         0 => {},
         1 => v[0] = if value != 0 { 1 } else { 4 },

@@ -172,18 +172,6 @@ internal object NativeMedia {
     @JvmStatic external fun opusEncoderDestroy(handle: Long)
 
     /**
-     * The microphone sender on [fd] (a duplicate it owns): Opus at [opusBitrate] (0 for PCM), sealed,
-     * to [address] ([scopeId] for a link-local IPv6 peer) and [port]. 0 when an argument is wrong.
-     */
-    @JvmStatic external fun uplinkCreate(
-        fd: Int, key: ByteArray, payloadType: Int, address: ByteArray, scopeId: Int, port: Int,
-        opusBitrate: Int, rtpSamplesPerPacket: Int,
-    ): Long
-    /** Packets sent for one frame (0 when the encoder produced none), -1 encode failure, -errno send failure. */
-    @JvmStatic external fun uplinkSend(handle: Long, frame: ByteArray, length: Int): Int
-    @JvmStatic external fun uplinkClose(handle: Long)
-
-    /**
      * The wired data path (see `NcmUsbBridge.startNative`): bulk IN/OUT on [usbFd] and the VPN tun on
      * [tunFd]. Borrows both FDs for this call; native duplicates them for its own lifetime.
      * The caller must keep both open until the call finishes, then close its copies on every exit.

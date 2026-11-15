@@ -240,10 +240,13 @@ class MicrophoneCaptureLifecycleTest {
             assertTrue(captureStarted.await(5, TimeUnit.SECONDS))
             val recorder = MicrophoneSourceFallbackTest.RecorderBuilder.built.single()
             val uplink = ReflectionHelpers.getField<Map<AudioStreamId, MicrophoneUplink>>(currentSink, "microphoneUplinks").getValue(call)
-            val oldCaptureReference = ReflectionHelpers.getField<EchoReference>(uplink, "echoReference")
             val out = ShortArray(2)
-            fun read() = ReflectionHelpers.callInstanceMethod<Boolean>(uplink, "readEchoReference",
-                ClassParameter.from(ShortArray::class.java, out), ClassParameter.from(Long::class.javaPrimitiveType, 1_000_000_000L))
+            // The platform callback publishes the current output; capture retains/reads it in Rust.
+            // Native lease and same-source-close semantics are covered by the capture JNI contracts.
+            fun read(): Boolean {
+                val current = ReflectionHelpers.callInstanceMethod<EchoReference>(uplink, "captureEchoSource")
+                return current.read(out, 1_000_000_000L)
+            }
             originalReference.append(byteArrayOf(11, 0, 22, 0), 0, 4, 1, 0L, 1_000_000_000L)
             assertTrue(read())
             assertArrayEquals(shortArrayOf(11, 22), out)
@@ -258,7 +261,6 @@ class MicrophoneCaptureLifecycleTest {
             lateOldWriter.append(byteArrayOf(99, 0, 100, 0), 0, 4, 1, 0L, 1_000_000_000L)
             assertTrue(read())
             assertArrayEquals(shortArrayOf(77, 88), out)
-            assertNull("Capture releases its old retain when the output changes", oldCaptureReference.retain())
             assertSame(uplink, ReflectionHelpers.getField<Map<AudioStreamId, MicrophoneUplink>>(currentSink, "microphoneUplinks")[call])
             assertSame(recorder, MicrophoneSourceFallbackTest.RecorderBuilder.built.single())
             assertEquals(AudioRecord.RECORDSTATE_RECORDING, recorder.recordingState)

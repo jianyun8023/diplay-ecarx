@@ -12,28 +12,3 @@ internal interface MicrophoneOpusEncoder : Closeable {
     /** Encodes one 20 ms little-endian 16-bit PCM frame and returns the Opus access units it produced. */
     fun encode(pcm: ByteArray): List<ByteArray>
 }
-
-internal object MicrophoneOpusEncoders {
-    /**
-     * Android's MediaCodec Opus encoder exists only from Android 10 (API 29). Wireless CarPlay sends
-     * calls and Siri as Opus, so older head units fall back to the bundled software encoder.
-     */
-    fun create(
-        bitrate: Int,
-        platform: (Int) -> MicrophoneOpusEncoder = { OpusEncoder(it) },
-        software: (Int) -> MicrophoneOpusEncoder = { createSoftware(it) },
-    ): MicrophoneOpusEncoder? {
-        val platformEncoder = platform(bitrate)
-        if (platformEncoder.available) return platformEncoder
-        platformEncoder.close()
-        val softwareEncoder = software(bitrate)
-        if (softwareEncoder.available) return softwareEncoder
-        softwareEncoder.close()
-        return null
-    }
-
-    fun createSoftware(
-        bitrate: Int,
-        native: (Int) -> MicrophoneOpusEncoder = { NativeOpusEncoder(it) },
-    ): MicrophoneOpusEncoder = native(bitrate)
-}

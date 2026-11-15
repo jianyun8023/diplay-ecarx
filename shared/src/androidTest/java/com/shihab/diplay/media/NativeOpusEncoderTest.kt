@@ -14,7 +14,7 @@ import kotlin.math.sin
 class NativeOpusEncoderTest {
     @Test fun bundledLibraryEncodesDecodable20MsPacketsAtBothBitrates() {
         for (bitrate in listOf(24_000, 48_000)) for (signal in listOf("tone", "noise", "silence")) {
-            MicrophoneOpusEncoders.createSoftware(bitrate).use { encoder ->
+            NativeOpusEncoder(bitrate).use { encoder ->
                 assertEquals("The shipped ABI must use the native encoder", "libopus", encoder.implementation)
                 val decoder = OpusDecoder(48_000, 1)
                 val pcm = ByteArray(1_920)
@@ -54,8 +54,8 @@ class NativeOpusEncoderTest {
     }
 
     @Test fun capabilityProbesAndRepeatedSessionsReleaseNativeMemory() {
-        assertTrue(OpusEncoderSupport.isAvailable(platformAvailable = { false },
-            software = { MicrophoneOpusEncoders.createSoftware(48_000) }))
+        assertTrue(OpusEncoderSupport.isAvailable(
+            software = { NativeOpusEncoder(48_000) }))
         val before = Debug.getNativeHeapAllocatedSize()
         repeat(1_000) {
             NativeOpusEncoder(48_000).use { encoder -> assertTrue(encoder.available) }
