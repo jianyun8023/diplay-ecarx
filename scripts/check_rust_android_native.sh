@@ -84,6 +84,11 @@ if [[ "$OUTPUT_DIR" != /* ]]; then
 fi
 VERIFY_TMP="$(mktemp -d)"
 trap 'rm -rf "$VERIFY_TMP"' EXIT
+# Compare names against the declared contract, so independent JNI changes compose without a stale count.
+find "$CRATE_DIR/src" -name '*.rs' -exec sed -n \
+  's/^pub .*fn \(Java_[[:alnum:]_]*\)(.*/\1/p' {} + \
+  | LC_ALL=C sort > "$VERIFY_TMP/expected-jni-symbols.txt"
+test -s "$VERIFY_TMP/expected-jni-symbols.txt"
 mkdir -p "$OUTPUT_DIR"
 SOURCE_DIGEST="$(python3 "$ROOT/scripts/rust_android_inputs.py" fingerprint)"
 # A failed rebuild must not leave a receipt that blesses an older artifact.
@@ -114,15 +119,15 @@ check_library() {
 
   symbols="$("$NM" --dynamic --defined-only "$file" | awk 'NF { print $NF }' | LC_ALL=C sort)"
   java_count="$(awk '/^Java_/ { count++ } END { print count + 0 }' <<<"$symbols")"
-  if [[ "$java_count" != "510" ]]; then
-    echo "$abi exports $java_count Java JNI methods; expected 510" >&2
+  grep '^Java_' <<<"$symbols" > "$VERIFY_TMP/$abi-jni-symbols.txt"
+  if ! diff -u "$VERIFY_TMP/expected-jni-symbols.txt" "$VERIFY_TMP/$abi-jni-symbols.txt"; then
+    echo "$abi JNI exports differ from the Rust declarations" >&2
     exit 1
   fi
   if ! grep -Fxq "JNI_OnLoad" <<<"$symbols"; then
     echo "$abi is missing JNI_OnLoad" >&2
     exit 1
   fi
-  grep '^Java_' <<<"$symbols" > "$VERIFY_TMP/$abi-jni-symbols.txt"
   # Keep the export list next to the library so a downstream job can compare ABIs.
   cp "$VERIFY_TMP/$abi-jni-symbols.txt" "$OUTPUT_DIR/$abi-jni-symbols.txt"
 
