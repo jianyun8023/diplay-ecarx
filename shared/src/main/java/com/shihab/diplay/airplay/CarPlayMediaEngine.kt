@@ -162,14 +162,14 @@ class CarPlayMediaEngine(
     override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
         // The screen SETUP shares the data-stream key derivation: the connection decimal and
         // label cross the boundary, the salt assembly stays in protocols::airplay.
-        val parsed = NativeAirPlayProtocol.dataStreamSetup(stream) ?: return null
+        val parsed = NativeAirPlayProtocol.dataStreamSetupPlan(stream) ?: return null
         val shared = session.sharedSecret ?: return null
-        val key = (parsed["connectionIdDecimal"] as? String)
+        val key = parsed.connectionIdDecimal
             ?.let { decimal -> NativeAirPlayProtocol.dataStreamKey(shared, decimal, DATASTREAM_OUTPUT_KEY) }
             ?: return null
         val peer = session.remoteAddress ?: return null
         val streamKey = StreamKey(session, type)
-        Log.i(TAG, "airplay screen key connectionID=${parsed["connectionIdDecimal"]}")
+        Log.i(TAG, "airplay screen key connectionID=${parsed.connectionIdDecimal}")
         val screen = ScreenStream(key, peer, session::logDebug)
         sink.setVideoDiagnosticHandler(type) {
             if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it == "first frame rendered") {
@@ -238,11 +238,11 @@ class CarPlayMediaEngine(
 
         // protocols::airplay interprets the request, derives the DataStream keys and plans the
         // microphone; the platform binds the sockets and constructs its own MicrophoneConfig.
-        val plan = NativeAirPlayProtocol.audioSetup(type, audioType, stream, session.sharedSecret, microphoneEnabled)
+        val plan = NativeAirPlayProtocol.audioSetupPlan(type, audioType, stream, session.sharedSecret, microphoneEnabled)
             ?: return null
-        val key = plan["outputKey"] as? ByteArray ?: return null
-        val formatBits = plan["formatBits"] as? Long ?: 0L
-        val micPort = plan["micPort"] as? Int ?: 0
+        val key = plan.outputKey ?: return null
+        val formatBits = plan.formatBits
+        val micPort = plan.micPort
         val format = AudioStreamCodec.fromFormatBits(formatBits, type, audioType)
         Log.i(
             TAG,
@@ -251,9 +251,9 @@ class CarPlayMediaEngine(
                 "formatBits=0x${java.lang.Long.toHexString(formatBits)} micPort=$micPort",
         )
         val connectionId = stream["streamConnectionID"]
-        val latencyMs = plan["latencyMs"] as? Int ?: 0
+        val latencyMs = plan.latencyMs
         val meta = AudioMeta(type, format, connectionId, latencyMs)
-        val microphone = microphoneConfig(session, plan, format)
+        val microphone = microphoneConfig(session, plan.microphone, format)
         if (microphone != null) pendingMicrophone[streamKey] = microphone
         if (type == STREAM_TYPE_MAIN_AUDIO && audioType != "media") {
             session.logDebug(
@@ -327,7 +327,7 @@ class CarPlayMediaEngine(
         }
         // The plan's wait-for-downlink flag travels with the microphone rules; telephony waits
         // for its echo-reference audio while other streams may start after the 500 ms deadline.
-        val waitsForDownlink = (plan["mic"] as? Map<*, *>)?.get("waitDownlink") == true
+        val waitsForDownlink = plan.microphone?.waitDownlink == true
         if (microphoneStart != null && !waitsForDownlink) {
             microphoneStart.scheduleSilentStart(microphoneScheduler, MicrophoneStart.SILENT_START_MILLIS) { startNow ->
                 // Atomic with TEARDOWN, which removes the pending entry before it stops the microphone.
@@ -456,15 +456,15 @@ class CarPlayMediaEngine(
 
     override fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
         val uuid = (stream["clientTypeUUID"] as? String)?.uppercase() ?: return null
-        val parsed = NativeAirPlayProtocol.dataStreamSetup(stream) ?: return null
+        val parsed = NativeAirPlayProtocol.dataStreamSetupPlan(stream) ?: return null
         if (session.videoInCar) videoDataStream(session, uuid, parsed, stream)?.let { return it }
         if (uuid != IAP_DATASTREAM_UUID) return null
         val shared = session.sharedSecret ?: return null
-        val seed = parsed["seed"] as? String ?: return null
+        val seed = parsed.seed ?: return null
         val peer = session.remoteAddress ?: return null
         session.logDebug(
             "AirPlay iAP SETUP uuid=$uuid seed=$seed " +
-                "streamConnectionID=${parsed["connectionIdDecimal"] ?: "none"}",
+                "streamConnectionID=${parsed.connectionIdDecimal ?: "none"}",
         )
         val key = NativeAirPlayProtocol.dataStreamKey(shared, seed, DATASTREAM_OUTPUT_KEY) ?: return null
         val tunnel = IapTunnel(
@@ -525,10 +525,10 @@ class CarPlayMediaEngine(
     private fun videoDataStream(
         session: AirPlaySession,
         uuid: String,
-        parsed: Map<String, Any?>,
+        parsed: NativeAirPlayProtocol.DataStreamSetupPlan,
         stream: Map<String, Any?>,
     ): Map<String, Any?>? {
-        if (uuid in VideoInCar.REMOTE_CONTROL_UUIDS && parsed["controlType"] == 1) {
+        if (uuid in VideoInCar.REMOTE_CONTROL_UUIDS && parsed.controlType == 1) {
             val streamId = session.nextRemoteControlStreamId()
             session.logTrace("video remote-control stream accepted uuid=$uuid streamID=$streamId")
             return NativeAirPlayProtocol.setupReply(
@@ -542,7 +542,7 @@ class CarPlayMediaEngine(
         }
         if (uuid != VideoInCar.SETTINGS_CHANNEL_UUID) return null
         val shared = session.sharedSecret ?: return null
-        val seed = parsed["seed"] as? String ?: return null
+        val seed = parsed.seed ?: return null
         val peer = session.remoteAddress ?: return null
         val outputKey = NativeAirPlayProtocol.dataStreamKey(shared, seed, DATASTREAM_OUTPUT_KEY) ?: return null
         val inputKey = NativeAirPlayProtocol.dataStreamKey(shared, seed, DATASTREAM_INPUT_KEY) ?: return null
@@ -720,22 +720,26 @@ class CarPlayMediaEngine(
      * The platform half of the Rust microphone plan: the rule, port, key and parameters already
      * live in protocols::airplay; only the InetAddress and the DTO are built here.
      */
-    private fun microphoneConfig(session: AirPlaySession, plan: Map<String, Any?>, format: AudioFormat): MicrophoneConfig? {
-        val mic = plan["mic"] as? Map<*, *> ?: return null
+    private fun microphoneConfig(
+        session: AirPlaySession,
+        mic: NativeAirPlayProtocol.MicrophonePlan?,
+        format: AudioFormat,
+    ): MicrophoneConfig? {
+        if (mic == null) return null
         val host = session.remoteAddress ?: return null
-        val key = mic["inputKey"] as? ByteArray ?: return null
+        val key = mic.inputKey ?: return null
         return MicrophoneConfig(
             audioType = format.audioType,
             sampleRate = format.sampleRate,
             channels = format.channels,
             payloadType = format.payloadType,
-            frameMillis = mic["frameMillis"] as? Int ?: return null,
+            frameMillis = mic.frameMillis,
             host = host,
-            port = mic["port"] as? Int ?: return null,
+            port = mic.port,
             key = key,
             codec = format.codec,
-            bitrate = mic["bitrate"] as? Int,
-            opusClockRate = mic["opusClockRate"] as? Int ?: return null,
+            bitrate = mic.bitrate,
+            opusClockRate = mic.opusClockRate,
         )
     }
 

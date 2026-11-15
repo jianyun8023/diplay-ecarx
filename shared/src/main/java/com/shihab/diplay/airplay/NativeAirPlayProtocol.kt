@@ -20,7 +20,7 @@ internal object NativeAirPlayProtocol {
     @JvmStatic external fun cornerMask(value: Any?, depth: Int): ByteArray?
 
     /**
-     * SETUP interpretation and reply layout behind `protocols::airplay::setup`. [audioSetup]
+     * SETUP interpretation and reply layout behind `protocols::airplay::setup`. [audioSetupPlan]
      * reads the stream fields, derives the DataStream keys and plans the microphone; a null
      * output key aborts the SETUP. [setupReply] builds the reply dict in the protocol's field
      * order with the unsigned connection representation.
@@ -28,14 +28,71 @@ internal object NativeAirPlayProtocol {
     const val REPLY_AUDIO = 0
     const val REPLY_REMOTE_CONTROL = 1
     const val REPLY_DATA = 2
-    @JvmStatic external fun audioSetup(
+
+    class AudioSetupPlan(
+        val outputKey: ByteArray?,
+        val formatBits: Long,
+        val micPort: Int,
+        val latencyMs: Int,
+        val microphone: MicrophonePlan?,
+    )
+
+    class MicrophonePlan(
+        val inputKey: ByteArray?,
+        val port: Int,
+        val frameMillis: Int,
+        val bitrate: Int?,
+        val opusClockRate: Int,
+        val waitDownlink: Boolean,
+    )
+
+    class DataStreamSetupPlan(val controlType: Int, val seed: String?, val connectionIdDecimal: String?)
+
+    fun audioSetupPlan(
+        type: Int,
+        audioType: String,
+        stream: Map<String, Any?>,
+        sharedSecret: ByteArray?,
+        microphoneEnabled: Boolean,
+    ): AudioSetupPlan? {
+        val plan = audioSetup(type, audioType, stream, sharedSecret, microphoneEnabled) ?: return null
+        val mic = plan["mic"] as Map<*, *>?
+        return AudioSetupPlan(
+            outputKey = plan["outputKey"] as ByteArray?,
+            formatBits = plan["formatBits"] as Long,
+            micPort = plan["micPort"] as Int,
+            latencyMs = plan["latencyMs"] as Int,
+            microphone = mic?.let {
+                MicrophonePlan(
+                    inputKey = it["inputKey"] as ByteArray?,
+                    port = it["port"] as Int,
+                    frameMillis = it["frameMillis"] as Int,
+                    bitrate = it["bitrate"] as Int?,
+                    opusClockRate = it["opusClockRate"] as Int,
+                    waitDownlink = it["waitDownlink"] as Boolean,
+                )
+            },
+        )
+    }
+
+    fun dataStreamSetupPlan(stream: Map<String, Any?>): DataStreamSetupPlan? {
+        val plan = dataStreamSetup(stream) ?: return null
+        return DataStreamSetupPlan(
+            controlType = plan["controlType"] as Int,
+            seed = plan["seed"] as String?,
+            connectionIdDecimal = plan["connectionIdDecimal"] as String?,
+        )
+    }
+
+    // Keep the JNI wire maps private; only this boundary interprets their field layout.
+    @JvmStatic private external fun audioSetup(
         type: Int,
         audioType: String,
         stream: Map<String, Any?>,
         sharedSecret: ByteArray?,
         microphoneEnabled: Boolean,
     ): Map<String, Any?>?
-    @JvmStatic external fun dataStreamSetup(stream: Map<String, Any?>): Map<String, Any?>?
+    @JvmStatic private external fun dataStreamSetup(stream: Map<String, Any?>): Map<String, Any?>?
     @JvmStatic external fun dataStreamKey(sharedSecret: ByteArray, seed: String, label: String): ByteArray?
     @JvmStatic external fun setupReply(
         operation: Int,

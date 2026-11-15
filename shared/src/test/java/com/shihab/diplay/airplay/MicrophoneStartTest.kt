@@ -56,8 +56,8 @@ class MicrophoneStartTest {
     }
 
     private fun waitsForDownlink(audioType: String): Boolean =
-        (NativeAirPlayProtocol.audioSetup(100, audioType, mapOf("dataPort" to 50_000L), null, true)
-            ?.get("mic") as? Map<*, *>)?.get("waitDownlink") == true
+        NativeAirPlayProtocol.audioSetupPlan(100, audioType, mapOf("dataPort" to 50_000L), null, true)
+            ?.microphone?.waitDownlink == true
 
     private fun drain() {
         // Delayed tasks still run after shutdown; cancelled ones are dropped.

@@ -25,16 +25,16 @@ class CarPlayMediaEngineTest {
 
     @Test
     fun dataStreamSetupInterpretsControlTypeSeedAndConnection() {
-        val parsed = NativeAirPlayProtocol.dataStreamSetup(
+        val parsed = NativeAirPlayProtocol.dataStreamSetupPlan(
             mapOf("controlType" to 1L, "seed" to -1L, "streamConnectionID" to 42L),
         )!!
-        assertEquals(1, parsed["controlType"])
-        assertEquals("18446744073709551615", parsed["seed"])
-        assertEquals("42", parsed["connectionIdDecimal"])
-        val absent = NativeAirPlayProtocol.dataStreamSetup(emptyMap<String, Any?>())!!
-        assertEquals(0, absent["controlType"])
-        assertNull(absent["seed"])
-        assertNull(absent["connectionIdDecimal"])
+        assertEquals(1, parsed.controlType)
+        assertEquals("18446744073709551615", parsed.seed)
+        assertEquals("42", parsed.connectionIdDecimal)
+        val absent = NativeAirPlayProtocol.dataStreamSetupPlan(emptyMap<String, Any?>())!!
+        assertEquals(0, absent.controlType)
+        assertNull(absent.seed)
+        assertNull(absent.connectionIdDecimal)
     }
 
     @Test
@@ -82,8 +82,8 @@ class CarPlayMediaEngineTest {
     }
 
     private fun connectionDecimal(value: Any?): String? =
-        NativeAirPlayProtocol.dataStreamSetup(mapOf("streamConnectionID" to value))
-            ?.get("connectionIdDecimal") as? String
+        NativeAirPlayProtocol.dataStreamSetupPlan(mapOf("streamConnectionID" to value))
+            ?.connectionIdDecimal
 
     @Test
     fun screenStreamTeardownReportsInactive() {
