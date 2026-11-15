@@ -12,7 +12,6 @@ Select `mobile` to build the main DiPlay app.
 | --- | --- | --- |
 | `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk` |
 | `:maphost` | Sample application that displays a map from DiPlay | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
-| `:home` | Optional DiPlay Home launcher | `samples/home/build/outputs/apk/debug/home-debug.apk` |
 | `:siribridge` | Steering-wheel voice-key bridge to Siri | `integrations/siri/build/outputs/apk/debug/siribridge-debug.apk` |
 
 The `:common` and `:shared` modules are libraries.

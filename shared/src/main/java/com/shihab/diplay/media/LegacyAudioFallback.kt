@@ -22,7 +22,7 @@ internal object LegacyAudioFallback {
 
     /**
      * The attributes of a chosen legacy stream, or null to keep usage routing. Android accepts only its
-     * defined legacy stream IDs here. BYD audio policy can map these standard streams to vehicle outputs;
+     * defined legacy stream IDs here. Vehicle audio policy can map these standard streams to vehicle outputs;
      * arbitrary channel numbers are not valid AudioAttributes legacy stream types.
      */
     fun attributes(streamType: Int): AudioAttributes? {

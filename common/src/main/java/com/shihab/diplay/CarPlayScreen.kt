@@ -9,8 +9,7 @@ import java.lang.ref.WeakReference
  * Chooses which declaration of the CarPlay screen opens.
  *
  * Since 0.2.12 [CarPlayHostActivity] runs in a task of its own (taskAffinity `.carplay`), so CarPlay stays open
- * behind DiPlay's settings. Launchers that show DiPlay's task in a card or a picture-in-picture window (BYD's DiYou
- * desktop card, 嘟嘟桌面) then show only DiPlay's start page, and CarPlay opens outside the card (#463, #406, #1003).
+ * behind DiPlay's settings. Launchers that show DiPlay's task in a card or a picture-in-picture window then show only DiPlay's start page, and CarPlay opens outside the card (#463, #406, #1003).
  * With "Keep CarPlay in the launcher card" on, [SameTaskCarPlayHostActivity] opens instead, in DiPlay's own task.
  *
  * Only one CarPlay screen exists at a time. While one is open every start goes to it, and a start of the other

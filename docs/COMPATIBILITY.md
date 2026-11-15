@@ -2,7 +2,7 @@
 
 This fork targets only Android 9 (API 28), ECARX 753, Qualcomm 820A with its existing platform signature. Releases ship three packages, one per ABI: ARM64 (`arm64-v8a`, the default production package), ARMv7 (`armeabi-v7a`, the fallback) and x86_64 (test-only, for the emulator). The in-app updater downloads the package that matches the device's own ABI. Other Android releases are development/debug environments, not production support commitments. The app has no ADB runtime or authorization dependency; see [the permission checklist](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
 
-The upstream/model reports below are historical references, not this fork’s production support scope.
+Current vehicle evidence and remaining acceptance work are tracked in the [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md).
 
 This public preview is an independent receiver, not an Apple-certified CarPlay accessory. The experimental bundled accessory identity is extractable and its future acceptance is not guaranteed.
 
@@ -11,8 +11,6 @@ This public preview is an independent receiver, not an Apple-certified CarPlay a
 | Head unit | Android 9 / API 28, ECARX 753 / 820A; ARM64 (default) and ARMv7 (fallback), plus x86_64 for the emulator; vehicle platform signature required for protected features |
 | Phone | Standard, non-jailbroken iPhone with CarPlay enabled; device/iOS compatibility varies |
 | Physical evidence | Previous private builds: wired and wireless picture, touch and audio confirmed on the development car with iPhone XS / iOS 18.7.10 |
-| Other cars | Mixed community reports across DiLink generations; not a certified model support list |
-| 0.2.14 evidence | Automated source/build validation and attributed contributor tests; no new complete-release vehicle test or universal model support is claimed. Earlier DiLink5.1 HUD/hotspot results remain historical evidence. |
 | Wi-Fi | Auto uses eligible saved/aligned channels; beside a 5 GHz station, explicit 2.4 GHz precedes other 5 GHz/unpinned default fallbacks. Manual channels stay explicit; no band/performance guarantee. |
 | Video | Default H.264 / 30 fps; 60 fps and HEVC increase device-specific demands |
 
@@ -44,25 +42,24 @@ handling; the permission grant and actual voice-key behavior still need an 820A 
 
 ## Android 9 Wi-Fi Direct and experimental features
 
-The Android 9 path creates or reuses a persistent system profile with the public legacy group API, reads generated credentials and uses the firmware channel setter where available. It serializes pinning/cancellation, avoids foreign groups and removes only its owned active group; persistent profiles are not deleted. Unknown setter outcomes stop startup, and unreliable pinning/cleanup should use the manual car hotspot. See [legacy limits](ANDROID9_WIFI_DIRECT.md); the contributor's Redmi K20 Pro result does not validate every BYD Android 9 firmware.
+The Android 9 path creates or reuses a persistent system profile with the public legacy group API, reads generated credentials and uses the firmware channel setter where available. It serializes pinning/cancellation, avoids foreign groups and removes only its owned active group; persistent profiles are not deleted. Unknown setter outcomes stop startup, and unreliable pinning/cleanup should use the manual car hotspot. See [legacy limits](ANDROID9_WIFI_DIRECT.md).
 
-DiLink 3 call controls/dashboard cards and AAC-LC buffered music are independent default-off experiments. They appear in **Settings → Navigation → BYD navigation** (or **Advanced → Advanced vehicle data** when that card is unavailable), and **Advanced → Video and audio** for buffered music. Their corrected source has regression coverage; full call/audio/microphone/restoration and music-interruption acceptance remains device work. DiLink 4 casting/picture fixes describe the tested 2022 Seal setup, not a Qin/Seal-wide guarantee. The experimental Android 13+ hotspot join helper has been removed; use the system hotspot controls and standard connection flow.
+AAC-LC buffered music is an independent, default-off experiment under **Settings → Advanced → Video and audio**. Source-level regression coverage does not establish vehicle audio quality or interruption recovery.
 
 ## Current settings and opt-in limits
 
-A first launch with no saved iPhone opens the **Setup guide**; it can be skipped and reopened from **Settings → Overview**. It reads the DiLink version from the system build name (for example `DiLink3.0`), lets the driver correct it, and only offers features that apply to that generation, labelled `Tested on some cars` or `Experimental`. On DiLink 3 it hides the DiLink 4 cluster route and offers to turn it off, because that route stops the DiLink 3 dashboard map. The labels summarise the reports above; they are not a certified support list.
 
-**Settings → Display** holds resolution, frame rate, icon/text size, appearance and Interface size; Interface size changes DiPlay controls, not CarPlay geometry. **Audio** holds routing and the ordinary music-buffer choice. **Navigation** holds location/BYD guidance, **Vehicle** holds gestures/wheel keys/car-button controls, **Connection** holds transport/startup/permissions, **Advanced** holds experimental display/media and vehicle data, and **Diagnostics** exports reports.
+**Settings → Display** holds resolution, frame rate, icon/text size, appearance and Interface size; Interface size changes DiPlay controls, not CarPlay geometry. **Audio** holds routing and the ordinary music-buffer choice. **Navigation** holds location/ECARX guidance, **Vehicle** holds gestures/wheel keys/car-button controls, **Connection** holds transport/startup/permissions, **Advanced** holds experimental display/media and vehicle data, and **Diagnostics** exports reports.
 
 **Smooth video (experimental)**, **Call echo cancellation (experimental)** and **Clearer call voices (experimental)** are off by default under **Settings → Advanced → Video and audio**. Smooth video adds adaptive pacing delay, can delay touch response, and uses a SurfaceView path without picture adjustments. Changing it reconnects a running session. The call-processing controls apply at the next connection; source/JNI tests do not establish acoustic quality on a car. Optional rotation, split-screen areas and side panel are off by default under **Advanced → Display (experimental)**. Existing opted-in settings are retained during an in-place update.
 
-The specifically observed 1280×480 DiLink 3 projection surface is now recognized by the existing cluster-map path. Actual map output still needs an on-car retest; the measured 1920×720 calibration is not applied to that smaller panel. Narrow USB framing/queue repairs and Bluetooth receive fixes have regression coverage, but they do not establish a fix for every connection report. A charging-only USB port cannot supply the data transport.
+USB requires a data-capable port and cable. Source-level framing and queue tests do not establish that every connection failure is fixed.
 
 ## Known limitations
 
 - If the iPhone leaves its current Wi-Fi network but does not join the car hotspot, check that Auto-Join is enabled for that hotspot. If selecting it manually starts CarPlay without a password prompt, record that distinction in the diagnostic report. AP broadcast information elements can affect automatic joining even when credentials and the subsequent CarPlay transport work.
 - Some units stutter, particularly under higher video load. A 2.4 GHz link alone does not prove the cause: interference, firmware and decoder stalls can all contribute. Try Default icons, 30 fps and a lower resolution, then attach a report.
-- Wi-Fi Direct can stutter every few seconds while the car's own Wi-Fi client searches for networks. The car has one radio, so each search takes it off the CarPlay channel and audio packets sent meanwhile are lost; a larger music buffer cannot replace them. Reports from DiLink 3, 4.0 and 5.0 show the search every 10 s when the client is not joined to a network, and every 20–30 s on some other firmware or while it is joined. The built-in car hotspot runs with the client off and is the recommended connection. On the Android 9 target, DiPlay uses CONNECTIVITY_INTERNAL to pause automatic joining during Wi-Fi Direct sessions. Its serial worker, leases, durable restore marker and retry/reopen recovery remain active. Missing permission leaves Wi-Fi unchanged. Other apps can still request scans; this native path requires vehicle validation.
+- Wi-Fi Direct can stutter every few seconds while the car's own Wi-Fi client searches for networks. The car has one radio, so each search takes it off the CarPlay channel and audio packets sent meanwhile are lost; a larger music buffer cannot replace them. The built-in car hotspot runs with the client off and is the recommended connection. On the Android 9 target, DiPlay uses CONNECTIVITY_INTERNAL to pause automatic joining during Wi-Fi Direct sessions. Its serial worker, leases, durable restore marker and retry/reopen recovery remain active. Missing permission leaves Wi-Fi unchanged. Other apps can still request scans; this native path requires vehicle validation.
 - Some iOS/head-unit combinations do not visibly apply icon and text size. Reconnection is implemented; that does not guarantee the iPhone chooses the requested layout.
 - A radio that supports joining a 5 GHz network may still reject a 5 GHz Wi-Fi Direct group. The capability flag is diagnostic, not proof of group-owner support.
 - Automatic startup depends on the car's firmware and startup permissions.

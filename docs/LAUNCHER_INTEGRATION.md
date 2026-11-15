@@ -5,7 +5,7 @@ DiPlay can put CarPlay information on a launcher's home screen in four ways:
 | | What it shows | Works with | Needs |
 |---|---|---|---|
 | [Navigation widget](#1-navigation-widget) | Next turn arrow, distance, road, arrival, song | Any launcher that hosts standard Android widgets | Nothing extra |
-| [Map card](#2-map-card) | The live CarPlay map, as a card on the home screen | Any launcher, including BYD home and map home | Two permissions (see below) |
+| [Map card](#2-map-card) | The live CarPlay map, as a card on the home screen | Launchers recognized as a home screen | Two permissions (see below) |
 | [Embedded map](#3-embedded-live-map-for-launcher-developers) | The live CarPlay map inside the launcher's own layout | Launchers that add support for it | Launcher code, Android 9+ |
 | [Home-screen bubble](#4-home-screen-bubble) | The DiPlay icon as a shortcut back to CarPlay | Any launcher, including ones that list only their own cards | Display over other apps |
 
@@ -24,13 +24,10 @@ Add **CarPlay navigation** from your launcher's widget list (it is a 4×2 widget
 
 Tap the widget to open CarPlay, or DiPlay when CarPlay is not connected. The widget updates at most once a second.
 
-BYD's own home (Launcher3) accepts only the widgets on its built-in list, so the widget cannot be added there. Use the map card on BYD home.
-
 ## 2. Map card
 
 While DiPlay is in the background, a card with the live map shows on the home screen:
 
-- on BYD home, BYD map home and MyCar;
 - on whichever launcher is set as the default home, for example a third-party car launcher.
 
 Use the card:
@@ -69,7 +66,7 @@ Requirements:
 - **Settings → Advanced → Display (experimental) → Share the live map with other launchers** turned on in DiPlay;
 - CarPlay connected and sending the dashboard map. Devices without a physical cluster must connect after enabling sharing so DiPlay requests a virtual dashboard stream.
 
-See [`samples/home`](../samples/home/src/main/java/com/diplay/home/DiPlayMapPanel.kt) for both versions, or [`samples/maphost`](../samples/maphost/src/main/java/com/diplay/maphost/MainActivity.kt) for Android 11+.
+See [`samples/maphost`](../samples/maphost/src/main/java/com/diplay/maphost/MainActivity.kt) for Android 11+.
 
 ### Protocol
 
@@ -175,41 +172,13 @@ Behaviour:
   unlock, so it cannot be moved by accident;
 - tapping it opens CarPlay when a session is up, and DiPlay's settings when it is not.
 
-## DiPlay Home (sample launcher)
-
-[`samples/home`](../samples/home/src/main/java/com/diplay/home/HomeActivity.kt) is a separate app built on the public APIs above. On Android 9 and 10, open DiPlay Home from the app list to use the live map, CarPlay shortcut, apps and widgets. The system launcher stays in charge of Home, and DiPlay handles startup and automatic connection.
-
-Android 11 and later also support the default launcher option.
-
-DiPlay Home runs without system privileges. On BYD devices running Android 11 or later, the **BYD home** button opens the original launcher.
-
-- **Widgets.** Use Android's consent screen to add widgets such as **CarPlay navigation**. For BYD launcher testing on Android 11+, if the system has no consent screen:
-
-  ```bash
-  adb shell appwidget grantbind --package com.diplay.home --user 0
-  ```
-
-- **Making it the home screen on Android 11+.** Pick it as the default home app, or over ADB:
-
-  ```bash
-  adb shell cmd package set-home-activity com.diplay.home/.HomeActivity
-  ```
-
-- **Going back to BYD's home:**
-
-  ```bash
-  adb shell cmd package set-home-activity com.android.launcher3/.home.MainActivity
-  ```
-
-  BYD's map-mode button also returns to BYD's home, because BYD's own home list contains only BYD launchers.
-
 ## Troubleshooting
 
 | Problem | Check |
 |---|---|
 | No card | Card switch on; "Draw over other apps" allowed; CarPlay connected; dashboard map on; you are on a home screen. |
 | Card shows over every app | Usage Access is not allowed for DiPlay. |
-| Card on BYD home but not on another launcher | Make that launcher the default home; DiPlay reads the default home when the card starts. |
+| Card missing on a launcher | Make that launcher the default home; DiPlay reads the default home when the card starts. |
 | Embedded map says `disabled` | Turn on "Share the live map with other launchers" in DiPlay. |
 | Embedded map stays on "waiting" | CarPlay is not connected, or "CarPlay map on instrument cluster" is off. |
 | Widget says "CarPlay is not connected" while CarPlay works | Open DiPlay once after installing it; the widget follows the running session. |

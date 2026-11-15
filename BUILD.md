@@ -1,6 +1,6 @@
 # 构建 DiPlay 领克 01 / ECARX 753 移植版
 
-> 通用流程（模块选择、Android Studio 用法、单元测试与 lint）见上游文档 [`docs/BUILD.md`](docs/BUILD.md)。
+> 通用流程（模块选择、Android Studio 用法、单元测试与 lint）见本仓库 [`docs/BUILD.md`](docs/BUILD.md)。
 > **本文只讲本移植版特有的那几件事**——尤其是签名与 MFi 身份，这两件决定了产物能不能用。
 > Gradle 命令在仓库根目录（有 `gradlew` 与 `settings.gradle.kts` 的那层）执行；凭据下载、转换与证书核对在仓库外的同一目录完成。
 

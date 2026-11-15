@@ -114,11 +114,6 @@ internal class HomeScreenMonitor(context: Context, private val onChange: (Boolea
 
         // Known third-party car launchers
         val KNOWN_CAR_LAUNCHERS = setOf(
-            "com.smg.dydesktop",          // 迪友桌面 (常见主流包名)
-            "com.smg.dydesktop.pro",      // 迪友桌面 Pro
-            "com.dy.launcher",            // 迪友桌面 (部分渠道)
-            "com.king.dyzm",              // 迪友桌面
-            "com.king.diyou",
             "com.dudu.android.launcher",  // 嘟嘟桌面
             "com.dudu.android.launcher.mini",
             "com.tencent.autolauncher",   // 腾讯车联

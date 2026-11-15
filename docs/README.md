@@ -39,6 +39,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 - [开机启动优先级与系统应用边界](STARTUP_PRIORITY_AND_SYSTEM_APP.zh-CN.md)
 - [车机热点与现有 Wi-Fi：启动耗时采样](CARPLAY_STARTUP_SAMPLING.zh-CN.md)
 - [Wireless startup diagnostics](WIRELESS_DIAGNOSTICS.md)
+- [默认模式诊断与日志完整性](DIAGNOSTICS_DEFAULT_MODE.zh-CN.md) — 日志预算、报告身份、退出统计与采集缺口。
 
 画面与布局：
 
@@ -57,7 +58,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 导航与仪表：
 
 - [753 导航接管路线决策（停包方案）](NAVIGATION_TAKEOVER_DECISION.zh-CN.md)
-- [Cluster music card (experimental)](CLUSTER_MUSIC_CARD.md)
+- [ECARX 导航与仪表功能](FEATURES.zh-CN.md) — 当前提示、车道、地图和显隐行为。
 
 ## 验证素材与基准
 
@@ -68,9 +69,19 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 - [车速、挡位与恢复复核（2026-11-14）](benchmarks/vehicle-speed-2026-11-14.md) — Ultra 实车证据、HY DCYTools 同源挡位、固件单位与订阅行为、本地恢复回归及实车待测范围。
 - [原生 USB NCM 台架验收记录（2026-11-13，已收尾）](benchmarks/native-usb-2026-11-13.md) — 拔插／重启／切换、156 秒有线采样及主动断开背景，保留版本和结论适用范围。
 - [媒体流原生解密实测（2026-11-11）](benchmarks/native-chacha-2026-11-11.md) — 原生 ChaCha 的性能依据（现并入 `libdiplay_media.so`）。
+- [媒体状态归属验证（2026-11-14）](benchmarks/media-state-ownership-2026-11-14.md) — 视频、封面、媒体发布与音频恢复的分批验证。
+- [AAC 输入与原生采集链（2026-11-15）](benchmarks/native-aac-capture-2026-11-15.md) — ARM64/ARMv7 手机设备验证与声学边界。
+- [MQTT、HUD、RTSP 与下行音频边界（2026-11-15）](benchmarks/native-platform-boundaries-2026-11-15.md) — 实施范围、合同测试与真实连接分别记录。
+- [默认模式诊断手机实测（2026-11-15）](benchmarks/default-diagnostics-mi8-2026-11-15.md) — 两轮无线连接、日志导出和最终统计，不替代实车验收。
 
 ## 发布
 
 - [CHANGELOG.md](../CHANGELOG.md) — 本移植版的变更记录，当前版本以 GitHub Release 为准。
 - [DiPlay ECARX release notes](RELEASE-NOTES-NEXT.md) — 面向发布页的英文摘要。
 - 上游 DiPlay 的发布说明、验证与评审记录见[上游仓库](https://github.com/shihabal3amri/DiPlay)。
+
+## 文档维护
+
+当前行为写入对应功能说明，职责归属写入架构，验收结论写入矩阵；不要将已完成的任务方案继续列为待办。一次性方案、交接、原始日志和机器路径留在本地工作区，仓库只保留可公开复核的摘要与必要素材。
+
+删除过时文档时同步处理入站链接；已有有效基准、导航决策依据和第三方许可不因日期较早而删除。历史发布说明保留版本标记，当前发行以 Release 为准。说明书中的界面基线与源码版本、被测包、公开发行版本分别标注。

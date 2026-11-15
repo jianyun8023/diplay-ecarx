@@ -27,7 +27,7 @@ import org.robolectric.shadow.api.Shadow
 import org.robolectric.shadows.ShadowSystemClock
 
 /**
- * A BYD DiLink 3.0 (#1068, #976) gets the iPhone's music in Wi-Fi bursts 400 ms apart and its DAC plays 0.08 % slow.
+ * A receiver gets the iPhone's music in Wi-Fi bursts 400 ms apart and its DAC plays 0.08 % slow.
  * Playback starts partway through a burst and the rest of the burst lands on top.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -37,11 +37,11 @@ import org.robolectric.shadows.ShadowSystemClock
 class RealtimeMusicClockTrimTest {
     @Before @After fun forgetLearnedTrim() { MediaClockTrim.learnedTrim = 0.0 }
 
-    @Test fun aDiLinkKeepsTheIphonesRateFromTheStartWithTheDefaultBuffer() = keepsTheRate(Car(startMs = 300))
+    @Test fun aReceiverKeepsTheIphonesRateFromTheStartWithTheDefaultBuffer() = keepsTheRate(Car(startMs = 300))
 
-    @Test fun aDiLinkKeepsTheIphonesRateFromTheStartWith500Ms() = keepsTheRate(Car(startMs = 500))
+    @Test fun aReceiverKeepsTheIphonesRateFromTheStartWith500Ms() = keepsTheRate(Car(startMs = 500))
 
-    @Test fun aDiLinkKeepsTheIphonesRateFromTheStartWithTheLongestBuffer() = keepsTheRate(Car(startMs = 1000))
+    @Test fun aReceiverKeepsTheIphonesRateFromTheStartWithTheLongestBuffer() = keepsTheRate(Car(startMs = 1000))
 
     /**
      * #1074's head unit gets its bursts 430 ms apart, give or take 35 ms. With the longest buffer most of them find

@@ -15,7 +15,7 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 | 儀表和 HUD 導航提示 | **設定 → 導航 → 億咖通導航**，開啟「HUD／儀表導航提示」 |
 | 車道指引 | 隨「HUD／儀表導航提示」輸出手機提供的有效車道，無需獨立開關 |
 | 歌曲資訊和封面 | **設定 → 音訊 → 車機媒體整合**，選擇「DiPlay 直接接管」或「Android 標準」，歌曲資訊隨所選後端輸出 |
-| 日夜模式跟隨車輛 | **設定 → 顯示 → 顯示方式與效能**，把「CarPlay 日夜模式」設為「跟隨車輛」 |
+| 日夜模式跟隨車機 | 億咖通車機預設「跟隨車機」；按車外光線切換可在 **設定 → 顯示 → 顯示方式與效能** 選擇「跟隨車外光線」 |
 | 音樂走 CarPlay、保留藍牙電話 | **設定 → 音訊 → 音訊路由 → 聲音異常排查**，開啟「CarPlay 期間停用藍牙媒體」，關閉「透過車輛藍牙播放 CarPlay 音訊」 |
 | 導航壓低音樂或共同播報 | **設定 → 音訊 → 音訊路由**，預設開啟「導航聲音跟隨 iPhone 和車機」；手機地圖選播報方式，車機調導航音量，修改開關後重新連線 |
 | 無線連接 | 在連接設定中選擇車機熱點、Wi-Fi Direct 或既有 Wi-Fi，依照提示完成設定 |
@@ -31,13 +31,13 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 
 **高德地圖顯示到儀表，需要 iPhone 使用 iOS 17.4 或更新版本。**
 
-自動熱點會關閉車機連接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍須開啟。關閉保護項時，若 CarPlay 正在使用熱點，車機 Wi-Fi 延至下次車輛啟動恢復。開機設定齊全時可直接進入 CarPlay，v134 會先等原車桌面服務，最多 5 秒。
+自動熱點會關閉車機連接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍須開啟。關閉保護項時，若 CarPlay 正在使用熱點，車機 Wi-Fi 延至下次車輛啟動恢復。開機設定齊全時可直接進入 CarPlay；桌面等待依版本而異，見[啟動說明](docs/STARTUP_PRIORITY_AND_SYSTEM_APP.zh-CN.md)。
 
-建議首次使用無線配對。如果本車 CarPlay 紀錄首次透過 USB 建立，改無線前須在 iPhone 刪除本車紀錄，再先無線配對。已設定無線時，插 USB 預設不接管；開關在 **連接 → 自動連接**。v122 的插線兩條路徑已實車確認，USB 卡頓與取消授權後的恢復仍未解決。遇到異常，請到 **設定 → 診斷 → 儲存診斷報告**。
+建議首次使用無線配對。如果本車 CarPlay 紀錄首次透過 USB 建立，改無線前須在 iPhone 刪除本車紀錄，再先無線配對。已設定無線時，插 USB 預設不接管；開關在 **連接 → 自動連接**。v122 的插線驗證僅為歷史紀錄；後續 USB 恢復與驗收範圍見[目前驗收矩陣](docs/RUST_CORE_REMAINING.zh-CN.md)。遇到異常，請到 **設定 → 診斷 → 儲存診斷報告**。
 
 同套件名稱、同簽章且版本號不低於已安裝版本時覆蓋升級，保留設定；Actions 公開發佈包不內建 MFi 認證，全新安裝或清除資料後需另行設定。不要先解除安裝。
 
-開發參考：[建置說明](BUILD.md)與 [SDK 適配說明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。ECARX 介面透過執行時反射及動態代理存取，編譯與單元測試不需要廠商 JAR。
+開發參考：[文件索引](docs/README.md)、[建置說明](BUILD.md)與 [SDK 適配說明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。ECARX 介面透過執行時反射及動態代理存取，編譯與單元測試不需要廠商 JAR。
 
 基於 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分介面改編自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。許可與第三方聲明見 [LICENSE](LICENSE) 及 [相關說明](docs/THIRD_PARTY_NOTICES.md)。
 

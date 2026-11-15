@@ -521,7 +521,6 @@
     <string name="center_map_no_permission_screen">此車機沒有對應的權限設定頁面，請使用 DiPlay 的權限設定。</string>
     <string name="launcher_map_sharing">與其他啟動器共用即時地圖</string>
     <string name="launcher_map_sharing_description">開啟後，車機上的 App 可以請求 CarPlay 即時地圖。沒有獨立儀表螢幕的裝置需重新連接 CarPlay。</string>
-    <string name="adb_cluster_activity_label">儀表地圖</string>
     <string name="open_diplay_settings_hint">在 CarPlay 中用 %1$d 指向下滑動，以開啟快捷選單。</string>
     <string name="carplay_controls">CarPlay 操作</string>
     <string name="settings_gesture_fingers">快捷選單 · %1$d 指向下滑動（點選切換）</string>
@@ -743,7 +742,7 @@
     <string name="settings_harman_fullscreen_experimental">Harman 車機全螢幕（實驗性）</string>
     <string name="settings_harman_fullscreen_experimental_description">讓 CarPlay 佔用受支援 Harman 車機的原廠側欄區域。下次開啟 CarPlay 視窗時生效；其他韌體可能顯示異常。</string>
     <string name="settings_carplay_same_task">在桌面卡片中保留 CarPlay（實驗性）</string>
-    <string name="settings_carplay_same_task_description">適用於在卡片或畫中畫視窗中顯示 DiPlay 的桌面，例如迪友桌面卡片、嘟嘟桌面畫中畫。CarPlay 會像 0.2.11 及更早版本一樣在 DiPlay 自己的視窗中開啟，不再另外以全螢幕開啟。下次開啟 CarPlay 時生效，不會中斷連線。</string>
+    <string name="settings_carplay_same_task_description">適用於在卡片或畫中畫視窗中顯示 DiPlay 的桌面。CarPlay 會像 0.2.11 及更早版本一樣在 DiPlay 自己的視窗中開啟，不再另外以全螢幕開啟。下次開啟 CarPlay 時生效，不會中斷連線。</string>
     <string name="settings_hotspot_name_non_english">熱點名稱含中文或其他非英文字元時，部分車機廣播的名稱 iPhone 找不到，CarPlay 會停在「正在準備 CarPlay…」。如出現這種情況，請把車機熱點改為英文字母和數字的名稱。</string>
     <string name="settings_speech_without_low_rates">USB 下更清晰的導航語音（實驗性）</string>
     <string name="settings_speech_without_low_rates_description">USB 連線時，iPhone 可能以 8 kHz 電話音質傳送導航播報和 Siri 的語音回答。開啟後不再為這類聲音提供 8 和 16 kHz，讓 iPhone 選擇更高的取樣率。如果播報沒有聲音，請關閉。會重新連線 CarPlay。</string>
@@ -752,7 +751,6 @@
     <string name="bluetooth_connections_not_real">此車機的系統藍牙回報「已連線」，但實際上沒有連到 iPhone：連一個不存在的服務也回報成功。這裡的藍牙由廠商自己的模組處理，App 無法使用，所以此車機無法使用無線 CarPlay。請嘗試使用 USB 連線。</string>
     <string name="bluetooth_cannot_open_connections">此車機的系統藍牙無法替 App 建立連線：韌體沒有提供 App 連線要用的那一部分。車機自己的藍牙通話和音樂不受影響，但此車機無法使用無線 CarPlay。請嘗試使用 USB 連線。</string>
     <string name="bluetooth_will_not_stay_on_hint">如果藍牙在那裡開不起來，或開了又自己關掉，代表這台車機的藍牙只供它自己的通話和音樂使用，App 無法使用。這種情況下無法使用無線 CarPlay，請改用 USB 線。</string>
-    <string name="settings_cluster_music_unknown">未知藝人</string>
     <string name="connection_help_reset_wifi">先前的 Wi-Fi Direct 連線可能阻止新連線。點選下方的「重設 CarPlay Wi-Fi」，再重新連線。</string>
     <string name="connection_help_bluetooth_unusable">此車機的藍牙無法將資料傳送到 iPhone，因此無法使用無線 CarPlay。請使用支援資料傳輸的 USB 線。</string>
     <string name="connection_help_wifi_direct_beside_hotspot">請關閉車載熱點後點「重新連線」；或在「連線設定」選擇「車載熱點」，並儲存熱點名稱和密碼。</string>

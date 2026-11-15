@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [32], manifest = Config.NONE)
 class OwnScreenStartTest {
-    /** Refuses starts the way the DiYou launcher card did (#463). */
+    /** Simulates a launcher refusing an activity start. */
     class CardActivity : Activity() {
         override fun startActivity(intent: Intent?) {
             throw IllegalArgumentException("There is no running activity in rootTask=Task{#68 visible=false}")

@@ -41,4 +41,4 @@
 
 这是小米手机上的真实 ART／JNI、MediaCodec、AAudio 和 AudioRecord 验证。回声引用使用测试数据，未验证实际声学回声消除效果；没有进行真实 iPhone Siri／通话会话或 ECARX／Android 9 车机音路验收。未测性能收益、长时稳定性或缩减 Release 包的设备运行。
 
-本轮未改生产处理逻辑以适配手机；仅新增上述设备烟测并修正已删除 Java 发送路径的遗留注释。此前 Rust／JVM／三 ABI／R8 结果保留原记录，见[收敛方案](../RUST_KOTLIN_BOUNDARY_PLAN.zh-CN.md)。
+本轮未改生产处理逻辑以适配手机；仅新增上述设备烟测并修正已删除 Java 发送路径的遗留注释。此前 Rust／JVM／三 ABI／R8 结果保留原记录，见 [PR #122](https://github.com/jianyun8023/diplay-ecarx/pull/122)；当前职责见[架构说明](../ARCHITECTURE.zh-CN.md)。
