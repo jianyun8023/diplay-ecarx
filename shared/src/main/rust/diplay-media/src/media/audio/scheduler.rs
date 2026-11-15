@@ -192,18 +192,16 @@ fn focus_step(state: &mut [i64; 6], event: i32, channel: i32, enabled: bool, mut
             }
         }
         3 | 4 | 5 => {
-            let before = (focus_media_target(state), focus_other_target(state));
             match event {
                 3 => state[5] = 1,
-                4 => if mute_transient { state[5] = 2 },
+                4 if mute_transient => state[5] = 2,
+                4 => return decision,
                 _ => { state[4] = 1; state[5] = 0; }
             }
-            let after = (focus_media_target(state), focus_other_target(state));
-            if before != after {
-                decision[4] = after.0;
-                decision[5] = after.1;
-                decision[6] = 2;
-            }
+            // Kotlin skips only successfully applied gains; unchanged targets may need a retry.
+            decision[4] = focus_media_target(state);
+            decision[5] = focus_other_target(state);
+            decision[6] = 2;
         }
         6 | 7 => {
             if !(1..=3).contains(&channel) { return decision; }
@@ -394,13 +392,15 @@ mod tests {
         focus_step(&mut state, 6, 1, true, true);
         // A ducking loss lowers only the media target.
         assert_eq!(focus_step(&mut state, 3, 0, true, true), [0, 0, 0, 0, 1, 0, 2]);
+        assert_eq!(focus_step(&mut state, 3, 0, true, true), [0, 0, 0, 0, 1, 0, 2]);
         // A transient loss with the switch on mutes media only; GAIN restores full everywhere.
+        assert_eq!(focus_step(&mut state, 4, 0, true, true), [0, 0, 0, 0, 2, 0, 2]);
         assert_eq!(focus_step(&mut state, 4, 0, true, true), [0, 0, 0, 0, 2, 0, 2]);
         assert_eq!(focus_step(&mut state, 5, 0, true, true), [0, 0, 0, 0, 0, 0, 2]);
         // With the switch off a transient loss leaves the targets alone.
         assert_eq!(focus_step(&mut state, 4, 0, true, false), [0, 0, 0, 0, 0, 0, 0]);
-        // A repeated gain that restores nothing applies nothing.
-        assert_eq!(focus_step(&mut state, 5, 0, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        // A repeated gain retries any platform output that has not applied the target yet.
+        assert_eq!(focus_step(&mut state, 5, 0, true, true), [0, 0, 0, 0, 0, 0, 2]);
         // A rejected request silences every channel until a gain is reported; a new activity
         // on the same channel abandons the denied request and asks again.
         let mut denied = [0; 6];
