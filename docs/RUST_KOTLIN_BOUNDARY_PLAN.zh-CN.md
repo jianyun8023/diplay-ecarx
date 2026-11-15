@@ -7,10 +7,29 @@
 ## 基线与范围
 
 - 分析日期：2026-11-14。`dev` 基线为 `21459bb60c0e548353b6abb035da0a343870dd42`，包含 PR #114；对应本地源码 HEAD 为 `368cf10353f96b13e2747d03cd30fe3c4cef8cda`。本方案涉及的生产 Kotlin／Rust 源码与该 `dev` 基线一致。
-- 本文各工作包均为待实施方案。当前归属见[架构说明](ARCHITECTURE.zh-CN.md)，实施约束见 [AGENTS.md](../AGENTS.md)。历史迁移分支和已关闭议题不作为新任务入口。
+- 本文保留最初的 A–H 工作包与职责约束；代码实施范围见下表。当前归属见[架构说明](ARCHITECTURE.zh-CN.md)，实施约束见 [AGENTS.md](../AGENTS.md)。历史迁移分支和已关闭议题不作为新任务入口。
 - 用户已确认现有测试足够。本方案不重开既有验收，不安排重复长测、回放或故障注入；[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)与原始记录保持其原有范围。后续代码变更只验证其实际影响，不把本方案当作新测试已通过的记录。
 - 保持 Android 9／API 28、ECARX 753、现有 ARM64／ARMv7 分发及 x86_64 测试构建边界；不改变路由、AEC、编解码器降级和设备校准策略。
-- 本轮只写方案，不修改运行逻辑、引入依赖或新增功能。
+- 方案最初仅记录设计；后续实施按独立 PR 交付，不引入新依赖或扩展产品功能。
+
+## 实施清单（2026-11-15）
+
+前两批 A–F 已在下列 PR 中实现；G/H 仍是后续可选项。“已实现”指代码范围，合并状态和 CI 结果以各 PR 为准，不代表新增实机验收。[#115](https://github.com/jianyun8023/diplay-ecarx/pull/115) 承载本方案、原 #114 验证记录及对应设备测试入库。
+
+| 工作包 | 实施状态与 PR | 已落实的职责边界 |
+| --- | --- | --- |
+| A | 已实现：[#116](https://github.com/jianyun8023/diplay-ecarx/pull/116) | Rust 持有独立 GlanceSong 投影与 GC 值 token；Kotlin 负责组合、裁剪和发布。保留 600 步对拍，空白字符行为与 Kotlin 一致。 |
+| B | 已实现：[#117](https://github.com/jianyun8023/diplay-ecarx/pull/117) | 普通音频 feedback 锚点、sampleTime 和单流回复归 Rust；Kotlin 读取时钟并提交实际启动事实，buffered 保留独立语义。 |
+| C | 已实现：[#118](https://github.com/jianyun8023/diplay-ecarx/pull/118) | Kotlin 仅保留 VideoControlMailbox；帧队列与清链归 Rust，旧队列语义仅用于测试替身。 |
+| D | 已实现：[#121](https://github.com/jianyun8023/diplay-ecarx/pull/121)，依赖 B | SETUP 解释、回复布局、HKDF 字节和麦克风参数归 Rust；流 ID 按 session 分配。现有协议门面将 native Map 转成具名音频、麦克风及数据流计划，engine 使用明确字段并管理平台资源。仅 telephony 等待下行，其余合格输入流保留 500 ms 静默启动。 |
+| E | 已实现：[#120](https://github.com/jianyun8023/diplay-ecarx/pull/120) | Rust 决定焦点优先级、请求意图和目标增益；Kotlin 持有对象表、generation 守卫及 appliedVolume。平台设置音量失败后，同目标回调仍可重试。 |
+| F | 已实现：[#119](https://github.com/jianyun8023/diplay-ecarx/pull/119)，依赖 #115 | Artwork event/数组布局和发布位掩码封装为具名结果；Rust/JNI 签名不变，Bitmap 生命周期与发布提交顺序留在 Kotlin。#115 的设备测试同步迁移到新门面。 |
+| G | 未实施，后续可选 | 音频输入准备维持当前边界，不阻塞 A–F。 |
+| H | 未实施，后续可选 | 麦克风 PCM 管线维持当前边界；推进前先评估现有 Speex JNI 的局部收敛，不直接扩展三 ABI 的采集链路。 |
+
+合并依赖为 #115 → #119、#117 → #121；父 PR 合并后，子 PR 改向 `dev`。实施和评审修复的验证记录放在各 PR：主机 JVM/Rust 测试、androidTest 编译、Android ABI 构建与实机验收分别记录，不相互替代。A–E 的 JNI 导出变更同时修复构建检查：按 Rust 声明逐项核对实际导出，保留 JNI_OnLoad、ELF 和各 ABI 导出一致性校验，避免旧固定总数阻塞合法的接口增删。
+
+既有验收矩阵保持原范围；本轮不声明新的设备验收或性能收益。
 
 ## 目标职责
 
