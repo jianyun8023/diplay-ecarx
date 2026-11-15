@@ -50,6 +50,9 @@ class ShadowNativeAirPlayNegotiation {
         @JvmStatic @Implementation fun navigation(state: LongArray, event: Int, value: Long, present: Boolean): Int =
             HostNative.call("airplay.NativeAirPlayNegotiation", "navigation", state, event, value, present) as Int
 
+        @JvmStatic @Implementation fun remoteControlStream(state: LongArray): Long =
+            HostNative.call("airplay.NativeAirPlayNegotiation", "remoteControlStream", state) as Long
+
         @JvmStatic @Implementation fun features(capabilities: Int, proposed: Array<String>): Array<String> =
             HostNative.call("airplay.NativeAirPlayNegotiation", "features", capabilities, proposed) as Array<String>
 

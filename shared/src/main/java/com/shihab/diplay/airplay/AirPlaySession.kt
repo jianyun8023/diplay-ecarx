@@ -149,6 +149,9 @@ class AirPlaySession(
         if (negotiation.frameRendered()) listener.onVideoFrameRendered(this)
     }
 
+    /** The next remote-control stream id this session hands out; session::airplay allocates. */
+    internal fun nextRemoteControlStreamId(): Long = negotiation.remoteControlStream()
+
     internal fun logTrace(message: String) = trace { message }
 
     fun start() {

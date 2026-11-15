@@ -1,7 +1,11 @@
 package com.shihab.diplay.airplay
 
 import java.io.Closeable
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -11,6 +15,33 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class CarPlayAudioStreamIsolationTest {
+    @Test fun silentInputStartsWithoutDownlinkWhileCallsWait() {
+        val started = LinkedBlockingQueue<AudioStreamId>()
+        val engine = CarPlayMediaEngine(object : MediaSink {
+            override fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {
+                started.add(id)
+            }
+        }, microphoneEnabled = true)
+        val session = session(object : Socket() {
+            override fun getInetAddress(): InetAddress = InetAddress.getLoopbackAddress()
+            override fun getRemoteSocketAddress(): InetSocketAddress = InetSocketAddress(inetAddress, 50_000)
+        })
+        try {
+            for (audioType in listOf("telephony", "speechrecognition", "default")) {
+                assertNotNull(engine.onAudio(session, 100, setup(audioType) + ("dataPort" to 50_000L)))
+            }
+            // No RTP is sent: only input streams allowed to start silently reach the sink.
+            assertEquals(
+                setOf(AudioStreamId(100, "speechrecognition"), AudioStreamId(100, "default")),
+                setOf(started.poll(3, TimeUnit.SECONDS), started.poll(3, TimeUnit.SECONDS)),
+            )
+            assertNull(started.poll(1, TimeUnit.SECONDS))
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
     @Test fun guidanceSetupAndMediaReplacementKeepTheOtherAudioStreamAlive() {
         val session = session()
         val engine = CarPlayMediaEngine(object : MediaSink {})
@@ -103,9 +134,9 @@ class CarPlayAudioStreamIsolationTest {
         CarPlayMediaEngine::class.java.getDeclaredField("streams").apply { isAccessible = true }
             .get(engine) as MutableMap<CarPlayMediaEngine.StreamKey, Closeable>
 
-    private fun session(): AirPlaySession {
+    private fun session(socket: Socket = Socket()): AirPlaySession {
         val session = AirPlaySession(
-            socket = Socket(),
+            socket = socket,
             config = AirPlayConfig(
                 deviceName = "test", deviceId = "02:00:00:00:00:02", btMac = "02:00:00:00:00:01",
                 sourceVersion = "1.0", main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
