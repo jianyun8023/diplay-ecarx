@@ -54,6 +54,7 @@ internal fun diagnosticReportText(appContext: Context, setupReady: Boolean): Str
     appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")
     appendLine(runCatching { CarWifiClientGuard.diagnostic(appContext) }.getOrElse { "Car Wi-Fi client: unavailable=${it.javaClass.simpleName}" })
     appendLine("Session: ${if (CarPlayBackgroundSession.active) "active" else if (CarPlayBackgroundSession.hasSession()) "connecting" else "stopped"}")
+    CarPlayBackgroundSession.snapshot()?.sink?.let { appendLine(it.diagnosticReport()) }
     appendLine("CarPlay screen: ${CarPlayScreen.report(appContext)}")
     appendLine(PhoneWakeDiagnostics.report(appContext))
     appendLine(ConnectionDiagnostics.report(appContext))
@@ -90,6 +91,7 @@ internal fun diagnosticReportText(appContext: Context, setupReady: Boolean): Str
     appendLine("--- Last received boot and app-launch result ---")
     appendLine(StartupDiagnosticSnapshot.report(appContext))
     appendLine(CarPlayStartupTimeline.report(appContext))
+    appendLine(ShutdownDiagnosticSnapshot.report(appContext))
     appendLine("Startup settings: openAfterBoot=${AirPlayPersistence.loadAutoStartOnBoot(appContext)} " +
         "connectWhenOpened=${DiPlayPreferences.autoConnect(appContext)}")
     appendLine("Car hotspot control: autoEnable=${CarHotspotSettings.enabled(appContext)} " +
@@ -114,11 +116,25 @@ internal fun diagnosticReportText(appContext: Context, setupReady: Boolean): Str
     appendLine("--- Last crash recorded by DiPlay ---")
     appendLine(CrashRecord.report(appContext))
     appendLine()
+    appendLine(SessionLogFile.exportHealth(File(appContext.filesDir, "logs")))
+    appendLine("Logs: current file first, then newest history; each file owns its identity. Missing identity fields are unknown. Live files may advance during export.")
     for (name in SessionLogFile.REPORT_NAMES) {
         val file = File(appContext.filesDir, "logs/$name")
         if (file.isFile) {
             appendLine("--- $name ---")
-            file.useLines { lines -> lines.forEach { line -> DiagnosticRedactor.redact(line)?.let { appendLine(it) } } }
+            appendLine("Log file scope=${if (name == "diplay.log") "current" else "history"} " +
+                "modifiedAtEpochMs=${file.lastModified()} bytesAtReadStart=${file.length()}")
+            runCatching {
+                file.bufferedReader().use { reader ->
+                    val first = reader.readLine()
+                    if (first?.startsWith("DiPlay log started ") != true || !first.contains(" version=")) {
+                        appendLine("Log identity: version=unknown revision=unknown (legacy file; report version does not apply)")
+                    }
+                    first?.let { DiagnosticRedactor.redact(it)?.let { safe -> appendLine(safe) } }
+                    reader.forEachLine { line -> DiagnosticRedactor.redact(line)?.let { appendLine(it) } }
+                }
+            }.onFailure { appendLine("Log file read failed class=${it.javaClass.simpleName}") }
         }
     }
+    appendLine("Log export finishedAtEpochMs=${System.currentTimeMillis()}")
 }

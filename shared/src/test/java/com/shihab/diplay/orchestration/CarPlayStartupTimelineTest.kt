@@ -59,14 +59,15 @@ class CarPlayStartupTimelineTest {
         CarPlayStartupTimeline.format(time, stage, WirelessHotspotMode.MANUAL,
             boot, process, generation, owner)
 
-    @Test fun metricsKeepFirstFrameAndAllowStableCheckpointBeforeItsFirstFrameCallback() {
+    @Test fun metricsKeepFirstFrameAndUseAnExplicitNativeSampleAfterTunnel() {
         val result = CarPlayStartupTimeline.metrics(listOf(
             event(Stage.WIRELESS_RUN_START, 40_000),
-            event(Stage.STABLE_VIDEO_FRAME, 45_000),
+            event(Stage.TUNNEL_START_SESSION_SENT, 44_800),
+            event(Stage.TUNNEL_VIDEO_FRAME, 45_000) + " decoderId=52 decoderEpoch=2",
             event(Stage.VIDEO_FIRST_FRAME, 45_001),
             event(Stage.VIDEO_FIRST_FRAME, 48_000),
         ))
-        assertTrue(result, result.contains("outcome=STABLE_FRAME runStartMs=40000 firstFrameSinceBootMs=45001 runToFirstFrameMs=5001 runToStableFrameMs=5000"))
+        assertTrue(result, result.contains("outcome=FRAME_AFTER_TUNNEL runStartMs=40000 firstFrameSinceBootMs=45001 runToFirstFrameMs=5001 tunnelToFrameMs=200"))
     }
 
     @Test fun metricsNeverJoinDifferentBootsProcessesControllersOrGenerations() {
@@ -90,11 +91,23 @@ class CarPlayStartupTimelineTest {
             event(Stage.WIRELESS_FAILED, 200),
             event(Stage.WIRELESS_RUN_START, 300, generation = 8),
             event(Stage.VIDEO_FIRST_FRAME, 500, generation = 8),
-            event(Stage.STABLE_VIDEO_FRAME, 800, generation = 9),
+            event(Stage.TUNNEL_VIDEO_FRAME, 800, generation = 9),
         ))
         assertTrue(result, result.contains("outcome=FAILED runStartMs=100 firstFrameSinceBootMs=unknown"))
-        assertTrue(result, result.contains("outcome=FIRST_FRAME runStartMs=300 firstFrameSinceBootMs=500 runToFirstFrameMs=200 runToStableFrameMs=unknown"))
-        assertTrue(result, result.contains("outcome=STABLE_FRAME runStartMs=unknown firstFrameSinceBootMs=unknown runToFirstFrameMs=unknown runToStableFrameMs=unknown"))
+        assertTrue(result, result.contains("outcome=FIRST_FRAME runStartMs=300 firstFrameSinceBootMs=500 runToFirstFrameMs=200 tunnelToFrameMs=unknown"))
+        assertTrue(result, result.contains("runStartMs=unknown firstFrameSinceBootMs=unknown runToFirstFrameMs=unknown tunnelToFrameMs=unknown"))
+    }
+
+    @Test fun foregroundReentryAndLegacyStableMarkersCannotInflateConnectionTime() {
+        val result = CarPlayStartupTimeline.metrics(listOf(
+            event(Stage.WIRELESS_RUN_START, 1_000), event(Stage.VIDEO_FIRST_FRAME, 3_400),
+            event(Stage.TUNNEL_START_SESSION_SENT, 3_500), event(Stage.HOST_STOP, 10_000),
+            event(Stage.HOST_START, 21_800), event(Stage.VIDEO_DECODER_FIRST_FRAME, 22_100),
+            event(Stage.TUNNEL_VIDEO_FRAME, 22_100), event(Stage.STABLE_VIDEO_FRAME, 22_100),
+        ))
+        assertTrue(result, result.contains("runToFirstFrameMs=2400 tunnelToFrameMs=unknown foregroundInterrupted=true resumeToFrameMs=300"))
+        assertFalse(result, result.contains("21100"))
+        assertFalse(result, result.contains("STABLE_FRAME"))
     }
 
     @Test fun legacyUnknownAndMalformedEventsCannotProduceMetrics() {

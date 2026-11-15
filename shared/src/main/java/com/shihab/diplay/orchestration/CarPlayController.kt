@@ -1341,6 +1341,11 @@ class CarPlayController(
         }
     }
 
+    fun sampleHostVisibility(visible: Boolean) {
+        sampleWirelessStart(if (visible) CarPlayStartupTimeline.Stage.HOST_START else CarPlayStartupTimeline.Stage.HOST_STOP,
+            wirelessGeneration)
+    }
+
     private fun startWireless(expectedGeneration: Int? = null) {
         val (previous, run) = synchronized(wirelessResourceLock) {
             if (!lifecycle.canStartWireless(expectedGeneration, wirelessRun?.hasFailed() == true)) return
@@ -1824,6 +1829,7 @@ class CarPlayController(
                 traceContext = "wired",
                 onTrace = ::debugLog,
                 onArtwork = ::onArtworkTransfer,
+                isShuttingDown = { closed },
             )
             val csmAdopted = synchronized(wirelessResourceLock) {
                 if (!isWiredRunCurrent(run)) false else { this.csm = csm; true }
@@ -2711,6 +2717,7 @@ class CarPlayController(
                                 traceContext = "wireless-rfcomm-${attempt.number}",
                                 onTrace = { if (attempt.isCurrent) debugLog(it) },
                                 onArtwork = { if (attempt.isCurrent) onArtworkTransfer(it) },
+                                isShuttingDown = { closed || !attempt.isCurrent },
                             ).also { csm = it }
                         }
                         if (!channel.awaitReady(WirelessBootstrapRecovery.CSM_TIMEOUT_MILLIS)) {
@@ -2920,6 +2927,7 @@ class CarPlayController(
                     traceContext = "wireless-tunnel",
                     onTrace = ::debugLog,
                     onArtwork = { whileRunning { onArtworkTransfer(it) } },
+                    isShuttingDown = { closed || !state.running },
                 )
             } catch (error: Throwable) {
                 debugLog("Could not open the tunneled iAP2 link", error)
@@ -2957,6 +2965,7 @@ class CarPlayController(
                                 if (state.running &&
                                     state.claimTunnelStart()) {
                                     sampleWirelessStart(CarPlayStartupTimeline.Stage.TUNNEL_START_SESSION_SENT, generation)
+                                    activeSession?.requestVideoFrameSample()
                                 }
                             },
                             onIncoming = { whileRunning { onRouteFrame(it, "wireless-tunnel") } },
@@ -3062,12 +3071,9 @@ class CarPlayController(
                     if (activeSession !== session) return@whileRunning
                     if (!watchdog.sessionEstablished()) return@whileRunning
                     wirelessConnectionProof.rendered(generation, session)
-                    // Each decoder start reports its first frame. The one after the tunnel StartSession
-                    // is the restarted stream that stays on screen.
-                    if (state.tunnelStartDispatched &&
-                        state.claimStableFrame()) {
-                        sampleWirelessStart(CarPlayStartupTimeline.Stage.STABLE_VIDEO_FRAME, generation)
-                    }
+                    sampleWirelessStart(CarPlayStartupTimeline.Stage.VIDEO_DECODER_FIRST_FRAME, generation)
+                    // The tunnel may precede decoder creation; its first output makes sampling available.
+                    if (state.tunnelStartDispatched) session.requestVideoFrameSample()
                     val firstFrame = synchronized(this) {
                         if (reportedFrameSession === session) false else {
                             reportedFrameSession = session
@@ -3078,6 +3084,14 @@ class CarPlayController(
                         sampleWirelessStart(CarPlayStartupTimeline.Stage.VIDEO_FIRST_FRAME, generation)
                         clusterOutputStateListener?.invoke()
                         uiListener?.onVideoFrameRendered(session)
+                    }
+                }
+
+                override fun onVideoFrameSample(session: AirPlaySession, elapsedMs: Long, decoderId: Int, epoch: Long) = whileRunning {
+                    if (activeSession === session && state.tunnelStartDispatched && state.claimStableFrame()) {
+                        CarPlayStartupTimeline.record(appContext, CarPlayStartupTimeline.Stage.TUNNEL_VIDEO_FRAME,
+                            config.wirelessHotspotMode, generation, System.identityHashCode(this@CarPlayController),
+                            elapsedMs = elapsedMs, decoderId = decoderId, decoderEpoch = epoch)
                     }
                 }
 

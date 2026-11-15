@@ -18,6 +18,9 @@ class NativeAudioRoute internal constructor(clockRate: Int, direct: Boolean) : j
         callbacks: NativeStreamCallbacks): Long =
         if (handle == 0L) 0L else NativeMedia.startAudio(fd, key, streamType, callbacks, handle)
 
+    /** received/aheadMs/overrun/maxAheadMs/overrunSamples/overrunObservedSpanMs/sinceNewestRxMs.
+     * Peak/count cover this route; span resets on a normal sample and does not imply a continuous fault.
+     * Receive age tracks the newest RTP frontier, so late and duplicate packets do not reset it. */
     @Synchronized internal fun feedback(reported: Long, nowNs: Long): LongArray? =
         if (handle == 0L) null else NativeMedia.audioRouteFeedback(handle, reported, nowNs)
 

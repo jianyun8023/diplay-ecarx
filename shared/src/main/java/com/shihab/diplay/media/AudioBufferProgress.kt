@@ -51,6 +51,8 @@ internal object NativeAudioScheduler {
     /** One audio-focus event; the decision slots are documented on the Rust `focus_step`. */
     @JvmStatic external fun focusStep(state: LongArray, event: Int, channel: Int, enabled: Boolean, muteTransient: Boolean): IntArray
     @JvmStatic external fun mediaFocusHeld(state: LongArray): Boolean
+    /** Diagnostic facts only: event 0 snapshots, 1 request result, 2 abandon result; MIN_VALUE means an exception. */
+    @JvmStatic external fun focusDiagnostics(state: LongArray, event: Int, result: Int): String?
     @JvmStatic external fun create(frameBytes: Int): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun reset(handle: Long)

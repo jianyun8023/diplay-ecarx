@@ -34,6 +34,7 @@ interface AirPlaySessionListener {
     fun onSessionEnded(session: AirPlaySession) {}
     fun onClusterControlReady(session: AirPlaySession) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
+    fun onVideoFrameSample(session: AirPlaySession, elapsedMs: Long, decoderId: Int, epoch: Long) {}
     /** Validated downstream; immutable copy of iPhone's top-left grayscale coverage PNG. */
     fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {}
     fun onTransportError(message: String) {}
@@ -52,6 +53,7 @@ interface AirPlaySessionListener {
 
 /** Stream transport seam; media decode/render is supplied by a later layer. */
 interface AirPlayMediaHandler {
+    fun requestVideoFrameSample(): Boolean = false
     fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? = null
     fun onAudio(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Map<String, Any?>? = null
     fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? = null
@@ -146,6 +148,11 @@ class AirPlaySession(
 
     internal fun videoFrameRendered() {
         if (negotiation.frameRendered()) listener.onVideoFrameRendered(this)
+    }
+
+    fun requestVideoFrameSample(): Boolean = media.requestVideoFrameSample()
+    internal fun videoFrameSample(elapsedMs: Long, decoderId: Int, epoch: Long) {
+        if (!isClosed) listener.onVideoFrameSample(this, elapsedMs, decoderId, epoch)
     }
 
     /** The next remote-control stream id this session hands out; session::airplay allocates. */
@@ -568,7 +575,8 @@ class AirPlaySession(
                 notifySetupResponseSent()
             }
         } catch (error: Exception) {
-            closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
+            closeReason = if (negotiation.isClosed) "local shutdown" else
+                "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
             if (!negotiation.isClosed) Log.e(TAG, "airplay $closeReason", error)
         } finally {
             controlInput.close()

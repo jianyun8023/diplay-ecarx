@@ -50,7 +50,7 @@ class SessionLogFileLatencyTest {
         return log
     }
 
-    private fun firstLineOf(file: File) = file.useLines { it.first() }
+    private fun firstEntryOf(file: File) = file.useLines { it.drop(1).first() }
 
     @Test fun callerLatencyPerLineStaysFarBelowOneDiskOpenPerCall() {
         val folder = Files.createTempDirectory("diplay-latency").toFile()
@@ -82,7 +82,7 @@ class SessionLogFileLatencyTest {
                 repeat(linesPerCycle) { worst = maxOf(worst, nanosOf { log.append(numbered()) }) }
                 cycleMaxima += worst
                 log.flushed()
-                archiveHeads += firstLineOf(folder.resolve("previous.log"))
+                archiveHeads += firstEntryOf(folder.resolve("previous.log"))
             }
             log.close()
             println("SESSIONLOG rotation-cycle worst call ms=${cycleMaxima.map { it / 1_000_000 }}")
@@ -111,7 +111,7 @@ class SessionLogFileLatencyTest {
                 other.join(30_000)
                 blocked += otherWorst
                 log.flushed()
-                archiveHeads += firstLineOf(folder.resolve("previous.log"))
+                archiveHeads += firstEntryOf(folder.resolve("previous.log"))
             }
             log.close()
             println("SESSIONLOG second-thread worst blocked ms=${blocked.map { it / 1_000_000 }}")
@@ -218,5 +218,103 @@ class SessionLogFileLatencyTest {
             log.flushed()
             assertEquals(listOf("header", "one", "Activity destroyed"), folder.resolve("diplay.log").readLines())
         } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun rotationsKeepTheirOriginalIdentityAndCurrentFileComesFirst() {
+        val folder = Files.createTempDirectory("diplay-identity").toFile()
+        val identity = "DiPlay log started 2026-11-15 14:17:46.233 pid=7042 version=0.2-v151 versionCode=151 revision=c16beb57 logId=123"
+        try {
+            SessionLogFile(folder.resolve("diplay.log")).use { log ->
+                log.reset(identity)
+                repeat(3_000) { log.append(line) }
+                log.flushed()
+            }
+            assertEquals("diplay.log", SessionLogFile.REPORT_NAMES.first())
+            assertEquals(identity, folder.resolve("diplay.log").readLines().first())
+            assertEquals(identity, folder.resolve("previous.log").readLines().first())
+            SessionLogFile(folder.resolve("diplay.log")).use { log ->
+                log.reset("DiPlay log started next version=0.2-v152 revision=unknown")
+            }
+            assertEquals(identity, folder.resolve("previous.log").readLines().first())
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun failedWritesAndRejectedClosedWritesAreVisibleToExport() {
+        val folder = Files.createTempDirectory("diplay-health").toFile()
+        try {
+            val blockedDirectory = folder.resolve("blocked").apply { writeText("not a directory") }
+            SessionLogFile(blockedDirectory.resolve("diplay.log")).use { log ->
+                log.reset("header")
+                log.append("evidence")
+                log.flushed()
+                val health = SessionLogFile.exportHealth(blockedDirectory)
+                assertTrue(health, health.contains("fileFlushed=true"))
+                assertTrue(health, health.contains("writeFailures=2"))
+                assertTrue(health, health.contains("lastFailure=FileNotFoundException"))
+            }
+            val log = SessionLogFile(folder.resolve("diplay.log"))
+            log.reset("header")
+            log.close()
+            AsyncDiagnosticLog.append(log, "late shutdown evidence")
+            log.append("late direct evidence")
+            val health = SessionLogFile.exportHealth(folder)
+            assertTrue(health, health.contains("asyncFlushed=true"))
+            assertTrue(health, health.contains("rejectedAfterClose=2"))
+            assertEquals("header\n", log.file.readText())
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun exportReportsAnIncompleteFlushWithoutWaitingForTheStalledDisk() {
+        val folder = Files.createTempDirectory("diplay-export-time").toFile()
+        try {
+            val log = SessionLogFile(folder.resolve("diplay.log"))
+            log.reset("header")
+            val stall = stallWriter(log, 1_500)
+            log.append("still queued")
+            val started = System.nanoTime()
+            val health = SessionLogFile.exportHealth(folder)
+            val elapsed = System.nanoTime() - started
+            assertTrue(health, health.contains("fileFlushed=false"))
+            assertTrue("export health took ${elapsed / 1_000_000} ms", elapsed < 700_000_000)
+            stall.join()
+            log.flushed()
+            assertTrue(SessionLogFile.exportHealth(folder).contains("fileFlushed=true"))
+            log.close()
+        } finally { folder.deleteRecursively() }
+    }
+
+    @Test fun aNewSessionCannotInheritThePreviousWritersQueuedLinesAfterCloseTimesOut() {
+        val folder = Files.createTempDirectory("diplay-owner").toFile()
+        val old = SessionLogFile(folder.resolve("diplay.log"))
+        val next = SessionLogFile(folder.resolve("diplay.log"))
+        val another = SessionLogFile(folder.resolve("other.log"))
+        try {
+            old.reset("OLD identity")
+            val lock = SessionLogFile::class.java.getDeclaredField("lock").apply { isAccessible = true }.get(old)
+            val before = Regex("supersededWrites=(\\d+)").find(SessionLogFile.exportHealth(folder))!!.groupValues[1].toLong()
+            synchronized(lock) {
+                repeat(3) { old.append("OLD queued evidence $it") }
+                val elapsed = nanosOf { old.close() }
+                assertTrue("close took ${elapsed / 1_000_000} ms", elapsed < 700_000_000)
+                // The old queue is still blocked here; resetting must not wait for it to drain.
+                next.reset("NEW identity")
+                another.reset("OTHER identity")
+                another.append("OTHER evidence")
+                next.append("NEW evidence")
+                next.flushed()
+                another.flushed()
+            }
+            old.flushed()
+            assertEquals(listOf("NEW identity", "NEW evidence"), next.file.readLines())
+            assertEquals(listOf("OLD identity"), folder.resolve("previous.log").readLines())
+            assertEquals(listOf("OTHER identity", "OTHER evidence"), another.file.readLines())
+            val health = SessionLogFile.exportHealth(folder)
+            assertTrue(health, health.contains("supersededScope=process supersededWrites=${before + 3}"))
+        } finally {
+            old.close()
+            next.close()
+            another.close()
+            folder.deleteRecursively()
+        }
     }
 }

@@ -36,6 +36,18 @@ class NavigationPromptFocusTest {
     }
     @After fun closeHelpers() = helpers.forEach(NavigationPromptFocus::close)
 
+    @Test fun summaryRetainsActualAbandonResultAfterClose() {
+        val focus = focus()
+        focus.onDuck()
+        assertTrue(focus.diagnosticReport().contains("requests=1 granted=1 rejected=0"))
+        assertTrue(focus.diagnosticReport().contains("trackedRequest=true state=held"))
+        focus.close()
+        val released = focus.diagnosticReport()
+        assertTrue(released.contains("abandonCalls=1 abandonAccepted=1"))
+        assertTrue(released.contains("trackedRequest=false"))
+        assertTrue(released.contains("platformOwner=unknown"))
+    }
+
     @Test fun duckRequestsDuckableTransientFocusForTheNavigationRoute() {
         val focus = focus()
         focus.onDuck()

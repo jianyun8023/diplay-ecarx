@@ -59,6 +59,8 @@ class ShadowNativeAudioScheduler {
 
         @JvmStatic @Implementation fun focusStep(state: LongArray, event: Int, channel: Int, enabled: Boolean, muteTransient: Boolean): IntArray =
             HostNative.call("media.NativeAudioScheduler", "focusStep", state, event, channel, enabled, muteTransient) as IntArray
+        @JvmStatic @Implementation fun focusDiagnostics(state: LongArray, event: Int, result: Int): String? =
+            HostNative.call("media.NativeAudioScheduler", "focusDiagnostics", state, event, result) as String?
 
         @JvmStatic @Implementation fun mediaFocusHeld(state: LongArray): Boolean =
             HostNative.call("media.NativeAudioScheduler", "mediaFocusHeld", state) as Boolean

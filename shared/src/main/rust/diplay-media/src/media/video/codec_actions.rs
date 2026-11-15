@@ -11,6 +11,7 @@ pub(super) trait CodecIo {
     /// True means the buffer was returned empty because the packet exceeded its capacity.
     fn feed(&mut self, index: usize, handle: i64, size: usize, presentation_us: i64) -> Result<bool, String>;
     fn output(&mut self, index: usize, render: bool, at_ns: Option<i64>) -> Result<(), String>;
+    fn rendered(&mut self) {}
     fn release_packet(&mut self, handle: i64);
 }
 
@@ -38,7 +39,7 @@ pub(super) fn execute(codec: &mut impl CodecIo, actions: Vec<Action>) -> Outcome
             }
             Action::Render { index, at_ns, shown, bytes } => {
                 codec.output(index, true, at_ns).map(|()| {
-                    if shown { outcome.rendered.push(bytes); }
+                    if shown { codec.rendered(); outcome.rendered.push(bytes); }
                 })
             }
             Action::Drop { index } => codec.output(index, false, None),
@@ -58,6 +59,7 @@ mod tests {
         released: Vec<i64>,
         fail_at: Option<usize>,
         oversized: bool,
+        rendered_at_calls: Vec<usize>,
     }
     impl FakeCodec {
         fn call(&mut self, name: String) -> Result<(), String> {
@@ -74,9 +76,18 @@ mod tests {
             self.call(format!("output:{index}:{render}:{at_ns:?}"))
         }
         fn release_packet(&mut self, handle: i64) { self.released.push(handle); }
+        fn rendered(&mut self) { self.rendered_at_calls.push(self.calls.len()); }
     }
     fn feed(handle: i64) -> Action { Action::Feed { index: 0, handle, size: 32, presentation_us: 1 } }
     fn render(at_ns: Option<i64>, shown: bool) -> Action { Action::Render { index: 1, at_ns, shown, bytes: 42 } }
+
+    #[test]
+    fn output_observation_precedes_the_rest_of_the_batch_and_excludes_parked_frames() {
+        let mut codec = FakeCodec::default();
+        execute(&mut codec, vec![render(None, false), render(None, true), feed(10)]);
+        assert_eq!(codec.rendered_at_calls, [2]);
+        assert_eq!(codec.calls.len(), 3);
+    }
 
     #[test]
     fn failed_queue_stops_batch_and_releases_all_packets() {

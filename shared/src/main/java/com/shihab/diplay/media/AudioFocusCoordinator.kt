@@ -39,6 +39,7 @@ internal class AudioFocusCoordinator(
     private val active = LinkedHashMap<Any, Entry>()
     /** The core's value token: per-channel output counts, reported grant facts, media gain level. */
     private val core = LongArray(6)
+    private val diagnostics = LongArray(10)
     private var request: AudioFocusRequestCompat? = null
     private var closed = false
     private var focusGeneration = 0L
@@ -96,6 +97,10 @@ internal class AudioFocusCoordinator(
     @Synchronized
     fun mediaHoldsFocus(): Boolean = NativeAudioScheduler.mediaFocusHeld(core)
 
+    @Synchronized fun diagnosticReport(): String = "Focus primary " +
+        NativeAudioScheduler.focusDiagnostics(diagnostics, 0, 0) +
+        " trackedRequest=${request != null} mediaGrantFact=${mediaHoldsFocus()} activeTracks=${active.size} closed=$closed platformOwner=unknown"
+
     @Synchronized
     fun release(owner: Any) {
         val entry = active.remove(owner) ?: return
@@ -128,7 +133,12 @@ internal class AudioFocusCoordinator(
         if (decision[ABANDON] == 1) {
             val abandoned = request
             request = null
-            manager?.let { abandoned?.abandon(it) }
+            if (abandoned != null && manager != null) {
+                var outcome = Int.MIN_VALUE
+                try { outcome = abandoned.abandon(manager) } finally {
+                    NativeAudioScheduler.focusDiagnostics(diagnostics, 2, outcome)
+                }
+            }
             if (abandoned != null && decision[NEW_REQUEST] == 0) {
                 runCatching { report("Audio: focus released activeTracks=0") }
             }
@@ -149,7 +159,10 @@ internal class AudioFocusCoordinator(
         currentListener = listenerFor(focusGeneration)
         val next = AudioFocusRequestCompat(gain, primary.attributes, currentListener, Handler(Looper.getMainLooper()))
         request = next
-        val result = manager?.let(next::request)
+        var outcome = Int.MIN_VALUE
+        val result = try { manager?.let(next::request).also { outcome = it ?: Int.MIN_VALUE } } finally {
+            if (manager != null) NativeAudioScheduler.focusDiagnostics(diagnostics, 1, outcome)
+        }
         val reported = step(
             if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) EVENT_REQUEST_GRANTED else EVENT_REQUEST_FAILED,
             channel,

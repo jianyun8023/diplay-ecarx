@@ -17,4 +17,5 @@ internal object AsyncDiagnosticLog {
     }
 
     internal fun awaitIdle(timeoutMillis: Long): Boolean = writer.awaitIdle(timeoutMillis)
+    internal fun health(): String = "asyncScope=process asyncPending=${writer.pendingCount} asyncDropped=${writer.droppedCount}"
 }

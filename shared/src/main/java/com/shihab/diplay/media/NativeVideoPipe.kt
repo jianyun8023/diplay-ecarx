@@ -68,13 +68,15 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
     fun setAccepting(accepting: Boolean, resetChain: Boolean) = NativeMedia.pipeSetAccepting(handle, accepting, resetChain)
 
     fun live(): LongArray = LongArray(4).also { NativeMedia.pipeLive(handle, it) }
+    fun sampleNextFrame() = NativeMedia.pipeSampleNextFrame(handle)
 
     /** Moves the native five-second counters into [stats]. */
-    fun drainStats(stats: VideoStats) {
-        val values = LongArray(14)
-        val decode = IntArray(1024)
+    fun drainStats(stats: VideoStats?, health: MediaHealth? = null, ended: Boolean = false) {
+        val values = LongArray(16)
+        val decode = IntArray(if (stats == null) 0 else 1024)
         val count = NativeMedia.pipeTakeStats(handle, values, decode)
-        stats.addNative(values, decode, count)
+        stats?.addNative(values, decode, count)
+        health?.video(longArrayOf(values[6], values[0], values[1], values[14], values[15], if (ended) 1L else 0L))
     }
 
     fun destroy() = NativeMedia.pipeDestroy(handle)
@@ -88,6 +90,7 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         const val EVENT_INPUT_STALLED = 6
         const val EVENT_FIRST_FRAME = 7
         const val EVENT_LOG = 8
+        const val EVENT_FRAME_SAMPLE = 9
 
         /** Video requires the async NDK loop; initialization failure must not select a second decoder path. */
         fun create(pacingDelayNanos: Long, trackTouches: Boolean, onEvent: (Int, String?) -> Unit): NativeVideoPipe {

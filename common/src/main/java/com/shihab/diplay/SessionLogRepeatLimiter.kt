@@ -36,12 +36,15 @@ internal class SessionLogRepeatLimiter(
             focusLostSinceGain = false
             return listOf(message)
         }
-        val rule = RULES.firstOrNull { message.startsWith(it.prefix) } ?: return listOf(message)
+        val rule = if (RAW_IAP.matches(message)) IAP_RULE else
+            RULES.firstOrNull { message.startsWith(it.prefix) } ?: return listOf(message)
         val key = rule.key(message)
         // Each stream type keeps its own last value: navigation and media streams alternate.
         val fresh = if (rule.changesOnly) lastWritten.put(rule.label + "|" + STREAM_TYPE.find(message)?.value, key) != key
             else written.add(rule.label + "|" + key)
         if (fresh) return listOf(message)
+        // Rust already limits overruns to one line per route per ten seconds, including hidden peaks/counts.
+        if (message.startsWith("Audio: feedback ") && message.contains(" overrun=true")) return listOf(message)
         suppressed[rule.label] = (suppressed[rule.label] ?: 0) + 1
         val summary = if (now() - lastSummaryAt >= summaryIntervalMillis) summaryLine() else null
         return listOfNotNull(summary)
@@ -82,7 +85,7 @@ internal class SessionLogRepeatLimiter(
         }
 
         /** Playout feedback is written again when the lead changes by more than 50 ms. */
-        private val FEEDBACK_VOLATILE = Regex("(id|reported|received)=-?\\d+")
+        private val FEEDBACK_VOLATILE = Regex("(id|reported|received|maxAheadMs|overrunSamples|overrunObservedSpanMs|sinceNewestRxMs)=-?\\d+")
         private val AHEAD = Regex("aheadMs=(-?\\d+)")
         private fun feedbackKey(line: String) = AHEAD.replace(FEEDBACK_VOLATILE.replace(line, "$1=#")) {
             "aheadMs~" + Math.floorDiv(it.groupValues[1].toInt(), 50) * 50
@@ -107,6 +110,9 @@ internal class SessionLogRepeatLimiter(
             Rule("focus regained", FOCUS_GAIN) { it },
         )
         private val STREAM_TYPE = Regex("\\btype=\\d+")
+        // Numeric receive notices repeat at burst boundaries; counted heartbeat and state lines stay intact.
+        private val RAW_IAP = Regex("(?:iAP tunnel )?iap2 rx=0x[0-9a-fA-F]{4}")
+        private val IAP_RULE = Rule("iAP receive notices", "") { it }
         private val TRIGGER = Regex("trigger=\\S+ ")
         private const val FOCUS_CHANGE = "Audio: focus change="
         private const val FOCUS_GAIN = "Audio: focus change=1 "

@@ -143,6 +143,10 @@ open class ShadowNativeMedia {
     @Implementation fun getLoadError(): Throwable? { HostNative.requireCore(); return null }
 
     companion object {
+        @JvmStatic @Implementation fun healthCreate(): LongArray = HostNative.call("airplay.NativeMedia", "healthCreate") as LongArray
+        @JvmStatic @Implementation fun healthStep(token: LongArray, previous: LongArray?, event: Int, nowMs: Long, values: LongArray?): String? =
+            HostNative.call("airplay.NativeMedia", "healthStep", token, previous, event, nowMs, values) as String?
+        @JvmStatic @Implementation fun pipeSampleNextFrame(handle: Long) { HostVideoPipe.get(handle).sampleNextFrame() }
         @JvmStatic @Implementation fun hidTouchReport(ids: IntArray, xy: DoubleArray, down: BooleanArray): ByteArray =
             HostNative.call("airplay.NativeMedia", "hidTouchReport", ids, xy, down) as ByteArray
 

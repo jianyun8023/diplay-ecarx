@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 
 /**
  * The MQTT 3.1.1 bytes the ECARX DIM stack speaks, in one place.
@@ -37,11 +38,21 @@ internal object EcarxMqtt {
     }.getOrElse { null }
 
     /** QoS-1 publish and wait for the matching PUBACK. Returns `"ok"` or a short failure reason. */
-    fun publish(socket: Socket, packetId: Int, topic: String, payload: String): String = runCatching {
-        socket.getOutputStream().apply { write(publishPacket(packetId, topic, payload)); flush() }
-        val ack = readPacket(socket.getInputStream())
-        NativeEcarxMqtt.publishReply(ack?.first ?: -1, ack?.second, packetId)
-    }.getOrElse { "write failed ${reason(it)}" }
+    fun publish(socket: Socket, packetId: Int, topic: String, payload: String, health: LongArray): String {
+        NativeEcarxMqtt.health(health, 4)
+        var waitingForAck = false
+        val outcome = runCatching {
+            socket.getOutputStream().apply { write(publishPacket(packetId, topic, payload)); flush() }
+            waitingForAck = true
+            val ack = readPacket(socket.getInputStream())
+            NativeEcarxMqtt.publishReply(ack?.first ?: -1, ack?.second, packetId)
+        }.getOrElse {
+            if (waitingForAck && it is SocketTimeoutException) NativeEcarxMqtt.health(health, 7)
+            "write failed ${reason(it)}"
+        }
+        NativeEcarxMqtt.health(health, if (outcome == "ok") 5 else 6)
+        return outcome
+    }
 
     fun connectPacket(clientId: String): ByteArray = NativeEcarxMqtt.connectPacket(clientId.toByteArray(Charsets.UTF_8))
 

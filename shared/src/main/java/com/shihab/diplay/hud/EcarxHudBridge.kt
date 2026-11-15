@@ -1301,6 +1301,9 @@ internal object EcarxHudBridge {
             // The package the running mirror was opened with; empty means "the whole centre screen",
             // which is the picture the driver rejected as not fitting the cluster.
             append(" projectionPackage=").append(presentedPackage ?: "")
+            // The SDK accepts a request; it cannot prove that a decoded frame reached the cluster.
+            append(" sdkPresentationResult=").append(lastProjectionOutcome.ifEmpty { "not-requested" })
+            append(" decoderFirstFrame=unknown physicalVisibility=unknown")
             append(" arrowId=").append(publication.lastPushed?.turnId ?: -1)
             append(" active=").append(publication.guidanceActive)
             append(" laneCount=").append(publication.lastLanePushed?.size ?: 0)

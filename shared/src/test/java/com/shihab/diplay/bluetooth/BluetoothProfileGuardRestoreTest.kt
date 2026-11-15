@@ -56,6 +56,32 @@ class BluetoothProfileGuardRestoreTest {
         val result = restore()
         assertTrue(prefs.getBoolean("applied", false))
         assertTrue(result.contains("keeping the state to retry"))
+        worker().submit {}.get(3, TimeUnit.SECONDS)
+        val diagnostic = CarBluetoothProfileGuard.restorationDiagnostic(context)
+        assertTrue(diagnostic, diagnostic.contains("phase=settled"))
+        assertTrue(diagnostic, diagnostic.contains("journalPending=true"))
+        assertTrue(diagnostic, diagnostic.contains("radioState=unknown"))
+    }
+
+    @Test fun pendingRestoreAndItsSettledResultKeepTheSameOperationId() {
+        shadowOf(BluetoothAdapter.getDefaultAdapter()).setState(BluetoothAdapter.STATE_ON)
+        val release = CountDownLatch(1)
+        worker().execute { release.await(3, TimeUnit.SECONDS) }
+        try {
+            CarBluetoothProfileGuard.restore(context)
+            val pending = CarBluetoothProfileGuard.restorationDiagnostic(context)
+            assertTrue(pending, pending.contains("phase=pending"))
+            assertTrue(pending, pending.contains("journalPending=true"))
+            val operationId = Regex("operationId=([^ ]+)").find(pending)!!.groupValues[1]
+            release.countDown()
+            worker().submit {}.get(3, TimeUnit.SECONDS)
+            val settled = CarBluetoothProfileGuard.restorationDiagnostic(context)
+            assertTrue(settled, settled.contains("operationId=$operationId"))
+            assertTrue(settled, settled.contains("phase=settled"))
+            assertTrue(settled, settled.contains("journalPending=false"))
+            assertTrue(settled, settled.contains("radioState=${BluetoothAdapter.STATE_ON}"))
+            assertTrue(settled, settled.contains("connectionCompletion=not-awaited"))
+        } finally { release.countDown() }
     }
 
     @Test fun turningOnIsNotConfirmationAndCanBeRetried() {
@@ -105,6 +131,7 @@ class BluetoothProfileGuardRestoreTest {
             worker().submit {}.get(3, TimeUnit.SECONDS)
             assertEquals(0, oldLogs.get())
             assertTrue(prefs.getBoolean("applied", false))
+            assertTrue(CarBluetoothProfileGuard.restorationDiagnostic(context).contains("phase=superseded"))
         } finally {
             release.countDown()
             // Cancel the delayed yield, then restore the state owned by this new session.

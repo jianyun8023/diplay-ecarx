@@ -103,12 +103,22 @@ class EcarxFactoryNavigationRestoreTest {
         EcarxFactoryNavigationRestore.pauseForGuidance(app)
         var settled = 0
         EcarxFactoryNavigationRestore.restoreIfPausedByUs(app) { settled++ }
+        val pendingDiagnostic = EcarxFactoryNavigationRestore.restorationDiagnostic(app)
+        val operationId = Regex("operationId=([^ ]+)").find(pendingDiagnostic)!!.groupValues[1]
+        assertTrue(pendingDiagnostic, pendingDiagnostic.contains("journalPending=true"))
+        assertTrue(pendingDiagnostic, pendingDiagnostic.contains("serviceStart=delayed"))
         shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(2))
         assertEquals(0, settled)
         processManager.setProcesses(listOf(ActivityManager.RunningAppProcessInfo(packageName, 42, arrayOf(packageName))))
         shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(1))
         assertEquals(1, settled)
         assertFalse(store.getBoolean("owned", false))
+        val finalDiagnostic = EcarxFactoryNavigationRestore.restorationDiagnostic(app)
+        assertTrue(finalDiagnostic, finalDiagnostic.contains("operationId=$operationId"))
+        assertTrue(finalDiagnostic, finalDiagnostic.contains("journalPending=false"))
+        assertTrue(finalDiagnostic, finalDiagnostic.contains("serviceStart=confirmed"))
+        EcarxFactoryNavigationRestore.restoreIfPausedByUs(app)
+        assertEquals(finalDiagnostic, EcarxFactoryNavigationRestore.restorationDiagnostic(app))
         shadowOf(EcarxFactoryNavigationRestore.handler.looper).idleFor(Duration.ofSeconds(8))
         assertEquals(1, settled)
     }
@@ -137,6 +147,10 @@ class EcarxFactoryNavigationRestoreTest {
         assertEquals(1, settled)
         assertTrue(store.getBoolean("owned", false))
         assertTrue(EcarxFactoryNavigationRestore.state(app).contains("process-unconfirmed"))
+        val diagnostic = EcarxFactoryNavigationRestore.restorationDiagnostic(app)
+        assertTrue(diagnostic, diagnostic.contains("journalPending=true"))
+        assertTrue(diagnostic, diagnostic.contains("restore=failed"))
+        assertFalse(diagnostic, diagnostic.contains("serviceStart=confirmed"))
     }
 
     @Test fun originalExplicitEnabledStateIsPreservedAcrossRepeatedGuidance() {

@@ -30,6 +30,7 @@ class AudioClockTrimTest {
         MediaClockTrim.learnedTrim = 0.0
         RateTrack.rates.clear()
         RateTrack.result = AudioTrack.SUCCESS
+        RateTrack.underruns = 0
         track = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder().build())
             .setAudioFormat(android.media.AudioFormat.Builder()
@@ -97,6 +98,37 @@ class AudioClockTrimTest {
         assertTrue(reports.none { it.startsWith("audio stats") })
     }
 
+    @Test fun routeChangeFlushesOldTrackCountersAndKeepsTheRendererRunning() {
+        val summaries = mutableListOf<String>()
+        val health = MediaHealth(summaries::add)
+        set("health", health)
+        set("debugLogsEnabled", { false })
+        set("mappedChannel", AudioChannel.NAVIGATION)
+        // The fixture enables native PCM; a legacy media route keeps its replacement on AudioTrack.
+        set("mediaChannel", 3)
+        set("inputDropped", 4)
+        set("rebufferCount", 1)
+        (renderer as AudioRenderer).navigationRouteWanted = { 3 }
+        health.started()
+        val sample = type.getDeclaredMethod("logStatsIfDue", Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+        RateTrack.underruns = 2
+        sample.invoke(renderer, true, false)
+        RateTrack.underruns = 5
+        type.getDeclaredMethod("switchNavigationRouteIfWanted").apply { isAccessible = true }.invoke(renderer)
+        assertNull(get("nativeOut"))
+        assertTrue(reports.toString(), get("track") is AudioTrack)
+        assertTrue(health.snapshot().contains("underruns=5"))
+        RateTrack.underruns = 8
+        sample.invoke(renderer, true, false)
+        val result = health.snapshot()
+        assertTrue(result, result.contains("underruns=13"))
+        assertTrue(result, result.contains("decoderDrops=4 rebuffers=1"))
+        assertTrue(result, result.contains("audioEnded=0"))
+        assertTrue(result, result.contains("pendingWorkers=1 closing=false final=false"))
+        assertEquals(1, summaries.size)
+    }
+
     @Test fun aTrackThatRefusesTheRateKeepsPlayingWithoutTheTrim() {
         RateTrack.result = AudioTrack.ERROR_INVALID_OPERATION
         write(28_800)
@@ -115,7 +147,7 @@ class AudioClockTrimTest {
     @Implements(AudioTrack::class)
     class RateTrack {
         @Implementation fun getPlaybackHeadPosition() = 0
-        @Implementation fun getUnderrunCount() = 0
+        @Implementation fun getUnderrunCount() = underruns
         @Implementation fun play() = Unit
         @Implementation fun pause() = Unit
         @Implementation fun write(buffer: java.nio.ByteBuffer, size: Int, mode: Int): Int = size
@@ -125,8 +157,10 @@ class AudioClockTrimTest {
         }
 
         companion object {
+            @JvmStatic @Implementation fun getMinBufferSize(rate: Int, channelMask: Int, encoding: Int) = 4096
             val rates = mutableListOf<Int>()
             var result = AudioTrack.SUCCESS
+            var underruns = 0
         }
     }
 }

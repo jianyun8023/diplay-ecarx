@@ -197,6 +197,24 @@ class AudioFocusAutoYieldTest {
         assertEquals(listOf(0f, 1f), volumes(siri))
     }
 
+    @Test fun summaryCountsActualRequestsAndAbandonResultsWithoutClaimingPlatformOwnership() {
+        val coordinator = coordinator()
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        coordinator.acquire(track(), AudioChannel.MEDIA, attributes)
+        shadowOf(manager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        coordinator.acquire(track(), AudioChannel.MEDIA, attributes)
+        val held = coordinator.diagnosticReport()
+        assertTrue(held.contains("requests=2 granted=1 rejected=1"))
+        assertTrue(held.contains("trackedRequest=true mediaGrantFact=true"))
+        coordinator.close()
+        val released = coordinator.diagnosticReport()
+        assertTrue(released.contains("abandonCalls=2 abandonAccepted=2"))
+        assertTrue(released.contains("trackedRequest=false mediaGrantFact=false"))
+        assertTrue(released.contains("platformOwner=unknown"))
+        coordinator.close()
+        assertEquals(released, coordinator.diagnosticReport())
+    }
+
     @Test fun deniedFocusRetriesForNewTracksOnTheSameChannelAndRestoresExistingTracks() {
         val diagnostics = mutableListOf<String>()
         val coordinator = AudioFocusCoordinator(context, true, true, diagnostics::add).also(coordinators::add)

@@ -93,6 +93,7 @@ object Iap2FrameFormatter {
         context: String,
         messageId: Int?,
         failure: Throwable,
+        locallyClosing: Boolean = false,
     ): String = buildString {
         append("IAP2 ")
         append(direction.label)
@@ -104,8 +105,12 @@ object Iap2FrameFormatter {
             append(it.toString(16).padStart(4, '0'))
             append(Iap2Endpoints.byId(it)?.let { endpoint -> " ${endpoint.name}" }.orEmpty())
         }
-        append(" FAILED: ")
-        append(failure.message ?: failure.javaClass.simpleName)
+        if (locallyClosing && failure is java.io.IOException) {
+            append(" CLOSED: local shutdown")
+        } else {
+            append(" FAILED: ")
+            append(failure.message ?: failure.javaClass.simpleName)
+        }
     }
 
     private fun appendParameters(

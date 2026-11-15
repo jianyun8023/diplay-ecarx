@@ -61,9 +61,9 @@ class NativeAudioRouteDeviceTest {
             assertEquals(plain.size.toLong(), info[2])
             assertEquals("Direct queue reception must not allocate a JVM packet callback", 0, callbacks.get())
             val baseline = stream.route.feedback(sample.toLong() and 0xffff_ffffL, 1_000)!!
-            assertArrayEquals(longArrayOf(0xfffffff0L, 0, 0), baseline)
+            assertArrayEquals(longArrayOf(0xfffffff0L, 0, 0, 0, 0, 0, 0), baseline)
             val ahead = (sample.toLong() + 4801) and 0xffff_ffffL
-            assertArrayEquals(longArrayOf(0xfffffff0L, 100, 1), stream.route.feedback(ahead, 2_000))
+            assertArrayEquals(longArrayOf(0xfffffff0L, 100, 1, 100, 1, 0, 0), stream.route.feedback(ahead, 2_000))
             assertNull(stream.route.feedback(ahead, 3_000))
         } finally {
             stream.close()

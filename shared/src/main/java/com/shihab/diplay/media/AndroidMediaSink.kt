@@ -82,6 +82,13 @@ class AndroidMediaSink(
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
     private val callEchoReferences = ConcurrentHashMap<AudioStreamId, EchoReference>()
     private val appContext = context?.applicationContext
+    private val diagnosticId = "${android.os.Process.myPid()}/${System.identityHashCode(this)}"
+    private val health = MediaHealth { onAudioDiagnostic("$it owner=$diagnosticId") }
+    fun diagnosticReport(): String = health.snapshot() + " owner=$diagnosticId\n" +
+        audioFocusCoordinator.diagnosticReport() + "\n" + navigationPromptFocus.diagnosticReport()
+    override fun requestVideoFrameSample(): Boolean = synchronized(videoOwnershipLock) {
+        videoDecoders[MAIN_SCREEN_TYPE]?.sampleNextFrame() ?: false
+    }
     private val audioManager = appContext?.getSystemService(AudioManager::class.java)
     private val audioFocusCoordinator = AudioFocusCoordinator(
         appContext,
@@ -777,6 +784,10 @@ class AndroidMediaSink(
                 restoreAudioMode(null)
             }
         }
+        if (health.finish()) {
+            runCatching { onAudioDiagnostic(audioFocusCoordinator.diagnosticReport()) }
+            runCatching { onAudioDiagnostic(navigationPromptFocus.diagnosticReport()) }
+        }
     }
 
     private fun videoDecoder(type: Int): VideoDecoder = synchronized(videoOwnershipLock) {
@@ -808,7 +819,9 @@ class AndroidMediaSink(
             preferSoftwareHevcDecoder,
             requestKeyFrame = { requestVideoRecovery(type) },
             debugLogsEnabled = debugLogsEnabled,
-            report = {
+            health = health,
+            report = diagnostic@{
+                if (it.startsWith("frame sample ") && (statsLabel != null || videoDecoders[type] !== video)) return@diagnostic
                 val message = if (type == 111 && (statsLabel != null || videoDecoders[type] !== video)) "inactive decoder $it" else it
                 videoDiagnosticHandlers[type]?.invoke(message)
             },
@@ -874,6 +887,7 @@ class AndroidMediaSink(
                 }.getOrNull()
             },
         ).also {
+            it.health = health
             it.debugLogsEnabled = debugLogsEnabled
             it.navigationPromptState = ::navigationPromptState
             it.onNavigationAudio = { audible ->
