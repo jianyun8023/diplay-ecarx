@@ -4984,10 +4984,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
 
     /**
      * A selectable TextView cannot lay out a multi-megabyte report; the saved file keeps the full text.
-     * The view keeps the head (everything above the first log section: version, head unit, settings, snapshots)
-     * and the newest part, with a "…" line between them.
+     * The view keeps the head (version, head unit, settings, snapshots and log identity)
+     * and the current log's newest part, with a "…" line between them.
      */
     private fun reportTail(report: String): String {
+        val history = SessionLogFile.REPORT_NAMES.drop(1)
+            .mapNotNull { report.indexOf("\n--- $it ---").takeIf { index -> index >= 0 } }.minOrNull() ?: -1
+        val current = report.indexOf("--- diplay.log ---")
+        if (report.length > REPORT_VIEW_MAX_CHARS && current >= 0 && history > current) {
+            // The dialog prioritizes the current run; copy/export still retains all history.
+            return reportTail(report.substring(0, history)) + "\n…\nHistory retained in the full exported report."
+        }
         if (report.length <= REPORT_VIEW_MAX_CHARS) return report
         val cut = report.length - REPORT_VIEW_MAX_CHARS
         val lineStart = report.indexOf('\n', cut - 1) + 1
@@ -5006,7 +5013,17 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 if (report.startsWith(marker)) 0 else report.indexOf("\n$marker").takeIf { it >= 0 }?.plus(1)
             }
             .minOrNull() ?: return ""
-        if (firstLog <= REPORT_HEAD_MAX_CHARS) return report.substring(0, firstLog)
+        var headEnd = firstLog
+        var lineStart = report.indexOf('\n', firstLog) + 1
+        while (lineStart > 0 && lineStart < report.length && lineStart < REPORT_HEAD_MAX_CHARS) {
+            val lineEnd = report.indexOf('\n', lineStart).takeIf { it >= 0 } ?: report.length
+            val line = report.substring(lineStart, lineEnd)
+            if (!line.startsWith("Log file ") && !line.startsWith("Log identity:") &&
+                !line.startsWith("DiPlay log started ")) break
+            headEnd = minOf(lineEnd + 1, report.length)
+            lineStart = headEnd
+        }
+        if (headEnd <= REPORT_HEAD_MAX_CHARS) return report.substring(0, headEnd)
         val lineEnd = report.lastIndexOf('\n', REPORT_HEAD_MAX_CHARS - 1) + 1
         val end = when {
             lineEnd > 0 -> lineEnd

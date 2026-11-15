@@ -52,6 +52,38 @@ class NativeVideoLoopTest {
 
     @Test fun lowLatencyUsesTheSameNativeLoop() = assertNativeRendering(vendorLowLatency = true)
 
+    @Test fun requestedFrameSampleDoesNotRequireDecoderRecreationOrRepeatPerFrame() {
+        val first = CountDownLatch(1)
+        val sampled = CountDownLatch(1)
+        val samples = CopyOnWriteArrayList<String>()
+        val surface = Surface(SurfaceTexture(0))
+        val sink = AndroidMediaSink()
+        try {
+            assertFalse(sink.requestVideoFrameSample())
+            sink.setVideoDiagnosticHandler(MAIN) {
+                if (it == "first frame rendered") {
+                    assertTrue(sink.requestVideoFrameSample())
+                    first.countDown()
+                }
+                if (it.startsWith("frame sample ")) { samples += it; sampled.countDown() }
+            }
+            sink.setSurface(MAIN, surface)
+            sink.onVideoConfig(MAIN, avcC)
+            sink.onVideoFrame(MAIN, idr)
+            assertTrue(first.await(5, TimeUnit.SECONDS))
+            sink.onVideoFrame(MAIN, idr)
+            assertTrue(sampled.await(5, TimeUnit.SECONDS))
+            repeat(5) { sink.onVideoFrame(MAIN, idr) }
+            assertTrue(sink.beginSurfaceDetach(surface, parkMain = false).await())
+            assertEquals(1, samples.size)
+            assertEquals("1", samples.single().split(' ')[3])
+        } finally {
+            sink.close()
+            assertTrue(sink.awaitVideoReleased(5_000))
+            surface.release()
+        }
+    }
+
     private fun assertNativeRendering(vendorLowLatency: Boolean) {
         val reports = CopyOnWriteArrayList<String>()
         val rendered = CountDownLatch(1)

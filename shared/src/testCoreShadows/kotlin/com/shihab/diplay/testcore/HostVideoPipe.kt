@@ -51,8 +51,10 @@ object HostVideoPipe {
         private var requestedDecoder = false
         private var firstInput = false
         private var firstFrame = false
+        private var frameSample = false
+        private var epoch = 0L
         private val counters = LongArray(4)
-        private val stats = LongArray(14)
+        private val stats = LongArray(16)
         private val decodeTimes = ArrayList<Int>()
         private val worker = Thread(::run, "host-video-pipe").apply { isDaemon = true; start() }
 
@@ -78,6 +80,7 @@ object HostVideoPipe {
                     requestedDecoder = false
                     firstInput = false
                     firstFrame = false
+                    epoch++
                     reference.reset()
                     lock.notifyAll()
                 }
@@ -147,6 +150,7 @@ object HostVideoPipe {
         }
 
         fun live(out: LongArray) = synchronized(lock) { counters.copyInto(out) }
+        fun sampleNextFrame() = synchronized(lock) { frameSample = true }
         fun takeStats(out: LongArray, decode: IntArray): Int = synchronized(lock) {
             stats.copyInto(out)
             val count = minOf(decode.size, decodeTimes.size)
@@ -245,8 +249,9 @@ object HostVideoPipe {
                         var output = decoder.dequeueOutputBuffer(info, 0)
                         while (output >= 0 || output == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED || output == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
                             if (output >= 0) {
-                                val render = synchronized(lock) { shown }
+                                val (render, sampleRequested) = synchronized(lock) { shown to frameSample }
                                 decoder.releaseOutputBuffer(output, render)
+                                val sampledAt = if (render && sampleRequested) android.os.SystemClock.elapsedRealtime() else null
                                 if (render) {
                                     val elapsed = System.nanoTime() - start
                                     synchronized(lock) {
@@ -254,6 +259,10 @@ object HostVideoPipe {
                                         counters[2] += elapsed
                                         counters[3]++
                                         stats[0]++
+                                        if (sampledAt != null) {
+                                            frameSample = false
+                                            event(NativeVideoPipe.EVENT_FRAME_SAMPLE, "$sampledAt $epoch")
+                                        }
                                         decodeTimes += (elapsed / 1000).toInt()
                                     }
                                     if (!firstFrame) {

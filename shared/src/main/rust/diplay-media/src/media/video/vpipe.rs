@@ -33,6 +33,7 @@ const EVENT_CODEC_ERROR: i32 = 5;
 const EVENT_INPUT_STALLED: i32 = 6;
 const EVENT_FIRST_FRAME: i32 = 7;
 const EVENT_LOG: i32 = 8;
+const EVENT_FRAME_SAMPLE: i32 = 9;
 
 const MAX_FRAMES: usize = 60;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -51,6 +52,8 @@ struct Stats {
     pacing_delay_ns: i64,
     held_samples: i64,
     held_max_ns: i64,
+    codec_errors: i64,
+    queue_drops: i64,
     decode_micros: Vec<i32>,
 }
 
@@ -85,6 +88,8 @@ struct Inner {
     last_keyframe_request_ns: i64,
     first_input_logged: bool,
     first_frame_sent: bool,
+    sample_next_frame: bool,
+    decoder_epoch: i64,
     report_vendor_format: bool,
     requested_size: (i32, i32),
     stats: Stats,
@@ -280,15 +285,20 @@ fn run_feeder(pipe: Arc<Pipe>) {
             continue;
         }
         let codec = guard.codec;
+        let mut codec_io = NdkCodec { codec, sample_requested: guard.sample_next_frame, sampled_at: None };
         guard.busy = true;
         drop(guard);
-        let result = execute(&mut NdkCodec(codec), actions);
+        let result = execute(&mut codec_io, actions);
         guard = pipe.inner.lock().unwrap();
         guard.busy = false;
         pipe.work.notify_all();
         if guard.codec == codec {
             for bytes in result.rendered {
                 guard.stats.rendered += 1;
+                if let Some(sampled_at) = codec_io.sampled_at.take() {
+                    guard.sample_next_frame = false;
+                    events.push((EVENT_FRAME_SAMPLE, Some(format!("{} {}", sampled_at, guard.decoder_epoch))));
+                }
                 pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
                 if !guard.first_frame_sent {
                     guard.first_frame_sent = true;
@@ -300,6 +310,7 @@ fn run_feeder(pipe: Arc<Pipe>) {
                 // existing fallback policy. Do not report a second error if that callback won.
                 if !guard.retired && !guard.codec_held {
                     guard.retired = true;
+                    guard.stats.codec_errors += 1;
                     events.push((EVENT_CODEC_ERROR, Some(error)));
                 }
             } else if result.oversized {
@@ -312,17 +323,21 @@ fn run_feeder(pipe: Arc<Pipe>) {
 }
 
 /// NDK calls stay outside the pipe lock. A failed batch is retired before another is planned.
-struct NdkCodec(*mut AMediaCodec);
+struct NdkCodec {
+    codec: *mut AMediaCodec,
+    sample_requested: bool,
+    sampled_at: Option<i64>,
+}
 
 impl CodecIo for NdkCodec {
     fn feed(&mut self, index: usize, handle: jlong, size: usize, presentation_us: i64) -> Result<bool, String> {
         unsafe {
             let mut capacity = 0;
-            let input = AMediaCodec_getInputBuffer(self.0, index, &mut capacity);
+            let input = AMediaCodec_getInputBuffer(self.codec, index, &mut capacity);
             if input.is_null() { return Err("getInputBuffer returned null".into()); }
             let oversized = size > capacity;
             if !oversized { std::ptr::copy_nonoverlapping(packet::bytes(handle).as_ptr(), input, size); }
-            let status = AMediaCodec_queueInputBuffer(self.0, index, 0,
+            let status = AMediaCodec_queueInputBuffer(self.codec, index, 0,
                 if oversized { 0 } else { size }, if oversized { 0 } else { presentation_us as u64 }, 0);
             if status != AMEDIA_OK { return Err(status_text("queueInputBuffer", status)); }
             Ok(oversized)
@@ -332,14 +347,20 @@ impl CodecIo for NdkCodec {
     fn output(&mut self, index: usize, render: bool, at_ns: Option<i64>) -> Result<(), String> {
         let (phase, status) = unsafe {
             match at_ns {
-                Some(at) => ("releaseOutputBufferAtTime", AMediaCodec_releaseOutputBufferAtTime(self.0, index, at)),
-                None => ("releaseOutputBuffer", AMediaCodec_releaseOutputBuffer(self.0, index, render)),
+                Some(at) => ("releaseOutputBufferAtTime", AMediaCodec_releaseOutputBufferAtTime(self.codec, index, at)),
+                None => ("releaseOutputBuffer", AMediaCodec_releaseOutputBuffer(self.codec, index, render)),
             }
         };
         if status == AMEDIA_OK { Ok(()) } else { Err(status_text(phase, status)) }
     }
 
     fn release_packet(&mut self, handle: jlong) { unsafe { packet::release(handle) }; }
+
+    fn rendered(&mut self) {
+        if self.sample_requested && self.sampled_at.is_none() {
+            self.sampled_at = Some(clock(libc::CLOCK_BOOTTIME) / 1_000_000);
+        }
+    }
 }
 
 unsafe fn pipe<'a>(handle: jlong) -> &'a Arc<Pipe> { &*(handle as *const Arc<Pipe>) }
@@ -460,6 +481,7 @@ unsafe extern "C" fn on_error(codec: *mut AMediaCodec, user: *mut c_void, error:
         let mut inner = pipe.inner.lock().unwrap();
         if inner.codec != codec || inner.retired || inner.codec_held { return; }
         inner.retired = true;
+        inner.stats.codec_errors += 1;
     }
     let text = if detail.is_null() { String::new() } else { CStr::from_ptr(detail).to_string_lossy().into_owned() };
     pipe.post(EVENT_CODEC_ERROR, Some(format!("error={error} action={action} {text}")));
@@ -513,7 +535,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
             inputs: VecDeque::new(), outputs: VecDeque::new(), busy: false, destroyed: false, waiting_since_ns: 0, timing: OutputTiming::new(pacing_delay_nanos, true),
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),
             backlog: BacklogRecovery::default(), frames_since_configure: 0, last_keyframe_request_ns: 0,
-            first_input_logged: false, first_frame_sent: false, report_vendor_format: false, requested_size: (0, 0),
+            first_input_logged: false, first_frame_sent: false, sample_next_frame: false, decoder_epoch: 0,
+            report_vendor_format: false, requested_size: (0, 0),
             stats: Stats::default(),
             input_stats: VideoInputStats::default(), track_touches: track_touches != 0,
         }),
@@ -631,6 +654,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCon
         inner.frames_since_configure = 0;
         inner.first_input_logged = false;
         inner.first_frame_sent = false;
+        inner.decoder_epoch += 1;
         inner.need_decoder_sent = false;
         inner.report_vendor_format = report_vendor_format != 0;
         inner.requested_size = (width, height);
@@ -805,6 +829,7 @@ unsafe fn submit(pipe: &Pipe, frame: jlong, size: usize, flags: i32, sender_nano
             };
             if frame_overflow(inner.frames.len(), inner.frame_bytes as i64, size as i64, MAX_FRAMES as i32, MAX_BYTES as i32) {
                 // VideoDecodeQueue's overflow: the chain is gone; an unused decoder survives it.
+                inner.stats.queue_drops += inner.frames.len() as i64;
                 inner.drop_frames();
                 inner.recover("video queue overflow", true, now, &mut events);
             }
@@ -849,10 +874,18 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeTak
     };
     let mut values = vec![stats.rendered, stats.recoveries, stats.late, stats.pacing_delay_ns, stats.held_samples, stats.held_max_ns];
     values.extend(input);
+    values.extend([stats.codec_errors, stats.queue_drops]);
     ((**env).SetLongArrayRegion.unwrap())(env, out, 0, values.len() as i32, values.as_ptr());
     let count = stats.decode_micros.len().min(((**env).GetArrayLength.unwrap())(env, decode) as usize);
     ((**env).SetIntArrayRegion.unwrap())(env, decode, 0, count as i32, stats.decode_micros.as_ptr());
     count as jint
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSampleNextFrame(
+    _env: *mut JNIEnv, _: jclass, handle: jlong,
+) {
+    pipe(handle).inner.lock().unwrap().sample_next_frame = true;
 }
 
 /// Releases the decoder and every queued frame, and ends the event thread; the handle is gone.

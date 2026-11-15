@@ -4,6 +4,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketTimeoutException
 
 /** A separate clean session subscribes at QoS 0. Observation never sends navigation commands. */
 internal class EcarxNavigationMqttObserver(
@@ -13,6 +14,7 @@ internal class EcarxNavigationMqttObserver(
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val observations = NativeEcarxMqtt.observerCreate()
+    private val health = LongArray(12)
     private var status = "not started"
     private var worker: Thread? = null
     private var activeSocket: Socket? = null
@@ -34,6 +36,7 @@ internal class EcarxNavigationMqttObserver(
 
     @Synchronized fun diagnosticReport(): String =
         "Navigation MQTT status=$status debug=${debugLogsEnabled()} (read-only; sender unknown)\n" +
+            "MQTT observer lifetimeTotals ${NativeEcarxMqtt.health(health, 0)}\n" +
             NativeEcarxMqtt.observerReport(observations, nanoTime() / 1_000_000)
 
     private fun observe() {
@@ -42,8 +45,10 @@ internal class EcarxNavigationMqttObserver(
         while (!current.isInterrupted) {
             val socket = synchronized(this) {
                 if (worker !== current) return
+                NativeEcarxMqtt.health(health, 1)
                 Socket().also { activeSocket = it }
             }
+            var connected = false
             try {
                 socket.use {
                     it.connect(InetSocketAddress(EcarxMqtt.DEFAULT_HOST, port), 1500)
@@ -53,12 +58,16 @@ internal class EcarxNavigationMqttObserver(
                     output.write(EcarxMqtt.connectPacket("diplay-nav-observer"))
                     val ack = EcarxMqtt.readPacket(input, 2)
                     if (!NativeEcarxMqtt.observerConnack(ack?.first ?: -1, ack?.second)) throw IOException("connack")
-                    synchronized(this) { NativeEcarxMqtt.observerClear(observations) }
+                    synchronized(this) {
+                        NativeEcarxMqtt.health(health, 2)
+                        NativeEcarxMqtt.observerClear(observations)
+                    }
+                    connected = true
                     output.write(NativeEcarxMqtt.observerSubscribe())
                     while (!current.isInterrupted) {
                         val (header, bytes) = EcarxMqtt.readPacket(input, 1024 * 1024) ?: throw IOException("ended-or-oversize")
                         if (header == 0x90) {
-                            val subscription = NativeEcarxMqtt.subscription(bytes)
+                            val subscription = synchronized(this) { NativeEcarxMqtt.subscription(bytes, health) }
                             synchronized(this) { status = subscription.status }
                             report(subscription.report)
                             if (subscription.rejected) throw IOException("denied")
@@ -80,7 +89,11 @@ internal class EcarxNavigationMqttObserver(
             } catch (e: IOException) {
                 if (current.isInterrupted) return
                 val failure = e.javaClass.simpleName + ":" + (e.message ?: "")
-                synchronized(this) { status = "unavailable reason=$failure" }
+                synchronized(this) {
+                    NativeEcarxMqtt.health(health, if (connected) 8 else 3)
+                    if (e is SocketTimeoutException) NativeEcarxMqtt.health(health, 9)
+                    status = "unavailable reason=$failure"
+                }
                 if (failure != lastFailure) report("mqtt unavailable reason=$failure retryMs=${NativeEcarxMqtt.observerRetryMillis()}")
                 lastFailure = failure
             }

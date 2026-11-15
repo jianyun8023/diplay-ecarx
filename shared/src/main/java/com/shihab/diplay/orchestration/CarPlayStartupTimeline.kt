@@ -36,6 +36,7 @@ object CarPlayStartupTimeline {
         PROJECTION_REQUEST,
         HOST_CREATE,
         HOST_START,
+        HOST_STOP,
         CONTROLLER_START,
         LOCAL_MFI_READY,
         WIRELESS_RUN_START,
@@ -52,13 +53,13 @@ object CarPlayStartupTimeline {
         AIRPLAY_TCP_ACCEPTED,
         AIRPLAY_SESSION_ACTIVE,
         VIDEO_FIRST_FRAME,
+        VIDEO_DECODER_FIRST_FRAME,
+        /** One explicitly requested native output sample after the tunnel command; not a stability claim. */
+        TUNNEL_VIDEO_FRAME,
         UI_FIRST_FRAME_CALLBACK,
         /** CarPlayStartSession (0x4301) answered over the Wi-Fi iAP2 tunnel. */
         TUNNEL_START_SESSION_SENT,
-        /**
-         * The first decoded frame after the tunnel StartSession. The iPhone restarts the main
-         * screen stream then, so this is when the picture stops being transitional.
-         */
+        /** Legacy decoder-restart marker; excluded from metrics because foreground reentry contaminated it. */
         STABLE_VIDEO_FRAME,
         WIRELESS_FAILED,
     }
@@ -94,10 +95,14 @@ object CarPlayStartupTimeline {
         generation: Int? = null,
         owner: Int? = null,
         attempt: Int? = null,
+        elapsedMs: Long = SystemClock.elapsedRealtime(),
+        decoderId: Int? = null,
+        decoderEpoch: Long? = null,
     ) {
         if (!isMeasuredMode(mode)) return
-        val line = format(SystemClock.elapsedRealtime(), stage, mode, bootCount(context),
-            Process.myPid(), generation, owner, attempt)
+        val line = format(elapsedMs, stage, mode, bootCount(context),
+            Process.myPid(), generation, owner, attempt) +
+            if (decoderId != null && decoderEpoch != null) " decoderId=$decoderId decoderEpoch=$decoderEpoch" else ""
         Log.i(TAG, line)
         runCatching {
             val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -132,8 +137,8 @@ object CarPlayStartupTimeline {
         val runs = linkedMapOf<Run, MutableList<Checkpoint>>()
         // Old or incomplete identities cannot safely join events across boots or process restarts.
         val measuredModes = WirelessHotspotMode.values().filter(::isMeasuredMode).joinToString("|")
-        val pattern = Regex("elapsedSinceBootMs=(\\d+) stage=(WIRELESS_RUN_START|VIDEO_FIRST_FRAME|STABLE_VIDEO_FRAME|WIRELESS_FAILED) " +
-            "mode=($measuredModes) generation=(\\d+) owner=(-?\\d+)(?: attempt=\\d+)? bootCount=(\\d+) process=(\\d+)")
+        val pattern = Regex("elapsedSinceBootMs=(\\d+) stage=(WIRELESS_RUN_START|VIDEO_FIRST_FRAME|VIDEO_DECODER_FIRST_FRAME|TUNNEL_START_SESSION_SENT|TUNNEL_VIDEO_FRAME|HOST_START|HOST_STOP|WIRELESS_FAILED) " +
+            "mode=($measuredModes) generation=(\\d+) owner=(-?\\d+)(?: attempt=\\d+)? bootCount=(\\d+) process=(\\d+)(?: decoderId=-?\\d+ decoderEpoch=\\d+)?")
         for (line in lines) {
             val values = pattern.matchEntire(line)?.groupValues ?: continue
             val elapsed = values[1].toLongOrNull() ?: continue
@@ -150,10 +155,17 @@ object CarPlayStartupTimeline {
             for ((run, checkpoints) in runs) {
                 val start = checkpoints.firstOrNull { it.stage == Stage.WIRELESS_RUN_START }?.elapsedMs
                 val first = checkpoints.firstOrNull { it.stage == Stage.VIDEO_FIRST_FRAME }?.elapsedMs
-                val stable = checkpoints.firstOrNull { it.stage == Stage.STABLE_VIDEO_FRAME }?.elapsedMs
+                val tunnel = checkpoints.firstOrNull { it.stage == Stage.TUNNEL_START_SESSION_SENT }?.elapsedMs
+                val afterTunnel = checkpoints.firstOrNull { it.stage == Stage.TUNNEL_VIDEO_FRAME }?.elapsedMs
+                val interrupted = checkpoints.any { it.stage == Stage.HOST_STOP &&
+                    start != null && it.elapsedMs >= start && (afterTunnel == null || it.elapsedMs <= afterTunnel) }
+                val resume = checkpoints.lastOrNull { it.stage == Stage.HOST_START &&
+                    checkpoints.any { before -> before.stage == Stage.HOST_STOP && before.elapsedMs <= it.elapsedMs } }?.elapsedMs
+                val restored = checkpoints.firstOrNull { it.stage in listOf(Stage.VIDEO_DECODER_FIRST_FRAME, Stage.TUNNEL_VIDEO_FRAME) &&
+                    resume != null && it.elapsedMs >= resume }?.elapsedMs
                 val outcome = when {
                     checkpoints.any { it.stage == Stage.WIRELESS_FAILED } -> "FAILED"
-                    stable != null -> "STABLE_FRAME"
+                    afterTunnel != null && !interrupted -> "FRAME_AFTER_TUNNEL"
                     first != null -> "FIRST_FRAME"
                     else -> "INCOMPLETE"
                 }
@@ -161,7 +173,9 @@ object CarPlayStartupTimeline {
                 append(" outcome=$outcome runStartMs=${start ?: "unknown"}")
                 append(" firstFrameSinceBootMs=${if (start != null && first != null && first >= start) first else "unknown"}")
                 append(" runToFirstFrameMs=${if (start != null && first != null && first >= start) first - start else "unknown"}")
-                appendLine(" runToStableFrameMs=${if (start != null && stable != null && stable >= start) stable - start else "unknown"}")
+                append(" tunnelToFrameMs=${if (!interrupted && tunnel != null && afterTunnel != null && afterTunnel >= tunnel) afterTunnel - tunnel else "unknown"}")
+                append(" foregroundInterrupted=$interrupted")
+                appendLine(" resumeToFrameMs=${if (resume != null && restored != null) restored - resume else "unknown"}")
             }
         }.trimEnd()
     }

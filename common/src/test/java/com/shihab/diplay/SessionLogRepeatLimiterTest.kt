@@ -104,4 +104,40 @@ class SessionLogRepeatLimiterTest {
         assertEquals(listOf(line), limiter.filter(line))
         assertEquals(listOf(line), limiter.filter(line))
     }
+
+    @Test fun rawReceiveBurstsAreBoundedWhileCountersAndStateChangesSurvive() {
+        val burst = "iAP tunnel iap2 rx=0x5201"
+        val written = mutableListOf<String>()
+        repeat(3_600) { second ->
+            clock = second * 1_000L
+            written += limiter.filter(burst)
+        }
+        assertEquals(6, written.size) // first notice plus one repeat summary per ten minutes
+        val remainder = limiter.flush()!!
+        val repeats = (written.drop(1) + remainder).sumOf { Regex("×(\\d+)").find(it)!!.groupValues[1].toInt() }
+        assertEquals(3_599, repeats)
+        for (line in listOf(
+            "iAP tunnel iap2 rx=0x5201 count=100",
+            "iap2 rx=0x4e0d wireless-carplay-update available=false",
+            "iap2 rx=0x4e0d wireless-carplay-update available=true",
+            "iAP tunnel iap2 rx=0x5201 error=unexpected",
+            "navigation session=1 request=none tMs=100 mqtt unavailable reason=IOException",
+            "navigation session=1 request=none tMs=200 mqtt subscribed=12/12",
+        )) repeat(2) { assertEquals(listOf(line), limiter.filter(line)) }
+        limiter.newSession()
+        assertEquals(listOf(burst), limiter.filter(burst))
+    }
+
+    @Test fun feedbackMetricsDoNotMultiplyNormalPromptLogsOrHideRateLimitedOverruns() {
+        val normal = "Audio: feedback type=101 id=1 reported=10 received=20 aheadMs=-71"
+        val metrics = " maxAheadMs=-71 overrunSamples=0 overrunObservedSpanMs=0 sinceNewestRxMs=1"
+        assertEquals(listOf(normal + metrics), limiter.filter(normal + metrics))
+        val next = normal.replace("id=1", "id=2") + metrics.replace("maxAheadMs=-71", "maxAheadMs=-69")
+            .replace("sinceNewestRxMs=1", "sinceNewestRxMs=9")
+        assertTrue(limiter.filter(next).isEmpty())
+        val overrun = normal.replace("aheadMs=-71", "aheadMs=110 overrun=true") +
+            " maxAheadMs=500 overrunSamples=3 overrunObservedSpanMs=10000 sinceNewestRxMs=10100"
+        repeat(2) { assertEquals(listOf(overrun), limiter.filter(overrun)) }
+        assertEquals(listOf(next), limiter.filter(next))
+    }
 }

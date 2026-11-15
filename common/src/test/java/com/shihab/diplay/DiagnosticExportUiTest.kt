@@ -22,10 +22,39 @@ import org.robolectric.shadows.ShadowAlertDialog
 import org.robolectric.shadows.ShadowContentResolver
 import org.robolectric.util.ReflectionHelpers
 import java.io.File
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], qualifiers = "en-w1920dp-h1080dp-land-mdpi", shadows = [FileProviderPathTestShadow::class])
 class DiagnosticExportUiTest {
+    @Test fun exportKeepsCurrentAndLegacyIdentitySeparateWithCaptureHealth() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val context = controller.get().applicationContext
+        val folder = File(context.filesDir, "logs").apply { mkdirs() }
+        val legacy = File(folder, "previous.log")
+        legacy.writeText("DiPlay log started 2026-11-14 13:33:05.000 pid=21672\n13:33:10.000  old connection timeout\n")
+        val current = File(folder, "diplay.log")
+        current.writeText("DiPlay log started 2026-11-15 14:17:46.233 pid=7042 version=0.2-v151 revision=c16beb57\n14:20:00.000  current connected\n")
+        try {
+            val task = FutureTask { diagnosticReportText(context, setupReady = false) }
+            Thread(task).start()
+            val report = task.get(5, TimeUnit.SECONDS)
+            assertTrue(report.indexOf("--- diplay.log ---") < report.indexOf("--- previous.log ---"))
+            val history = report.substringAfter("--- previous.log ---")
+            assertTrue(history.contains("scope=history"))
+            assertTrue(history.contains("version=unknown revision=unknown (legacy file; report version does not apply)"))
+            assertTrue(report.contains("version=0.2-v151 revision=c16beb57"))
+            assertTrue(report.contains("old connection timeout"))
+            assertTrue(report.contains("Log capture observedAtEpochMs="))
+            assertTrue(report.contains("Log export finishedAtEpochMs="))
+        } finally {
+            current.delete()
+            legacy.delete()
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test fun missingPickerSavesAReportAndProvidesSelectableTextInsideDiPlay() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
         val activity = controller.get()

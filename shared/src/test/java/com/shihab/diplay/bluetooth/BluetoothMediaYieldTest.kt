@@ -566,6 +566,9 @@ class BluetoothMediaYieldTest {
         restore()
         assertTrue(logs.any { it.contains("policyRestored=true connectRequested=true state=1") })
         assertFalse(prefs.getBoolean("applied", false))
+        val diagnostic = CarBluetoothProfileGuard.restorationDiagnostic(context)
+        assertTrue(diagnostic, diagnostic.contains("connectionCompletion=not-awaited"))
+        assertTrue(diagnostic, diagnostic.contains("policyRestored=true connectRequested=true state=1"))
     }
 
     open class Sink : BluetoothProfile {

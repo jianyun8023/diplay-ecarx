@@ -61,12 +61,37 @@ class DiagnosticReportViewTest {
         val (shown, millis) = showReport(report)
         println("REPORT_VIEW reportChars=${report.length} viewChars=${shown.length} showMs=$millis")
         assertTrue("view holds ${shown.length} of ${report.length} chars", shown.length <= 250_000)
-        assertTrue(shown.endsWith(report.takeLast(1_000)))
+        assertTrue(shown.contains(report.substringBefore("\n--- previous.log ---").takeLast(1_000)))
+        assertTrue(!shown.contains("previous-7.log line="))
+        assertTrue(shown.endsWith("History retained in the full exported report."))
     }
 
     @Test fun smallReportIsShownInFull() {
         val report = "DiPlay 1.0\n--- diplay.log ---\n12:00:00.000  CarPlay connected\n"
         assertEquals(report, showReport(report).first)
+    }
+
+    @Test fun smallReportKeepsItsHistoryAndLargeHistoryCannotHideTheCurrentRun() {
+        val current = "DiPlay 1.0\n--- diplay.log ---\n12:00:00.000  current session connected\n"
+        val small = current + "--- previous.log ---\n11:00:00.000  old failure\n"
+        assertEquals(small, tail(small))
+        // A missing previous.log must not make an older surviving archive take over the preview.
+        val large = current + "--- previous-2.log ---\n" + "11:00:00.000  old failure\n".repeat(20_000)
+        val shown = tail(large)
+        assertTrue(shown.startsWith(current.trimEnd()))
+        assertTrue(!shown.contains("old failure"))
+        assertTrue(large.contains("old failure"))
+    }
+
+    @Test fun trimmedCurrentLogKeepsItsVersionAndCaptureIdentityVisible() {
+        val identity = "DiPlay log started yesterday pid=7042 version=0.2-v151 revision=c16beb57 logId=123\n"
+        val head = "DiPlay 0.2-v152\n--- diplay.log ---\nLog file scope=current bytesAtReadStart=524288\n" + identity
+        val report = head + "12:00:00.000  current stream evidence\n".repeat(20_000) +
+            "--- previous.log ---\nold failure\n"
+        val shown = tail(report)
+        assertTrue(shown.startsWith(head + "…\n"))
+        assertTrue(shown.contains("current stream evidence"))
+        assertTrue(!shown.contains("old failure"))
     }
 
     private val max = 200_000
@@ -126,9 +151,10 @@ class DiagnosticReportViewTest {
         val shown = showReport(report).first
         assertEquals(tail(report), shown)
         assertTrue(shown.contains("\n…\n"))
-        val body = shown.substringAfter("\n…\n")
-        assertEquals('\n', report[report.length - body.length - 1])
-        assertTrue(shown.endsWith(report.takeLast(1_000)))
+        val body = shown.substringAfter("\n…\n").substringBeforeLast("\n…\n")
+        val current = report.substringBefore("\n--- previous.log ---")
+        assertEquals('\n', current[current.length - body.length - 1])
+        assertTrue(current.endsWith(body))
     }
 
     private fun headLines(count: Int) = (1 until count + 1).joinToString("") { "header line $it\n" }

@@ -76,8 +76,10 @@ class ShadowNativeEcarxMqtt {
         @JvmStatic @Implementation fun observerSubscribe(): ByteArray =
             HostNative.call("hud.NativeEcarxMqtt", "observerSubscribe") as ByteArray
 
-        @JvmStatic @Implementation fun observerSuback(body: ByteArray): Array<String> =
-            HostNative.call("hud.NativeEcarxMqtt", "observerSuback", body) as Array<String>
+        @JvmStatic @Implementation fun observerSuback(body: ByteArray, health: LongArray): Array<String> =
+            HostNative.call("hud.NativeEcarxMqtt", "observerSuback", body, health) as Array<String>
+        @JvmStatic @Implementation fun health(state: LongArray, event: Int): String? =
+            HostNative.call("hud.NativeEcarxMqtt", "health", state, event) as String?
 
         @JvmStatic @Implementation fun observerPublication(header: Int, body: ByteArray): Array<Any?>? =
             HostNative.call("hud.NativeEcarxMqtt", "observerPublication", header, body) as Array<Any?>?

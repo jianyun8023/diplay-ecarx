@@ -39,6 +39,7 @@ internal object EcarxProjectionChannel {
     /** The broker connection used for publishing; kept open so a track change is one socket write. */
     private var socket: Socket? = null
     private val state = NativeEcarxMqtt.projectionCreate()
+    private val health = LongArray(12)
     private var lastConnectReason = "not attempted"
 
     private val sink = EcarxReportSink(TAG)
@@ -90,7 +91,8 @@ internal object EcarxProjectionChannel {
 
     /** One line of state for the settings diagnostics block. */
     fun state(): String = synchronized(lock) {
-        NativeEcarxMqtt.projectionDescription(state, false) + " broker=" + lastConnectReason
+        NativeEcarxMqtt.projectionDescription(state, false) + " broker=" + lastConnectReason +
+            "\nMQTT publisher processTotals " + NativeEcarxMqtt.health(health, 0)
     }
 
     /**
@@ -118,20 +120,23 @@ internal object EcarxProjectionChannel {
     private fun mqttConnect(): Boolean = (socket ?: connectLocked()) != null
     private fun mqttConnectReason(): String = lastConnectReason
     private fun mqttPublish(topic: String, payload: String): String =
-        EcarxMqtt.publish(checkNotNull(socket), NativeEcarxMqtt.projectionPacketId(state), topic, payload)
+        EcarxMqtt.publish(checkNotNull(socket), NativeEcarxMqtt.projectionPacketId(state), topic, payload, health)
     private fun mqttDrop() = dropLocked()
 
     private fun connectLocked(): Socket? {
+        NativeEcarxMqtt.health(health, 1)
         val connection = EcarxMqtt.connect(
             PUBLISH_CLIENT_ID,
             connectTimeoutMs = CONNECT_TIMEOUT_MS,
             readTimeoutMs = READ_TIMEOUT_MS,
         )
         if (connection == null) {
+            NativeEcarxMqtt.health(health, 3)
             lastConnectReason = "connect failed"
             return null
         }
         socket = connection
+        NativeEcarxMqtt.health(health, 2)
         lastConnectReason = "ok"
         return connection
     }

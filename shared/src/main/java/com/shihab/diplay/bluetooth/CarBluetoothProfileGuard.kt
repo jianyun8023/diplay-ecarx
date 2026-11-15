@@ -13,6 +13,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.CountDownLatch
@@ -53,6 +54,9 @@ public object CarBluetoothProfileGuard {
     private const val KEY_APPLIED = "applied"
     private const val KEY_APPLIED_MODE = "applied_mode"
     private const val KEY_APPLIED_TARGETS = "applied_targets"
+    private const val KEY_RESTORE_DIAGNOSTIC = "restore_diagnostic"
+    private const val KEY_RESTORE_REVISION = "restore_diagnostic_revision"
+    private const val KEY_MEDIA_RESTORE_DIAGNOSTIC = "media_restore_diagnostic"
     private const val MODE_LINK = "link"
     private const val MODE_ADAPTER = "adapter"
     private const val MODE_MEDIA = "media"
@@ -212,14 +216,54 @@ public object CarBluetoothProfileGuard {
             synchronized(lock) { if (ownershipRevision == revision) recoveryPending = false }
             return
         }
-        // Queued on the guard's thread so the decision cannot race a drop that is still in flight.
-        worker.execute {
-            try {
-                restoreNow(app, state, revision, state?.log ?: log)
-            } finally {
-                synchronized(lock) { if (ownershipRevision == revision) recoveryPending = false }
+        val operationId = "${Process.myPid()}/$revision"
+        val started = SystemClock.elapsedRealtime()
+        val store = preferences(app)
+        synchronized(lock) {
+            if (ownershipRevision == revision) {
+                store.edit().putLong(KEY_RESTORE_REVISION, revision)
+                    .remove(KEY_MEDIA_RESTORE_DIAGNOSTIC)
+                    .putString(KEY_RESTORE_DIAGNOSTIC,
+                        "operationId=$operationId phase=pending observedAtEpochMs=${System.currentTimeMillis()}")
+                    .apply()
             }
         }
+        // Queued on the guard's thread so the decision cannot race a drop that is still in flight.
+        worker.execute {
+            val mode = if (applied(app)) appliedMode(app) else "not-applied"
+            var returned = false
+            try {
+                restoreNow(app, state, revision, state?.log ?: log)
+                returned = true
+            } finally {
+                synchronized(lock) {
+                    if (ownershipRevision == revision) recoveryPending = false
+                    if (store.getLong(KEY_RESTORE_REVISION, -1L) == revision) {
+                        val phase = when {
+                            ownershipRevision != revision -> "superseded"
+                            returned -> "settled"
+                            else -> "interrupted"
+                        }
+                        val radioState = runCatching { adapter(app)?.state }.getOrNull()
+                        val diagnostic = "operationId=$operationId phase=$phase mode=$mode " +
+                            "elapsedMs=${SystemClock.elapsedRealtime() - started} " +
+                            "observedAtEpochMs=${System.currentTimeMillis()} journalPending=${applied(app)} " +
+                            "radioState=${radioState ?: "unknown"} connectionCompletion=not-awaited " +
+                            "lastMediaObservation=${store.getString(KEY_MEDIA_RESTORE_DIAGNOSTIC, "none")}"
+                        store.edit().putString(KEY_RESTORE_DIAGNOSTIC, diagnostic).commit()
+                        // The Activity's session log may already be closed. Keep the final result durable.
+                        Log.i(TAG, "BT restore $diagnostic")
+                    }
+                }
+            }
+        }
+    }
+
+    /** Journal completion does not prove that the phone has reconnected. */
+    fun restorationDiagnostic(context: Context): String {
+        val store = preferences(context)
+        return "journalPending=${store.getBoolean(KEY_APPLIED, false)} " +
+            "last=${store.getString(KEY_RESTORE_DIAGNOSTIC, "not-recorded")}"
     }
 
     /**
@@ -722,8 +766,10 @@ public object CarBluetoothProfileGuard {
                             .putBoolean(KEY_MEDIA_CONNECTED, remaining.first() in connected).commit()
                     }
                 }
-                log("BT guard media restore: policyRestored=$confirmed connectRequested=$connect" +
-                    " state=${access.connectionState(device) ?: "unknown"} phoneProfile=untouched" +
+                val observation = "policyRestored=$confirmed connectRequested=$connect " +
+                    "state=${access.connectionState(device) ?: "unknown"} phoneProfile=untouched"
+                prefs.edit().putString(KEY_MEDIA_RESTORE_DIAGNOSTIC, observation).apply()
+                log("BT guard media restore: $observation" +
                     if (confirmed) "" else "; keeping recovery pending")
             }
         } finally {

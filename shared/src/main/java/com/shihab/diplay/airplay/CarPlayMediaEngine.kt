@@ -21,6 +21,7 @@ data class AudioStreamId(val type: Int, val audioType: String)
 
 /** Rendering seam for the decrypted CarPlay media streams. */
 interface MediaSink {
+    fun requestVideoFrameSample(): Boolean = false
     fun onVideoCodec(type: Int, codec: VideoCodec) {}
     fun onVideoConfig(type: Int, codecData: ByteArray) {}
     fun onNativeVideoRoute(type: Int, route: NativeVideoRoute) {}
@@ -159,6 +160,8 @@ class CarPlayMediaEngine(
         iapTunnelHandler = handler
     }
 
+    override fun requestVideoFrameSample(): Boolean = sink.requestVideoFrameSample()
+
     override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
         // The screen SETUP shares the data-stream key derivation: the connection decimal and
         // label cross the boundary, the salt assembly stays in protocols::airplay.
@@ -172,6 +175,10 @@ class CarPlayMediaEngine(
         Log.i(TAG, "airplay screen key connectionID=${parsed.connectionIdDecimal}")
         val screen = ScreenStream(key, peer, session::logDebug)
         sink.setVideoDiagnosticHandler(type) {
+            if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it.startsWith("frame sample ")) {
+                val sample = it.removePrefix("frame sample ").split(' ')
+                session.videoFrameSample(sample[0].toLong(), sample[2].toInt(), sample[1].toLong())
+            }
             if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it == "first frame rendered") {
                 session.videoFrameRendered()
             }
@@ -596,7 +603,9 @@ class CarPlayMediaEngine(
                 (entry["sampleTime"] as? Long)?.let { sampleTime ->
                     meta.route?.feedback(sampleTime, nowNs)?.let { row ->
                         session.logDebug("Audio: feedback type=${meta.type} id=${entry["streamConnectionID"] ?: 0} " +
-                            "reported=$sampleTime received=${row[0]} aheadMs=${row[1]}" + if (row[2] != 0L) " overrun=true" else "")
+                            "reported=$sampleTime received=${row[0]} aheadMs=${row[1]}" +
+                            (if (row[2] != 0L) " overrun=true" else "") +
+                            " maxAheadMs=${row[3]} overrunSamples=${row[4]} overrunObservedSpanMs=${row[5]} sinceNewestRxMs=${row[6]}")
                     }
                 }
                 entry

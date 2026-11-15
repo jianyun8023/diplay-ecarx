@@ -28,7 +28,9 @@ internal object NativeEcarxMqtt {
     @JvmStatic external fun observerReport(state: Array<Any?>, now: Long): String
     @JvmStatic external fun observerConnack(header: Int, body: ByteArray?): Boolean
     @JvmStatic external fun observerSubscribe(): ByteArray
-    @JvmStatic external fun observerSuback(body: ByteArray): Array<String>
+    @JvmStatic external fun observerSuback(body: ByteArray, health: LongArray): Array<String>
+    /** 0 snapshot; 1/2/3 connect attempt/success/failure; 4/5/6 publish attempt/PUBACK/failure; 7 ACK timeout; 8 disconnect; 9 socket timeout. */
+    @JvmStatic external fun health(state: LongArray, event: Int): String?
     @JvmStatic external fun observerPublication(header: Int, body: ByteArray): Array<Any?>?
     @JvmStatic external fun observerObserve(state: Array<Any?>, topic: String, json: Any?, empty: Boolean,
         retained: Boolean, now: Long, debug: Boolean): String?
@@ -36,7 +38,7 @@ internal object NativeEcarxMqtt {
     @JvmStatic external fun observerRetryMillis(): Long
 
     data class Subscription(val status: String, val report: String, val rejected: Boolean)
-    fun subscription(body: ByteArray): Subscription = observerSuback(body).let {
+    fun subscription(body: ByteArray, health: LongArray): Subscription = observerSuback(body, health).let {
         Subscription(it[0], it[1], it[2].toBoolean())
     }
     data class Publication(val topic: String, val payload: String, val retained: Boolean)

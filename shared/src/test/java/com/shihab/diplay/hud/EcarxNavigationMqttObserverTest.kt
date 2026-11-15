@@ -54,6 +54,9 @@ class EcarxNavigationMqttObserverTest {
                     assertFalse(topics.any { '#' in it || '+' in it })
                     out.write(EcarxMqtt.frame(0x90, byteArrayOf(0, 1) + ByteArray(topics.size)))
                     assertTrue(lines.poll(5, TimeUnit.SECONDS).startsWith("mqtt subscribed="))
+                    val health = observer.diagnosticReport()
+                    assertTrue(health.contains("connectAttempts=1 connections=1 reconnects=0 connectFailures=0"))
+                    assertTrue(health.contains("subscriptionsAccepted=${topics.size} subscriptionsRejected=0"))
                     for (retained in listOf(true, false)) {
                         val message = ByteArrayOutputStream()
                         EcarxMqtt.mqttString(message, "ihu/events/navigation/ongoing")

@@ -258,6 +258,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn focus_diagnostics_separates_platform_outcomes_and_keeps_snapshots_read_only() {
+        let mut state = [0; 10];
+        for result in [1, 0, i32::MIN, 2] {
+            focus_diagnostics(&mut state, 1, result);
+        }
+        for result in [1, 0, i32::MIN, -1] {
+            focus_diagnostics(&mut state, 2, result);
+        }
+        assert_eq!(state, [4, 1, 1, 1, 1, 4, 1, 1, 1, 1]);
+        let before = state;
+        let snapshot = focus_diagnostics(&mut state, 0, 0).unwrap();
+        assert!(snapshot.contains(
+            "abandonCalls=4 abandonAccepted=1 abandonRejected=1 abandonErrors=1 abandonOther=1"
+        ));
+        assert_eq!(state, before);
+    }
+
+    #[test]
     fn prompt_focus_tracks_duck_and_overlapping_audio_until_silence_or_close() {
         let mut state = [0; 3];
         assert_eq!(prompt_focus(&mut state, 0, false, false), 0);
@@ -465,7 +483,50 @@ mod tests {
 
 // ---- JNI boundary: `com.shihab.diplay.media.NativeAudioScheduler` ----
 
-use jni_sys::{jboolean, jclass, jint, jintArray, jlong, jlongArray, JNIEnv};
+use jni_sys::{jboolean, jclass, jint, jintArray, jlong, jlongArray, jstring, JNIEnv};
+
+fn focus_diagnostics(state: &mut [i64; 10], event: i32, result: i32) -> Option<String> {
+    if event == 0 {
+        return Some(format!("requests={} granted={} rejected={} requestErrors={} requestOther={} abandonCalls={} abandonAccepted={} abandonRejected={} abandonErrors={} abandonOther={}",
+            state[0], state[1], state[2], state[3], state[4], state[5], state[6], state[7], state[8], state[9]));
+    }
+    let base = if event == 1 { 0 } else { 5 };
+    state[base] = state[base].saturating_add(1);
+    let slot = base
+        + match result {
+            1 => 1,
+            0 => 2,
+            i32::MIN => 3,
+            _ => 4,
+        };
+    state[slot] = state[slot].saturating_add(1);
+    None
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_focusDiagnostics(
+    env: *mut JNIEnv,
+    _: jclass,
+    token: jlongArray,
+    event: jint,
+    result: jint,
+) -> jstring {
+    let f = &**env;
+    if token.is_null() || (f.GetArrayLength.unwrap())(env, token) != 10 || !(0..=2).contains(&event)
+    {
+        let class = (f.FindClass.unwrap())(env, c"java/lang/IllegalArgumentException".as_ptr());
+        (f.ThrowNew.unwrap())(env, class, c"Invalid focus diagnostic token/event".as_ptr());
+        (f.DeleteLocalRef.unwrap())(env, class);
+        return std::ptr::null_mut();
+    }
+    let mut state = [0; 10];
+    (f.GetLongArrayRegion.unwrap())(env, token, 0, 10, state.as_mut_ptr());
+    let line = focus_diagnostics(&mut state, event, result);
+    (f.SetLongArrayRegion.unwrap())(env, token, 0, 10, state.as_ptr());
+    line.map_or(std::ptr::null_mut(), |line| {
+        crate::platform::jvm::Env(env).string(&line)
+    })
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_promptFocus(

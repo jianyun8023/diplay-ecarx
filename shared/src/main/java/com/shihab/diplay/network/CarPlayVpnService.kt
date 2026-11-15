@@ -57,6 +57,9 @@ class CarPlayVpnService : VpnService() {
             override fun onSessionActive(session: AirPlaySession) { if (current()) delegate.onSessionActive(session) }
             override fun onClusterControlReady(session: AirPlaySession) { if (current()) delegate.onClusterControlReady(session) }
             override fun onVideoFrameRendered(session: AirPlaySession) { if (current()) delegate.onVideoFrameRendered(session) }
+            override fun onVideoFrameSample(session: AirPlaySession, elapsedMs: Long, decoderId: Int, epoch: Long) {
+                if (current()) delegate.onVideoFrameSample(session, elapsedMs, decoderId, epoch)
+            }
             override fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) { if (current()) delegate.onCornerMask(session, png, displayWidth) }
             override fun onTransportError(message: String) { if (current()) delegate.onTransportError(message) }
             override fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) { if (current()) delegate.onDeviceInfo(session, info) }

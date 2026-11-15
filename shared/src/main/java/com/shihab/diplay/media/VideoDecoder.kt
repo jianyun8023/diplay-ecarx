@@ -139,6 +139,7 @@ internal class VideoDecoder(
     private val framesAtOnce: Boolean = false,
     private val mtkDecoderTuningEnabled: Boolean = false,
     private val debugLogsEnabled: () -> Boolean = { false },
+    private val health: MediaHealth? = null,
     /** Draws this decoder's pictures onto its surface and its mirrors while it has any ([setMirror]). */
     private val fanoutFactory: (width: Int, height: Int, report: (String) -> Unit) -> VideoFanout =
         { w, h, r -> GlVideoFanout(w, h, r) },
@@ -146,6 +147,7 @@ internal class VideoDecoder(
     // Worker only: the cached debug-log switch for the periodic stats line.
     private var debugLogsCached = false
     private var debugLogsCheckedNanos = 0L
+    private var lastStatsNanos = System.nanoTime()
     private val queue = VideoControlMailbox()
     private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail ->
         queue.offer(VideoJob.NativeEvent(kind, detail))
@@ -193,9 +195,14 @@ internal class VideoDecoder(
         } else LiveVideoCounters(0, 0, 0, 0)
     }
 
+    fun sampleNextFrame(): Boolean = synchronized(pipeLock) {
+        if (!pipeAlive) false else { pipe.sampleNextFrame(); true }
+    }
+
     private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
 
     fun start() {
+        health?.started()
         thread.start()
     }
 
@@ -289,9 +296,11 @@ internal class VideoDecoder(
                         null -> Unit
                     }
                     probeHardwareIfDue()
-                    if (statsLoggingEnabled()) {
-                        pipe.drainStats(stats)
-                        stats.logIfDue()?.let(report)
+                    if (System.nanoTime() - lastStatsNanos >= 5_000_000_000L) {
+                        val verbose = statsLoggingEnabled()
+                        pipe.drainStats(if (verbose) stats else null, health)
+                        if (verbose) stats.logIfDue()?.let(report)
+                        lastStatsNanos = System.nanoTime()
                     }
                     updatePipeAccepting()
                 } catch (error: Exception) {
@@ -306,6 +315,7 @@ internal class VideoDecoder(
         } finally {
             running = false
             releaseDecoder()
+            runCatching { pipe.drainStats(null, health, ended = true) }
             synchronized(pipeLock) {
                 if (pipeAlive) pipe.destroy()
                 pipeAlive = false
@@ -341,6 +351,7 @@ internal class VideoDecoder(
     /** What the native decode loop asks of the worker; see [NativeVideoPipe]. */
     private fun onPipeEvent(kind: Int, detail: String?) {
         when (kind) {
+            NativeVideoPipe.EVENT_FRAME_SAMPLE -> report("frame sample $detail ${System.identityHashCode(this)}")
             NativeVideoPipe.EVENT_REQUEST_KEYFRAME -> {
                 requestKeyFrame()
             }

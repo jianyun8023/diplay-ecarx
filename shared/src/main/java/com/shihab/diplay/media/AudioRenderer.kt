@@ -115,6 +115,8 @@ internal class AudioRenderer(
     private var maxWriteMs = 0L
     private var statsWindowStartNs = 0L
     private var statsLastUnderruns = 0
+    internal var health: MediaHealth? = null
+    private val healthPrevious = LongArray(3)
     private var bytesPerSecond = 0
     // Only the worker uses this owner; a renderer closed before start must not allocate it.
     private val bufferProgress by lazy(LazyThreadSafetyMode.NONE) {
@@ -142,6 +144,7 @@ internal class AudioRenderer(
     fun start() {
         if (started || !running) return
         started = true
+        health?.started()
         thread.start()
     }
 
@@ -281,7 +284,10 @@ internal class AudioRenderer(
         if (wanted == navigationChannel || mappedChannel != AudioChannel.NAVIGATION || navigationAudible || output == null) return
         diagnosticStage = "navigation-route"
         val from = navigationChannel
+        logStatsIfDue(force = true, ended = false)
         releaseTrack()
+        health?.audioTrackChanged(healthPrevious)
+        statsLastUnderruns = 0
         navigationChannel = wanted
         bufferProgress.reset()
         fadeApplied = false
@@ -840,7 +846,9 @@ internal class AudioRenderer(
     }
 
     // Persist counters even during packet starvation, and flush before disconnect releases the track.
-    private fun logStatsIfDue(force: Boolean = false) {
+    private fun logStatsIfDue(force: Boolean = false) = logStatsIfDue(force, ended = force)
+
+    private fun logStatsIfDue(force: Boolean, ended: Boolean) {
         val now = System.nanoTime()
         if (statsWindowStartNs == 0L) statsWindowStartNs = now
         if (!force && now - statsWindowStartNs < STATS_WINDOW_NS) return
@@ -863,6 +871,9 @@ internal class AudioRenderer(
         val received = queueStats[0].toInt()
         val dropped = queueStats[1].toInt()
         val arrivalGapMs = queueStats[4]
+        health?.audio(healthPrevious, longArrayOf(received.toLong(), dropped.toLong(), underruns.toLong(),
+            writeErrorsThisWindow.toLong(), zeroWritesThisWindow.toLong(), partialWritesThisWindow.toLong(),
+            inputDropped.toLong(), rebufferCount.toLong(), writtenFramesThisWindow, if (ended) 1L else 0L))
         if (debugLogsEnabled()) {
             val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
             val line = "audio stats audioType=${format.audioType} payloadType=${format.payloadType} channel=$channelName " +
@@ -882,7 +893,7 @@ internal class AudioRenderer(
                 "lastWriteError=${lastWriteErrorCode ?: "none"} zeroWrites=$zeroWritesThisWindow " +
                 "partialWrites=$partialWritesThisWindow " +
                 "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount " +
-                "playbackRate=${clockTrim?.rate ?: -1} ended=$force"
+                "playbackRate=${clockTrim?.rate ?: -1} ended=$ended"
             Log.i(STATS_TAG, line)
             report(line)
             if (format.codec != AudioCodecKind.LPCM) {
@@ -890,7 +901,7 @@ internal class AudioRenderer(
                 val decoderLine = "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +
                     "inputQueuedTotal=$inputQueued inputDroppedTotal=$inputDropped " +
                     "shortOpusPacketsTotal=$shortOpusPackets decoderUnavailablePacketsTotal=$decoderUnavailablePackets " +
-                    "outputBuffersTotal=$outputBuffers ended=$force"
+                    "outputBuffersTotal=$outputBuffers ended=$ended"
                 Log.i(STATS_TAG, decoderLine)
                 runCatching { report(decoderLine) }
             }

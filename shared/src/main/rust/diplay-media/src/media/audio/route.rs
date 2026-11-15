@@ -9,8 +9,12 @@ struct State {
     target: Option<Arc<QueueOwner>>,
     closed: bool,
     newest: Option<u32>,
+    newest_rx_ns: i64,
     baseline_logged: bool,
     last_overrun_ns: Option<i64>,
+    max_ahead: i64,
+    overrun_samples: i64,
+    first_overrun_sample_ns: Option<i64>,
     anchor: Option<(u32, i64)>,
     probe: ClockProbe,
 }
@@ -47,8 +51,9 @@ pub(crate) fn math_round(value: f64) -> i64 {
 pub enum Delivery { Callback(AudioPacket), Queued(Arc<QueueOwner>), Closed }
 impl AudioRoute {
     pub fn new(clock_rate: i64, direct: bool) -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(State { target: None, closed: false, newest: None,
-            baseline_logged: false, last_overrun_ns: None, anchor: None, probe: ClockProbe::default() }),
+        Arc::new(Self { state: Mutex::new(State { target: None, closed: false, newest: None, newest_rx_ns: 0,
+            baseline_logged: false, last_overrun_ns: None, max_ahead: i64::MIN, overrun_samples: 0,
+            first_overrun_sample_ns: None, anchor: None, probe: ClockProbe::default() }),
             clock_rate, direct })
     }
 
@@ -74,7 +79,10 @@ impl AudioRoute {
     pub fn observe(&self, sample: u32, now: i64) -> Option<i32> {
         let mut state = self.state.lock().unwrap();
         if state.closed { return None; }
-        if state.newest.is_none_or(|old| sample.wrapping_sub(old) as i32 > 0) { state.newest = Some(sample); }
+        if state.newest.is_none_or(|old| sample.wrapping_sub(old) as i32 > 0) {
+            state.newest = Some(sample);
+            state.newest_rx_ns = now;
+        }
         state.probe.observe(sample, now)
     }
 
@@ -104,19 +112,31 @@ impl AudioRoute {
         state.target = None;
     }
 
-    fn feedback(&self, reported: u32, now: i64) -> Option<[i64; 3]> {
+    fn feedback(&self, reported: u32, now: i64) -> Option<[i64; 7]> {
         let mut state = self.state.lock().unwrap();
         if state.closed { return None; }
         let received = state.newest?;
         let ahead = reported.wrapping_sub(received) as i32 as i64;
         let overrun = ahead as f64 > 0.1 * self.clock_rate as f64;
+        // Count every feedback sample, including those hidden by the existing diagnostic rate limit.
+        state.max_ahead = state.max_ahead.max(ahead);
+        if overrun {
+            state.overrun_samples = state.overrun_samples.saturating_add(1);
+            state.first_overrun_sample_ns.get_or_insert(now);
+        } else {
+            state.first_overrun_sample_ns = None;
+        }
         let first = !state.baseline_logged;
         if !first && (!overrun || state.last_overrun_ns.is_some_and(|last| now.wrapping_sub(last) < 10_000_000_000)) {
             return None;
         }
         state.baseline_logged = true;
         if overrun { state.last_overrun_ns = Some(now); }
-        Some([received as i64, ahead * 1000 / self.clock_rate, overrun as i64])
+        // This is the span of observed overrun samples, not proof of a continuous fault between them.
+        let span_ms = state.first_overrun_sample_ns.map_or(0, |first| now.wrapping_sub(first).max(0) / 1_000_000);
+        Some([received as i64, ahead * 1000 / self.clock_rate, overrun as i64,
+            state.max_ahead * 1000 / self.clock_rate, state.overrun_samples, span_ms,
+            now.wrapping_sub(state.newest_rx_ns).max(0) / 1_000_000])
     }
 }
 
@@ -148,9 +168,9 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRo
 ) -> jlongArray {
     if handle == 0 { return std::ptr::null_mut(); }
     let Some(row) = (&*(handle as *const AudioRoute)).feedback(reported as u32, now) else { return std::ptr::null_mut() };
-    let out = ((**env).NewLongArray.unwrap())(env, 3);
+    let out = ((**env).NewLongArray.unwrap())(env, row.len() as jint);
     if out.is_null() || ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
-    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 3, row.as_ptr());
+    ((**env).SetLongArrayRegion.unwrap())(env, out, 0, row.len() as jint, row.as_ptr());
     if ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
     out
 }
@@ -328,14 +348,40 @@ mod tests {
         route.observe(u32::MAX - 15, 0);
         route.observe(16, 1);
         route.observe(u32::MAX - 15, 2); // late packet must not move the received frontier back
-        assert_eq!(route.feedback(16, 1_000), Some([16, 0, 0]));
+        assert_eq!(route.feedback(16, 1_000), Some([16, 0, 0, 0, 0, 0, 0]));
         assert_eq!(route.feedback(4816, 2_000), None); // exactly 100 ms is not an overrun
-        assert_eq!(route.feedback(4817, 3_000), Some([16, 100, 1]));
+        assert_eq!(route.feedback(4817, 3_000), Some([16, 100, 1, 100, 1, 0, 0]));
         assert_eq!(route.feedback(4817, 2_999), None); // clock rollback preserves rate limiting
         assert_eq!(route.feedback(4817, 10_000_002_999), None);
-        assert_eq!(route.feedback(4817, 10_000_003_000), Some([16, 100, 1]));
+        assert_eq!(route.feedback(4817, 10_000_003_000), Some([16, 100, 1, 100, 4, 10_000, 10_000]));
         route.close();
         assert_eq!(route.feedback(4817, 20_000_003_000), None);
+    }
+
+    #[test]
+    fn feedback_accumulates_hidden_peaks_and_samples_but_recovery_resets_only_the_observed_span() {
+        for origin in [0i64, i64::MAX - 5_000_000_000] {
+            let route = AudioRoute::new(48_000, true);
+            let newest = u32::MAX - 479;
+            let at = |ms: i64| origin.wrapping_add(ms * 1_000_000);
+            route.observe(newest, origin);
+            assert_eq!(route.feedback(newest, origin), Some([newest as i64, 0, 0, 0, 0, 0, 0]));
+            assert_eq!(route.feedback(newest.wrapping_add(4801), at(100)),
+                Some([newest as i64, 100, 1, 100, 1, 0, 100]));
+            assert_eq!(route.feedback(newest.wrapping_add(24_000), at(1100)), None);
+            // Late/duplicate RTP does not refresh the receive frontier, even during quiet feedback.
+            route.observe(newest.wrapping_sub(1), at(2000));
+            route.observe(newest, at(3000));
+            assert_eq!(route.feedback(newest.wrapping_add(9601), at(10_100)),
+                Some([newest as i64, 200, 1, 500, 3, 10_000, 10_100]));
+            let recovered = newest.wrapping_add(9601);
+            route.observe(recovered, at(10_200));
+            assert_eq!(route.feedback(recovered, at(10_200)), None);
+            // Recovery adds no log and leaves the original ten-second anomaly limit in force.
+            assert_eq!(route.feedback(recovered.wrapping_add(4801), at(11_200)), None);
+            assert_eq!(route.feedback(recovered.wrapping_add(4801), at(20_100)),
+                Some([recovered as i64, 100, 1, 500, 5, 8900, 9900]));
+        }
     }
 
     #[test]

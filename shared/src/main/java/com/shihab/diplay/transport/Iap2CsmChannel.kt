@@ -32,6 +32,10 @@ class Iap2CsmChannel private constructor(
             closed || terminalFailure != null
         }
 
+    /** A terminal transport error also closes the channel; it is not evidence of local shutdown. */
+    internal val locallyClosed: Boolean
+        get() = synchronized(stateLock) { closed && terminalFailure == null }
+
     /** Waits for the underlying link to negotiate a writable session 10. */
     fun awaitReady(timeoutMillis: Long): Boolean {
         requireTimeout(timeoutMillis)

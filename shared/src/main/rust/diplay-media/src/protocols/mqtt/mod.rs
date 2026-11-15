@@ -3,6 +3,29 @@ mod jni;
 mod observer;
 mod projection;
 
+const HEALTH_SLOTS: usize = 12;
+
+fn health_event(state: &mut [i64; HEALTH_SLOTS], event: i32) {
+    let slot = match event {
+        1..=7 => (event - 1) as usize,
+        8 => 10,
+        9 => 11,
+        _ => return,
+    };
+    state[slot] = state[slot].saturating_add(1);
+}
+
+fn health_subscription(state: &mut [i64; HEALTH_SLOTS], accepted: usize) {
+    state[7] = state[7].saturating_add(1);
+    state[8] = state[8].saturating_add(accepted as i64);
+    state[9] = state[9].saturating_add((observer::TOPICS.len() - accepted) as i64);
+}
+
+fn health_report(s: &[i64; HEALTH_SLOTS]) -> String {
+    format!("connectAttempts={} connections={} reconnects={} connectFailures={} publishAttempts={} pubacks={} publishFailures={} pubackTimeouts={} subacks={} subscriptionsAccepted={} subscriptionsRejected={} unexpectedDisconnects={} socketTimeouts={}",
+        s[0], s[1], s[1].saturating_sub(1).max(0), s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9], s[10], s[11])
+}
+
 pub(crate) fn frame(kind: u8, body: &[u8]) -> Vec<u8> {
     let mut out = vec![kind];
     let mut remaining = body.len();
@@ -73,6 +96,22 @@ fn length_digit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn health_keeps_ack_timeouts_distinct_and_accumulates_reconnect_subscriptions() {
+        let mut health = [0; HEALTH_SLOTS];
+        assert!(health_report(&health).contains("connections=0 reconnects=0"));
+        for event in [1, 3, 1, 2, 4, 6, 4, 7, 6, 4, 5, 8, 9, 1, 2] {
+            health_event(&mut health, event);
+        }
+        health_subscription(&mut health, 10);
+        health_subscription(&mut health, 12);
+        assert_eq!(health, [3, 2, 1, 3, 1, 2, 1, 2, 22, 2, 1, 1]);
+        let summary = health_report(&health);
+        assert!(summary.contains("connections=2 reconnects=1 connectFailures=1"));
+        assert!(summary.contains("publishFailures=2 pubackTimeouts=1"));
+        assert!(summary.contains("subscriptionsAccepted=22 subscriptionsRejected=2"));
+    }
     #[test]
     fn fixed_peer_packets_and_boundaries() {
         assert_eq!(connect(b"id"), b"\x10\x0e\0\x04MQTT\x04\x02\0\0\0\x02id");

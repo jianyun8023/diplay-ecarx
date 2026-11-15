@@ -418,6 +418,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeEcarxMqtt_observe
     env: *mut JNIEnv,
     _: jclass,
     body: jbyteArray,
+    health: jlongArray,
 ) -> jobjectArray {
     let (accepted, denied) = match super::observer::suback(&bytes(env, body)) {
         Ok(result) => result,
@@ -426,6 +427,22 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeEcarxMqtt_observe
             return null_mut();
         }
     };
+    if health.is_null()
+        || ((**env).GetArrayLength.unwrap())(env, health) != super::HEALTH_SLOTS as i32
+    {
+        io_error(env, "Invalid MQTT health token");
+        return null_mut();
+    }
+    let mut counters = [0; super::HEALTH_SLOTS];
+    ((**env).GetLongArrayRegion.unwrap())(
+        env,
+        health,
+        0,
+        super::HEALTH_SLOTS as i32,
+        counters.as_mut_ptr(),
+    );
+    super::health_subscription(&mut counters, accepted);
+    store(env, health, &counters);
     let f = &**env;
     let class = (f.FindClass.unwrap())(env, c"java/lang/String".as_ptr());
     if class.is_null() {
@@ -451,6 +468,37 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeEcarxMqtt_observe
         (f.SetObjectArrayElement.unwrap())(env, result, i as i32, value);
     }
     result
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeEcarxMqtt_health(
+    env: *mut JNIEnv,
+    _: jclass,
+    token: jlongArray,
+    event: jint,
+) -> jstring {
+    let f = &**env;
+    if token.is_null()
+        || (f.GetArrayLength.unwrap())(env, token) != super::HEALTH_SLOTS as i32
+        || !(0..=9).contains(&event)
+    {
+        io_error(env, "Invalid MQTT health token/event");
+        return null_mut();
+    }
+    let mut state = [0; super::HEALTH_SLOTS];
+    (f.GetLongArrayRegion.unwrap())(
+        env,
+        token,
+        0,
+        super::HEALTH_SLOTS as i32,
+        state.as_mut_ptr(),
+    );
+    if event == 0 {
+        return utf(env, &super::health_report(&state));
+    }
+    super::health_event(&mut state, event);
+    store(env, token, &state);
+    null_mut()
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeEcarxMqtt_observerPublication(

@@ -20,6 +20,10 @@ internal object NativeMedia {
     /** Mandatory core callers propagate the original load failure instead of selecting Kotlin code. */
     fun requireAvailable() = load.getOrThrow()
 
+    @JvmStatic external fun healthCreate(): LongArray
+    @JvmStatic external fun pipeSampleNextFrame(handle: Long)
+    @JvmStatic external fun healthStep(token: LongArray, previous: LongArray?, event: Int, nowMs: Long, values: LongArray?): String?
+
     /** Why the library did not load, for callers that report it; null when it loaded. */
     val loadError: Throwable? get() = load.exceptionOrNull()
 

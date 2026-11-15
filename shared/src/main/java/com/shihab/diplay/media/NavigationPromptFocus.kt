@@ -49,6 +49,7 @@ internal class NavigationPromptFocus(
     private var pendingRelease: Runnable? = null
     private var skipReported = false
     private val promptState = LongArray(3)
+    private val diagnostics = LongArray(10)
     private var heldSince = 0L
     private var skipping = false
 
@@ -122,6 +123,10 @@ internal class NavigationPromptFocus(
         else -> "none"
     }
 
+    @Synchronized fun diagnosticReport(): String = "Focus navigation " +
+        NativeAudioScheduler.focusDiagnostics(diagnostics, 0, 0) +
+        " trackedRequest=${request != null} state=${state()} platformOwner=unknown"
+
     @Synchronized
     fun close() {
         if (NativeAudioScheduler.promptFocus(promptState, CLOSE, promptFocusEnabled, request != null) == 0) return
@@ -136,12 +141,17 @@ internal class NavigationPromptFocus(
         val next = AudioFocusRequestCompat(
             AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, routeAttributes, listener, handler,
         )
-        val result = runCatching { next.request(manager) }.getOrDefault(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        val attempt = runCatching { next.request(manager) }
+        NativeAudioScheduler.focusDiagnostics(diagnostics, 1, attempt.getOrDefault(Int.MIN_VALUE))
+        val result = attempt.getOrDefault(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
         val granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (granted) {
             request = next
             heldSince = clock()
-        } else runCatching { next.abandon(manager) }
+        } else {
+            val abandoned = runCatching { next.abandon(manager) }
+            NativeAudioScheduler.focusDiagnostics(diagnostics, 2, abandoned.getOrDefault(Int.MIN_VALUE))
+        }
         val line = "Audio: navigation prompt focus requested trigger=$trigger " +
             "gain=${AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK} " +
             "usage=${routeAttributes.usage} contentType=${routeAttributes.contentType} granted=$result"
@@ -173,6 +183,7 @@ internal class NavigationPromptFocus(
         val held = request ?: return
         request = null
         val result = manager?.let { runCatching { held.abandon(it) }.getOrNull() }
+        if (manager != null) NativeAudioScheduler.focusDiagnostics(diagnostics, 2, result ?: Int.MIN_VALUE)
         // How long the car ducked the music for this prompt.
         val line = "Audio: navigation prompt focus released reason=$reason result=$result " +
             "heldMs=${(clock() - heldSince).coerceAtLeast(0)}"

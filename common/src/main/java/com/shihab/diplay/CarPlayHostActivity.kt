@@ -1298,6 +1298,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        controller?.sampleHostVisibility(true)
         MediaPowerDiagnostics.note("Host started sessionActive=${activeAirPlaySession != null} " +
             MediaPowerDiagnostics.screenState(this))
         // Back in front: failures are visible again and retry as usual.
@@ -1770,6 +1771,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        controller?.sampleHostVisibility(false)
         fpsCounter?.stop()
         closePicturePanel()
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
@@ -4363,6 +4365,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             },
             mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this, wireless = useWirelessTransport),
             onAudioDiagnostic = { message ->
+                if (message.startsWith("Media health ") && message.contains("final=true")) {
+                    val persisted = ShutdownDiagnosticSnapshot.recordMediaFinal(applicationContext, message)
+                    Log.i(TAG, "$message persisted=$persisted")
+                }
                 if (message.startsWith("Microphone: ")) {
                     AsyncDiagnosticLog.append(diagnosticLog, message)
                 } else {
@@ -5645,6 +5651,8 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        val shutdownStartedAt = System.currentTimeMillis()
+        val shutdownStartedElapsed = SystemClock.elapsedRealtime()
         callPopupSessionReady = false
         sidePanelUi.resetSidePanel()
         sidePanelUi.releaseSidePanelEffects()
@@ -5669,7 +5677,11 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (terminateProcess) {
                 applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
             }
-            Log.i(TAG, "shutdown complete clean=$clean")
+            Log.i(TAG, ShutdownDiagnosticSnapshot.record(
+                applicationContext, reason, terminateProcess, shutdownStartedAt, shutdownStartedElapsed,
+                controllerClosed = clean,
+                mediaDiagnostic = oldSink?.diagnosticReport() ?: "media: no sink",
+            ))
             applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
             teardownExecutor.shutdown()
             mainHandler.post { completion() }
@@ -6114,7 +6126,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             activeLog.reset(
                 "DiPlay log started " +
                     "${SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())} " +
-                    "pid=${Process.myPid()} path=${logFile.absolutePath}",
+                    "pid=${Process.myPid()} version=${appVersionName()} versionCode=${appBuildNumber()} " +
+                    "revision=${Regex("-([a-f0-9]{7,40})-[0-9]{8}(?:$|-)").find(appVersionName())?.groupValues?.get(1) ?: "unknown"} " +
+                    "bootCount=${runCatching { android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1) }.getOrDefault(-1)} " +
+                    "logId=${System.currentTimeMillis()} process64Bit=${Process.is64Bit()}",
             )
         }
         sessionLog = activeLog

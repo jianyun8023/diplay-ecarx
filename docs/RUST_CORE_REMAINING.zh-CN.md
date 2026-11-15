@@ -209,3 +209,7 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 `EcarxVehicleSpeedSource`（`shared/.../hud`）把上述只读信号按挡位归集为采样，交给既有 `VehicleSpeedLocationProvider` → Rust `NativeVehicleSpeed` 的 `speedGear／speedSample／speedSnapshot`，仍由 Rust 编码 `$PASCD`。`CarPlayHostActivity` 仅在“向 iPhone 报告位置”开启且 `EcarxVehicleSpeedSource.supported()` 为真时装配；iPhone 停止请求车速时停止车辆信号订阅。服务断开时清空未发送批次，重连后恢复采样（不把旧值当作当前车况）。
 
 验证：Rust `vehicle::vehicle_speed` 单测 5 项（批量、挡位不混淆、非法值／时钟、上限 512 对）；JVM `VehicleSpeedCoreTest`／`NativeVehicleConversionDeviceTest.realWheelSpeedBatchContract` 走真实 host JNI 覆盖 `speedGear／speedSample／speedSnapshot`；`EcarxVehicleSpeedSourceTest`（Robolectric）覆盖订阅、P/R/N/D 映射、未知／错误挡位丢弃、断线恢复与停用回退；双 ABI 均导出 494 个 Java JNI 方法（原 491 加新增 `speedGear／speedSample／speedSnapshot`）。真实车机的单位、权限、断线与组合场景仍属本表“PASCD 真实车速装配”的实车验收，不用台架结果替代。
+
+### 2026-11-15：默认诊断与小米 8 无线复测
+
+诊断实现 `80499891` 完成 Rust 汇总/限频、输出采样、默认日志去重、报告身份及写入健康、平台操作结果和退出/恢复独立记录。ARM64 与 ARMv7 各 23 项设备合同通过；小米 8 / API 35 完成两轮无线连接、MediaSession 播放/暂停/恢复/切歌、前后台和正常退出，用户确认音画正常。记录见[默认诊断小米 8 实测](benchmarks/default-diagnostics-mi8-2026-11-15.md)。默认日志短时约 3.28 KB/min，健康摘要约每分钟一条。被测包版本号仍为 150，151 为后续交付版本号；不改写历史验收。实车 ECARX 服务/导航/蓝牙恢复效果、AEC/通话、长期运行及冷启动矩阵仍待目标硬件验收。

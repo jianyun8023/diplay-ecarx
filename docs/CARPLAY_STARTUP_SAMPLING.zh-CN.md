@@ -3,6 +3,8 @@
 仅针对 **Built-in car hotspot / MANUAL** 与 **Existing Wi-Fi / Same LAN / EXISTING_WIFI**；不新增 P2P 采样。
 记录使用 `SystemClock.elapsedRealtime()`（含休眠的 Android 自启动单调毫秒）；不与 `System.nanoTime()` 的差值相减。
 
+默认日志预算、报告身份与采集完整性见 [默认模式诊断](DIAGNOSTICS_DEFAULT_MODE.zh-CN.md)。
+
 ## 导出与采样
 
 - 车机：DiPlay → 设置 → 诊断 → 保存诊断报告，查看 `Wireless startup timeline` 和紧随其后的 `Wireless startup metrics`，保留最近 80 个阶段事件并从中计算各代次指标。每轮结束立即导出，避免后续重连挤掉本轮证据。时间线还写入 `DiPlay-Startup` logcat 标签；不保存 SSID、设备地址、密码、MFi 内容或异常消息。
@@ -22,25 +24,28 @@
 
 `bootCount` 为系统开机计数，`process` 为进程 PID，`owner` 为进程内控制器标识，`generation` 为同一控制器的重试代次，`attempt` 为蓝牙 bootstrap 尝试序号。指标按 `(bootCount, process, mode, owner, generation)` 分组，避免跨开机、进程重启、控制器或代次拼接。一代内取第一次对应检查点；局部 bootstrap 重试的等待包含在该代耗时内，整栈重启产生另一行。旧版本事件或读不到开机计数的事件只保留原始记录，不生成推测指标。
 
-`outcome` 是所保留记录的观测结果，不是控制器状态：`FAILED` 表示存在失败检查点，`STABLE_FRAME` 表示已记录稳定帧，`FIRST_FRAME` 表示仅有首帧，`INCOMPLETE` 表示两者均未记录。截断、取消或未完成的样本都可能为 `INCOMPLETE`，不能一律算失败；蓝牙 fallback 的首帧也不能冒充隧道稳定帧。缺少起点、终点或时序不合法时耗时为 `unknown`，不记作 0。缺少本代起点时，连 `firstFrameSinceBootMs` 也不计算，防止把截断后残留的重复帧当作最初首帧。
+`outcome` 是所保留记录的观测结果，不是控制器状态：`FAILED` 表示存在失败检查点，`FRAME_AFTER_TUNNEL` 表示已记录隧道启动后的采样帧且未跨过 Host 后台区间，`FIRST_FRAME` 表示仅有首帧，`INCOMPLETE` 表示两者均未记录。截断、取消或未完成的样本都可能为 `INCOMPLETE`，不能一律算失败。缺少起点、终点或时序不合法时耗时为 `unknown`，不记作 0。旧版 `STABLE_VIDEO_FRAME` 可能来自页面返回后的解码器重建，不再参与耗时计算。
+
+隧道启动后只请求一次下一帧输出采样；解码器尚未建立时，在其首帧回调后补请求。Rust 在请求之后的成功输出提交点采集 `CLOCK_BOOTTIME`，不等待整个 Render/Feed 批次结束，不逐帧调用 JNI。`TUNNEL_VIDEO_FRAME` 带 decoder 标识与 epoch。`HOST_STOP/START` 区分前后台；跨后台的隧道耗时为 unknown，`resumeToFrameMs` 单独表示返回前台至下一次解码器首帧/采样帧，不能称为初次建链耗时。输出提交仍不等于物理屏幕可见。
 
 时间线为有限环形记录，不是独立的系统开机监控服务，不自动识别冷启动轮次或计算成功率、p50/p95。
 
 ## 冷启动验收与每包记录
 
-三条指标固定如下；单位均为毫秒，不能混用首帧与稳定帧，也不能把连接代次耗时称为整车冷启动耗时。
+指标单位均为毫秒，不能把连接代次耗时称为整车冷启动耗时。
 
 | 指标 | 报告字段与口径 | 用途 |
 | --- | --- | --- |
 | 系统启动至首帧 | `firstFrameSinceBootMs`：`VIDEO_FIRST_FRAME.elapsedSinceBootMs`；冷启动轮次取第一次成功连接的首帧 | 衡量系统、桌面、应用、网络和连接总路径；不是点火至实际屏幕显示 |
 | 本代连接至首帧 | `runToFirstFrameMs`：本代首次 `VIDEO_FIRST_FRAME - WIRELESS_RUN_START` | 定位连接阶段耗时；不包含先前失败代次 |
-| 本代连接至稳定帧 | `runToStableFrameMs`：本代首次 `STABLE_VIDEO_FRAME - WIRELESS_RUN_START` | 观察隧道升级后的稳定画面回调；fallback 无此事件时保留 `unknown` |
+| 隧道启动至采样帧 | `tunnelToFrameMs`：`TUNNEL_VIDEO_FRAME - TUNNEL_START_SESSION_SENT` | 只使用未跨后台的输出样本；缺失保留 `unknown`，不据单帧声称画面稳定 |
+| 返回前台至输出 | `resumeToFrameMs`：最近一次后台之后的 `HOST_START` 至其后首个输出标记 | 单列页面恢复耗时，不混入连接耗时 |
 
 每个车测包按固定条件至少做 10 轮，冷启动、ACC 唤醒和应用重启分开统计。每轮保留所有代次及失败原因，不能只留下最终成功的一代。耗时对有对应终点的样本分别排序，使用 nearest-rank：p50/p95 分别取第 `ceil(0.50*N)` / `ceil(0.95*N)` 个值，并标明各指标有效 N；10 轮的 p95 等于最大值，不能据此声称尾延迟已经稳定。
 
 每包车测记录必须填写下表，未车测填“未测”，不能用单测或台架数据替代：
 
-| 版本/提交、测试日期、车辆/iOS、热点条件 | 冷启动总轮数 / 首帧成功 / 稳定帧成功 / 失败 / 证据缺失 | 系统启动至首帧 N、p50/p95 | 本代至首帧 N、p50/p95 | 本代至稳定帧 N、p50/p95 | 失败原因、原始报告与录像 |
+| 版本/提交、测试日期、车辆/iOS、热点条件 | 冷启动总轮数 / 首帧成功 / 隧道采样完整 / 失败 / 证据缺失 | 系统启动至首帧 N、p50/p95 | 本代至首帧 N、p50/p95 | 隧道启动至采样帧 N、p50/p95 | 失败原因、原始报告与录像 |
 | --- | --- | --- | --- | --- | --- |
 | 待车测填写 | 未测 | 未测 | 未测 | 未测 | 未测 |
 
