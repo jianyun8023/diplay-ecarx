@@ -550,3 +550,21 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 ### 2026-11-15：默认诊断与小米 8 无线复测
 
 诊断实现 `80499891` 完成 Rust 汇总/限频、输出采样、默认日志去重、报告身份及写入健康、平台操作结果和退出/恢复独立记录。ARM64 与 ARMv7 各 23 项设备合同通过；小米 8 / API 35 完成两轮无线连接、MediaSession 播放/暂停/恢复/切歌、前后台和正常退出，用户确认音画正常。记录见[默认诊断小米 8 实测](benchmarks/default-diagnostics-mi8-2026-11-15.md)。默认日志短时约 3.28 KB/min，健康摘要约每分钟一条。被测包版本号仍为 150，151 为后续交付版本号；不改写历史验收。实车 ECARX 服务/导航/蓝牙恢复效果、AEC/通话、长期运行及冷启动矩阵仍待目标硬件验收。
+
+## 核心职责重构分支（2026-11-17，rust-carplay-control-ownership）
+
+基于 `origin/dev@9ae06f13` 的重构分支，按功能分独立 commit（非最小化改动）：
+
+- **Area 5c**：`session::controller` 的 `header: [i64; 14]` 改为具名 `ControllerState` 字段，`Vpn`/`Proof` 位标志改具名 bool，事件/决策/key/VPN/proof/dashboard 码改枚举，仅在 JNI 边界转换一次；14 字 + 键向量、`[active,generation]`、`[generation,flags]` 三处 wire 布局与 `valid_header` 区间、可观测结果逐字节不变（`23ce566e`）。附带：音频焦点 token 具名化（`7b754547`）；删除无调用者的 `NativeMedia.openRtp` 并对齐平台态（`632a3557`、`d77bb4a9`）。
+- **Area 4**：删除只做取反的伪 JNI `audioOutputMayStop`/`screenOutputMayStop`/`usbRestore`，连同其 JNI 导出、Kotlin 声明与测试影子；USB 回退改为直接判断平台 Apple 设备事实。
+- **Area 3**：新增 Rust `media::output_lease` 拥有非缓冲流身份与输出共享租约（键含引擎 epoch／kind／stream type／audioType／持有会话），仅某输出身份最后释放才允许停止；Kotlin 在注册点 acquire、在 teardown／会话关闭／对端 EOF／替换点 release 并据返回值决定停止，多会话共存由 `CarPlaySharedOutputCleanupTest` 守护（`84f25f2b`）。
+- **Area 1**：控制加密启用时机迁入 `session::airplay::after_response`（`3ebff66e`）；wired 配对／CarKit 重试与终端结果分类迁入 `session::wired_stack`（`4f8ef73e`、`7134ed6b`）。wired 的 USBMUX／Lockdown／NCM／VPN I/O 序列仍由 Kotlin 执行，符合既有边界“Rust 决定、Kotlin 执行平台动作并回报”。
+
+| 验证 | 结果 |
+| --- | --- |
+| Rust `cargo test --locked --lib` | 307 passed / 0 failed / 0 warnings |
+| `:shared:testDebugUnitTest` | 2101 passed / 0 failed |
+| `:common:testDebugUnitTest` | 1659 passed / 0 failed |
+| 未在本机执行 | lint／assemble／三 ABI Android 原生编译与真机 wired 验证；留待 CI 与真机（wired 需 USB 连接的 iPhone） |
+
+剩余：wired `runStack` 的 I/O 串行组合仍留 Kotlin；如需 Rust 以 event→action 驱动整段 I/O 顺序，属高风险改动，应在真机／CI wired 回归可用时再合入，不以盲改替代验证。
