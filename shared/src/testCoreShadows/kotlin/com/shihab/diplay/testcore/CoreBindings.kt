@@ -186,8 +186,11 @@ open class ShadowNativeMedia {
         @JvmStatic @Implementation fun bufferedCommit(handle: Long, generation: Long): Boolean =
             HostNative.call("airplay.NativeMedia", "bufferedCommit", handle, generation) as Boolean
 
-        @JvmStatic @Implementation fun bufferedControl(handle: Long, op: Int, timestamp: Long, rate: Int, ntpSeconds: Long, ntpFraction: Long, nowNanos: Long, out: LongArray) {
-            HostNative.call("airplay.NativeMedia", "bufferedControl", handle, op, timestamp, rate, ntpSeconds, ntpFraction, nowNanos, out)
+        @JvmStatic @Implementation fun bufferedPlan(method: String, body: Map<String, Any?>): LongArray =
+            HostNative.call("airplay.NativeMedia", "bufferedPlan", method, body) as LongArray
+
+        @JvmStatic @Implementation fun bufferedControl(handle: Long, op: Int, hasTimestamp: Boolean, timestamp: Long, rate: Int, ntpSeconds: Long, ntpFraction: Long, nowNanos: Long, out: LongArray) {
+            HostNative.call("airplay.NativeMedia", "bufferedControl", handle, op, hasTimestamp, timestamp, rate, ntpSeconds, ntpFraction, nowNanos, out)
         }
 
         @JvmStatic @Implementation fun bufferedAnchor(snapshot: LongArray): Map<String, Any?>? =

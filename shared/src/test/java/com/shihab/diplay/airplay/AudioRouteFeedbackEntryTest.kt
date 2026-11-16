@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Before
 import java.math.BigInteger
 
 /**
@@ -11,6 +12,7 @@ import java.math.BigInteger
  * library runs the same Rust core as production. Clock reads stay on the caller.
  */
 class AudioRouteFeedbackEntryTest {
+    @Before fun loadNativeCore() { NativeMedia.requireAvailable() }
     private fun entry(
         clockRate: Int, firstSample: Int, originNs: Long, nowNs: Long, latencyMs: Int,
         connection: Any?, timestamp: Any?,

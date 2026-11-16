@@ -365,21 +365,24 @@ class CarPlayMediaEngine(
         if (!synchronized(bufferedOwnershipLock) { mayInstallBufferedLocked(session) }) return null
         val type = BufferedAudioStream.STREAM_TYPE
         val streamKey = StreamKey(session, type, "media")
-        val key = stream["shk"] as? ByteArray
-        if (key == null || key.size != 32) {
-            Log.w(TAG, "buffered audio SETUP without a 32-byte shk; declined")
-            return null
+        val plan = NativeAirPlayProtocol.bufferedSetupPlan(stream)
+        when (plan.failure) {
+            NativeAirPlayProtocol.BufferedSetupFailure.KEY -> {
+                Log.w(TAG, "buffered audio SETUP without a 32-byte shk; declined")
+                return null
+            }
+            NativeAirPlayProtocol.BufferedSetupFailure.FORMAT -> {
+                Log.w(TAG, "buffered audio format ${stream["audioFormat"]} is not AAC-LC; declined")
+                return null
+            }
+            NativeAirPlayProtocol.BufferedSetupFailure.PARAMETERS -> {
+                Log.w(TAG, "buffered audio requires AAC and 1024 samples per frame; declined")
+                return null
+            }
+            NativeAirPlayProtocol.BufferedSetupFailure.NONE -> Unit
         }
-        val format = AudioStreamCodec.fromFormatBits((stream["audioFormat"] as? Number)?.toLong() ?: 0L, type, "media")
-        if (format.codec != AudioCodecKind.AAC_LC) {
-            Log.w(TAG, "buffered audio format ${stream["audioFormat"]} is not AAC-LC; declined")
-            return null
-        }
-        if (stream["ct"]?.let { it !is Number || it.toInt() != 4 } == true ||
-            stream["spf"]?.let { it !is Number || it.toInt() != 1024 } == true) {
-            Log.w(TAG, "buffered audio requires AAC and 1024 samples per frame; declined")
-            return null
-        }
+        val key = checkNotNull(plan.key)
+        val format = AudioStreamCodec.fromFormatBits(plan.formatBits, type, "media")
         val peer = session.remoteAddress ?: return null
         val buffered = try {
             BufferedAudioStream(key, format, sink, session::logDebug, expectedPeer = peer)
@@ -429,11 +432,7 @@ class CarPlayMediaEngine(
         buffered.start()
         if (bufferedStreams[session] !== candidate) return null
         Log.i(TAG, "buffered audio stream client=${stream["clientID"]} rate=${format.sampleRate} port=${buffered.port}")
-        return linkedMapOf(
-            "type" to type,
-            "dataPort" to buffered.port,
-            "audioBufferSize" to BufferedAudioStream.AUDIO_BUFFER_BYTES,
-        )
+        return NativeAirPlayProtocol.bufferedSetupReply(buffered.port)
     }
 
     override fun onBufferedAudioControl(
@@ -442,22 +441,15 @@ class CarPlayMediaEngine(
         body: Map<String, Any?>,
     ): Map<String, Any?>? {
         val buffered = synchronized(bufferedOwnershipLock) { bufferedStreams[session]?.stream } ?: return null
-        val rtpTime = (body["rtpTime"] as? Number)?.toLong()
-        val rate = when ((body["rate"] as? Number)?.toDouble()) {
-            0.0 -> 0
-            1.0 -> 1
-            else -> null
-        }
-        return when (method) {
-            "SETRATE", "SETRATEANCHORTIME" -> {
-                if (rate == null || rate !in 0..1) null else buffered.setRate(rtpTime, rate, session.syncedNtp())
-            }
-            "GETANCHOR" -> buffered.anchor()
-            "FLUSHBUFFERED" -> {
-                (body["flushUntilTS"] as? Number)?.toLong()?.let { buffered.flush(it) }
+        val plan = BufferedAudioControlPolicy.plan(method, body)
+        return when (plan.action) {
+            BufferedControlAction.SET_RATE -> buffered.setRate(plan.timestamp, plan.rate, session.syncedNtp())
+            BufferedControlAction.GET_ANCHOR -> buffered.anchor()
+            BufferedControlAction.FLUSH -> {
+                buffered.flush(plan.timestamp)
                 null
             }
-            else -> null
+            BufferedControlAction.NONE -> null
         }
     }
 

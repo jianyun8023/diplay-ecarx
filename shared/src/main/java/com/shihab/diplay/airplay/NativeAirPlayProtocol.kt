@@ -28,6 +28,19 @@ internal object NativeAirPlayProtocol {
     const val REPLY_AUDIO = 0
     const val REPLY_REMOTE_CONTROL = 1
     const val REPLY_DATA = 2
+    private const val REPLY_BUFFERED = 3
+
+    enum class BufferedSetupFailure { NONE, KEY, FORMAT, PARAMETERS }
+    class BufferedSetupPlan(val failure: BufferedSetupFailure, val key: ByteArray?, val formatBits: Long)
+
+    fun bufferedSetupPlan(stream: Map<String, Any?>): BufferedSetupPlan {
+        val plan = bufferedSetup(stream)
+        return BufferedSetupPlan(BufferedSetupFailure.entries[plan["reason"] as Int],
+            plan["key"] as ByteArray?, plan["formatBits"] as Long)
+    }
+
+    fun bufferedSetupReply(port: Int): Map<String, Any?> =
+        checkNotNull(setupReply(REPLY_BUFFERED, 103, 0L, port, 0, null))
 
     class AudioSetupPlan(
         val outputKey: ByteArray?,
@@ -92,6 +105,7 @@ internal object NativeAirPlayProtocol {
         sharedSecret: ByteArray?,
         microphoneEnabled: Boolean,
     ): Map<String, Any?>?
+    @JvmStatic private external fun bufferedSetup(stream: Map<String, Any?>): Map<String, Any?>
     @JvmStatic private external fun dataStreamSetup(stream: Map<String, Any?>): Map<String, Any?>?
     @JvmStatic external fun dataStreamKey(sharedSecret: ByteArray, seed: String, label: String): ByteArray?
     @JvmStatic external fun setupReply(

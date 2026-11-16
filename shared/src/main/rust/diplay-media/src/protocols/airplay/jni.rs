@@ -777,6 +777,53 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
     (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()))
 }
 
+/// Buffered SETUP reads only the fields reached by the original host validation order.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_bufferedSetup(
+    env: *mut JNIEnv, _class: jclass, stream: jobject,
+) -> jobject {
+    let f = &**env;
+    if (f.PushLocalFrame.unwrap())(env, 32) < 0 { return null_mut(); }
+    let result = (|| -> Option<jobject> {
+        let key = map_get(env, stream, "shk")?;
+        let bytes = (f.FindClass.unwrap())(env, c"[B".as_ptr());
+        if bytes.is_null() { return None; }
+        let mut reason = 0;
+        let mut bits = 0i64;
+        if key.is_null() || (f.IsInstanceOf.unwrap())(env, key, bytes) == 0 ||
+            (f.GetArrayLength.unwrap())(env, key as jbyteArray) != 32 {
+            reason = 1;
+        } else {
+            let value = map_get(env, stream, "audioFormat")?;
+            bits = number_long(env, value).unwrap_or(0);
+            if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+            if !setup::buffered_format_supported(bits) {
+                reason = 2;
+            } else {
+                for (name, expected) in [("ct", 4), ("spf", 1024)] {
+                    let value = map_get(env, stream, name)?;
+                    let number = number_int(env, value);
+                    if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+                    if !setup::buffered_optional_int_valid(!value.is_null(), number, expected) {
+                        reason = 3;
+                        break;
+                    }
+                }
+            }
+        }
+        let plan = super::dict([
+            ("reason", Value::Int32(reason)),
+            ("formatBits", Value::Int(bits as u64)),
+            ("key", Value::Null),
+        ]);
+        let map = write_value(env, &plan)?;
+        if reason == 0 { replace_map_value(env, map, "key", key); }
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        Some(map)
+    })();
+    (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()))
+}
+
 /// Interprets one data-stream SETUP request: the control type, the seed decimal and the
 /// connection decimal the setup log and reply need.
 #[no_mangle]
@@ -859,6 +906,9 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
         return null_mut();
     }
     let result = (|| -> Option<jobject> {
+        if operation == setup::REPLY_BUFFERED {
+            return write_value(env, &setup::buffered_reply(data_port));
+        }
         let (slot, external) = connection_field(env, connection, operation == setup::REPLY_AUDIO)?;
         let value = match operation {
             setup::REPLY_AUDIO => setup::audio_reply(stream_type, data_port, control_port,

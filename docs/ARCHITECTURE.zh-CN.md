@@ -279,10 +279,16 @@ session 引用及 Handler 留 Kotlin；Host／服务的 pending、1500 ms 释放
 仍被其他 session 注册时，旧 session 关闭不能停止它。现有 buffered 退休屏障、锁及输出释放顺序保留，
 这一步不迁移 owner，也不宣称解决了所有共享输出替换问题。
 
-后续依次处理缓冲音频请求字段解释、仪表内容发送／提交、共享输出归属。缓冲 SETUP 计划扩展
-`protocols::airplay::setup`，控制操作解释归现有 buffered owner；NativeAirPlayProtocol 一次转为具名计划。
-仪表分别保留 Controller 接受选择与 session 实际交付的寿命，按 showUI／关键帧的各自执行结果与 stream
-代际提交。共享输出最后迁移；关闭旧流和报告清理完成仍由 Kotlin 执行，不能删除资源锁或释放屏障。
+缓冲音频 SETUP 的 shk／AAC／ct／spf 解释及 type／dataPort／audioBufferSize 回复布局已收归
+`protocols::airplay::setup`，NativeAirPlayProtocol 一次转为具名计划。控制请求的 method、rate、rtpTime、
+flushUntilTS 解释归现有 `media::audio::buffered`，继续复用锚点、队列与回复 owner。保留 Java Number
+方法及原读取顺序、缺省／拒绝行为，Kotlin 传完整 Long 与 presence，buffered JNI 执行 U32 转换；
+缺失不与负时间戳混用，只有合法 SETRATE 才读取 NTP。
+Kotlin 继续查找流、读取 peer、创建和绑定端口、执行控制及清理动作，资源锁与退休屏障不变。
+
+后续依次处理仪表内容发送／提交、共享输出归属。仪表分别保留 Controller 接受选择与 session 实际交付
+的寿命，按 showUI／关键帧的各自执行结果与 stream 代际提交。共享输出最后迁移；关闭旧流和报告清理
+完成仍由 Kotlin 执行，不能删除资源锁或释放屏障。
 
 失败恢复由三层共同执行：握手 attempt／wireless run 的预算和状态仍归 Rust 原有 owner；
 `session::connection_recovery` 统一全栈恢复动作、宿主两套重试计数、重置规则及退避；Kotlin 宿主保留

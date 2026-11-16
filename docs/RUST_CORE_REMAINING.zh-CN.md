@@ -222,6 +222,36 @@ pending microphone 和 capture。旧 session 关闭不停止仍被另一 session
 四种寿命及平台职责见[架构边界](ARCHITECTURE.zh-CN.md#8-新代码放在哪)；本轮仅实施第一批隔离，
 其余三批是后续方案，不表示已完成迁移。
 
+## 缓冲音频 SETUP 与控制请求规则（2026-11-16）
+
+基于已提交的隔离修复 `04887377`，先在旧宿主补合同，再扩展现有 Rust owner：
+`protocols::airplay::setup` 解释 shk／audioFormat／ct／spf 并生成 type 103 回复；现有
+`media::audio::buffered` 解释控制 method、rate、rtpTime、flushUntilTS，复用原锚点、队列与回复状态。
+NativeAirPlayProtocol 和 buffered facade 各一次转为具名计划，Kotlin 保留流查找、peer、创建／绑定端口、
+时钟采样及平台执行。共享输出 owner、资源锁、退休屏障和原生数据直连不在本批迁移范围内。
+
+Java Number 的 longValue／intValue／doubleValue、缺省、拒绝顺序和异常身份保持；ct／spf 缺失或 null
+仍接受，截断数值按旧行为判断，rate 的 -0.0 仍等于 0，NaN／非 0 或 1 被拒。拒绝 SETUP 不退休健康流。
+控制先找到所属 session 流，再读 rtpTime、rate；仅 FLUSH 继续读 flushUntilTS，只有合法 SETRATE 才读取
+NTP。RTP 以 presence 加完整 Long 跨 JNI，由 Rust 归一到 U32，缺失与 -1／MIN／MAX 分别处理。
+SETUP 回复保持 type／dataPort／audioBufferSize 的 Int 字段顺序，不新增 streamConnectionID；8 MiB
+取现有 buffered 容量常量，原 Kotlin 重复常量已删除。anchor／feedback 的类型和线格式继续沿用原 owner。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | 首轮 Host 5、reply 2、独立 buffered reference 9 共 16 项通过；补强缺省、锚点不变、FLUSH 实际调用与异常短路后，旧 Host API 28 的 6 项通过 |
+| 迁移后 shared JVM | 44 项通过：Host 6、独立字段参考 2、reply 2、旧 buffered reference 9、engine 7、session isolation 10、route feedback 3、NativeAirPlayProtocol 5；字段参考含 10 组 SETUP 与 240 组控制组合，经真实 host JNI 对照 |
+| Rust 1.97.1 | buffered 专项 6 项、setup 专项 8 项通过，其中 1 项重合，共 13 个不同测试 |
+| Android 测试源码 | `:shared:compileDebugAndroidTestKotlin` 通过，仪器测试未在设备执行 |
+| R8 | mobile 实际执行通过，maphost 为 UP-TO-DATE；两处新增 JNI 沿用已有 native 整类保留规则 |
+| 三 ABI | Rust 1.97.1／NDK 28.2.13676358／API 28 的 ARM64、ARMv7、x86_64 均编译通过；各 604 个 Java JNI 导出及 JNI_OnLoad 一致，ELF／来源校验通过；原 bufferedControl 签名含 presence，声明、调用和 host shadow 同步 |
+
+另修复 AudioRouteFeedbackEntryTest 的独立运行前置条件：显式加载 mandatory native，避免依赖其他测试
+先触发 lazy load；不是本批媒体策略回归。本地日志：`/tmp/buffered-contract-{old,old-api28}.log`、
+`/tmp/buffered-final-gradle.log`、`/tmp/buffered-u32-cargo.log`、`/tmp/buffered-final-setup-cargo.log`、
+`/tmp/buffered-protocol-abi.log`。当前未发现可执行 Android 测试的在线设备；本批未构建完整 APK，
+未完成设备／实车验收，不将 API 28 Robolectric 与主机 JNI 结果记作设备端 native TCP／共享音路验收。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

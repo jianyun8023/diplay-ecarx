@@ -85,8 +85,9 @@ internal object NativeMedia {
     /** Retained packet; out: sample, first frame, output generation. Commit after the platform start callback. */
     @JvmStatic external fun bufferedNext(handle: Long, nowNanos: Long, out: LongArray): Long
     @JvmStatic external fun bufferedCommit(handle: Long, generation: Long): Boolean
+    @JvmStatic external fun bufferedPlan(method: String, body: Map<String, Any?>): LongArray
     /** 0 anchor, 1 rate, 2 flush, 3 feedback. out: RTP (-1 absent), NTP seconds/fraction, rate, stop output. */
-    @JvmStatic external fun bufferedControl(handle: Long, op: Int, timestamp: Long, rate: Int,
+    @JvmStatic external fun bufferedControl(handle: Long, op: Int, hasTimestamp: Boolean, timestamp: Long, rate: Int,
         ntpSeconds: Long, ntpFraction: Long, nowNanos: Long, out: LongArray)
     @JvmStatic external fun bufferedAnchor(snapshot: LongArray): Map<String, Any?>?
     @JvmStatic external fun bufferedFeedback(type: Int, sampleRate: Int, position: Long, connectionId: Any?,

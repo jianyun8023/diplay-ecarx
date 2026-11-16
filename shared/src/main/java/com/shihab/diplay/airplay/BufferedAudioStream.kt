@@ -9,6 +9,18 @@ import java.net.Socket
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal enum class BufferedControlAction { NONE, SET_RATE, GET_ANCHOR, FLUSH }
+internal data class BufferedControlPlan(val action: BufferedControlAction, val timestamp: Long?, val rate: Int)
+
+internal object BufferedAudioControlPolicy {
+    init { NativeMedia.requireAvailable() }
+    fun plan(method: String, body: Map<String, Any?>): BufferedControlPlan {
+        val values = NativeMedia.bufferedPlan(method, body)
+        return BufferedControlPlan(BufferedControlAction.entries[values[0].toInt()],
+            values[2].takeIf { values[1] != 0L }, values[3].toInt())
+    }
+}
+
 /**
  * CarPlay's main buffered audio (WWDC23 "Enhanced buffering"). For apps that support it (Apple Music),
  * the iPhone sends music ahead of time over TCP, here up to about two minutes, so short Wi-Fi gaps do
@@ -158,7 +170,7 @@ internal class BufferedAudioStream(
         val now = nanoTime()
         val position = if (closed.get()) -1L else {
             val values = LongArray(5)
-            NativeMedia.bufferedControl(nativeCore, 3, -1, 0, 0, 0, now, values)
+            NativeMedia.bufferedControl(nativeCore, 3, false, 0, 0, 0, 0, now, values)
             values[0]
         }
         NativeMedia.bufferedFeedback(format.payloadType, format.sampleRate, position,
@@ -169,7 +181,7 @@ internal class BufferedAudioStream(
     private fun nativeControl(op: Int, timestamp: Long? = null, newRate: Int = 0,
         ntp: BigInteger = BigInteger.ZERO): Map<String, Any?>? {
         val values = LongArray(5)
-        NativeMedia.bufferedControl(nativeCore, op, timestamp?.and(U32) ?: -1, newRate,
+        NativeMedia.bufferedControl(nativeCore, op, timestamp != null, timestamp ?: 0L, newRate,
             ntp.shiftRight(32).toLong(), ntp.and(BigInteger.valueOf(U32)).toLong(), nanoTime(), values)
         if (values[4] != 0L) runCatching { sink.onAudioStopped(id) }
             .onFailure { log("Buffered audio: output cleanup failed (${it.javaClass.simpleName})") }
@@ -205,8 +217,6 @@ internal class BufferedAudioStream(
     companion object {
         private const val TAG = "diplay-usb"
         const val STREAM_TYPE = 103
-        /** Advertised and locally enforced; a full buffer applies TCP backpressure. */
-        const val AUDIO_BUFFER_BYTES = 8 * 1024 * 1024
         private const val FEED_POLL_MILLIS = 20L
         private const val U32 = 0xffff_ffffL
     }

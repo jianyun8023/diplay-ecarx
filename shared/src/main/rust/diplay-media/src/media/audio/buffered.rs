@@ -3,7 +3,7 @@
 use crate::protocols::crypto::{StreamKey, TAG_LEN};
 use crate::platform::jvm::Env;
 use crate::media::packet::{self, shared_pool};
-use jni_sys::{jbyteArray, jclass, jint, jlong, JNIEnv};
+use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jstring, jvalue, JNIEnv};
 use crate::media::audio::buffered_state::BufferedAudio;
 use crate::protocols::bplist::{self, Value};
 #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -11,6 +11,95 @@ use crate::media::audio::queue::AudioPacket;
 use std::sync::{Arc, Mutex, Condvar};
 
 struct Buffered { state: Mutex<BufferedAudio>, changed: Condvar }
+
+// Actions: 0 no-op, 1 set rate, 2 anchor, 3 flush. Timestamp presence is separate from its full i64 value.
+fn control_plan(method: &str, rtp: Option<i64>, rate: Option<f64>, flush: Option<i64>) -> [i64; 4] {
+    let (action, timestamp, rate) = match method {
+        "SETRATE" | "SETRATEANCHORTIME" if rate == Some(0.0) => (1, rtp, 0),
+        "SETRATE" | "SETRATEANCHORTIME" if rate == Some(1.0) => (1, rtp, 1),
+        "GETANCHOR" => (2, None, 0),
+        "FLUSHBUFFERED" if flush.is_some() => (3, flush, 0),
+        _ => (0, None, 0),
+    };
+    [action, timestamp.is_some() as i64, timestamp.unwrap_or(0), rate]
+}
+
+#[cfg(test)]
+mod control_plan_tests {
+    use super::*;
+
+    #[test]
+    fn preserves_full_timestamp_and_rate_decisions() {
+        for value in [i64::MIN, -1, 0, i64::MAX] {
+            assert_eq!(control_plan("SETRATE", Some(value), Some(1.0), None), [1, 1, value, 1]);
+            assert_eq!(control_plan("FLUSHBUFFERED", None, None, Some(value)), [3, 1, value, 0]);
+        }
+        assert_eq!(control_plan("SETRATE", None, Some(-0.0), None), [1, 0, 0, 0]);
+        assert_eq!(control_plan("SETRATE", None, Some(f64::NAN), None), [0, 0, 0, 0]);
+        assert_eq!(control_plan("GETANCHOR", None, None, None), [2, 0, 0, 0]);
+        assert_eq!(control_plan("FLUSHBUFFERED", None, None, None), [0, 0, 0, 0]);
+    }
+}
+
+unsafe fn control_field(env: *mut JNIEnv, map: jobject, name: &std::ffi::CStr) -> Option<jobject> {
+    let f = &**env;
+    let class = (f.GetObjectClass.unwrap())(env, map);
+    if class.is_null() { return None; }
+    let method = (f.GetMethodID.unwrap())(env, class, c"get".as_ptr(), c"(Ljava/lang/Object;)Ljava/lang/Object;".as_ptr());
+    if method.is_null() { return None; }
+    let key = (f.NewStringUTF.unwrap())(env, name.as_ptr());
+    if key.is_null() { return None; }
+    let value = (f.CallObjectMethodA.unwrap())(env, map, method, [jvalue { l: key }].as_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(value) }
+}
+
+unsafe fn control_number_long(env: *mut JNIEnv, value: jobject) -> Option<Option<i64>> {
+    let f = &**env;
+    let number = (f.FindClass.unwrap())(env, c"java/lang/Number".as_ptr());
+    if number.is_null() { return None; }
+    if value.is_null() || (f.IsInstanceOf.unwrap())(env, value, number) == 0 { return Some(None); }
+    let method = (f.GetMethodID.unwrap())(env, number, c"longValue".as_ptr(), c"()J".as_ptr());
+    if method.is_null() { return None; }
+    let result = (f.CallLongMethodA.unwrap())(env, value, method, std::ptr::null());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(Some(result)) }
+}
+
+unsafe fn control_number_double(env: *mut JNIEnv, value: jobject) -> Option<Option<f64>> {
+    let f = &**env;
+    let number = (f.FindClass.unwrap())(env, c"java/lang/Number".as_ptr());
+    if number.is_null() { return None; }
+    if value.is_null() || (f.IsInstanceOf.unwrap())(env, value, number) == 0 { return Some(None); }
+    let method = (f.GetMethodID.unwrap())(env, number, c"doubleValue".as_ptr(), c"()D".as_ptr());
+    if method.is_null() { return None; }
+    let result = (f.CallDoubleMethodA.unwrap())(env, value, method, std::ptr::null());
+    if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(Some(result)) }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedPlan(
+    env: *mut JNIEnv, _class: jclass, method: jstring, body: jobject,
+) -> jlongArray {
+    let f = &**env;
+    if (f.PushLocalFrame.unwrap())(env, 24) < 0 { return std::ptr::null_mut(); }
+    let result = (|| -> Option<jlongArray> {
+        let rtp = control_number_long(env, control_field(env, body, c"rtpTime")?)?;
+        let rate = control_number_double(env, control_field(env, body, c"rate")?)?;
+        let size = (f.GetStringLength.unwrap())(env, method);
+        let mut units = vec![0u16; size as usize];
+        (f.GetStringRegion.unwrap())(env, method, 0, size, units.as_mut_ptr());
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        let method = String::from_utf16_lossy(&units);
+        let flush = if method == "FLUSHBUFFERED" {
+            control_number_long(env, control_field(env, body, c"flushUntilTS")?)?
+        } else { None };
+        let words = control_plan(&method, rtp, rate, flush);
+        let out = (f.NewLongArray.unwrap())(env, words.len() as jint);
+        if out.is_null() { return None; }
+        (f.SetLongArrayRegion.unwrap())(env, out, 0, words.len() as jint, words.as_ptr());
+        if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(out) }
+    })();
+    (f.PopLocalFrame.unwrap())(env, result.unwrap_or(std::ptr::null_mut())) as jlongArray
+}
 
 fn open_packet(key: &StreamKey, packet: &mut packet::Packet) -> Option<usize> {
     let length = packet.len();
@@ -91,13 +180,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_buffere
 /// op 0 GETANCHOR, 1 SETRATE, 2 FLUSH, 3 feedback. All times are sampled by the caller once.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedControl(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, op: jint, timestamp: jlong, rate: jint,
+    env: *mut JNIEnv, _class: jclass, handle: jlong, op: jint, has_timestamp: jboolean, timestamp: jlong, rate: jint,
     ntp_seconds: jlong, ntp_fraction: jlong, now_ns: jlong, out: jni_sys::jlongArray,
 ) {
     if handle == 0 || Env(env).array_len(out) < 5 { return; }
     let owner = owner(handle);
     let mut state = owner.state.lock().unwrap();
-    let timestamp = (timestamp >= 0).then_some(timestamp as u32);
+    let timestamp = (has_timestamp != 0).then_some(timestamp as u32);
     let ntp = ((ntp_seconds as i128) << 32) + ntp_fraction as u32 as i128;
     let stop = match op {
         1 => state.set_rate(timestamp, rate, ntp, now_ns),

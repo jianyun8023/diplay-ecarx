@@ -18,6 +18,21 @@ pub(super) const INPUT_KEY_LABEL: &str = "DataStream-Input-Encryption-Key";
 pub(super) const REPLY_AUDIO: i32 = 0;
 pub(super) const REPLY_REMOTE_CONTROL: i32 = 1;
 pub(super) const REPLY_DATA: i32 = 2;
+pub(super) const REPLY_BUFFERED: i32 = 3;
+
+pub(super) fn buffered_format_supported(bits: i64) -> bool { format_bits(bits as u64)[0] == 0 }
+
+pub(super) fn buffered_optional_int_valid(present: bool, value: Option<i32>, expected: i32) -> bool {
+    !present || value == Some(expected)
+}
+
+pub(super) fn buffered_reply(data_port: i32) -> Value {
+    Value::Dict(vec![
+        ("type".encode_utf16().collect(), Value::Int32(103)),
+        ("dataPort".encode_utf16().collect(), Value::Int32(data_port)),
+        ("audioBufferSize".encode_utf16().collect(), Value::Int32(crate::media::audio::buffered_state::BUFFER_BYTES as i32)),
+    ])
+}
 
 /// Calls and Siri always record. App audio ("default", e.g. a WhatsApp voice note) also carries
 /// guidance prompts, so it records only when the iPhone asks for input: an explicit `input` flag,
@@ -162,6 +177,17 @@ pub(super) fn data_reply(stream_type: i32, stream_id: i64, data_port: Option<i32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn buffered_setup_format_and_optional_values_preserve_existing_rules() {
+        assert!(buffered_format_supported(0x800000));
+        assert!(!buffered_format_supported(0));
+        assert!(!buffered_format_supported(0x70800000));
+        assert!(buffered_optional_int_valid(false, None, 4));
+        assert!(buffered_optional_int_valid(true, Some(4), 4));
+        assert!(!buffered_optional_int_valid(true, None, 4));
+        assert!(!buffered_optional_int_valid(true, Some(3), 4));
+    }
 
     #[test]
     fn microphone_requests_follow_the_audio_type_and_explicit_input() {
