@@ -1,5 +1,6 @@
 //! Buffered music: TCP framing/decryption, bounded intake, pacing and the playback state owner.
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 use crate::protocols::crypto::{StreamKey, TAG_LEN};
 use crate::platform::jvm::Env;
 use crate::media::packet::{self, shared_pool};
@@ -101,6 +102,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_buffere
     (f.PopLocalFrame.unwrap())(env, result.unwrap_or(std::ptr::null_mut())) as jlongArray
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 fn open_packet(key: &StreamKey, packet: &mut packet::Packet) -> Option<usize> {
     let length = packet.len();
     if length < RTP_HEADER_LEN + TAG_LEN + NONCE_LEN { return None; }
@@ -113,7 +115,9 @@ fn open_packet(key: &StreamKey, packet: &mut packet::Packet) -> Option<usize> {
     key.open(nonce, &aad, &mut wire[RTP_HEADER_LEN..length - NONCE_LEN])
 }
 
+#[cfg(any(target_os = "android", target_os = "linux"))]
 const RTP_HEADER_LEN: usize = 12;
+#[cfg(any(target_os = "android", target_os = "linux"))]
 const NONCE_LEN: usize = 8;
 
 #[no_mangle]
