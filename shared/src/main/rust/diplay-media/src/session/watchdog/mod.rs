@@ -240,3 +240,20 @@ fn start_again(
         1
     }
 }
+
+#[cfg(test)]
+mod budget_tests {
+    use super::budget;
+
+    /// The single source of truth the Kotlin `Iap2BootstrapPolicy` reads for its phase budgets.
+    #[test]
+    fn bootstrap_budget_table_matches_the_published_phase_limits() {
+        assert_eq!(budget(1), 45_000);
+        assert_eq!(budget(2), 30_000);
+        assert_eq!(budget(3), 65_000);
+        assert_eq!(budget(4), 45_000);
+        assert_eq!(budget(5), 45_000);
+        assert_eq!(budget(0), 0);
+        assert_eq!(budget(6), 0);
+    }
+}

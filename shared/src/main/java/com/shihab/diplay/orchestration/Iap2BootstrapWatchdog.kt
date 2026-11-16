@@ -86,20 +86,21 @@ internal object Iap2BootstrapPolicy {
      * RFCOMM connect to a live iAP2 peer plus CSM negotiation. The 45 s budget covers the 34.6 s
      * long-tail sample with margin, so a slow but healthy link is not mistaken for a dead one.
      */
-    const val RFCOMM_TO_CSM_MILLIS = 45_000L
+    // Single source of truth: the Rust watchdog budget table (`session::watchdog::budget`).
+    val RFCOMM_TO_CSM_MILLIS: Long get() = StartupWatchdogCore.budget(Iap2BootstrapPhase.CSM_ESTABLISHED.ordinal)
 
     /** Identification exchange plus MFi authentication. */
-    const val CSM_TO_MFI_MILLIS = 30_000L
+    val CSM_TO_MFI_MILLIS: Long get() = StartupWatchdogCore.budget(Iap2BootstrapPhase.MFi_AUTHENTICATED.ordinal)
 
     /**
      * Authenticated phone → any further bootstrap progress. Held just above
      * [Iap2WirelessControlClient]'s 60 s transport wait, which already names the "answered nothing"
      * case, so this only fires when that wait is bypassed by partial progress.
      */
-    const val MFI_TO_PROGRESS_MILLIS = 65_000L
+    val MFI_TO_PROGRESS_MILLIS: Long get() = StartupWatchdogCore.budget(Iap2BootstrapPhase.WIRELESS_CARPLAY_AVAILABLE.ordinal)
 
     /** Partial progress (availability / transport identifier) then silence before StartSession. */
-    const val PARTIAL_PROGRESS_MILLIS = 45_000L
+    val PARTIAL_PROGRESS_MILLIS: Long get() = StartupWatchdogCore.budget(Iap2BootstrapPhase.TRANSPORT_IDENTIFIED.ordinal)
 
     fun budgetToReach(missing: Iap2BootstrapPhase): Long = StartupWatchdogCore.budget(missing.ordinal)
 }

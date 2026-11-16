@@ -125,13 +125,13 @@ internal class WirelessBootstrapRecovery(
         const val PHASE_SAFETY_MARGIN_MILLIS = 5_000L
 
         /** CSM wait safety net; the phase budget is [Iap2BootstrapPolicy.RFCOMM_TO_CSM_MILLIS]. */
-        const val CSM_TIMEOUT_MILLIS = Iap2BootstrapPolicy.RFCOMM_TO_CSM_MILLIS + PHASE_SAFETY_MARGIN_MILLIS
+        val CSM_TIMEOUT_MILLIS: Long get() = Iap2BootstrapPolicy.RFCOMM_TO_CSM_MILLIS + PHASE_SAFETY_MARGIN_MILLIS
 
         /**
          * Handshake safety net above [Iap2BootstrapPolicy.CSM_TO_MFI_MILLIS]. The watchdog fires
          * first and the stall still maps to one local bootstrap recovery.
          */
-        const val HANDSHAKE_TIMEOUT_MILLIS = Iap2BootstrapPolicy.CSM_TO_MFI_MILLIS + PHASE_SAFETY_MARGIN_MILLIS
+        val HANDSHAKE_TIMEOUT_MILLIS: Long get() = Iap2BootstrapPolicy.CSM_TO_MFI_MILLIS + PHASE_SAFETY_MARGIN_MILLIS
 
         const val CONNECT_BACKOFF_MILLIS = 400L
         const val BOOTSTRAP_BACKOFF_MILLIS = 800L
