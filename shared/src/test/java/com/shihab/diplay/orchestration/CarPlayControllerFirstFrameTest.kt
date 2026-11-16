@@ -155,6 +155,108 @@ class CarPlayControllerFirstFrameTest {
         }
     }
 
+    @Test fun queuedZoomIsDroppedWhenContentVisibilityOrStreamChanges() {
+        for (change in listOf("none", "content", "visibility", "stream")) {
+            val controller = controller(mutableListOf())
+            val active = AirPlaySession(Socket(), AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480),
+                cluster = AirPlayDisplayConfig(1600, 600, initialUrl = CarPlayClusterDisplay.MAP_URL)),
+                AirPlayIdentity.generate(), PairingStore(), null, object : AirPlaySessionListener {},
+                object : AirPlayMediaHandler { override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>) = 1 })
+            val executor = controller.javaClass.getDeclaredField("touchExecutor").apply { isAccessible = true }
+                .get(controller) as ExecutorService
+            val setup = active.javaClass.getDeclaredMethod("handleStreams", List::class.java).apply { isAccessible = true }
+            val bytes = ByteArrayOutputStream()
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            try {
+                setup.invoke(active, listOf(mapOf("type" to 111L)))
+                active.javaClass.getDeclaredField("eventSocket").apply { isAccessible = true }.set(active,
+                    object : Socket() { override fun getOutputStream(): OutputStream = bytes })
+                active.javaClass.getDeclaredField("eventCipher").apply { isAccessible = true }
+                    .set(active, ControlCipher(ByteArray(32), ByteArray(32)))
+                controller.javaClass.getDeclaredField("activeSession").apply { isAccessible = true }.set(controller, active)
+                controller.setDashboardMapOutputVisible(true)
+                assertNotNull(controller.dashboardMapRoute())
+                executor.execute { entered.countDown(); release.await(3, TimeUnit.SECONDS) }
+                assertTrue(entered.await(3, TimeUnit.SECONDS))
+                assertTrue(controller.zoomDashboardMap(true))
+                when (change) {
+                    "none" -> Unit
+                    "content" -> assertTrue(active.setClusterUrl(CarPlayClusterDisplay.Content.TURN_CARD.url, true))
+                    "visibility" -> controller.setDashboardMapOutputVisible(false)
+                    else -> setup.invoke(active, listOf(mapOf("type" to 111L)))
+                }
+                release.countDown()
+                executor.submit {}.get(3, TimeUnit.SECONDS)
+                val plain = ControlCipher(ByteArray(32), ByteArray(32)).use { it.decrypt(bytes.toByteArray()).data }
+                val types = RtspMessage.parseMessages(plain).messages.map { (BplistCodec.decode(it.body) as Map<*, *>)["type"] }
+                assertEquals("queued zoom after $change", if (change == "none") 1 else 0,
+                    types.count { it == "changeMapZoomLevel" })
+            } finally {
+                release.countDown()
+                active.close(); controller.close()
+                assertTrue(controller.awaitClosed(2_000))
+            }
+        }
+    }
+
+    @Test fun pausedAcceptedSelectionSurvivesFailedSelectionAndSessionReplacement() {
+        val controller = controller(mutableListOf())
+        fun clusterSession() = AirPlaySession(Socket(), AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480),
+            cluster = AirPlayDisplayConfig(1600, 600, initialUrl = CarPlayClusterDisplay.MAP_URL)),
+            AirPlayIdentity.generate(), PairingStore(), null, object : AirPlaySessionListener {},
+            object : AirPlayMediaHandler { override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>) = 1 })
+        val old = clusterSession()
+        val next = clusterSession()
+        val executor = controller.javaClass.getDeclaredField("touchExecutor").apply { isAccessible = true }
+            .get(controller) as ExecutorService
+        fun await() { executor.submit {}.get(3, TimeUnit.SECONDS) }
+        fun setup(session: AirPlaySession, bytes: ByteArrayOutputStream) {
+            session.javaClass.getDeclaredMethod("handleStreams", List::class.java).apply { isAccessible = true }
+                .invoke(session, listOf(mapOf("type" to 111L)))
+            session.javaClass.getDeclaredField("eventSocket").apply { isAccessible = true }.set(session,
+                object : Socket() { override fun getOutputStream(): OutputStream = bytes })
+            session.javaClass.getDeclaredField("eventCipher").apply { isAccessible = true }
+                .set(session, ControlCipher(ByteArray(32), ByteArray(32)))
+        }
+        fun types(bytes: ByteArrayOutputStream): List<Map<*, *>> {
+            val plain = ControlCipher(ByteArray(32), ByteArray(32)).use { it.decrypt(bytes.toByteArray()).data }
+            return RtspMessage.parseMessages(plain).messages.map { BplistCodec.decode(it.body) as Map<*, *> }
+        }
+        val firstBytes = ByteArrayOutputStream()
+        val nextBytes = ByteArrayOutputStream()
+        try {
+            setup(old, firstBytes)
+            setup(next, nextBytes)
+            controller.javaClass.getDeclaredField("activeSession").apply { isAccessible = true }.set(controller, old)
+            controller.setClusterOutputVisible(false)
+            await()
+            var accepted: Boolean? = null
+            controller.showDashboardContent(CarPlayClusterDisplay.Content.TURN_CARD.url) { accepted = it }
+            await()
+            assertEquals(true, accepted)
+            assertEquals(listOf("stopUI"), types(firstBytes).map { it["type"] })
+            controller.setClusterOutputVisible(true)
+            await()
+            assertEquals(CarPlayClusterDisplay.Content.TURN_CARD.url, old.clusterUrl())
+            old.javaClass.getDeclaredField("eventSocket").apply { isAccessible = true }.set(old, null)
+            controller.showDashboardContent(CarPlayClusterDisplay.MAP_URL) { accepted = it }
+            await()
+            assertEquals(false, accepted)
+            val listener = controller.javaClass.getDeclaredField("sessionListener").apply { isAccessible = true }
+                .get(controller) as AirPlaySessionListener
+            listener.onSessionActive(next)
+            await()
+            assertEquals(CarPlayClusterDisplay.Content.TURN_CARD.url, next.clusterUrl())
+            val commands = types(nextBytes)
+            assertEquals(listOf("showUI", "forceKeyFrame"), commands.map { it["type"] })
+            assertEquals(CarPlayClusterDisplay.Content.TURN_CARD.url, (commands[0]["params"] as Map<*, *>)["url"])
+        } finally {
+            old.close(); next.close(); controller.close()
+            assertTrue(controller.awaitClosed(2_000))
+        }
+    }
+
     @Test fun wiredMainFrameReachesTheHostButRetiredSessionsDoNot() {
         val frames = mutableListOf<AirPlaySession>()
         val controller = controller(frames)

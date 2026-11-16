@@ -80,6 +80,8 @@ internal object NativeMedia {
     @JvmStatic external fun openRtp(key: ByteArray, body: ByteArray, length: Int): Long
 
     @JvmStatic external fun bufferedCreate(sampleRate: Int): Long
+    @JvmStatic external fun bufferedEngineCreate(): LongArray
+    @JvmStatic external fun bufferedEngineStep(state: Long, operation: Int, eligibility: Long, facts: Int): LongArray
     /** Receives into the core's queue. The returned receiver handle is stopped after destroying the owner. */
     @JvmStatic external fun bufferedStart(handle: Long, fd: Int, key: ByteArray, callbacks: NativeStreamCallbacks): Long
     /** Retained packet; out: sample, first frame, output generation. Commit after the platform start callback. */

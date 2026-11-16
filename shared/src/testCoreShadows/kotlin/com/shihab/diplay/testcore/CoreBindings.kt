@@ -179,6 +179,10 @@ open class ShadowNativeMedia {
 
         @JvmStatic @Implementation fun bufferedCreate(sampleRate: Int): Long =
             HostNative.call("airplay.NativeMedia", "bufferedCreate", sampleRate) as Long
+        @JvmStatic @Implementation fun bufferedEngineCreate(): LongArray =
+            HostNative.call("airplay.NativeMedia", "bufferedEngineCreate") as LongArray
+        @JvmStatic @Implementation fun bufferedEngineStep(state: Long, operation: Int, eligibility: Long, facts: Int): LongArray =
+            HostNative.call("airplay.NativeMedia", "bufferedEngineStep", state, operation, eligibility, facts) as LongArray
 
         @JvmStatic @Implementation fun bufferedNext(handle: Long, nowNanos: Long, out: LongArray): Long =
             HostNative.call("airplay.NativeMedia", "bufferedNext", handle, nowNanos, out) as Long

@@ -1,6 +1,7 @@
 //! Controller generations, permission/re-enumeration budgets, transport adoption and teardown plans.
 //! The JVM retains SDK objects; this value contains the only active lifecycle/decision state.
 mod jni;
+mod dashboard;
 
 const HEADER: usize = 14;
 const CLOSED: i64 = 1;

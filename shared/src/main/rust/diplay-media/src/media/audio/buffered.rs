@@ -363,3 +363,31 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_packetW
     packet.set_len(length);
     packet.into_handle()
 }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedEngineCreate(
+    env: *mut JNIEnv, _class: jclass,
+) -> jlongArray {
+    use super::buffered_state::engine::{Engine, ELIGIBLE};
+    let f = &**env;
+    let values = [Engine::Idle.encode(), ELIGIBLE];
+    let result = (f.NewLongArray.unwrap())(env, values.len() as jint);
+    if !result.is_null() { (f.SetLongArrayRegion.unwrap())(env, result, 0, values.len() as jint, values.as_ptr()); }
+    result
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedEngineStep(
+    env: *mut JNIEnv, _class: jclass, state: jlong, operation: jint, eligibility: jlong, facts: jint,
+) -> jlongArray {
+    use super::buffered_state::engine::Engine;
+    let f = &**env;
+    let Some(values) = Engine::decode(state).and_then(|state| state.step(operation, eligibility, facts)) else {
+        let class = (f.FindClass.unwrap())(env, c"java/lang/IllegalArgumentException".as_ptr());
+        if !class.is_null() { (f.ThrowNew.unwrap())(env, class, c"Invalid buffered engine value".as_ptr()); }
+        return std::ptr::null_mut();
+    };
+    let result = (f.NewLongArray.unwrap())(env, values.len() as jint);
+    if !result.is_null() { (f.SetLongArrayRegion.unwrap())(env, result, 0, values.len() as jint, values.as_ptr()); }
+    result
+}

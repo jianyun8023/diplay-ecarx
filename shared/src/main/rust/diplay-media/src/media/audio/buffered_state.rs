@@ -3,6 +3,7 @@
 
 use crate::media::audio::queue::AudioPacket;
 use std::collections::VecDeque;
+pub(super) mod engine;
 
 pub const BUFFER_BYTES: usize = 8 * 1024 * 1024;
 pub const SAMPLES_PER_FRAME: i64 = 1024;

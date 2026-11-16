@@ -202,14 +202,8 @@ class CarPlayController(
     @Volatile private var mux: Iap2UsbMuxHost? = null
     @Volatile private var csm: Iap2Session? = null
     @Volatile private var activeSession: AirPlaySession? = null
-    @Volatile private var requestedDashboardUrl: String? = airPlayConfig.cluster?.initialUrl
+    private val dashboard = ControllerDashboardCore(airPlayConfig.cluster?.initialUrl)
     private val clusterUiLock = Any()
-    private var clusterUiStream: Pair<AirPlaySession, Int>? = null
-    private var clusterUiShown = true
-    // Immutable snapshots keep accessibility key filtering away from the network-writing UI lock.
-    @Volatile private var clusterUiVisibility: Pair<Pair<AirPlaySession, Int>, Boolean>? = null
-    @Volatile private var dashboardMapOutputVisible = false
-    private val dashboardMapEpoch = AtomicInteger()
     private val playbackStatus = com.shihab.diplay.media.CarPlayPlaybackStatus()
 
     private val albumReplayLock = Any()
@@ -649,10 +643,7 @@ class CarPlayController(
     /** Sends one CarPlay media-button press (an [com.shihab.diplay.airplay.AirPlayHid] media index). */
     /** The host reports its physical cluster surface independently of the centre-map pause policy. */
     fun setDashboardMapOutputVisible(visible: Boolean) {
-        val next = visible && !closed
-        if (dashboardMapOutputVisible == next) return
-        dashboardMapOutputVisible = next
-        dashboardMapEpoch.incrementAndGet()
+        dashboard.setPhysicalVisible(visible, closed)
     }
 
     /** Release the phone's secondary navigation view when the physical cluster is hidden. */
@@ -673,12 +664,8 @@ class CarPlayController(
         val session = activeSession ?: return null
         val content = session.clusterContentRoute() ?: return null
         val stream = content.first
-        val route = session to stream
-        val visibility = clusterUiVisibility
-        val shown = visibility?.takeIf { it.first == route }?.second ?: true
-        if (!DashboardMapEligibility.permits(content.second,
-                dashboardMapOutputVisible, stream, shown, closed)) return null
-        return Triple(session, stream, dashboardMapEpoch.get() to content.third)
+        val epoch = dashboard.routeEpoch(session, stream, content.second, closed) ?: return null
+        return Triple(session, stream, epoch to content.third)
     }
 
     /** Whether the wheel can currently control the visible dashboard map. */
@@ -770,7 +757,7 @@ class CarPlayController(
             // Order cancellation with address-preference commits and generation replacement.
             wirelessRun?.retire()
             lifecycle.invalidateWireless()
-            dashboardMapOutputVisible = false
+            dashboard.close()
             // Claim platform references once; an older run's catch must not close replacements.
             WiredResources(csm, mux, wiredVpnOwner).also {
                 csm = null
@@ -849,14 +836,11 @@ class CarPlayController(
                         return@synchronized false
                     }
                     // A cluster stream DiPlay has not paused yet starts with the map drawn.
-                    val shown = clusterUiShown || clusterUiStream != session to stream
-                    val delivered = session.setClusterUrl(url, send = shown)
-                    val sent = delivered && !closed && activeSession === session && session.clusterStream == stream
+                    val plan = dashboard.selectionPlan(session, stream)
+                    val delivered = session.setClusterUrl(url, send = plan.send)
                     // The wheel zoom follows what the dashboard shows now, so zoom mode starts over.
-                    if (sent) {
-                        requestedDashboardUrl = url
-                        dashboardMapEpoch.incrementAndGet()
-                    }
+                    val sent = dashboard.commitSelection(url, delivered,
+                        !closed && activeSession === session && session.clusterStream == stream)
                     debugLog("Dashboard content: $url sent=$sent")
                     sent
                 }
@@ -873,13 +857,11 @@ class CarPlayController(
             touchExecutor.execute {
                 synchronized(clusterUiLock) {
                     if (closed || activeSession !== session) return@synchronized
-                    val url = requestedDashboardUrl ?: return@synchronized
                     val stream = session.clusterStream
-                    val shown = clusterUiShown || clusterUiStream != session to stream
-                    val restored = session.restoreClusterUrl(url, send = shown)
-                    if (restored && !closed && activeSession === session && session.clusterStream == stream && stream > 0) {
-                        dashboardMapEpoch.incrementAndGet()
-                    }
+                    val plan = dashboard.restorePlan(session, stream) ?: return@synchronized
+                    val restored = session.restoreClusterUrl(plan.url, send = plan.send)
+                    dashboard.commitRestore(restored,
+                        !closed && activeSession === session && session.clusterStream == stream, stream)
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -891,16 +873,10 @@ class CarPlayController(
     private fun applyClusterUi(shown: Boolean) = synchronized(clusterUiLock) {
         val session = activeSession ?: return@synchronized
         val stream = session.clusterStream.takeIf { it > 0 } ?: return@synchronized
-        if (clusterUiStream != session to stream) {
-            clusterUiStream = session to stream
-            clusterUiShown = true
-            clusterUiVisibility = (session to stream) to true
-        }
-        if (shown == clusterUiShown && (!shown || session.clusterUrl() != null)) return@synchronized
+        val plan = dashboard.visibilityPlan(session, stream, shown, session.clusterUrl() != null)
+        if (!plan.send) return@synchronized
         if (session.setClusterUiShown(shown)) {
-            clusterUiShown = shown
-            clusterUiVisibility = (session to stream) to shown
-            dashboardMapEpoch.incrementAndGet()
+            dashboard.commitVisibility(shown)
             debugLog("Cluster map: ${if (shown) "showUI, the cluster shows the map" else "stopUI, the cluster hides the map"}")
         }
     }

@@ -1,5 +1,6 @@
 //! One AirPlay session's negotiation, stream ownership and close transitions.
 //! Platform callbacks run between transitions, never while a Rust state borrow is alive.
+mod cluster_content;
 mod jni;
 
 const WORDS: usize = 54;

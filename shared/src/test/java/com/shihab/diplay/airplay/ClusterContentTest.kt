@@ -230,6 +230,25 @@ class ClusterContentTest {
         } finally { session.close() }
     }
 
+    @Test fun aLiveShowWithoutItsKeyframeInvalidatesThePreviousRouteUntilRetry() {
+        val session = session(CarPlayClusterDisplay.Content.TURN_CARD.url)
+        try {
+            setup(session)
+            val before = session.clusterContentRoute()!!.third
+            val socketField = session.javaClass.getDeclaredField("eventSocket").apply { isAccessible = true }
+            val first = eventReady(session, EventSocket { socketField.set(session, null) })
+            assertFalse(session.setClusterUrl(CarPlayClusterDisplay.MAP_URL, send = true))
+            assertFalse(session.isClosed)
+            assertEquals(listOf("showUI"), commands(first).map { it["type"] })
+            assertNull(session.clusterUrl())
+            assertNotSame(before, session.clusterContentRoute()!!.third)
+            val retry = eventReady(session)
+            readyAfterSetup(session)
+            assertEquals(CarPlayClusterDisplay.MAP_URL, session.clusterUrl())
+            assertEquals(listOf("showUI", "forceKeyFrame"), commands(retry).map { it["type"] })
+        } finally { session.close() }
+    }
+
     @Test fun aPausedSelectionStaysPendingUntilResume() {
         val session = session(CarPlayClusterDisplay.MAP_URL)
         try {

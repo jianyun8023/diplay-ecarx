@@ -252,6 +252,62 @@ SETUP 回复保持 type／dataPort／audioBufferSize 的 Int 字段顺序，不�
 `/tmp/buffered-protocol-abi.log`。当前未发现可执行 Android 测试的在线设备；本批未构建完整 APK，
 未完成设备／实车验收，不将 API 28 Robolectric 与主机 JNI 结果记作设备端 native TCP／共享音路验收。
 
+## 仪表内容选择、发送计划与提交（2026-11-16）
+
+基于缓冲音频批 `97e6b7ed`，先补旧行为合同，再按两种寿命迁移：
+`session::controller::dashboard` 保存跨 session 已接受选择、暂停／物理可见性及 wrapping 路由计数；
+`session::airplay::cluster_content` 保存单 session 的 retained／requested／displayed／shown 与发送、
+提交规则。命令线格式和协商 stream 代际复用原 owner，不合并成单一 AirPlayCore。
+
+Kotlin 保留锁、调度与实际发送，将 opaque 内容快照和平台身份原子发布；路由读取不等待网络写锁。
+URL 以 UTF-16 保真。showUI 与关键帧各自结果参与提交，live 部分失败和迟到成功可使显示未知；
+失败的新选择不覆盖 Controller 已接受选择，暂停选择仍可跨 session 恢复。各 teardown 清除入口
+均调用内容 clear，不额外推进 negotiation 代际。Controller close 只清物理可见性，不额外推进 epoch。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | ClusterContent 17、ControllerFirstFrame 6 共 23 项通过；包括 live 部分失败、paused accepted 选择在失败后跨 session 恢复、排队 zoom 的路线不变正例及内容／可见性／stream 改变负例 |
+| 迁移后 shared／common JVM | 30／47 项通过；shared 为原 23、Session 独立对照 2、Controller 独立对照 3、地图资格 2；common 为 DashboardContentDelivery 18、ECARX first frame 15、WheelZoom 14 |
+| 独立参考 | Session 2250 步旧 Kotlin 对照包含 null／空串／NUL／孤立代理项／负 stream；Controller 参考独立于 native token，覆盖接受／失败、跨 session、可见性及 epoch |
+| Rust 1.97.1 | Session cluster_content 3 项、Controller dashboard 2 项通过 |
+| Android 测试源码／R8 | Android 测试源码编译通过；mobile R8 实际执行通过，maphost 为 UP-TO-DATE；新 native 类保留与真实 host shadow 已接入 |
+| 三 ABI | ARM64／ARMv7／x86_64 均以 Rust 1.97.1、NDK 28.2.13676358、API 28 编译；各 613 个 Java JNI 导出及 JNI_OnLoad、ELF／来源校验通过 |
+
+本地日志：`/tmp/cluster-old-contract{,-positive}.log`、`/tmp/cluster-final-gradle.log`、`/tmp/cluster-abi.log`。
+首轮组合编译发现 teardown 后部旧 null 赋值遗漏，已补成 opaque clear 并重跑通过；Rust 来源未因此改变。
+本批未运行设备／实车或完整 APK 验收，主机对照不替代真实仪表发送与共享音路交接。
+
+## buffered 共享输出归属与替换屏障（2026-11-16）
+
+在第三批验收通过后继续第四批，先验证现有 Kotlin engine 合同，再将引擎寿命的归属规则收进
+`media::audio::buffered_state::engine`，JNI 沿用 `media::audio::buffered`。单流队列、时钟、锚点和
+原生 packet 路径保持原 owner；普通音频和 cluster 资源路径独立，不纳入此 buffered 协调器。
+
+Rust 保存 idle／installing／cancelled／retirement-only 与 eligibility，决定准入、取消、安装及屏障处置。
+Kotlin 继续持有实际 owner／transition／stream 引用及 WeakHashMap 的 session 身份，value 是 opaque
+资格值，不保留 retired/cancelled 布尔策略。没有新增 native handle、全局 session ID 或累积退休集合。
+原 ownership lock 内提交状态和修改表，close／start／control 继续在锁外；按原时点采样清理完成事实。
+
+缺少旧流只在安装时算可继续；preflight／finishRetire 释放屏障须实际存在 retiring 且已完成。
+close 正常返回与清理完成分传：close 抛错但清理已完成，本次仍拒绝，下次 preflight 才释放。
+取消不提前清 installing 屏障或恢复旧 session 已退休资格；普通 TEARDOWN 不永久退休 session。
+只有匹配 transition 才能提交或释放。callback 重入不需要等待自己，也不反向获取 stream lock。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | API 28 engine 4、既有 buffered Host 6 共 10 项通过：取消后旧 session 仍退休、pending TEARDOWN、主动 TEARDOWN 重入、close 抛错但 cleanup 已完成 |
+| 独立对照 | 4 项 core 合同含 10,000 步旧 nullable Transition 模型、完成事实组合、engine 隔离与非法 JNI；不解读 native phase，device 入口复用同一合同 |
+| 最终组合 JVM | shared 82、common 47 共 129 项通过，0 skipped／failures／errors；包含第三批仪表、第四批共享输出、SETUP/control、会话隔离、反馈、原 buffered 参考及 UI／方控回归 |
+| Rust 1.97.1 | 第四批 engine 专项 4 项通过；第三批 Session 3／Controller 2 项已有独立通过记录，三处新增规则共 9 项 |
+| Android 测试源码／R8 | 两批新增 device 入口与已有 Android 测试源码编译通过；mobile R8 实际执行通过，maphost 为 UP-TO-DATE |
+| 最终三 ABI | ARM64／ARMv7／x86_64 均以 Rust 1.97.1、NDK 28.2.13676358、API 28 编译；各 615 个 Java JNI 导出及 JNI_OnLoad、ELF／来源校验通过 |
+
+本地日志：`/tmp/buffered-engine-old-contract.log`、`/tmp/buffered-engine-rust.log`、
+`/tmp/media-ownership-final-gradle.log`、`/tmp/media-ownership-abi.log`。旧 Host 合同的 close hook 使用
+Robolectric directlyOn 执行真实 close，仅控制阻塞或清理后的异常，不将它记作 native TCP 验收。
+当前 ADB 只有 Linux 宿主在线，Android 地址 offline；仪器测试未执行，未构建完整 APK 或完成设备／实车验收。
+既有 BufferedAudioSessionTest 的真实接收／释放屏障场景仍需 Android 设备运行，不以主机状态对照替代。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

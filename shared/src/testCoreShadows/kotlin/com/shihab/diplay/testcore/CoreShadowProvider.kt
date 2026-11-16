@@ -21,6 +21,8 @@ class CoreShadowProvider : ShadowProvider {
 
     private val bindings = listOf(
         "com.shihab.diplay.airplay.NativeAirPlayProtocol" to "com.shihab.diplay.testcore.ShadowNativeAirPlayProtocol",
+        "com.shihab.diplay.airplay.NativeClusterContent" to "com.shihab.diplay.testcore.ShadowNativeClusterContent",
+        "com.shihab.diplay.orchestration.NativeControllerDashboard" to "com.shihab.diplay.testcore.ShadowNativeControllerDashboard",
         "com.shihab.diplay.airplay.NativeDataStream" to "com.shihab.diplay.testcore.ShadowNativeDataStream",
         "com.shihab.diplay.transport.NativeNcm" to "com.shihab.diplay.testcore.ShadowNativeNcm",
         "com.shihab.diplay.airplay.NativeMfiSap" to "com.shihab.diplay.testcore.ShadowNativeMfiSap",

@@ -286,9 +286,20 @@ flushUntilTS 解释归现有 `media::audio::buffered`，继续复用锚点、队
 缺失不与负时间戳混用，只有合法 SETRATE 才读取 NTP。
 Kotlin 继续查找流、读取 peer、创建和绑定端口、执行控制及清理动作，资源锁与退休屏障不变。
 
-后续依次处理仪表内容发送／提交、共享输出归属。仪表分别保留 Controller 接受选择与 session 实际交付
-的寿命，按 showUI／关键帧的各自执行结果与 stream 代际提交。共享输出最后迁移；关闭旧流和报告清理
-完成仍由 Kotlin 执行，不能删除资源锁或释放屏障。
+仪表内容的两层状态分别收归 `session::controller::dashboard` 和 `session::airplay::cluster_content`：
+前者保存 Controller 已接受的跨 session 选择、暂停／可见性及路由计数，后者保存单 session 的请求、
+实际交付、显示状态和发送／提交规则。命令编码与 stream 代际继续复用现有 owner。UTF-16 URL 保真，
+暂停选择与已交付内容有别，showUI／关键帧的实际结果分别提交；部分或迟到发送可使显示状态未知，
+失败的新选择不覆盖 Controller 已接受选择。Kotlin 保留写锁、调度与实际发送，opaque 内容快照与
+平台路由 identity 一次发布，路由读取不等待网络写锁；teardown 的各清除入口不额外推进协商代际。
+
+buffered 共享输出协调状态具有引擎寿命，归现有媒体 owner，与单条 BufferedAudio 的队列／时钟分开。
+Rust 决定 idle／installing／retirement-only 阶段、候选取消、退休资格和安装／屏障转移；Kotlin 保留实际
+owner、transition、stream 引用及原 ownership lock，以 === 报告身份事实，并在锁外执行 close／start。
+退休资格放在引擎实例的 WeakHashMap 中，value 为 Rust opaque 值，继续保持弱引用寿命，不新增全局 ID
+或不断累积的退休集合。close 正常返回与 outputCleanupComplete 是不同事实：取消候选不提前释放屏障，
+只有匹配 transition 能提交或清屏障。异 session begin 已退休旧资格时，后续取消不恢复；普通 TEARDOWN
+不退休该 session。普通音频与 cluster 的资源身份和输出规则独立，不并入此 buffered 协调器。
 
 失败恢复由三层共同执行：握手 attempt／wireless run 的预算和状态仍归 Rust 原有 owner；
 `session::connection_recovery` 统一全栈恢复动作、宿主两套重试计数、重置规则及退避；Kotlin 宿主保留

@@ -205,41 +205,41 @@ class AirPlaySession(
      * then a keyframe) or to stop drawing it (stopUI). The stream stays up either way; CarKit handles
      * both as car-initiated commands for a screen UUID.
      */
-    fun setClusterUiShown(shown: Boolean): Boolean {
-        synchronized(clusterCommandLock) {
-            if (negotiation.isClosed || clusterStream <= 0) return false
-            val content = synchronized(clusterContentLock) { clusterContent } ?: return false
-            if (!shown) {
-                val sent = sendCommand(AirPlayCommands.stopUi(AirPlayInfoPlist.ALT_UUID))
-                return synchronized(clusterContentLock) {
-                    val current = clusterContent ?: return false
-                    if (negotiation.isClosed || current.stream != content.stream) {
-                        if (sent) clusterContent = current.copy(displayed = null, shown = false, token = Any())
-                        return false
-                    }
-                    if (sent) clusterContent = current.copy(shown = false)
-                    sent
-                }
-            }
-            return showClusterUrl(content, content.requested ?: return false)
+    fun setClusterUiShown(shown: Boolean): Boolean = synchronized(clusterCommandLock) {
+        val plan = synchronized(clusterContentLock) {
+            ClusterContentCore.visibility(clusterContent.snapshot, shown, negotiation.isClosed, clusterStream)
         }
+        if (!plan.accepted) return false
+        if (!shown) {
+            val sent = sendCommand(AirPlayCommands.stopUi(AirPlayInfoPlist.ALT_UUID))
+            return synchronized(clusterContentLock) {
+                publishClusterContent(ClusterContentCore.commitStop(clusterContent.snapshot,
+                    plan.snapshot.stream, negotiation.isClosed, sent)).accepted
+            }
+        }
+        showClusterUrl(plan.snapshot, plan.sendUrl ?: return false)
     }
 
-    private data class ClusterContent(val stream: Int, val requested: String?, val displayed: String?,
-        val shown: Boolean = true, val token: Any = Any())
+    private data class ClusterContent(val snapshot: ClusterContentCore.Snapshot, val token: Any = Any())
     private val clusterContentLock = Any()
     private val clusterCommandLock = Any()
-    @Volatile private var clusterContent: ClusterContent? = null
-    private var requestedClusterUrl = config.cluster?.initialUrl // guarded by clusterContentLock
+    @Volatile private var clusterContent = ClusterContent(ClusterContentCore.create(config.cluster?.initialUrl))
+
+    /** Called under clusterContentLock; snapshot and platform identity must publish together. */
+    private fun publishClusterContent(change: ClusterContentCore.Change): ClusterContentCore.Change {
+        clusterContent = ClusterContent(change.snapshot,
+            if (change.rotateRouteToken) Any() else clusterContent.token)
+        return change
+    }
 
     /** Last delivered content for this stream. Pending selections never grant wheel zoom eligibility. */
     fun clusterUrl(): String? = clusterContentRoute()?.second
 
     /** One immutable snapshot keeps content and generation checks consistent without locking keys. */
     internal fun clusterContentRoute(): Triple<Int, String?, Any>? {
-        val content = clusterContent ?: return null
-        if (negotiation.isClosed || content.stream != clusterStream) return null
-        return Triple(content.stream, content.displayed, content.token)
+        val content = clusterContent
+        val route = ClusterContentCore.route(content.snapshot, negotiation.isClosed, clusterStream) ?: return null
+        return Triple(route.stream, route.displayed, content.token)
     }
 
     /**
@@ -247,68 +247,55 @@ class AirPlaySession(
      * with that URL and a keyframe (on this head unit this switches map, turn card and both at once). With [send]
      * false (the map is paused) the URL is only kept for the next `showUI`. False without a cluster stream.
      */
-    fun setClusterUrl(url: String, send: Boolean): Boolean {
-        return synchronized(clusterCommandLock) {
-            val content = synchronized(clusterContentLock) {
-                val current = clusterContent ?: return false
-                if (negotiation.isClosed || current.stream != clusterStream || config.cluster == null) return false
-                requestedClusterUrl = url
-                current.copy(requested = url).also { clusterContent = it }
-            }
-            if (!send) true else showClusterUrl(content, url)
+    fun setClusterUrl(url: String, send: Boolean): Boolean = synchronized(clusterCommandLock) {
+        val plan = synchronized(clusterContentLock) {
+            publishClusterContent(ClusterContentCore.select(clusterContent.snapshot, url, send,
+                negotiation.isClosed, clusterStream, config.cluster != null))
         }
+        if (!plan.accepted) false else plan.sendUrl?.let { showClusterUrl(plan.snapshot, it) } ?: true
     }
 
     /** Seeds a retained controller selection even when this phone has not set up its cluster yet. */
     internal fun restoreClusterUrl(url: String, send: Boolean): Boolean = synchronized(clusterCommandLock) {
-        val content = synchronized(clusterContentLock) {
-            if (negotiation.isClosed || config.cluster == null) return false
-            requestedClusterUrl = url
-            clusterContent?.copy(requested = url)?.also { clusterContent = it }
+        val plan = synchronized(clusterContentLock) {
+            publishClusterContent(ClusterContentCore.restore(clusterContent.snapshot, url, send,
+                negotiation.isClosed, config.cluster != null))
         }
-        if (content == null || !send || (content.shown && content.displayed == url)) true
-        else showClusterUrl(content, url)
+        if (!plan.accepted) false else plan.sendUrl?.let { showClusterUrl(plan.snapshot, it) } ?: true
     }
 
-    private fun showClusterUrl(content: ClusterContent, url: String): Boolean {
-        if (negotiation.isClosed || clusterStream != content.stream) return false
+    private fun showClusterUrl(snapshot: ClusterContentCore.Snapshot, url: String): Boolean {
+        if (!ClusterContentCore.showAllowed(snapshot, negotiation.isClosed, clusterStream)) return false
         val uuid = AirPlayInfoPlist.ALT_UUID
         val uiSent = sendCommand(AirPlayCommands.showUi(uuid, url))
-        val sent = uiSent && clusterStream == content.stream && !negotiation.isClosed &&
+        val sent = ClusterContentCore.keyFrame(snapshot, uiSent, negotiation.isClosed, clusterStream) &&
             sendCommand(AirPlayCommands.keyFrame(uuid))
         return synchronized(clusterContentLock) {
-            val current = clusterContent ?: return false
-            if (negotiation.isClosed || current.stream != content.stream || clusterStream != content.stream) {
-                // A command already in flight can outlast re-SETUP. Its displayed result is unknown.
-                if (uiSent) clusterContent = current.copy(displayed = null, token = Any())
-                return false
-            }
-            if (uiSent) clusterContent = current.copy(displayed = if (sent) url else null,
-                shown = true, token = Any())
-            sent
+            publishClusterContent(ClusterContentCore.commitShow(clusterContent.snapshot,
+                snapshot.stream, url, negotiation.isClosed, clusterStream, uiSent, sent)).accepted
         }
     }
 
-    private fun recordAcceptedStream(type: Int) = synchronized(clusterContentLock) {
+    private fun recordAcceptedStream(type: Int): Unit = synchronized(clusterContentLock) {
         // These Java identities are platform routing leases; Rust owns their live generations.
         when (negotiation.accepted(type)) {
             1 -> mainScreenToken = MainScreenLease(negotiation.mainScreenEpoch)
-            2 -> clusterContent = ClusterContent(negotiation.clusterStream, requestedClusterUrl, config.cluster?.initialUrl)
+            2 -> publishClusterContent(ClusterContentCore.accepted(clusterContent.snapshot,
+                negotiation.clusterStream, config.cluster?.initialUrl))
         }
     }
 
-    private fun clearClusterContent() = synchronized(clusterContentLock) {
+    private fun clearClusterContent(): Unit = synchronized(clusterContentLock) {
         negotiation.clearCluster()
-        clusterContent = null
+        publishClusterContent(ClusterContentCore.clear(clusterContent.snapshot))
     }
 
     // Re-SETUP starts at initialURL. Reapply the saved live selection only after SETUP was answered,
     // or the event channel becomes ready, without claiming it was displayed before delivery.
     private fun reapplyClusterContent() {
         synchronized(clusterCommandLock) {
-            val content = clusterContent ?: return
-            val requested = content.requested ?: return
-            if (content.shown && requested != content.displayed) showClusterUrl(content, requested)
+            val plan = synchronized(clusterContentLock) { ClusterContentCore.reapply(clusterContent.snapshot) }
+            plan.sendUrl?.let { showClusterUrl(plan.snapshot, it) }
         }
     }
 
@@ -864,7 +851,7 @@ class AirPlaySession(
         synchronized(clusterContentLock) {
             val actions = negotiation.prepareTeardown(types)
             if (actions and 1 != 0) mainScreenToken = null
-            if (actions and 2 != 0) clusterContent = null
+            if (actions and 2 != 0) publishClusterContent(ClusterContentCore.clear(clusterContent.snapshot))
         }
         if (types == null) {
             // A failed callback leaves the full ordered set intact, as before.

@@ -9,7 +9,6 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.math.BigInteger
-import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ScheduledThreadPoolExecutor
@@ -141,18 +140,20 @@ class CarPlayMediaEngine(
     private val bufferedOwnershipLock = Any()
     private var bufferedOwner: AirPlaySession? = null
     private var bufferedTransition: BufferedTransition? = null
-    private val retiredBufferedSessions = Collections.newSetFromMap(WeakHashMap<AirPlaySession, Boolean>())
+    private val bufferedCore = BufferedEngineCore()
+    private val bufferedEligibility = WeakHashMap<AirPlaySession, Long>()
     private class BufferedTransition(val session: AirPlaySession, val candidate: BufferedStream?) {
-        var cancelled = false // guarded by bufferedOwnershipLock
         var retiring: BufferedStream? = null
     }
 
     private fun mayInstallBufferedLocked(session: AirPlaySession): Boolean {
         // A reentrant sink callback cannot wait for itself. Preserve its retirement barrier
         // until cleanup completes; the volatile flag requires no reverse stream-lock order.
-        bufferedTransition?.takeIf { it.candidate == null && it.retiring?.stream?.outputCleanupComplete == true }
-            ?.let { bufferedTransition = null }
-        return !session.isClosed && session !in retiredBufferedSessions && bufferedTransition == null
+        val retiring = bufferedTransition?.retiring
+        val plan = bufferedCore.check(session.isClosed, bufferedEligibility[session] ?: bufferedCore.initialEligibility,
+            retiring != null, retiring?.stream?.outputCleanupComplete == true)
+        if (plan.releaseBarrier) bufferedTransition = null
+        return plan.accepted
     }
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
 
@@ -396,11 +397,15 @@ class CarPlayMediaEngine(
         val transition = BufferedTransition(session, candidate)
         var previous: BufferedStream? = null
         val accepted = synchronized(bufferedOwnershipLock) {
-            if (!mayInstallBufferedLocked(session)) false else {
+            val retiring = bufferedTransition?.retiring
+            val admission = bufferedCore.begin(session.isClosed, bufferedEligibility[session] ?: bufferedCore.initialEligibility,
+                retiring != null, retiring?.stream?.outputCleanupComplete == true, bufferedOwner != null, bufferedOwner === session)
+            if (admission.releaseBarrier) bufferedTransition = null
+            if (!admission.accepted) false else {
                 bufferedTransition = transition
                 bufferedOwner?.let { oldSession ->
                     previous = detachBufferedLocked(oldSession)
-                    if (oldSession !== session) retiredBufferedSessions.add(oldSession)
+                    admission.previousEligibility?.let { bufferedEligibility[oldSession] = it }
                 }
                 transition.retiring = previous
                 true
@@ -410,20 +415,23 @@ class CarPlayMediaEngine(
             buffered.close()
             return null
         }
-        val retired = runCatching { previous?.stream?.close() }.isSuccess &&
-            previous?.stream?.outputCleanupComplete != false
+        val closeReturnedNormally = runCatching { previous?.stream?.close() }.isSuccess
+        val outputCleanupComplete = previous?.stream?.outputCleanupComplete == true
         val installed = synchronized(bufferedOwnershipLock) {
-            val usable = retired && bufferedTransition === transition && !transition.cancelled &&
-                !session.isClosed && session !in retiredBufferedSessions
-            if (usable) {
+            val result = bufferedCore.finishSetup(closeReturnedNormally, previous != null,
+                outputCleanupComplete, bufferedTransition === transition, session.isClosed,
+                bufferedEligibility[session] ?: bufferedCore.initialEligibility)
+            if (result.install) {
                 streams[streamKey] = buffered
                 bufferedStreams[session] = candidate
                 bufferedOwner = session
             }
-            if (bufferedTransition === transition) {
-                bufferedTransition = if (retired) null else BufferedTransition(session, null).also { it.retiring = previous }
+            when (result.barrier) {
+                BufferedEngineCore.Barrier.UNCHANGED -> Unit
+                BufferedEngineCore.Barrier.CLEAR -> bufferedTransition = null
+                BufferedEngineCore.Barrier.RETIREMENT_ONLY -> bufferedTransition = BufferedTransition(session, null).also { it.retiring = previous }
             }
-            usable
+            result.install
         }
         if (!installed) {
             buffered.close()
@@ -683,13 +691,12 @@ class CarPlayMediaEngine(
         var pending: BufferedStream? = null
         var retirement: BufferedTransition? = null
         val previous = synchronized(bufferedOwnershipLock) {
-            bufferedTransition?.takeIf { it.session === session }?.let {
-                it.cancelled = true
-                pending = it.candidate
-                // The SETUP thread still owns the barrier while it closes the earlier owner.
-            }
+            val plan = bufferedCore.retire(bufferedTransition?.session === session,
+                bufferedTransition?.candidate != null, bufferedStreams.containsKey(session))
+            // The SETUP thread still owns the barrier while it closes the earlier owner.
+            if (plan.closeCandidate) pending = bufferedTransition?.candidate
             detachBufferedLocked(session).also {
-                if (it != null && bufferedTransition == null) {
+                if (plan.createBarrier) {
                     retirement = BufferedTransition(session, null).also { barrier -> barrier.retiring = it }
                     bufferedTransition = retirement
                 }
@@ -700,8 +707,8 @@ class CarPlayMediaEngine(
             previous?.stream?.close()
         } finally {
             synchronized(bufferedOwnershipLock) {
-                if (retirement != null && bufferedTransition === retirement &&
-                    previous?.stream?.outputCleanupComplete == true) bufferedTransition = null
+                if (bufferedCore.finishRetire(retirement != null && bufferedTransition === retirement,
+                        previous != null, previous?.stream?.outputCleanupComplete == true)) bufferedTransition = null
             }
         }
     }

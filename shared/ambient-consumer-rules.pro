@@ -225,6 +225,8 @@
 
 # AirPlay capability declarations and event/control bodies use this JNI boundary.
 -keep class com.shihab.diplay.airplay.NativeAirPlayProtocol { native <methods>; }
+-keep class com.shihab.diplay.airplay.NativeClusterContent { native <methods>; }
+-keep class com.shihab.diplay.orchestration.NativeControllerDashboard { native <methods>; }
 
 -keep class com.shihab.diplay.network.NativeHotspotRecovery { native <methods>; }
 

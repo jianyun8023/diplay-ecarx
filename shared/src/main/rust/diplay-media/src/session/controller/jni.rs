@@ -381,3 +381,142 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     );
     result as jboolean
 }
+
+unsafe fn dashboard_read(
+    env: *mut JNIEnv,
+    token: jlongArray,
+) -> Option<super::dashboard::Dashboard> {
+    let f = &**env;
+    if token.is_null() {
+        invalid(env);
+        return None;
+    }
+    let size = (f.GetArrayLength.unwrap())(env, token);
+    let mut words = vec![0; size as usize];
+    (f.GetLongArrayRegion.unwrap())(env, token, 0, size, words.as_mut_ptr());
+    if (f.ExceptionCheck.unwrap())(env) != 0 {
+        return None;
+    }
+    let state = super::dashboard::Dashboard::decode(&words);
+    if state.is_none() {
+        invalid(env);
+    }
+    state
+}
+
+unsafe fn dashboard_url(env: *mut JNIEnv, url: jstring) -> Option<Vec<u16>> {
+    if url.is_null() {
+        return None;
+    }
+    let f = &**env;
+    let size = (f.GetStringLength.unwrap())(env, url);
+    let mut units = vec![0; size as usize];
+    (f.GetStringRegion.unwrap())(env, url, 0, size, units.as_mut_ptr());
+    Some(units)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControllerDashboard_create(
+    env: *mut JNIEnv,
+    _class: jclass,
+    url: jstring,
+) -> jlongArray {
+    long_array(
+        env,
+        &super::dashboard::Dashboard::new(dashboard_url(env, url)).encode(),
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControllerDashboard_transition(
+    env: *mut JNIEnv,
+    _class: jclass,
+    token: jlongArray,
+    operation: jint,
+    url: jstring,
+    first: jboolean,
+    second: jboolean,
+    stream: jint,
+) -> jlongArray {
+    let Some(mut state) = dashboard_read(env, token) else {
+        return null_mut();
+    };
+    state.transition(
+        operation,
+        dashboard_url(env, url),
+        first != 0,
+        second != 0,
+        stream,
+    );
+    long_array(env, &state.encode())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControllerDashboard_query(
+    env: *mut JNIEnv,
+    _class: jclass,
+    token: jlongArray,
+    operation: jint,
+    first: jboolean,
+    second: jboolean,
+) -> jlong {
+    dashboard_read(env, token)
+        .map(|state| state.query(operation, first != 0, second != 0))
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControllerDashboard_acceptedUrl(
+    env: *mut JNIEnv,
+    _class: jclass,
+    token: jlongArray,
+) -> jstring {
+    let Some(state) = dashboard_read(env, token) else {
+        return null_mut();
+    };
+    let Some(units) = state.accepted_url() else {
+        return null_mut();
+    };
+    ((**env).NewString.unwrap())(env, units.as_ptr(), units.len() as jint)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControllerDashboard_route(
+    env: *mut JNIEnv,
+    _class: jclass,
+    token: jlongArray,
+    same_stream: jboolean,
+    stream: jint,
+    url: jstring,
+    closed: jboolean,
+) -> jlong {
+    dashboard_read(env, token)
+        .map(|state| {
+            state.route(
+                same_stream != 0,
+                stream,
+                dashboard_url(env, url).as_deref(),
+                closed != 0,
+            )
+        })
+        .unwrap_or(0x1_0000_0000)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControllerDashboard_permits(
+    env: *mut JNIEnv,
+    _class: jclass,
+    url: jstring,
+    physical: jboolean,
+    stream: jint,
+    shown: jboolean,
+    closed: jboolean,
+) -> jboolean {
+    super::dashboard::permits(
+        dashboard_url(env, url).as_deref(),
+        physical != 0,
+        stream,
+        shown != 0,
+        closed != 0,
+    ) as jboolean
+}
