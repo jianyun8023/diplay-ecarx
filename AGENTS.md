@@ -18,8 +18,8 @@ The full CI command from `.github/workflows/android.yml` is a reference, not a r
 
 ```sh
 ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest \
-  :mobile:lintDebug :maphost:lintDebug :siribridge:lintDebug \
-  :mobile:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
+  :mobile:lintDebug :maphost:lintDebug \
+  :mobile:assembleDebug :maphost:assembleDebug
 ```
 
 Set `ANDROID_HOME` or `local.properties` if Gradle cannot find the SDK.

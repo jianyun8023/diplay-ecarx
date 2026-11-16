@@ -204,9 +204,9 @@ jobs:
       - name: Lint, debug APKs and release optimization (parallel)
         run: >
           ./gradlew
-          :mobile:lintDebug :maphost:lintDebug :siribridge:lintDebug
-          :mobile:assembleDebug :maphost:assembleDebug :siribridge:assembleDebug
-          :mobile:minifyReleaseWithR8 :maphost:minifyReleaseWithR8 :siribridge:minifyReleaseWithR8
+          :mobile:lintDebug :maphost:lintDebug
+          :mobile:assembleDebug :maphost:assembleDebug
+          :mobile:minifyReleaseWithR8 :maphost:minifyReleaseWithR8
           --parallel --max-workers=4 --build-cache --configuration-cache --stacktrace
       - name: Verify each debug APK carries exactly its own Rust Android ABI
         run: |
@@ -249,7 +249,6 @@ jobs:
           path: |
             mobile/build/reports/lint-results-debug.html
             samples/maphost/build/reports/lint-results-debug.html
-            integrations/siri/build/reports/lint-results-debug.html
 
   # Single required status: green when every job succeeded or was skipped for a
   # docs-only change; red if any job failed.

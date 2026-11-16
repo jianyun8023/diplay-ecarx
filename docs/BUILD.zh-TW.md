@@ -10,7 +10,6 @@
 | --- | --- | --- |
 | `:mobile` | 車機使用的主要 DiPlay 應用程式 | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk` |
 | `:maphost` | 接收 DiPlay 地圖的範例應用程式 | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
-| `:siribridge` | 方向盤語音鍵到 Siri 的橋接 | `integrations/siri/build/outputs/apk/debug/siribridge-debug.apk` |
 
 `:common` 與 `:shared` 是共用函式庫。要安裝主程式，請選 **mobile**；如果裝到「DiPlay map host」，表示選錯模組或 APK。單獨執行 `assembleDebug` 可能建置多個應用程式。
 
@@ -72,7 +71,7 @@ sdk.dir=C:/Users/YOUR_NAME/AppData/Local/Android/Sdk
 
 ## 完整檢查
 
-目前的完整 Gradle 指令見 [AGENTS.md](../AGENTS.md#checks)，CI 額外的 Rust 單元測試、三 ABI 驗證與四應用程式 Release R8 檢查見 [Android workflow](../.github/workflows/android.yml)。Rust 單元測試入口為：
+目前的完整 Gradle 指令見 [AGENTS.md](../AGENTS.md#checks)，CI 額外的 Rust 單元測試、三 ABI 驗證與 mobile／maphost 兩個應用程式的 Release R8 檢查見 [Android workflow](../.github/workflows/android.yml)。Rust 單元測試入口為：
 
 ```sh
 cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml

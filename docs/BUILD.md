@@ -12,7 +12,6 @@ Select `mobile` to build the main DiPlay app.
 | --- | --- | --- |
 | `:mobile` | Main DiPlay app for Android head units | `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk` |
 | `:maphost` | Sample application that displays a map from DiPlay | `samples/maphost/build/outputs/apk/debug/maphost-debug.apk` |
-| `:siribridge` | Steering-wheel voice-key bridge to Siri | `integrations/siri/build/outputs/apk/debug/siribridge-debug.apk` |
 
 The `:common` and `:shared` modules are libraries.
 The main app uses them; the other applications do not package the Rust core.
@@ -168,8 +167,8 @@ Shared-only contracts that access internal core owners live in `shared/src/testC
 and are included only in shared JVM/Android tests. Common/home reuse the general test references and
 real-host JNI shadows without compiling those internal contracts.
 For the complete CI procedure, see [the Android workflow](../.github/workflows/android.yml).
-That workflow also checks and builds the `home`, `maphost` and `siribridge` applications,
-and runs Release R8 optimization for all four apps. Current device acceptance is recorded in
+That workflow checks and builds the `mobile` and `maphost` applications,
+and runs Release R8 optimization for both apps. Current device acceptance is recorded in
 the [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md), separately from CI results.
 
 ## Build a standalone car-test APK

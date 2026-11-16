@@ -56,7 +56,6 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 | `:common` | `common/` | 宿主界面与生命周期：`CarPlayHostActivity`、`DiPlayActivity`（设置）、侧边栏、媒体会话、持久化。 |
 | `:shared` | `shared/` | 协议、连接编排、媒体管线与原生库。车机无关的核心都在这里。 |
 | `:maphost` | `samples/maphost/` | 仪表地图宿主示例。 |
-| `:siribridge` | `integrations/siri/` | 方向盘语音键到 Siri 的桥接。 |
 
 `shared` 的包分层：
 

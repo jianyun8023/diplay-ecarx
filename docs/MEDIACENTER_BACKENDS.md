@@ -38,9 +38,10 @@ ECARX 已取得媒体控制权时，Geely、ECARX 备用广播、前台 raw KeyE
 **Siri 接管不再独立于媒体接管方**（`c8f087ac` 之后）：两条语音键通道都以“直接接管”为前提——
 `GeelyWheelKeys.start()` 走 `shouldHandleSiriKey()`，ECARX 广播通道走 `managesVehicleKeys()`，
 两者在 `outputMode == ANDROID` 时都为假。因此在 HY 代理模式下 DiPlay **不接管语音键**，
-按键由 HY 处理；HY 要把它转发成 Siri，需要在 HY 的按键选择器里把该键指向 `:siribridge`
-启动器（它只发 `com.shihab.diplay.action.SIRI`，不会把 DiPlay 界面带到前台）。
-`requestSiriFromAction()` 本身不检查接管方，所以这条转发链在两种模式下都可用。
+按键由 HY 处理。独立的 DiPlay Siri 启动器已移除，不能再通过选择该应用来配置转发。
+主应用仍接受显式的 `com.shihab.diplay.action.SIRI` Intent，不会把 DiPlay 界面带到前台；
+只有支持发送该 Intent 的外部调用方才能使用这条入口。
+`requestSiriFromAction()` 本身不检查接管方，所以显式 Intent 在两种模式下都可用。
 不恢复“打开应用唤醒 Siri”，也不调整导航、声音路由或声道配置。
 
 > 待修：设置里 `settings_media_output_description` 仍写着“自定义 Siri 按键均可用”，与上述行为不符，
