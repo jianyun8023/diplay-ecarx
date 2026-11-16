@@ -566,6 +566,7 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 | `:shared:testDebugUnitTest` | 2101 passed / 0 failed |
 | `:common:testDebugUnitTest` | 1659 passed / 0 failed |
 | Android 原生（本机） | Rust 1.97.1／NDK 28.2.13676358／API 28 构建三 ABI 通过：ARM64／ARMv7／x86_64 各 619 个 Java JNI 导出 + `JNI_OnLoad`，ELF/架构与跨 ABI 导出一致性校验通过；覆盖新增 `outputLeaseAcquire/Release`、`afterResponse`、`wired_stack.carkitErrorAction/terminalOutcome` |
-| 未在本机执行 | lint／assemble（APK）／真机 wired 验证；留待 CI 与真机（wired 需 USB 连接的 iPhone） |
+| APK 构建／lint（本机） | `:mobile:assembleDebug :maphost:assembleDebug :mobile:lintDebug :maphost:lintDebug` 通过（`DIPLAY_JNI_LIBS_DIR` 指向本机三 ABI 构建产物，`stageRustAndroidInputs` 来源校验通过） |
+| 未在本机执行 | 真机 wired 验证（需 USB 连接的 iPhone）；本机设备为 Android／无线场景 |
 
 剩余：wired `runStack` 的 I/O 串行组合仍留 Kotlin；如需 Rust 以 event→action 驱动整段 I/O 顺序，属高风险改动，应在真机／CI wired 回归可用时再合入，不以盲改替代验证。
