@@ -41,3 +41,15 @@ class ControlRecoveryReference {
     fun snapshot(): Int = count
     fun recoveredSince(snapshot: Int): Boolean = count != snapshot && !loss
 }
+
+/** Previous host marker, independent of the native value token. */
+class BackgroundAttemptReference {
+    private var kept = false
+    fun keep() { kept = true }
+    fun foreground() { kept = false }
+    fun consumeFailure(): Boolean {
+        if (!kept) return false
+        kept = false
+        return true
+    }
+}

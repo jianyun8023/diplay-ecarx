@@ -135,6 +135,26 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
     _env: *mut JNIEnv, _class: jclass, facts: jint,
 ) -> jint { menu_exit(facts) }
 
+// 0 = visible/no retained attempt, 1 = retained, 2 = just consumed by failure.
+fn background_transition(token: i64, event: i32) -> i64 {
+    match event {
+        0 => 1,
+        1 => 0,
+        2 => if token == 1 { 2 } else { 0 },
+        _ => token,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_backgroundTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
+) -> jlong { background_transition(token, event) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_backgroundConsumed(
+    _env: *mut JNIEnv, _class: jclass, token: jlong,
+) -> jboolean { (token == 2) as jboolean }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +230,15 @@ mod tests {
         assert_eq!(menu_exit(1 | 8 | 16 | 256), 2);
         assert_eq!(menu_exit(64 | 128 | 256), 1);
         assert_eq!(menu_exit(256), 3);
+    }
+
+    #[test]
+    fn background_attempt_is_consumed_once_and_invalid_event_preserves_it() {
+        let kept = background_transition(0, 0);
+        assert_eq!(background_transition(kept, -1), kept);
+        let consumed = background_transition(kept, 2);
+        assert_eq!(consumed, 2);
+        assert_eq!(background_transition(consumed, 2), 0);
+        assert_eq!(background_transition(kept, 1), 0);
     }
 }

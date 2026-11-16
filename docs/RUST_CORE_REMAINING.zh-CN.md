@@ -79,6 +79,24 @@ owner／session 身份及代际门禁。菜单暂缓与后台接管仅补合同�
 本地日志：`/tmp/host-menu-{old,old-review,final-gradle,final-cargo,arm64}.log`。最终调用改为具名参数后
 仅执行 `git diff --check`，不改变已验证逻辑。本批未运行其他 ABI 构建、完整 APK 或设备／实车验证。
 
+## 后台握手保留状态（2026-11-16）
+
+基于 `cdc54e3d`，先在旧宿主补齐 14 项后台握手合同，再将保留标记、当前 Failed 的一次性消费以及
+返回前台／当前 session-active 的清除转移交给 `session::connection_recovery`。
+Kotlin 不保存镜像标记，继续保留导航与能力查询短路、owner／shutdown／代际门禁、资源及监听器引用、
+Handler 和实际停止／接管。取消或无操作导航不额外清标记，onStop 不设置标记，新 Host 不继承旧标记。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | 14 项通过，含真实 onStart／onStop、旧代与当前 session-active、owner／shutdown 非对称、Failed 消费不 fallthrough、真实 shutdown 使重复失败失效、新 Host 接管和能力查询短路 |
+| common／shared JVM | 104／7 项通过，含预算、菜单、控制恢复、transport 清理回归及独立旧 Kotlin 状态参考经真实 JNI 对照 |
+| Rust 1.97.1 recovery | 7 项通过；opaque value 不分配堆句柄，合法重复失败不重复消费 |
+| R8 | mobile 检查通过，maphost 为 UP-TO-DATE；新增 JNI 由现有整类 native 规则保留 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译和来源校验通过；583 个 Java JNI 导出及 JNI_OnLoad、ELF 校验通过 |
+
+本地日志：`/tmp/host-background-{old,final-gradle,final-cargo,arm64}.log`。本批未运行其他 ABI 构建、
+完整 APK 或设备／实车验证，不改写前面各批次的验收范围。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

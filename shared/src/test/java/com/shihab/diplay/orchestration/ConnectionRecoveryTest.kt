@@ -8,6 +8,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionRecoveryTest {
+    @Test fun backgroundAttemptTransitionsMatchFormerHostMarker() {
+        val actual = BackgroundAttemptState()
+        val old = BackgroundAttemptReference()
+        assertEquals(old.consumeFailure(), actual.consumeFailure())
+        old.keep(); actual.keep()
+        old.keep(); actual.keep()
+        assertEquals(old.consumeFailure(), actual.consumeFailure())
+        assertEquals(old.consumeFailure(), actual.consumeFailure())
+        old.keep(); actual.keep()
+        old.foreground(); actual.foreground()
+        assertEquals(old.consumeFailure(), actual.consumeFailure())
+    }
     @Test fun menuDecisionsMatchFormerHostBranchesForAllFacts() {
         for (existing in listOf(false, true)) for (incoming in listOf(false, true)) {
             val old = MenuRecoveryReference.failure(existing, incoming)

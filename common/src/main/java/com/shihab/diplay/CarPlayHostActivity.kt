@@ -2,6 +2,7 @@ package com.shihab.diplay
 
 import com.shihab.diplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
 import com.shihab.diplay.orchestration.ConnectionRecovery
+import com.shihab.diplay.orchestration.BackgroundAttemptState
 import com.shihab.diplay.orchestration.ControlRecoveryState
 import com.shihab.diplay.transport.TransportFailureKind
 
@@ -616,7 +617,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var awaitingVpnConsent = false
     private var vpnPlatformConsentTried = false
     /** The driver left after CarPlayStartSession; this attempt may finish, but is not retried out of sight. */
-    private var attemptKeptInBackground = false
+    private val backgroundAttempt = BackgroundAttemptState()
     private var awaitingWirelessPermissions = false
     private var wirelessPermissionsRefused = false
     private var awaitingWiredPermissions = false
@@ -1302,7 +1303,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         MediaPowerDiagnostics.note("Host started sessionActive=${activeAirPlaySession != null} " +
             MediaPowerDiagnostics.screenState(this))
         // Back in front: failures are visible again and retry as usual.
-        attemptKeptInBackground = false
+        backgroundAttempt.foreground()
         if (!forwarded && AirPlayPersistence.loadWirelessEnabled(this)) {
             CarPlayStartupTimeline.record(this, CarPlayStartupTimeline.Stage.HOST_START,
                 AirPlayPersistence.loadWirelessHotspotMode(this))
@@ -4491,7 +4492,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                         }
                     }
                     activeAirPlaySession = session
-                    attemptKeptInBackground = false
+                    backgroundAttempt.foreground()
                     val pending = pendingIphoneCornerMask
                     if (pending?.first === session) {
                         installIphoneCornerMask(session, pending.second.first, pending.second.second)
@@ -4642,10 +4643,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (status is CarPlayStatus.Failed || status is CarPlayStatus.ControlEnded) {
             callPopupSessionReady = false
         }
-        if (status is CarPlayStatus.Failed && attemptKeptInBackground) {
+        if (status is CarPlayStatus.Failed && backgroundAttempt.consumeFailure()) {
             // Retrying would run Bluetooth and the hotspot again behind the home screen, and a later
             // connect from there would adopt this owner instead of starting fresh.
-            attemptKeptInBackground = false
             appendLog("The attempt kept in the background failed; stopping it instead of retrying out of sight")
             if (CarPlayBackgroundSession.isOwner(this) && !shuttingDown.get()) {
                 CarPlayBackgroundSession.stop { mainHandler.post { if (!isDestroyed) finish() } }
@@ -5438,7 +5438,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (cancelIfNotConnected && page != "wireless-recovery" && activeAirPlaySession == null &&
             controller?.startSessionDispatched() == true
         ) {
-            attemptKeptInBackground = true
+            backgroundAttempt.keep()
             appendLog("Left the connection screen after CarPlayStartSession; keeping the attempt in the background")
         } else if (cancelIfNotConnected && activeAirPlaySession == null && !shuttingDown.get() &&
             CarPlayBackgroundSession.isOwner(this)

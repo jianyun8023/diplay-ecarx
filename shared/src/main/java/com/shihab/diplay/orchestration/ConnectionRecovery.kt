@@ -50,6 +50,20 @@ internal object NativeConnectionRecovery {
     @JvmStatic external fun controlRecovered(token: Long, snapshot: Long): Boolean
     @JvmStatic external fun menuFailure(existingManual: Boolean, incomingManual: Boolean): Int
     @JvmStatic external fun menuExit(facts: Int): Int
+    @JvmStatic external fun backgroundTransition(token: Long, event: Int): Long
+    @JvmStatic external fun backgroundConsumed(token: Long): Boolean
+}
+
+/** Host-lifetime marker for an attempt deliberately kept after StartSession. */
+class BackgroundAttemptState {
+    private var token = 0L
+    init { NativeMedia.requireAvailable() }
+    fun keep() { token = NativeConnectionRecovery.backgroundTransition(token, 0) }
+    fun foreground() { token = NativeConnectionRecovery.backgroundTransition(token, 1) }
+    fun consumeFailure(): Boolean {
+        token = NativeConnectionRecovery.backgroundTransition(token, 2)
+        return NativeConnectionRecovery.backgroundConsumed(token)
+    }
 }
 
 /** Host-lifetime observation of control recovery, separate from retry budgets. */

@@ -280,7 +280,13 @@ session 引用身份、Handler／Runnable、菜单暂停、代际检查和实际
 `session active` 不等同于该恢复事件；此状态与预算独立，保留 JVM Int wrapping 语义，与宿主同寿命。
 Kotlin 在原位置报告事件：reporter 的状态更新先于菜单／后台处理，直接重连入口先记录丢失再检查已有 pending。
 Handler／Runnable、owner 与 session 引用、代际门禁以及先清 pending 再检查代际的现有顺序仍留在 Kotlin。
-后台接管策略仍在宿主；保留后台握手后收到 Failed 就停止的行为，由宿主合同保护。
+后台握手的保留标记及转移也归 `connection_recovery`，与宿主同寿命，不等同于 Activity 前后台状态。
+原导航条件和控制器能力查询的短路仍在 Kotlin；这些入口触发 Rust 的保留、清除或失败消费转移。
+离开未连接的会话时，已发出 StartSession 且不是主动进入无线恢复页的握手可以保留；不取消连接的设置导航不新设或清除标记。
+保留分支不增加 owner／shutdown 门禁；取消分支仍由 Kotlin 按原条件执行停止，取消动作本身不清标记。
+当前代 Failed 先消费标记，再由 Kotlin 在仍是 owner 且未 shutdown 时实际停止，并直接返回；不执行停止也不进入菜单或普通重试。
+`onStart` 和通过原代际检查的 session-active 清标记，`onStop` 不改标记；其他错误通道不隐式视为 Failed。
+owner、controller、sink、监听器和 Handler、实际停止／接管继续在 Kotlin；新宿主接管资源时不继承旧宿主的标记或预算。
 
 菜单的失败保留与退出恢复动作由 `connection_recovery` 的纯函数决定，不另建原生菜单状态。
 Kotlin 唯一持有完整暂存失败与恢复待办标记，并负责菜单可见性、设置校验／保存／回滚、Dialog 导航和 Handler。
