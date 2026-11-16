@@ -1,5 +1,8 @@
 package com.shihab.diplay.network
 
+import com.shihab.diplay.orchestration.CarPlayStatus
+import com.shihab.diplay.orchestration.ConnectionRecovery
+
 import android.net.wifi.p2p.WifiP2pManager
 import com.shihab.diplay.orchestration.ConnectionFailureCause
 import org.junit.Assert.*
@@ -539,7 +542,8 @@ class P2pStartupRecoveryTest {
         val rejection = P2pCreateRejected(WifiP2pManager.BUSY, "busy", replyMillis = 3_500)
         val failure = requireNotNull(P2pHotspotConflict.failure(33, true, rejection))
         assertEquals(WirelessStartupFailure.WIFI_DIRECT_BESIDE_HOTSPOT, failure.reason)
-        assertFalse(failure.reason.retryable)
+        assertEquals(ConnectionRecovery.STARTUP_STOP,
+            CarPlayStatus.Failed(failure.message.orEmpty(), startupFailure = failure.reason).recovery.action)
         assertSame(rejection, failure.cause)
     }
 

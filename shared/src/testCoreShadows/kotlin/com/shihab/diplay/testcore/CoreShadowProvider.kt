@@ -59,6 +59,7 @@ class CoreShadowProvider : ShadowProvider {
         "com.shihab.diplay.iap2.wire.NativeIap2Body" to "com.shihab.diplay.testcore.ShadowNativeIap2Body",
         "com.shihab.diplay.iap2.wire.NativeIap2Wire" to "com.shihab.diplay.testcore.ShadowNativeIap2Wire",
         "com.shihab.diplay.orchestration.NativeWirelessRecovery" to "com.shihab.diplay.testcore.ShadowNativeWirelessRecovery",
+        "com.shihab.diplay.orchestration.NativeConnectionRecovery" to "com.shihab.diplay.testcore.ShadowNativeConnectionRecovery",
         "com.shihab.diplay.transport.NativeControlDeadline" to "com.shihab.diplay.testcore.ShadowNativeControlDeadline",
         "com.shihab.diplay.transport.NativeIap2Link" to "com.shihab.diplay.testcore.ShadowNativeIap2Link",
         "com.shihab.diplay.transport.NativeVehicleIdentification" to "com.shihab.diplay.testcore.ShadowNativeVehicleIdentification",

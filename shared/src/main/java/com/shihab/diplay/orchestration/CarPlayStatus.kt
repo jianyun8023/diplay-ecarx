@@ -1,6 +1,7 @@
 package com.shihab.diplay.orchestration
 
 import com.shihab.diplay.network.WirelessStartupFailure
+import com.shihab.diplay.transport.TransportFailureKind
 
 /** Phone-side pairing outcomes only; Android USB access and transport failures are not trust refusals. */
 enum class UsbPairingFailure { TRUST_REFUSED, PHONE_LOCKED, TIMED_OUT, CANCELLED }
@@ -41,7 +42,10 @@ sealed class CarPlayStatus {
         val startupFailure: WirelessStartupFailure? = null,
         val knownCause: ConnectionFailureCause? = null,
         val usbPairingFailure: UsbPairingFailure? = null,
-        val automaticRetryAllowed: Boolean = true) : CarPlayStatus()
+        val automaticRetryAllowed: Boolean = true,
+        val transportFailure: TransportFailureKind = TransportFailureKind.OTHER) : CarPlayStatus() {
+        val recovery: ConnectionRecovery.Decision get() = ConnectionRecovery.forFailure(this)
+    }
 }
 
 /** One line per status for the connection debug log: `STEP <phase>/<step>: …`, or `ERROR …` for a failure. */

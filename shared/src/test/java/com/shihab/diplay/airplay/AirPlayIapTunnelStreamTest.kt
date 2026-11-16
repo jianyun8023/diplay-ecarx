@@ -1,12 +1,28 @@
 package com.shihab.diplay.airplay
 
+import com.shihab.diplay.transport.TransportFailure
+import com.shihab.diplay.transport.TransportFailureKind
 import java.net.InetAddress
 import java.net.Socket
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AirPlayIapTunnelStreamTest {
+    @Test fun closedTunnelCarriesItsRecoveryKind() {
+        val session = testSession()
+        val bridge = AirPlayIapTunnelStream(session, IapTunnel(ByteArray(32), InetAddress.getLoopbackAddress()))
+        try {
+            bridge.close()
+            val error = assertThrows(TransportFailure::class.java) { bridge.send(byteArrayOf(1)) }
+            assertEquals(TransportFailureKind.IAP_TUNNEL, error.kind)
+        } finally {
+            session.close()
+        }
+    }
+
     @Test
     fun inputConnectionCloseKeepsEventChannelAvailableForOutboundIap() {
         val sent = mutableListOf<ByteArray>()

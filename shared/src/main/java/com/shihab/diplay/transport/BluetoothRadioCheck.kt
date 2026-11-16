@@ -33,12 +33,12 @@ object BluetoothRadioCheck {
     }
 
     /**
-     * What [blocker]'s answer is thrown as. A radio that is off can be switched on, so that attempt is
-     * retried; no retry gives a head unit an adapter, so that one stops with its cause.
+     * A radio that is off requires the driver to act. Keep that fact typed through the wireless
+     * recovery classifier; a missing adapter retains its distinct startup failure.
      */
     fun failure(blocker: String): IOException =
         if (blocker == NO_ADAPTER) WirelessStartupException(WirelessStartupFailure.BLUETOOTH_UNUSABLE, blocker)
-        else IOException(blocker)
+        else TransportFailure(TransportFailureKind.BLUETOOTH_OFF, blocker)
 
     /** Ends in the words the host screen matches on for Bluetooth that apps cannot use. */
     const val NO_ADAPTER = "Bluetooth adapter is unavailable: Android on this head unit ${BluetoothLinkCheck.NO_SOCKETS_MARK}"

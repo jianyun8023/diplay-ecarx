@@ -5,7 +5,8 @@ import com.shihab.diplay.mfi.Iap2MfiAuthenticationException
 import com.shihab.diplay.mfi.MfiAuthenticationFailedException
 import com.shihab.diplay.mfi.MfiException
 import com.shihab.diplay.network.WirelessStartupException
-import com.shihab.diplay.transport.BluetoothRadioCheck
+import com.shihab.diplay.transport.TransportFailure
+import com.shihab.diplay.transport.TransportFailureKind
 import com.shihab.diplay.transport.Iap2IdentificationException
 import java.io.IOException
 import java.io.InterruptedIOException
@@ -72,7 +73,7 @@ internal object WirelessFailureFacts {
         for (cause in generateSequence(error) { it.cause }.take(8)) {
             if (cause is SecurityException) facts = facts or SECURITY
             if (cause is MfiAuthenticationFailedException) facts = facts or MFI_REJECTED
-            if (cause.message?.contains(BluetoothRadioCheck.RADIO_OFF_MARK) == true) facts = facts or RADIO_OFF
+            if (cause is TransportFailure && cause.kind == TransportFailureKind.BLUETOOTH_OFF) facts = facts or RADIO_OFF
             if (cause is Iap2IdentificationException) facts = facts or IDENTIFICATION
             if (cause is Iap2MfiAuthenticationException) facts = facts or if (cause.retryable) MFI_RETRY else MFI_TERMINAL
             if (cause is Error) facts = facts or ANY_ERROR

@@ -1,5 +1,7 @@
 package com.shihab.diplay.orchestration
 
+import com.shihab.diplay.transport.TransportFailureKind
+
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
@@ -401,9 +403,9 @@ class CarPlayController(
             uiListener?.onSessionEnded(session)
         }
 
-        override fun onTransportError(message: String) {
+        override fun onTransportError(message: String, kind: TransportFailureKind) {
             debugLog("AirPlay transport error: $message")
-            uiListener?.onTransportError(message)
+            uiListener?.onTransportError(message, kind)
         }
 
         override fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {
@@ -2045,7 +2047,7 @@ class CarPlayController(
             )
         } catch (error: Throwable) {
             ncm.close()
-            report(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName))
+            report(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName, transportFailure = TransportFailureKind.from(error)))
             return false
         }
         return when (result) {
@@ -2173,7 +2175,8 @@ class CarPlayController(
                     LockdownPairingException.Cancelled -> UsbPairingFailure.CANCELLED
                     else -> null
                 },
-                automaticRetryAllowed = !wireless || !WirelessBootstrapRecovery.requiresUserAction(error))
+                automaticRetryAllowed = !wireless || !WirelessBootstrapRecovery.requiresUserAction(error),
+                transportFailure = TransportFailureKind.from(error))
             if (wiredRun != null) onWiredStatus(status, wiredRun)
             else onStatus(status, if (wireless) wirelessGeneration else null)
         }
@@ -2986,6 +2989,7 @@ class CarPlayController(
                             onStatus(
                                 CarPlayStatus.Failed(
                                     error.message ?: error.javaClass.simpleName,
+                                    transportFailure = TransportFailureKind.from(error),
                                 ),
                             )
                         }
@@ -3036,9 +3040,9 @@ class CarPlayController(
                     }
                 }
 
-                override fun onTransportError(message: String) = whileRunning {
+                override fun onTransportError(message: String, kind: TransportFailureKind) = whileRunning {
                     watchdog.terminate()
-                    sessionListener.onTransportError(message)
+                    sessionListener.onTransportError(message, kind)
                 }
 
                 override fun onSessionConnecting(session: AirPlaySession) = whileRunning {

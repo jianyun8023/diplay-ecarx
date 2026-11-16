@@ -542,6 +542,17 @@ class ShadowNativeIap2Wire {
     }
 }
 
+@Implements(className = "com.shihab.diplay.orchestration.NativeConnectionRecovery", isInAndroidSdk = false, callNativeMethodsByDefault = true)
+class ShadowNativeConnectionRecovery {
+    companion object {
+        @JvmStatic @Implementation fun action(facts: Int, startup: Int): Int =
+            HostNative.call("orchestration.NativeConnectionRecovery", "action", facts, startup) as Int
+
+        @JvmStatic @Implementation fun retryDelay(attempts: Int, tunnel: Boolean): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "retryDelay", attempts, tunnel) as Long
+    }
+}
+
 @Implements(className = "com.shihab.diplay.orchestration.NativeWirelessRecovery", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeWirelessRecovery {
     companion object {

@@ -1,6 +1,8 @@
 package com.shihab.diplay
 
 import com.shihab.diplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
+import com.shihab.diplay.orchestration.ConnectionRecovery
+import com.shihab.diplay.transport.TransportFailureKind
 
 import android.app.AlertDialog
 import android.Manifest
@@ -4572,7 +4574,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
-            override fun onTransportError(message: String) {
+            override fun onTransportError(message: String, kind: TransportFailureKind) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     callPopupSessionReady = false
@@ -4584,7 +4586,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     activeScreenStreamTypes.clear()
                     setConnectionStage(R.string.transport_error_reconnecting)
                     appendLog("CarPlay transport error: $message; reconnecting from scratch")
-                    reconnectAfterLoss("CarPlay transport error: $message")
+                    reconnectAfterLoss("CarPlay transport error: $message", CarPlayStatus.Failed(message, transportFailure = kind))
                 }
             }
 
@@ -4618,8 +4620,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
 
     private fun CarPlayStatus.Failed.requiresManualRetry(): Boolean =
-        usbPairingFailure != null || !automaticRetryAllowed ||
-            knownCause == ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE
+        recovery.requiresUserAction
 
     private fun createStatusReporter(
         controllerGeneration: Int,
@@ -4680,16 +4681,16 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Only a working AirPlay session, or a new failure, replaces it.
         if (status is CarPlayStatus.Failed) showConnectionHelp(status)
         when (status) {
-            is CarPlayStatus.Failed -> if (status.usbPairingFailure != null) {
+            is CarPlayStatus.Failed -> if (status.recovery.action == ConnectionRecovery.USB_PAIRING) {
                 // Stop cleanup callbacks and queued transport retries from re-prompting the phone.
                 usbPairingStoppedGeneration = controllerGeneration
                 startupRetryStopped = true
                 reconnectScheduled = false
                 wifiRecoveryButton?.visibility = View.GONE
                 startupRetryButton?.visibility = View.VISIBLE
-            } else if (status.wifiResetRequired) {
+            } else if (status.recovery.action == ConnectionRecovery.WIFI_RESET) {
                 wifiRecoveryButton?.visibility = View.VISIBLE
-            } else if (!status.automaticRetryAllowed || status.knownCause == ConnectionFailureCause.WIRELESS_CARPLAY_UNAVAILABLE) {
+            } else if (status.recovery.action == ConnectionRecovery.USER_ACTION) {
                 // Permission/radio/pairing prerequisites and explicit protocol rejection require
                 // driver action. Do not turn a stopped local recovery into a full-stack retry loop.
                 startupRetryStopped = true
@@ -4702,7 +4703,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     if (startupFailureGeneration == controllerGeneration) return@report
                     startupFailureGeneration = controllerGeneration
                 }
-                reconnectAfterLoss(description, status.startupFailure, englishDescription, status.knownCause)
+                reconnectAfterLoss(description, status)
             }
             else -> Unit
         }
@@ -5292,10 +5293,10 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private fun reconnectAfterLoss(
         reason: String,
-        startupFailure: WirelessStartupFailure? = null,
-        englishReason: String = reason,
-        knownCause: ConnectionFailureCause? = null,
+        failure: CarPlayStatus.Failed = CarPlayStatus.Failed(reason),
     ) {
+        val startupFailure = failure.startupFailure
+        val knownCause = failure.knownCause
         if (!CarPlayBackgroundSession.isOwner(this)) { traceRetry(ConnectionTraceEvent.NOT_OWNER); return }
         // Also when a retry is already pending and this loss is dropped: that retry must not skip.
         lossSinceControlRunning = true
@@ -5305,10 +5306,11 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (handshakeResetInProgress) { traceRetry(ConnectionTraceEvent.HANDSHAKE_RESET); return }
         if (startupRetryStopped) { traceRetry(ConnectionTraceEvent.RETRY_STOPPED); return }
         if (reconnectScheduled) { traceRetry(ConnectionTraceEvent.ALREADY_SCHEDULED); return }
-        val startupDelay = if (startupFailure != null && startupFailure.retryable)
+        val recovery = failure.recovery.action
+        val startupDelay = if (recovery == ConnectionRecovery.STARTUP_RETRY)
             startupRetryBudget.nextDelayMillis() else null
         if (startupFailure != null && startupDelay == null) {
-            traceRetry(if (startupFailure.retryable) ConnectionTraceEvent.RETRY_BUDGET_STOPPED else ConnectionTraceEvent.RETRY_NOT_RETRYABLE)
+            traceRetry(if (recovery == ConnectionRecovery.STARTUP_RETRY) ConnectionTraceEvent.RETRY_BUDGET_STOPPED else ConnectionTraceEvent.RETRY_NOT_RETRYABLE)
             startupRetryStopped = true
             startupRetryButton?.visibility = View.VISIBLE
             if (knownCause != null) {
@@ -5318,11 +5320,11 @@ open class CarPlayHostActivity : ComponentActivity() {
                 // Its cause is in English, for the report; the help line below says what to check.
                 setConnectionStage("${getString(R.string.hotspot_network_not_ready)}\n" +
                     getString(R.string.wireless_startup_retries_exhausted))
-            } else if (!startupFailure.retryable) {
-                setConnectionStage(reason, englishReason)
+            } else if (recovery == ConnectionRecovery.STARTUP_STOP) {
+                setConnectionStage(reason, failure.describe(englishResources))
             } else {
                 setConnectionStage("$reason\n${getString(R.string.wireless_startup_retries_exhausted)}",
-                    "$englishReason\n${englishResources.getString(R.string.wireless_startup_retries_exhausted)}")
+                    "${failure.describe(englishResources)}\n${englishResources.getString(R.string.wireless_startup_retries_exhausted)}")
             }
             appendLog("wireless startup recovery stopped generation=$restartGeneration reason=$startupFailure retries=${startupRetryBudget.retries}")
             return
@@ -5332,10 +5334,8 @@ open class CarPlayHostActivity : ComponentActivity() {
         val generation = restartGeneration
         val delayMillis = if (startupDelay != null) {
             startupDelay
-        } else if (reason.contains("AirPlay iAP tunnel", ignoreCase = true)) {
-            IAP_TUNNEL_RECONNECT_DELAY_MILLIS
         } else {
-            (RECONNECT_DELAY_MILLIS * (1L shl reconnectAttempts.coerceAtMost(4))).coerceAtMost(30_000L)
+            ConnectionRecovery.retryDelayMillis(reconnectAttempts, failure.transportFailure)
         }
         reconnectAttempts += 1
         traceRetry(ConnectionTraceEvent.RETRY_SCHEDULED, generation, delayMillis)
@@ -5373,7 +5373,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             restartCarPlay("Reconnecting after $reason")
         }
         pendingReconnect = retry
-        reconnectWaitsForBluetooth = englishReason.contains(BluetoothRadioCheck.RADIO_OFF_MARK, true)
+        reconnectWaitsForBluetooth = failure.transportFailure == TransportFailureKind.BLUETOOTH_OFF
         mainHandler.postDelayed(retry, delayMillis)
     }
 
@@ -6286,8 +6286,6 @@ open class CarPlayHostActivity : ComponentActivity() {
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         const val CONFIGURATION_POLL_INTERVAL_MILLIS = 2_000L
-        const val RECONNECT_DELAY_MILLIS = 2_000L
-        const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"

@@ -15,6 +15,7 @@ import com.shihab.diplay.orchestration.UsbPairingFailure
 import com.shihab.diplay.orchestration.CarPlayStatus
 import com.shihab.diplay.orchestration.ConnectionFailureCause
 import com.shihab.diplay.transport.BluetoothLinkCheck
+import com.shihab.diplay.transport.TransportFailureKind
 import com.shihab.diplay.transport.BluetoothRadioCheck
 import org.junit.After
 import org.junit.Assert.*
@@ -58,8 +59,8 @@ class WirelessStartupRecoveryTest {
 
     private fun reconnectDirectly() {
         CarPlayHostActivity::class.java.getDeclaredMethod("reconnectAfterLoss", String::class.java,
-            WirelessStartupFailure::class.java, String::class.java, ConnectionFailureCause::class.java).apply { isAccessible = true }
-            .invoke(activity, "private-device-error", null, "private-device-error", null)
+            CarPlayStatus.Failed::class.java).apply { isAccessible = true }
+            .invoke(activity, "private-device-error", CarPlayStatus.Failed("private-device-error"))
     }
 
     @Test fun retryGateReasonsAreRecordedWithoutRearmingOrChangingPolicy() {
@@ -164,6 +165,20 @@ class WirelessStartupRecoveryTest {
         assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
     }
 
+    @Test fun typedTunnelFailureKeepsItsDelayWithoutEnglishText() {
+        report(status = CarPlayStatus.Failed("隧道已关闭", transportFailure = TransportFailureKind.IAP_TUNNEL))
+        assertTrue(ConnectionDiagnostics.report(activity).contains("delayMs=15000"))
+        assertEquals(0, budget().retries)
+        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+    }
+
+    @Test fun diagnosticWordsCannotSelectTunnelOrRadioRecovery() {
+        report(status = CarPlayStatus.Failed("AirPlay iAP tunnel: Turn on Bluetooth"))
+        assertTrue(ConnectionDiagnostics.report(activity).contains("delayMs=2000"))
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectWaitsForBluetooth"))
+        assertEquals(0, budget().retries)
+    }
+
     @Test fun exhaustedBudgetStopsAutomaticRecoveryAndExposesRetry() {
         repeat(6) { generation ->
             ReflectionHelpers.setField(activity, "restartGeneration", generation)
@@ -238,22 +253,27 @@ class WirelessStartupRecoveryTest {
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
-    // The driver can switch Bluetooth on, so the screen asks for it and the attempts go on.
-    @Test fun bluetoothThatIsOffAsksForItAndKeepsRetrying() {
+    // The real wireless classifier requires manual retry after the driver enables Bluetooth.
+    @Test fun wirelessRadioOffKeepsTheProductionManualRetryDecision() {
         val stage = TextView(activity)
         ReflectionHelpers.setField(activity, "stageStatusView", stage)
-        report(status = CarPlayStatus.Failed(BluetoothRadioCheck.RADIO_OFF))
+        report(status = CarPlayStatus.Failed(BluetoothRadioCheck.RADIO_OFF, automaticRetryAllowed = false,
+            transportFailure = TransportFailureKind.BLUETOOTH_OFF))
         assertEquals(activity.getString(R.string.turn_on_bluetooth_in_the_head_unit_s_settings_to_connect), stage.text.toString())
-        assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
-        assertEquals(View.GONE, retry.visibility)
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertEquals(View.VISIBLE, retry.visibility)
+        bluetooth(BluetoothAdapter.STATE_ON)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertEquals(0, budget().retries)
     }
 
-    // The back-off had reached 30 s on a Galaxy Note20: Bluetooth on, then half a minute of
-    // "Connecting to your iPhone…" before the next attempt.
-    @Test fun bluetoothTurningOnRunsTheRetryThatWaitsForIt() {
+    // Explicitly retryable callers retain the existing wake-on-radio behavior; wireless prerequisites
+    // use the manual decision above. This synthetic input must not claim to be that production path.
+    @Test fun bluetoothTurningOnRunsAnExplicitlyRetryableRadioFailure() {
         ReflectionHelpers.setField(activity, "reconnectAttempts", 4)
-        report(status = CarPlayStatus.Failed(BluetoothRadioCheck.RADIO_OFF))
+        report(status = CarPlayStatus.Failed("无线电暂不可用", transportFailure = TransportFailureKind.BLUETOOTH_OFF))
         val pending = ReflectionHelpers.getField<Runnable>(activity, "pendingReconnect")
         val handler = ReflectionHelpers.getField<Handler>(activity, "mainHandler")
         assertTrue(handler.hasCallbacks(pending))

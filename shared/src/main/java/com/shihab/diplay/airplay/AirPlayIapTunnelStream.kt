@@ -1,6 +1,8 @@
 package com.shihab.diplay.airplay
 
 import com.shihab.diplay.transport.BlockingDuplexByteStream
+import com.shihab.diplay.transport.TransportFailure
+import com.shihab.diplay.transport.TransportFailureKind
 import java.io.IOException
 
 /**
@@ -131,14 +133,16 @@ internal class AirPlayIapTunnelStream(
     private fun throwTerminalFailureLocked(status: Int) {
         if (status and FAILED == 0) return
         val failure = terminalFailure
-        throw IOException(
+        throw TransportFailure(
+            TransportFailureKind.IAP_TUNNEL,
             "AirPlay iAP tunnel failed: " +
                 "${failure.javaClass.simpleName}: ${failure.message ?: "unknown error"}",
             failure,
         )
     }
 
-    private fun closedFailureLocked(): IOException = IOException(
+    private fun closedFailureLocked(): IOException = TransportFailure(
+        TransportFailureKind.IAP_TUNNEL,
         buildString {
             append("AirPlay iAP tunnel is closed")
             closeLocation?.let { append("; requested by $it") }

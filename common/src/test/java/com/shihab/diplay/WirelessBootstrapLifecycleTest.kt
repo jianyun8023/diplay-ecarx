@@ -14,6 +14,8 @@ import com.shihab.diplay.mfi.Iap2MfiAuthenticationException
 import com.shihab.diplay.network.*
 import com.shihab.diplay.orchestration.*
 import com.shihab.diplay.transport.BluetoothRadioCheck
+import com.shihab.diplay.transport.TransportFailure
+import com.shihab.diplay.transport.TransportFailureKind
 import com.shihab.diplay.transport.BluetoothRfcommDuplexStream
 import com.shihab.diplay.transport.Iap2IdentificationConfig
 import java.io.IOException
@@ -272,8 +274,12 @@ class WirelessBootstrapLifecycleTest {
     }
 
     @Test fun radioOffFailureDisablesWholeStackAutomaticRetry() {
-        assertFalse(reportedFailure(IOException("Bluetooth bootstrap failed",
-            BluetoothRadioCheck.failure(BluetoothRadioCheck.RADIO_OFF))).automaticRetryAllowed)
+        val failure = reportedFailure(IOException("Bluetooth bootstrap failed",
+            TransportFailure(TransportFailureKind.BLUETOOTH_OFF, "蓝牙已关闭")))
+        assertFalse(failure.automaticRetryAllowed)
+        assertEquals(TransportFailureKind.BLUETOOTH_OFF, failure.transportFailure)
+        assertEquals(ConnectionRecovery.USER_ACTION, failure.recovery.action)
+        assertTrue(failure.recovery.requiresUserAction)
     }
 
     @Test fun missingSelectedBondDisablesWholeStackAutomaticRetry() {

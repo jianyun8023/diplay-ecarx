@@ -1,5 +1,8 @@
 package com.shihab.diplay.transport
 
+import com.shihab.diplay.orchestration.CarPlayStatus
+import com.shihab.diplay.orchestration.ConnectionRecovery
+
 import com.shihab.diplay.network.WirelessStartupException
 import com.shihab.diplay.network.WirelessStartupFailure
 import org.junit.Assert.assertEquals
@@ -42,16 +45,18 @@ class BluetoothRadioCheckTest {
         val failure = BluetoothRadioCheck.failure(BluetoothRadioCheck.NO_ADAPTER)
         assertTrue(failure is WirelessStartupException)
         assertEquals(WirelessStartupFailure.BLUETOOTH_UNUSABLE, (failure as WirelessStartupException).reason)
-        assertFalse(failure.reason.retryable)
+        assertEquals(ConnectionRecovery.STARTUP_STOP,
+            CarPlayStatus.Failed(failure.message.orEmpty(), startupFailure = failure.reason).recovery.action)
         assertEquals(BluetoothRadioCheck.NO_ADAPTER, failure.message)
         assertTrue(BluetoothRadioCheck.NO_ADAPTER.startsWith("Bluetooth adapter is unavailable"))
         assertTrue(BluetoothRadioCheck.NO_ADAPTER.contains(BluetoothLinkCheck.NO_SOCKETS_MARK))
     }
 
-    // The driver can switch the radio on, so that attempt goes on being retried.
-    @Test fun aRadioThatIsOffIsStillRetried() {
+    // Classification uses the typed radio fact, independently of the displayed message.
+    @Test fun aRadioThatIsOffCarriesItsFailureKind() {
         val failure = BluetoothRadioCheck.failure(BluetoothRadioCheck.RADIO_OFF)
         assertFalse(failure is WirelessStartupException)
+        assertEquals(TransportFailureKind.BLUETOOTH_OFF, TransportFailureKind.from(failure))
         assertEquals(BluetoothRadioCheck.RADIO_OFF, failure.message)
     }
 

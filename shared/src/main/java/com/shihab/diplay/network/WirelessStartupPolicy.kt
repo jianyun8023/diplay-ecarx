@@ -29,11 +29,7 @@ enum class WirelessStartupFailure {
     BLUETOOTH_UNUSABLE,
 
     /** Android 13+ asked to turn the car hotspot off for Wi-Fi Direct, and the driver said no. */
-    WIFI_DIRECT_BESIDE_HOTSPOT;
-
-    /** False when no further attempt can change what went wrong. */
-    val retryable: Boolean get() = this != HOTSPOT_CONFIGURATION && this != BLUETOOTH_UNUSABLE &&
-        this != WIFI_DIRECT_BESIDE_HOTSPOT
+    WIFI_DIRECT_BESIDE_HOTSPOT
 }
 
 class WirelessStartupException(

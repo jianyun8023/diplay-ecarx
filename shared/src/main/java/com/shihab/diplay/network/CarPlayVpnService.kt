@@ -1,5 +1,7 @@
 package com.shihab.diplay.network
 
+import com.shihab.diplay.transport.TransportFailureKind
+
 import android.content.Context
 import android.content.Intent
 import android.net.VpnService
@@ -61,7 +63,7 @@ class CarPlayVpnService : VpnService() {
                 if (current()) delegate.onVideoFrameSample(session, elapsedMs, decoderId, epoch)
             }
             override fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) { if (current()) delegate.onCornerMask(session, png, displayWidth) }
-            override fun onTransportError(message: String) { if (current()) delegate.onTransportError(message) }
+            override fun onTransportError(message: String, kind: TransportFailureKind) { if (current()) delegate.onTransportError(message, kind) }
             override fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) { if (current()) delegate.onDeviceInfo(session, info) }
             override fun onHostUiRequested(session: AirPlaySession) { if (current()) delegate.onHostUiRequested(session) }
             override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) { if (current()) delegate.onCommand(session, type, params) }
@@ -429,7 +431,7 @@ class CarPlayVpnService : VpnService() {
                     releaseLocked()
                     transport.generation
                 }
-                listener.onTransportError(message)
+                listener.onTransportError(message, TransportFailureKind.from(error))
                 synchronized(this) {
                     if (transport.matches(releasedGeneration) && !transport.active) stopSelf()
                 }

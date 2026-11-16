@@ -3,6 +3,7 @@
 pub mod airplay;
 pub mod control_deadline;
 pub mod controller;
+mod connection_recovery;
 pub mod iap2_handshake;
 pub mod watchdog;
 pub mod playback;

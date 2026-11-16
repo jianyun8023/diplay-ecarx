@@ -1,5 +1,8 @@
 package com.shihab.diplay.transport
 
+import com.shihab.diplay.orchestration.CarPlayStatus
+import com.shihab.diplay.orchestration.ConnectionRecovery
+
 import com.shihab.diplay.network.WirelessStartupException
 import com.shihab.diplay.network.WirelessStartupFailure
 import java.io.IOException
@@ -75,7 +78,8 @@ class BluetoothLinkCheckTest {
             val failure = BluetoothLinkCheck.connectFailure(reported, "phone-address")
             assertTrue(failure is WirelessStartupException)
             assertEquals(WirelessStartupFailure.BLUETOOTH_UNUSABLE, (failure as WirelessStartupException).reason)
-            assertFalse(failure.reason.retryable)
+            assertEquals(ConnectionRecovery.STARTUP_STOP,
+            CarPlayStatus.Failed(failure.message.orEmpty(), startupFailure = failure.reason).recovery.action)
             assertTrue(failure.message, failure.message!!.contains(BluetoothLinkCheck.NO_SOCKETS_MARK))
             // Nothing about the phone belongs in a failure that is the head unit's.
             assertFalse(failure.message, failure.message!!.contains("phone-address"))

@@ -1,5 +1,7 @@
 package com.shihab.diplay.airplay
 
+import com.shihab.diplay.transport.TransportFailureKind
+
 import android.util.Log
 import com.shihab.diplay.hud.NavigationOutputs
 import com.shihab.diplay.logging.DiPlayTrace
@@ -37,7 +39,7 @@ interface AirPlaySessionListener {
     fun onVideoFrameSample(session: AirPlaySession, elapsedMs: Long, decoderId: Int, epoch: Long) {}
     /** Validated downstream; immutable copy of iPhone's top-left grayscale coverage PNG. */
     fun onCornerMask(session: AirPlaySession, png: ByteArray, displayWidth: Int) {}
-    fun onTransportError(message: String) {}
+    fun onTransportError(message: String, kind: TransportFailureKind = TransportFailureKind.OTHER) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
     fun onHostUiRequested(session: AirPlaySession) {}
     fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {}
