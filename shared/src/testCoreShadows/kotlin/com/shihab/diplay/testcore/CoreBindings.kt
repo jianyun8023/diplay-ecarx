@@ -29,6 +29,9 @@ class ShadowNativeAirPlayNegotiation {
         @JvmStatic @Implementation fun streamAction(state: LongArray, type: Int): Int =
             HostNative.call("airplay.NativeAirPlayNegotiation", "streamAction", state, type) as Int
 
+        @JvmStatic @Implementation fun afterResponse(state: LongArray, keysAvailable: Boolean): Int =
+            HostNative.call("airplay.NativeAirPlayNegotiation", "afterResponse", state, keysAvailable) as Int
+
         @JvmStatic @Implementation fun accepted(state: LongArray, type: Int): Int =
             HostNative.call("airplay.NativeAirPlayNegotiation", "accepted", state, type) as Int
 

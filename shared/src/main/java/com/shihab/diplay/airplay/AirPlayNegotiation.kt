@@ -56,6 +56,9 @@ internal class AirPlayNegotiation(config: AirPlayConfig) {
         RequestAction.entries[NativeAirPlayNegotiation.route(state, method, path, bodyBytes)]
     @Synchronized fun streamAction(type: Int): StreamAction =
         StreamAction.entries[NativeAirPlayNegotiation.streamAction(state, type)]
+    /** After a control response is written: whether the core now wants the control cipher installed. */
+    @Synchronized fun afterResponse(keysAvailable: Boolean): Boolean =
+        NativeAirPlayNegotiation.afterResponse(state, keysAvailable) != 0
     @Synchronized fun accepted(type: Int): Int = NativeAirPlayNegotiation.accepted(state, type)
     @Synchronized fun streams(): List<Int> = NativeAirPlayNegotiation.streams(state).toList()
     @Synchronized fun timingAction(peerPort: Int, hasPeer: Boolean): Int = NativeAirPlayNegotiation.timingAction(state, peerPort, hasPeer)
@@ -99,6 +102,7 @@ internal object NativeAirPlayNegotiation {
     @JvmStatic external fun event(state: LongArray, event: Int, value: Int): Boolean
     @JvmStatic external fun route(state: LongArray, method: String, path: String, bodyBytes: Int): Int
     @JvmStatic external fun streamAction(state: LongArray, type: Int): Int
+    @JvmStatic external fun afterResponse(state: LongArray, keysAvailable: Boolean): Int
     @JvmStatic external fun accepted(state: LongArray, type: Int): Int
     @JvmStatic external fun streams(state: LongArray): IntArray
     @JvmStatic external fun timingAction(state: LongArray, peerPort: Int, hasPeer: Boolean): Int

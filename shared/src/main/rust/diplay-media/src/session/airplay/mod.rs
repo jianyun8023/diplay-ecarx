@@ -13,6 +13,7 @@ const RENDERED: u32 = 8;
 const TIMING_PEER: u32 = 16;
 const MAIN_LIVE: u32 = 32;
 const NAVIGATION_EXIT: u32 = 64;
+const CIPHER_ENABLED: u32 = 128;
 
 struct Session {
     flags: u32,
@@ -78,7 +79,7 @@ impl Session {
     }
 
     fn from_token(words: [i64; WORDS]) -> Option<Self> {
-        if !(0..128).contains(&words[0])
+        if !(0..256).contains(&words[0])
             || !(0..32).contains(&words[1])
             || !(0..=7).contains(&words[6])
             || words[2..5].iter().any(|&v| v != v as i32 as i64)
@@ -304,6 +305,16 @@ impl Session {
         }
     }
 
+    /// After a control response is written, return 1 exactly once when control keys are available and
+    /// the session is open, so the platform installs the control cipher for the next message; else 0.
+    fn after_response(&mut self, keys_available: bool) -> i32 {
+        if self.flags & CLOSED != 0 || !keys_available || self.flags & CIPHER_ENABLED != 0 {
+            return 0;
+        }
+        self.flags |= CIPHER_ENABLED;
+        1
+    }
+
     fn stream_action(&self, stream: i32) -> i32 {
         match kind(stream) {
             3 if self.capabilities & 16 == 0 => 5,
@@ -446,6 +457,20 @@ mod tests {
             later.remote_control_stream();
         }
         assert_eq!(Session::from_token(later.token()).unwrap().remote_control_stream(), 12);
+    }
+
+    #[test]
+    fn after_response_enables_the_control_cipher_once_when_keys_exist_and_session_is_open() {
+        let mut session = Session::new(0);
+        assert_eq!(session.after_response(false), 0);
+        assert_eq!(session.after_response(true), 1);
+        assert_eq!(session.after_response(true), 0);
+        let mut closed = Session::new(0);
+        closed.event(1, 0);
+        assert_eq!(closed.after_response(true), 0);
+        // The cipher bit survives the token round-trip without disturbing the other flags.
+        let reopened = Session::from_token(session.token()).unwrap();
+        assert_eq!(reopened.flags & CIPHER_ENABLED, CIPHER_ENABLED);
     }
 
     #[test]

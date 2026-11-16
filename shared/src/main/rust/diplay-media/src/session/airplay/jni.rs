@@ -114,6 +114,20 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegoti
     result as jboolean
 }
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_afterResponse(
+    env: *mut JNIEnv,
+    _class: jclass,
+    token: jlongArray,
+    keys_available: jboolean,
+) -> jint {
+    let Some(mut state) = read(env, token) else {
+        return 0;
+    };
+    let result = state.after_response(keys_available != 0);
+    save(env, token, &state);
+    result
+}
+#[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_streamAction(
     env: *mut JNIEnv,
     _class: jclass,

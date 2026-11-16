@@ -554,8 +554,8 @@ class AirPlaySession(
                     val wire = RtspMessage.buildResponse(request, response)
                     trace { "airplay control tx wireHex=${wire.toHex()}" }
                     output.write(cipher?.encrypt(wire) ?: wire)
-                    val keys = if (cipher == null) pairVerify.controlKeys else null
-                    if (keys != null) {
+                    val keys = pairVerify.controlKeys
+                    if (negotiation.afterResponse(keys != null) && keys != null) {
                         synchronized(controlCipherLock) {
                             if (!negotiation.isClosed && cipher == null) cipher = ControlCipher(keys.readKey, keys.writeKey)
                         }
