@@ -1709,214 +1709,271 @@ class CarPlayController(
         var ownedMux: Iap2UsbMuxHost? = null
         var ownedCsm: Iap2Session? = null
         var ownedVpn: CarPlayVpnService.WiredOwner? = null
+        var mux: Iap2UsbMuxHost? = null
+        var openedCsm: Iap2Session? = null
+        var csm: Iap2Session? = null
+        var vpnOwner: CarPlayVpnService.WiredOwner? = null
+        var previous: WiredResources? = null
+        var carkit: com.shihab.diplay.transport.BlockingDuplexByteStream? = null
+        var pairingClient: LockdownPairingClient? = null
+        var savedPairRecord: LockdownPairRecord? = null
+        var pairRecord: LockdownPairRecord? = null
+        var endpoint: Iap2WiredCarPlayEndpoint? = null
         try {
-            synchronized(wirelessResourceLock) {
-                if (!lifecycle.beginWiredControl(run)) return
-            }
-            // The factory owns the pipe from here, including when its handshake throws.
-            usbOwnedLocally = false
-            val mux = Iap2UsbMuxHost.open(usbSession, onDiagnostic = ::connectionDiagnostic)
-            var previous: WiredResources? = null
-            val adopted = synchronized(wirelessResourceLock) {
-                if (!isWiredRunCurrent(run)) false else {
-                    previous = WiredResources(this.csm, this.mux, wiredVpnOwner)
-                    this.csm = null
-                    this.mux = mux
-                    wiredVpnOwner = null
-                    true
-                }
-            }
-            if (!adopted) {
-                closeBestEffort("USBMUX") { mux.close() }
-                return
-            }
-            ownedMux = mux
-            previous?.let(::closeWiredResources)
-            debugLog("wired USBMUX host opened")
-            report(CarPlayStatus.Pairing)
-            val pairingClient = LockdownPairingClient(mux)
-            val savedPairRecord = loadPairRecord()
-            var pairRecord = savedPairRecord ?: pairNewRecord(pairingClient)
-            debugLog(
-                if (savedPairRecord != null) {
-                    "wired using saved Lockdown pair record"
-                } else {
-                    "wired created a new Lockdown pair record"
-                },
-            )
-            report(CarPlayStatus.ConnectingControl)
-            val carKitClient = LockdownCarKitClient(mux)
-            val carkit = try {
-                carKitClient.open(pairRecord, config.label)
-            } catch (error: Throwable) {
-                if (NativeWiredStack.carkitErrorAction(savedPairRecord != null, rejectedPairRecordErrorCode(error)) != 1) {
-                    throw error
-                }
-                debugLog("saved Lockdown pair record rejected by Lockdown; clearing and pairing again")
-                clearPairRecord()
-                pairRecord = pairNewRecord(pairingClient)
-                carKitClient.open(pairRecord, config.label)
-            }
-            debugLog("wired com.apple.carkit.service stream opened")
-            // Lab transport diagnostics: packet headers only, never certificate or challenge data.
-            fun wireSummary(bytes: ByteArray): String {
-                if (bytes.size < 9 || bytes[0].toInt() and 0xff != 0xff ||
-                    bytes[1].toInt() and 0xff != 0x5a) return "bytes=${bytes.size}"
-                fun value(index: Int) = bytes[index].toInt() and 0xff
-                return "bytes=${bytes.size} length=${(value(2) shl 8) or value(3)} " +
-                    "flags=${value(4)} seq=${value(5)} ack=${value(6)} session=${value(7)}"
-            }
-            val tracedCarkit = object : com.shihab.diplay.transport.BlockingDuplexByteStream {
-                private val io = ConnectionIoDiagnostics(::connectionDiagnostic)
-                override fun send(data: ByteArray) {
-                    val started = System.nanoTime()
-                    var result = ConnectionIoDiagnostics.Result.FAILED
-                    try {
-                        debugLog("wired link TX begin ${wireSummary(data)}")
-                        // Bound each TLS write while diagnosing the stalled certificate transfer.
-                        for (offset in data.indices step 256) {
-                            carkit.send(data.copyOfRange(offset, minOf(offset + 256, data.size)))
-                        }
-                        debugLog("wired link TX completed bytes=${data.size}")
-                        result = ConnectionIoDiagnostics.Result.COMPLETED
-                    } finally {
-                        io.record(ConnectionIoDiagnostics.Operation.WRITE, result, elapsedMillis(started))
+            // The core owns the bring-up order and its abort gates; this loop executes each action's
+            // I/O and reports the gate fact back. The guard only defends against a broken transition.
+            var action = NativeWiredStack.BRING_UP_BEGIN
+            var guard = 0
+            while (true) {
+                if (++guard > 32) throw IllegalStateException("wired bring-up did not converge")
+                action = when (action) {
+                    NativeWiredStack.BRING_UP_BEGIN -> {
+                        val ok = synchronized(wirelessResourceLock) { lifecycle.beginWiredControl(run) }
+                        NativeWiredStack.advance(action, if (ok) 1 else 0)
                     }
-                }
-                override fun recv(maxBytes: Int, timeoutMillis: Long): ByteArray? {
-                    val started = System.nanoTime()
-                    var result = ConnectionIoDiagnostics.Result.FAILED
-                    try {
-                        return carkit.recv(maxBytes, timeoutMillis).also { bytes ->
-                            result = when {
-                                bytes == null -> ConnectionIoDiagnostics.Result.TIMED_OUT
-                                bytes.isEmpty() -> ConnectionIoDiagnostics.Result.ENDED
-                                else -> ConnectionIoDiagnostics.Result.COMPLETED
+                    NativeWiredStack.BRING_UP_OPEN_MUX -> {
+                        // The factory owns the pipe from here, including when its handshake throws.
+                        usbOwnedLocally = false
+                        mux = Iap2UsbMuxHost.open(usbSession, onDiagnostic = ::connectionDiagnostic)
+                        NativeWiredStack.advance(action, 1)
+                    }
+                    NativeWiredStack.BRING_UP_ADOPT_MUX -> {
+                        val opened = mux!!
+                        val adopted = synchronized(wirelessResourceLock) {
+                            if (!isWiredRunCurrent(run)) false else {
+                                previous = WiredResources(this.csm, this.mux, wiredVpnOwner)
+                                this.csm = null
+                                this.mux = opened
+                                wiredVpnOwner = null
+                                true
                             }
-                            if (bytes != null) debugLog("wired link RX ${wireSummary(bytes)}")
                         }
-                    } finally {
-                        io.record(ConnectionIoDiagnostics.Operation.READ, result, elapsedMillis(started))
+                        if (adopted) {
+                            ownedMux = opened
+                            previous?.let(::closeWiredResources)
+                            debugLog("wired USBMUX host opened")
+                        }
+                        NativeWiredStack.advance(action, if (adopted) 1 else 0)
                     }
-                }
-                override fun close() {
-                    try { carkit.close() } finally { io.finish() }
-                }
-            }
-            val csm = Iap2Session.open(
-                tracedCarkit,
-                traceContext = "wired",
-                onTrace = ::debugLog,
-                onArtwork = ::onArtworkTransfer,
-                isShuttingDown = { closed },
-            )
-            val csmAdopted = synchronized(wirelessResourceLock) {
-                if (!isWiredRunCurrent(run)) false else { this.csm = csm; true }
-            }
-            if (!csmAdopted) {
-                closeBestEffort("stale CSM") { csm.close() }
-                return
-            }
-            ownedCsm = csm
-            debugLog("wired iAP2 CSM channel opened")
-
-            val ncmHostMac = ncm.hostMac ?: config.hostMac
-            debugLog("ncm using hostMac=${ncmHostMac.macString()}")
-            val vpnOwner = CarPlayVpnService.WiredOwner(run) { lifecycle.wiredCurrent(run) }
-            ownedVpn = vpnOwner
-            if (!attachVpn(ncm, ncmHostMac, vpnOwner)) {
-                throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
-            }
-            ncmOwnedLocally = false
-            debugLog("wired NCM/VPN AirPlay transport attached")
-            if (!isWiredRunCurrent(run)) {
-                vpnService?.detachWired(vpnOwner)
-                return
-            }
-
-            val mfi = mfiSession?.client
-                ?: throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
-            val endpoint = Iap2WiredCarPlayEndpoint(
-                ipv6Addresses = listOf(config.linkLocal),
-                airPlayPort = vpnService?.boundPort() ?: airPlayConfig.port,
-                publicKey = identity.publicKeyHex,
-                sourceVersion = airPlayConfig.sourceVersion,
-                deviceIdentifier = ncmHostMac.macString(),
-            )
-            report(CarPlayStatus.RunningControl)
-            lifecycle.sessionActive(false)
-            lifecycle.startSent(null)
-            fun startAgain(): Iap2WiredControlClient.StartAgain {
-                val opened = ncm.linkOpenedAtNanos
-                return WiredStartAgain.decide(
-                    nowNanos = System.nanoTime(),
-                    startSentAtNanos = wiredStartSentAtNanos ?: System.nanoTime(),
-                    linkOpenedAtNanos = opened,
-                    sessionActive = wiredSessionActive,
-                    connectionAttemptSinceLinkOpened =
-                        opened != null && ncm.connectionAttemptSince(endpoint.airPlayPort, opened),
-                )
-            }
-            lateinit var startWatchdog: WiredStartWatchdog
-            startWatchdog = WiredStartWatchdog(
-                schedule = { delay, action ->
-                    val future = runCatching {
-                        startupTimer.schedule({ action() }, delay, TimeUnit.MILLISECONDS)
-                    }.getOrNull()
-                    val cancel: () -> Unit = { future?.cancel(false); Unit }
-                    cancel
-                },
-                onTimeout = {
-                    if (!closed && wiredStartWatchdog === startWatchdog) {
-                        val waitedSeconds = wiredStartSentAtNanos?.let {
-                            TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - it)
-                        }
+                    NativeWiredStack.BRING_UP_LOAD_PAIR -> {
+                        report(CarPlayStatus.Pairing)
+                        val client = LockdownPairingClient(mux!!)
+                        pairingClient = client
+                        savedPairRecord = loadPairRecord()
+                        pairRecord = savedPairRecord ?: pairNewRecord(client)
                         debugLog(
-                            "wired start: no AirPlay session $waitedSeconds s " +
-                                "after carplay-start-session; NCM ${ncm.trafficSummary(endpoint.airPlayPort)}",
+                            if (savedPairRecord != null) {
+                                "wired using saved Lockdown pair record"
+                            } else {
+                                "wired created a new Lockdown pair record"
+                            },
                         )
-                        fail(IphoneUsbException.TimedOut("The iPhone did not open CarPlay over USB in time"))
+                        NativeWiredStack.advance(action, 1)
                     }
-                },
-                secondRequestCanStillGoOut = { startAgain() != Iap2WiredControlClient.StartAgain.DONE },
-                onHold = {
-                    debugLog(
-                        "wired start: no AirPlay session ${WiredStartWatchdog.TIMEOUT_MILLIS / 1000} s " +
-                            "after carplay-start-session; holding the limit until " +
-                            "${WiredStartWatchdog.HELD_TIMEOUT_MILLIS / 1000} s for the second request; " +
-                            "NCM ${ncm.trafficSummary(endpoint.airPlayPort)}",
-                    )
-                },
-            )
-            ownedStartWatchdog = startWatchdog
-            wiredStartWatchdog = startWatchdog
-            debugLog(
-                "wired iAP2 runtime control starting " +
-                    "location=${config.identification.locationInformationEnabled} " +
-                    "vehicleStatus=${config.identification.vehicleStatusEnabled}",
-            )
-            val result = Iap2WiredControlClient(csm, Iap2MfiAuthenticationClient(mfi)).run(
-                identification = config.identification,
-                endpoint = endpoint,
-                availableCurrentMilliAmps = config.availableCurrentMilliAmps,
-                timeoutMillis = controlLoopTimeoutMillis(),
-                locationProvider = locationProvider,
-                vehicleStatusProvider = vehicleStatusProvider,
-                onIncoming = { onRouteFrame(it, "wired-usb") },
-                onProgress = { message -> handleWiredControlProgress(message, startWatchdog) },
-                startSessionAgain = ::startAgain,
-            )
-            val terminalCode = when (result.terminal) {
-                Iap2WiredControlTerminal.CHANNEL_CLOSED -> 0
-                Iap2WiredControlTerminal.TIMED_OUT -> 1
+                    NativeWiredStack.BRING_UP_OPEN_CARKIT -> {
+                        report(CarPlayStatus.ConnectingControl)
+                        val carKitClient = LockdownCarKitClient(mux!!)
+                        carkit = try {
+                            carKitClient.open(pairRecord!!, config.label)
+                        } catch (error: Throwable) {
+                            if (NativeWiredStack.carkitErrorAction(savedPairRecord != null, rejectedPairRecordErrorCode(error)) != 1) {
+                                throw error
+                            }
+                            debugLog("saved Lockdown pair record rejected by Lockdown; clearing and pairing again")
+                            clearPairRecord()
+                            pairRecord = pairNewRecord(pairingClient!!)
+                            carKitClient.open(pairRecord!!, config.label)
+                        }
+                        debugLog("wired com.apple.carkit.service stream opened")
+                        NativeWiredStack.advance(action, 1)
+                    }
+                    NativeWiredStack.BRING_UP_OPEN_CSM -> {
+                        val openedCarkit = carkit!!
+                        // Lab transport diagnostics: packet headers only, never certificate or challenge data.
+                        fun wireSummary(bytes: ByteArray): String {
+                            if (bytes.size < 9 || bytes[0].toInt() and 0xff != 0xff ||
+                                bytes[1].toInt() and 0xff != 0x5a) return "bytes=${bytes.size}"
+                            fun value(index: Int) = bytes[index].toInt() and 0xff
+                            return "bytes=${bytes.size} length=${(value(2) shl 8) or value(3)} " +
+                                "flags=${value(4)} seq=${value(5)} ack=${value(6)} session=${value(7)}"
+                        }
+                        val tracedCarkit = object : com.shihab.diplay.transport.BlockingDuplexByteStream {
+                            private val io = ConnectionIoDiagnostics(::connectionDiagnostic)
+                            override fun send(data: ByteArray) {
+                                val started = System.nanoTime()
+                                var result = ConnectionIoDiagnostics.Result.FAILED
+                                try {
+                                    debugLog("wired link TX begin ${wireSummary(data)}")
+                                    // Bound each TLS write while diagnosing the stalled certificate transfer.
+                                    for (offset in data.indices step 256) {
+                                        openedCarkit.send(data.copyOfRange(offset, minOf(offset + 256, data.size)))
+                                    }
+                                    debugLog("wired link TX completed bytes=${data.size}")
+                                    result = ConnectionIoDiagnostics.Result.COMPLETED
+                                } finally {
+                                    io.record(ConnectionIoDiagnostics.Operation.WRITE, result, elapsedMillis(started))
+                                }
+                            }
+                            override fun recv(maxBytes: Int, timeoutMillis: Long): ByteArray? {
+                                val started = System.nanoTime()
+                                var result = ConnectionIoDiagnostics.Result.FAILED
+                                try {
+                                    return openedCarkit.recv(maxBytes, timeoutMillis).also { bytes ->
+                                        result = when {
+                                            bytes == null -> ConnectionIoDiagnostics.Result.TIMED_OUT
+                                            bytes.isEmpty() -> ConnectionIoDiagnostics.Result.ENDED
+                                            else -> ConnectionIoDiagnostics.Result.COMPLETED
+                                        }
+                                        if (bytes != null) debugLog("wired link RX ${wireSummary(bytes)}")
+                                    }
+                                } finally {
+                                    io.record(ConnectionIoDiagnostics.Operation.READ, result, elapsedMillis(started))
+                                }
+                            }
+                            override fun close() {
+                                try { openedCarkit.close() } finally { io.finish() }
+                            }
+                        }
+                        val opened = Iap2Session.open(
+                            tracedCarkit,
+                            traceContext = "wired",
+                            onTrace = ::debugLog,
+                            onArtwork = ::onArtworkTransfer,
+                            isShuttingDown = { closed },
+                        )
+                        openedCsm = opened
+                        val adopted = synchronized(wirelessResourceLock) {
+                            if (!isWiredRunCurrent(run)) false else { this.csm = opened; true }
+                        }
+                        if (adopted) {
+                            csm = opened
+                            ownedCsm = opened
+                            debugLog("wired iAP2 CSM channel opened")
+                        }
+                        NativeWiredStack.advance(action, if (adopted) 1 else 0)
+                    }
+                    NativeWiredStack.BRING_UP_ATTACH_VPN -> {
+                        val ncmHostMac = ncm.hostMac ?: config.hostMac
+                        debugLog("ncm using hostMac=${ncmHostMac.macString()}")
+                        val owner = CarPlayVpnService.WiredOwner(run) { lifecycle.wiredCurrent(run) }
+                        vpnOwner = owner
+                        ownedVpn = owner
+                        if (!attachVpn(ncm, ncmHostMac, owner)) {
+                            throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
+                        }
+                        ncmOwnedLocally = false
+                        debugLog("wired NCM/VPN AirPlay transport attached")
+                        NativeWiredStack.advance(action, if (isWiredRunCurrent(run)) 1 else 0)
+                    }
+                    NativeWiredStack.BRING_UP_BUILD_ENDPOINT -> {
+                        if (mfiSession?.client == null) {
+                            throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
+                        }
+                        endpoint = Iap2WiredCarPlayEndpoint(
+                            ipv6Addresses = listOf(config.linkLocal),
+                            airPlayPort = vpnService?.boundPort() ?: airPlayConfig.port,
+                            publicKey = identity.publicKeyHex,
+                            sourceVersion = airPlayConfig.sourceVersion,
+                            deviceIdentifier = (ncm.hostMac ?: config.hostMac).macString(),
+                        )
+                        NativeWiredStack.advance(action, 1)
+                    }
+                    NativeWiredStack.BRING_UP_RUN_CONTROL -> {
+                        val liveCsm = csm!!
+                        val target = endpoint!!
+                        val mfi = mfiSession?.client
+                            ?: throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
+                        report(CarPlayStatus.RunningControl)
+                        lifecycle.sessionActive(false)
+                        lifecycle.startSent(null)
+                        fun startAgain(): Iap2WiredControlClient.StartAgain {
+                            val opened = ncm.linkOpenedAtNanos
+                            return WiredStartAgain.decide(
+                                nowNanos = System.nanoTime(),
+                                startSentAtNanos = wiredStartSentAtNanos ?: System.nanoTime(),
+                                linkOpenedAtNanos = opened,
+                                sessionActive = wiredSessionActive,
+                                connectionAttemptSinceLinkOpened =
+                                    opened != null && ncm.connectionAttemptSince(target.airPlayPort, opened),
+                            )
+                        }
+                        lateinit var startWatchdog: WiredStartWatchdog
+                        startWatchdog = WiredStartWatchdog(
+                            schedule = { delay, action2 ->
+                                val future = runCatching {
+                                    startupTimer.schedule({ action2() }, delay, TimeUnit.MILLISECONDS)
+                                }.getOrNull()
+                                val cancel: () -> Unit = { future?.cancel(false); Unit }
+                                cancel
+                            },
+                            onTimeout = {
+                                if (!closed && wiredStartWatchdog === startWatchdog) {
+                                    val waitedSeconds = wiredStartSentAtNanos?.let {
+                                        TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - it)
+                                    }
+                                    debugLog(
+                                        "wired start: no AirPlay session $waitedSeconds s " +
+                                            "after carplay-start-session; NCM ${ncm.trafficSummary(target.airPlayPort)}",
+                                    )
+                                    fail(IphoneUsbException.TimedOut("The iPhone did not open CarPlay over USB in time"))
+                                }
+                            },
+                            secondRequestCanStillGoOut = { startAgain() != Iap2WiredControlClient.StartAgain.DONE },
+                            onHold = {
+                                debugLog(
+                                    "wired start: no AirPlay session ${WiredStartWatchdog.TIMEOUT_MILLIS / 1000} s " +
+                                        "after carplay-start-session; holding the limit until " +
+                                        "${WiredStartWatchdog.HELD_TIMEOUT_MILLIS / 1000} s for the second request; " +
+                                        "NCM ${ncm.trafficSummary(target.airPlayPort)}",
+                                )
+                            },
+                        )
+                        ownedStartWatchdog = startWatchdog
+                        wiredStartWatchdog = startWatchdog
+                        debugLog(
+                            "wired iAP2 runtime control starting " +
+                                "location=${config.identification.locationInformationEnabled} " +
+                                "vehicleStatus=${config.identification.vehicleStatusEnabled}",
+                        )
+                        val result = Iap2WiredControlClient(liveCsm, Iap2MfiAuthenticationClient(mfi)).run(
+                            identification = config.identification,
+                            endpoint = target,
+                            availableCurrentMilliAmps = config.availableCurrentMilliAmps,
+                            timeoutMillis = controlLoopTimeoutMillis(),
+                            locationProvider = locationProvider,
+                            vehicleStatusProvider = vehicleStatusProvider,
+                            onIncoming = { onRouteFrame(it, "wired-usb") },
+                            onProgress = { message -> handleWiredControlProgress(message, startWatchdog) },
+                            startSessionAgain = ::startAgain,
+                        )
+                        val terminalCode = when (result.terminal) {
+                            Iap2WiredControlTerminal.CHANNEL_CLOSED -> 0
+                            Iap2WiredControlTerminal.TIMED_OUT -> 1
+                        }
+                        report(
+                            if (NativeWiredStack.terminalOutcome(terminalCode) == 1) {
+                                CarPlayStatus.Failed("CarPlay control channel closed")
+                            } else {
+                                CarPlayStatus.ControlEnded
+                            },
+                        )
+                        NativeWiredStack.advance(action, 1)
+                    }
+                    NativeWiredStack.BRING_UP_ABORT_CLOSE_MUX -> {
+                        closeBestEffort("USBMUX") { mux?.close() }
+                        return
+                    }
+                    NativeWiredStack.BRING_UP_ABORT_CLOSE_CSM -> {
+                        closeBestEffort("stale CSM") { openedCsm?.close() }
+                        return
+                    }
+                    NativeWiredStack.BRING_UP_ABORT_DETACH_VPN -> {
+                        vpnService?.detachWired(vpnOwner!!)
+                        return
+                    }
+                    else -> return
+                }
             }
-            report(
-                if (NativeWiredStack.terminalOutcome(terminalCode) == 1) {
-                    CarPlayStatus.Failed("CarPlay control channel closed")
-                } else {
-                    CarPlayStatus.ControlEnded
-                },
-            )
         } catch (error: Throwable) {
             debugLog("wired bring-up failed", error)
             // Stop control and USBMUX before releasing NCM back to the kernel driver.

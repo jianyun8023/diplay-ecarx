@@ -719,5 +719,7 @@ class ShadowNativeWiredStack {
             HostNative.call("orchestration.NativeWiredStack", "carkitErrorAction", hasSaved, rejection) as Int
         @JvmStatic @Implementation fun terminalOutcome(terminal: Int): Int =
             HostNative.call("orchestration.NativeWiredStack", "terminalOutcome", terminal) as Int
+        @JvmStatic @Implementation fun advance(action: Int, approved: Int): Int =
+            HostNative.call("orchestration.NativeWiredStack", "advance", action, approved) as Int
     }
 }

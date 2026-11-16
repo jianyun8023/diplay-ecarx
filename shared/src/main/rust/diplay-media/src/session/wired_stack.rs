@@ -28,6 +28,44 @@ pub fn terminal_outcome(terminal: i32) -> i32 {
     (terminal == TERMINAL_CHANNEL_CLOSED) as i32
 }
 
+// ---- Wired bring-up stage machine ----
+//
+// The platform executes one I/O block per action; the core owns the order and the three abort
+// branches. Kotlin starts at BRING_UP_BEGIN and calls `advance(action, approved)` after each block,
+// where `approved` is the gate fact it reported (begin / adopt / CSM / VPN). Codes are shared with
+// NativeWiredStack.kt.
+pub const BRING_UP_BEGIN: i32 = 0;
+pub const BRING_UP_OPEN_MUX: i32 = 1;
+pub const BRING_UP_ADOPT_MUX: i32 = 2;
+pub const BRING_UP_LOAD_PAIR: i32 = 3;
+pub const BRING_UP_OPEN_CARKIT: i32 = 4;
+pub const BRING_UP_OPEN_CSM: i32 = 5;
+pub const BRING_UP_ATTACH_VPN: i32 = 6;
+pub const BRING_UP_BUILD_ENDPOINT: i32 = 7;
+pub const BRING_UP_RUN_CONTROL: i32 = 8;
+pub const BRING_UP_DONE: i32 = 9;
+pub const BRING_UP_ABORT_CLOSE_MUX: i32 = 10;
+pub const BRING_UP_ABORT_CLOSE_CSM: i32 = 11;
+pub const BRING_UP_ABORT_DETACH_VPN: i32 = 12;
+
+/// The wired bring-up order — USBMUX, pairing record, CarKit, iAP2 CSM, NCM/VPN, endpoint, control —
+/// and its abort branches live here; the platform only executes each emitted action.
+pub fn advance(action: i32, approved: i32) -> i32 {
+    let ok = approved != 0;
+    match action {
+        BRING_UP_BEGIN => if ok { BRING_UP_OPEN_MUX } else { BRING_UP_DONE },
+        BRING_UP_OPEN_MUX => BRING_UP_ADOPT_MUX,
+        BRING_UP_ADOPT_MUX => if ok { BRING_UP_LOAD_PAIR } else { BRING_UP_ABORT_CLOSE_MUX },
+        BRING_UP_LOAD_PAIR => BRING_UP_OPEN_CARKIT,
+        BRING_UP_OPEN_CARKIT => BRING_UP_OPEN_CSM,
+        BRING_UP_OPEN_CSM => if ok { BRING_UP_ATTACH_VPN } else { BRING_UP_ABORT_CLOSE_CSM },
+        BRING_UP_ATTACH_VPN => if ok { BRING_UP_BUILD_ENDPOINT } else { BRING_UP_ABORT_DETACH_VPN },
+        BRING_UP_BUILD_ENDPOINT => BRING_UP_RUN_CONTROL,
+        BRING_UP_RUN_CONTROL => BRING_UP_DONE,
+        _ => BRING_UP_DONE,
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_carkitErrorAction(
     _: *mut JNIEnv, _: jclass, has_saved: jboolean, rejection: jint,
@@ -40,6 +78,13 @@ pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_ter
     _: *mut JNIEnv, _: jclass, terminal: jint,
 ) -> jint {
     terminal_outcome(terminal)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_advance(
+    _: *mut JNIEnv, _: jclass, action: jint, approved: jint,
+) -> jint {
+    advance(action, approved)
 }
 
 #[cfg(test)]
@@ -65,5 +110,25 @@ mod tests {
         assert_eq!(terminal_outcome(TERMINAL_CHANNEL_CLOSED), 1);
         assert_eq!(terminal_outcome(TERMINAL_TIMED_OUT), 0);
         assert_eq!(terminal_outcome(99), 0);
+    }
+
+    #[test]
+    fn bring_up_order_and_abort_branches_are_the_cores_decision() {
+        assert_eq!(advance(BRING_UP_BEGIN, 1), BRING_UP_OPEN_MUX);
+        assert_eq!(advance(BRING_UP_OPEN_MUX, 0), BRING_UP_ADOPT_MUX);
+        assert_eq!(advance(BRING_UP_ADOPT_MUX, 1), BRING_UP_LOAD_PAIR);
+        assert_eq!(advance(BRING_UP_LOAD_PAIR, 0), BRING_UP_OPEN_CARKIT);
+        assert_eq!(advance(BRING_UP_OPEN_CARKIT, 0), BRING_UP_OPEN_CSM);
+        assert_eq!(advance(BRING_UP_OPEN_CSM, 1), BRING_UP_ATTACH_VPN);
+        assert_eq!(advance(BRING_UP_ATTACH_VPN, 1), BRING_UP_BUILD_ENDPOINT);
+        assert_eq!(advance(BRING_UP_BUILD_ENDPOINT, 0), BRING_UP_RUN_CONTROL);
+        assert_eq!(advance(BRING_UP_RUN_CONTROL, 0), BRING_UP_DONE);
+        // A rejected gate aborts with the matching cleanup action.
+        assert_eq!(advance(BRING_UP_BEGIN, 0), BRING_UP_DONE);
+        assert_eq!(advance(BRING_UP_ADOPT_MUX, 0), BRING_UP_ABORT_CLOSE_MUX);
+        assert_eq!(advance(BRING_UP_OPEN_CSM, 0), BRING_UP_ABORT_CLOSE_CSM);
+        assert_eq!(advance(BRING_UP_ATTACH_VPN, 0), BRING_UP_ABORT_DETACH_VPN);
+        // Unknown actions are inert and stop the loop.
+        assert_eq!(advance(999, 1), BRING_UP_DONE);
     }
 }

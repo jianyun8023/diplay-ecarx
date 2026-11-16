@@ -11,4 +11,22 @@ internal object NativeWiredStack {
 
     /** 1 = the control channel failed; 0 = it ended normally. Codes mirror Iap2WiredControlTerminal. */
     @JvmStatic external fun terminalOutcome(terminal: Int): Int
+
+    /** Wired bring-up action codes, shared with session::wired_stack::advance. */
+    const val BRING_UP_BEGIN = 0
+    const val BRING_UP_OPEN_MUX = 1
+    const val BRING_UP_ADOPT_MUX = 2
+    const val BRING_UP_LOAD_PAIR = 3
+    const val BRING_UP_OPEN_CARKIT = 4
+    const val BRING_UP_OPEN_CSM = 5
+    const val BRING_UP_ATTACH_VPN = 6
+    const val BRING_UP_BUILD_ENDPOINT = 7
+    const val BRING_UP_RUN_CONTROL = 8
+    const val BRING_UP_DONE = 9
+    const val BRING_UP_ABORT_CLOSE_MUX = 10
+    const val BRING_UP_ABORT_CLOSE_CSM = 11
+    const val BRING_UP_ABORT_DETACH_VPN = 12
+
+    /** Next bring-up action from (current action, approved gate fact); the core owns the order. */
+    @JvmStatic external fun advance(action: Int, approved: Int): Int
 }
