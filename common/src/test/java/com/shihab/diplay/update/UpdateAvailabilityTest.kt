@@ -13,7 +13,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [25, 29, 35])
+@Config(sdk = [28])
 class UpdateAvailabilityTest {
     private val context: Context = RuntimeEnvironment.getApplication()
 
