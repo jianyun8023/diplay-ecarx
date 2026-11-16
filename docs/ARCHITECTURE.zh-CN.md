@@ -31,7 +31,7 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 
 1. 媒体闭环：音频接收器直入队列、逐包反馈、缓冲音乐锚点、SETRATE／FLUSH、PI 时钟、背压、输出门限、AAC 与 PCM／Opus 已接入 Rust；Java／NDK 视频的节拍、队列、参考链与 codec 策略也由 Rust 拥有。已通过的历史台架／实车场景与最新变更的组合缺口分别登记。
 2. 协议编解码、配对与控制加密：RTSP、bplist、control／event、PairVerify、PairSetup／SRP、完整 MFiSAP、NTP、iAP2 body／link／握手／文件传输、USBMUX、Lockdown 与默认 NCM 路径已接入 Rust；平台存储、PKIX／JCA 硬件密钥及真实 MFi I/O 保留适配层。
-3. 会话控制：WirelessRunState、WirelessBootstrapRecovery、wired Iap2ControlDeadline、wireless deadline、watchdog 决策、controller／VPN 代际和 AirPlay 流协商状态由 Rust 持有；Kotlin 执行平台资源动作和调度，平台结果携带所属代际。
+3. 会话控制：WirelessRunState、WirelessBootstrapRecovery、wired Iap2ControlDeadline、wireless deadline、watchdog 决策、controller／VPN 代际和 AirPlay 流协商状态由 Rust 持有；wired 配对／CarKit 重试与终端结果由 `session::wired_stack` 持有，控制加密启用时机由 `session::airplay::after_response` 持有；Kotlin 执行平台资源动作和调度，平台结果携带所属代际。
 4. 导航、车辆转换和输入协议：EV 0xA101、导航状态、HID／触摸槽、IdentificationInformation、PASCD、NMEA 及仪表／HUD 转换、位置／EV 订阅与节流由 Rust 持有。Android／车机适配、Calendar／Formatter 保留 Kotlin；PASCD 生产车速由 `EcarxVehicleSpeedSource` 从 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION` 采集后送入既有 Rust 编码，实车订阅路径已有日志；动态 PASCD 输出与真实服务恢复边界见[专项复核](benchmarks/vehicle-speed-2026-11-14.md)。
 
 当前验收状态与恢复条件以[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)为准；历史批次结果见[实验记录](benchmarks/native-media-2026-11-12.md)，#113 首包修复见[2026-11-14 验证摘要](benchmarks/native-video-startup-2026-11-14.md)。开发中运行定向回归，可交付批次最终运行完整 CI、所需 ABI 构建和可执行的设备验证，不把旧批通过替代最新变更验收。
@@ -301,12 +301,7 @@ owner、transition、stream 引用及原 ownership lock，以 === 报告身份�
 只有匹配 transition 能提交或清屏障。异 session begin 已退休旧资格时，后续取消不恢复；普通 TEARDOWN
 不退休该 session。普通音频与 cluster 的资源身份和输出规则独立，不并入此 buffered 协调器。
 
-非 buffered 的共享清理同样按原媒体 owner 决定：`media::audio::route` 判断音频／麦克风释放，
-`media::video::flow` 判断屏幕释放，`media::audio::scheduler` 判断 duck 通知。Kotlin 在原 sink 调用点
-采样其他 session 的同 ID／type 注册，报告实际 conditional remove／CAS 结果，再执行动作；旧 TEARDOWN、
-close 或 EOF 不能清理仍有替代注册的输出，旧 unduck 也不能结束当前 prompt。最后一个 owner 的释放、
-空 owner 重复 unduck 和各单 session 调用顺序保留。这是清理准入，不代表 packet／config／sender 的
-交付归属已全部收敛；audio route 的 disconnect 回退仍服务同流恢复，不能直接改成永久 drop。
+非 buffered 的共享输出归属已收归新的 `media::output_lease`：每个被接受的音频／麦克风／屏幕输出以（引擎 epoch、kind、stream type、audioType）加持有会话登记租约，只有某输出身份最后一次释放才允许停止该输出。Kotlin 在注册点 acquire、在 TEARDOWN／会话关闭／对端 EOF／替换点 release，并据返回的“最后释放”事实决定是否停止 sink 输出；它保留实际 Closeable、AudioMeta、抓包对象、CAS 结果与资源 identity。旧 TEARDOWN／close／EOF 不能清理仍有替代注册的输出；最后一个 owner 的释放与空 owner 重复 unduck 保留，无关的旧 unduck 不能清除当前 prompt。`media::audio::scheduler` 仍决定 duck 通知。该租约只覆盖流交付归属：audio route 的 disconnect 回退仍服务同流恢复，麦克风 sender／config 替换仍是另一边界。
 
 失败恢复由三层共同执行：握手 attempt／wireless run 的预算和状态仍归 Rust 原有 owner；
 `session::connection_recovery` 统一全栈恢复动作、宿主两套重试计数、重置规则及退避；Kotlin 宿主保留
