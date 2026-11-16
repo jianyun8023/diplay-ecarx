@@ -28,6 +28,7 @@ class CarPlaySharedOutputCleanupTest {
         })
         val old = session()
         val current = session()
+        val third = session()
         @Suppress("UNCHECKED_CAST")
         val streams = engine.javaClass.getDeclaredField("streams").apply { isAccessible = true }.get(engine)
             as MutableMap<CarPlayMediaEngine.StreamKey, Closeable>
@@ -55,7 +56,7 @@ class CarPlaySharedOutputCleanupTest {
         }, AirPlayConfig("test", "test", "", "1", AirPlayDisplayConfig(800, 480)),
             AirPlayIdentity.generate(), PairingStore(), null, object : AirPlaySessionListener {}, engine)
 
-        override fun close() { old.close(); current.close() }
+        override fun close() { old.close(); current.close(); third.close() }
     }
 
     @Test fun oldAudioTeardownClosesOnlyItsResourceWithoutStoppingSharedId() = Rig().use { rig ->
@@ -168,6 +169,19 @@ class CarPlaySharedOutputCleanupTest {
         rig.engine.onAudioDuck(rig.old, false)
         rig.engine.onAudioDuck(rig.current, false)
         assertEquals(listOf(false, false), rig.ducks)
+    }
+
+    @Test fun threeSessionsShareOneAudioOutputUntilTheLastTeardown() = Rig().use { rig ->
+        val first = rig.register(rig.old, 100, "media")
+        val second = rig.register(rig.current, 100, "media")
+        val third = rig.register(rig.third, 100, "media")
+        rig.engine.onTeardown(rig.old, 100)
+        assertTrue("two sessions still share the id", rig.audioStops.isEmpty())
+        rig.engine.onTeardown(rig.current, 100)
+        assertTrue("one session still shares the id", rig.audioStops.isEmpty())
+        rig.engine.onTeardown(rig.third, 100)
+        assertEquals(listOf(AudioStreamId(100, "media")), rig.audioStops)
+        assertEquals(listOf(first, second, third), rig.closed)
     }
 
     @Test fun onlyClosingCurrentDuckOwnerReleasesPrompt() = Rig().use { rig ->
