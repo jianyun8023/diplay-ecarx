@@ -1,17 +1,18 @@
 package com.shihab.diplay
 
-import com.shihab.diplay.network.WirelessStartupPolicy
+import com.shihab.diplay.orchestration.HostRetryState
 
 internal class WirelessStartupRetryBudget {
-    var retries = 0
-        private set
+    private val state = HostRetryState()
+    val retries: Int get() = state.startupRetries
+    val attempts: Int get() = state.attempts
+    val stableSessionMillis: Long get() = state.stableSessionMillis
     private var frameSession: Any? = null
     private var firstFrameMillis = 0L
 
-    fun nextDelayMillis(): Long? {
-        if (retries >= WirelessStartupPolicy.MAX_STARTUP_RETRIES) return null
-        return (2_000L * (1L shl retries++)).coerceAtMost(30_000L)
-    }
+    fun schedule(startup: Boolean, tunnel: Boolean = false): Long? = state.schedule(startup, tunnel)
+    fun sessionActive() = state.resetAttempts()
+    fun resetAttempts() = state.resetAttempts()
 
     fun firstFrame(session: Any, nowMillis: Long): Boolean {
         if (frameSession === session) return false
@@ -21,11 +22,11 @@ internal class WirelessStartupRetryBudget {
     }
 
     fun resetIfStable(session: Any, nowMillis: Long): Boolean {
-        if (frameSession !== session || nowMillis - firstFrameMillis < WirelessStartupPolicy.STABLE_SESSION_MILLIS) return false
-        retries = 0
+        if (frameSession !== session || !state.stable(firstFrameMillis, nowMillis)) return false
+        state.resetStartup()
         return true
     }
 
     fun disconnected() { frameSession = null }
-    fun manualRetry() { retries = 0; disconnected() }
+    fun manualRetry() { state.resetStartup(); disconnected() }
 }

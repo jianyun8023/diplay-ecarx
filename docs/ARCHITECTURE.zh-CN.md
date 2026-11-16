@@ -256,10 +256,22 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 ## 8. 新代码放在哪
 
 失败恢复由三层共同执行：握手 attempt／wireless run 的预算和状态仍归 Rust 原有 owner；
-`session::connection_recovery` 统一全栈恢复动作及普通／iAP tunnel 退避；Kotlin 宿主保留计数、
-Handler、菜单暂停、代际检查和实际 controller／sink 拆除。启动失败仍最多自动重试五次，
-延迟为 2／4／8／16／30 秒，首帧后稳定 60 秒重置；普通断线没有次数上限，退避封顶 30 秒，
-session active 时重置计数；已标记的 iAP tunnel 错误仍固定等待 15 秒。网络变化重建 run 不消耗宿主启动预算。
+`session::connection_recovery` 统一全栈恢复动作、宿主两套重试计数、重置规则及退避；Kotlin 宿主保留
+session 引用身份、Handler／Runnable、菜单暂停、代际检查和实际 controller／sink 拆除，不保留镜像计数。
+预算与宿主同寿命，controller／run 重建不会创建新预算。启动失败仍最多自动重试五次，延迟为
+2／4／8／16／30 秒；整栈重试没有次数上限，普通退避封顶 30 秒，已标记的 iAP tunnel 错误仍固定等待 15 秒。
+整栈计数包含启动失败和 tunnel 重试；两套计数在调度时消耗，失效或取消不退还。没有 session active 重置时，
+启动失败 → tunnel 失败 → 普通失败的延迟依次是 2 秒 → 15 秒 → 8 秒。网络变化重建 run 不消耗宿主启动预算。
+
+| 宿主事件 | 启动预算 | 整栈退避计数 |
+| --- | --- | --- |
+| session active | 保留 | 清零 |
+| 首帧后同一 session 仍有效满 60 秒 | 清零 | 保留 |
+| 手动重试按钮 | 清零，清除首帧观察 | 清零 |
+| 保存设置并重连 | 清零，清除首帧观察 | 保留 |
+| 断开／重建 | 清除首帧观察，保留计数 | 保留 |
+
+60 秒规则不检测持续帧率。同一 session 的后续帧不刷新起点，旧 session 或旧代际的定时回调不能重置新会话预算。
 蓝牙关闭和 tunnel 故障通过 `TransportFailureKind` 穿过异常、状态及 listener 边界，日志文字不选择恢复策略。
 无线蓝牙关闭保持现有 Rust 分类：要求用户操作后手动重试，不把测试里默认允许重试的合成状态当作生产行为。
 

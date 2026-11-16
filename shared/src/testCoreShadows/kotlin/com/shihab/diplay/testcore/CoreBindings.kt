@@ -548,8 +548,12 @@ class ShadowNativeConnectionRecovery {
         @JvmStatic @Implementation fun action(facts: Int, startup: Int): Int =
             HostNative.call("orchestration.NativeConnectionRecovery", "action", facts, startup) as Int
 
-        @JvmStatic @Implementation fun retryDelay(attempts: Int, tunnel: Boolean): Long =
-            HostNative.call("orchestration.NativeConnectionRecovery", "retryDelay", attempts, tunnel) as Long
+        @JvmStatic @Implementation fun retryTransition(token: Long, event: Int): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "retryTransition", token, event) as Long
+        @JvmStatic @Implementation fun retryQuery(token: Long, field: Int): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "retryQuery", token, field) as Long
+        @JvmStatic @Implementation fun stable(first: Long, now: Long): Boolean =
+            HostNative.call("orchestration.NativeConnectionRecovery", "stable", first, now) as Boolean
     }
 }
 

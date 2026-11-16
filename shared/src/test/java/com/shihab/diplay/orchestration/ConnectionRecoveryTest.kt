@@ -41,15 +41,17 @@ class ConnectionRecoveryTest {
         assertEquals(TransportFailureKind.OTHER, TransportFailureKind.from(IOException("AirPlay iAP tunnel")))
         assertFalse(WirelessBootstrapRecovery.requiresUserAction(IOException("Turn on Bluetooth")))
         val tunnel = IOException("outer", TransportFailure(TransportFailureKind.IAP_TUNNEL, "隧道已关闭"))
-        assertEquals(15_000L, ConnectionRecovery.retryDelayMillis(0, TransportFailureKind.from(tunnel)))
+        assertEquals(15_000L, HostRetryState().schedule(startup = false,
+            tunnel = TransportFailureKind.from(tunnel) == TransportFailureKind.IAP_TUNNEL))
     }
 
     @Test fun normalBackoffHasNoAttemptLimitAndTunnelDelayRemainsFixed() {
+        val state = HostRetryState()
         assertEquals(listOf(2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L),
-            (0..5).map { ConnectionRecovery.retryDelayMillis(it, TransportFailureKind.OTHER) })
-        for (n in listOf(0, 4, 100)) {
+            (0..5).map { state.schedule(startup = false, tunnel = false) })
+        repeat(3) {
             assertEquals(ConnectionRecovery.RETRY, CarPlayStatus.Failed("lost").recovery.action)
-            assertEquals(15_000L, ConnectionRecovery.retryDelayMillis(n, TransportFailureKind.IAP_TUNNEL))
+            assertEquals(15_000L, state.schedule(startup = false, tunnel = true))
         }
     }
 }

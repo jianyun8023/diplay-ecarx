@@ -8,6 +8,8 @@ import android.os.Looper
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
+import com.shihab.diplay.airplay.AirPlaySession
+import com.shihab.diplay.airplay.AirPlaySessionListener
 import com.shihab.diplay.host.R
 import com.shihab.diplay.network.WirelessStartupException
 import com.shihab.diplay.network.WirelessStartupFailure
@@ -33,6 +35,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter.from
 import java.time.Duration
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
+import org.mockito.Mockito.mock
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], qualifiers = "en-w1920dp-h1080dp-land-mdpi", manifest = Config.NONE)
@@ -157,19 +160,94 @@ class WirelessStartupRecoveryTest {
 
     private fun budget() = ReflectionHelpers.getField<WirelessStartupRetryBudget>(activity, "startupRetryBudget")
 
+    private fun listener() = ReflectionHelpers.callInstanceMethod<AirPlaySessionListener>(activity, "createSessionListener",
+        from(Int::class.javaPrimitiveType, 0))
+
+    @Test fun activeSettingsAndManualRetryResetDifferentBudgets() {
+        report()
+        val session = mock(AirPlaySession::class.java)
+        listener().onSessionActive(session)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, budget().attempts)
+        assertEquals(1, budget().retries)
+
+        repeat(3) { budget().schedule(startup = false) }
+        ReflectionHelpers.setField(activity, "menuOpen", true)
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "finishSettingsMenu",
+            from(String::class.java, "saved"), from(Boolean::class.javaPrimitiveType, true))
+        assertEquals(3, budget().attempts)
+        assertEquals(0, budget().retries)
+
+        budget().schedule(startup = true)
+        ReflectionHelpers.callInstanceMethod<View>(activity, "buildContentView")
+        ReflectionHelpers.setField(CarPlayBackgroundSession, "owner", activity)
+        ReflectionHelpers.getField<View>(activity, "startupRetryButton").performClick()
+        assertEquals(0, budget().attempts)
+        assertEquals(0, budget().retries)
+    }
+
+    @Test fun firstFrameTimerRequiresCurrentSessionAndGeneration() {
+        budget().schedule(startup = true)
+        repeat(2) { budget().schedule(startup = false) }
+        val listener = listener()
+        val first = mock(AirPlaySession::class.java)
+        val second = mock(AirPlaySession::class.java)
+        ReflectionHelpers.setField(activity, "activeAirPlaySession", first)
+        listener.onVideoFrameRendered(first)
+        shadowOf(Looper.getMainLooper()).idle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+        ReflectionHelpers.setField(activity, "activeAirPlaySession", second)
+        listener.onVideoFrameRendered(second)
+        shadowOf(Looper.getMainLooper()).idle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+        assertEquals(1, budget().retries)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(29))
+        assertEquals(1, budget().retries)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(0, budget().retries)
+        assertEquals(3, budget().attempts)
+
+        budget().schedule(startup = true)
+        val third = mock(AirPlaySession::class.java)
+        ReflectionHelpers.setField(activity, "activeAirPlaySession", third)
+        listener.onVideoFrameRendered(third)
+        shadowOf(Looper.getMainLooper()).idle()
+        ReflectionHelpers.setField(activity, "restartGeneration", 1)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(60))
+        assertEquals(1, budget().retries)
+    }
+
+    @Test fun mixedRetriesCountEveryScheduledAttemptEvenWhenCancelled() {
+        report()
+        assertTrue(ConnectionDiagnostics.report(activity).contains("delayMs=2000"))
+        report() // An existing pending retry consumes nothing.
+        assertEquals(1, budget().retries)
+        assertEquals(1, budget().attempts)
+        ReflectionHelpers.setField(activity, "restartGeneration", 1)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        report(1, CarPlayStatus.Failed("tunnel", transportFailure = TransportFailureKind.IAP_TUNNEL))
+        assertTrue(ConnectionDiagnostics.report(activity).contains("delayMs=15000"))
+        ReflectionHelpers.setField(activity, "restartGeneration", 2)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(16))
+        report(2, CarPlayStatus.Failed("ordinary"))
+        assertTrue(ConnectionDiagnostics.report(activity).contains("delayMs=8000"))
+        assertEquals(1, budget().retries)
+        assertEquals(3, budget().attempts)
+    }
+
     @Test fun duplicateFailureAndCleanupErrorScheduleOnlyOneRetry() {
         report()
         report()
         report(status = CarPlayStatus.Failed("Bluetooth socket closed"))
         assertEquals(1, budget().retries)
-        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(1, budget().attempts)
     }
 
     @Test fun typedTunnelFailureKeepsItsDelayWithoutEnglishText() {
         report(status = CarPlayStatus.Failed("隧道已关闭", transportFailure = TransportFailureKind.IAP_TUNNEL))
         assertTrue(ConnectionDiagnostics.report(activity).contains("delayMs=15000"))
         assertEquals(0, budget().retries)
-        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(1, budget().attempts)
     }
 
     @Test fun diagnosticWordsCannotSelectTunnelOrRadioRecovery() {
@@ -272,7 +350,7 @@ class WirelessStartupRecoveryTest {
     // Explicitly retryable callers retain the existing wake-on-radio behavior; wireless prerequisites
     // use the manual decision above. This synthetic input must not claim to be that production path.
     @Test fun bluetoothTurningOnRunsAnExplicitlyRetryableRadioFailure() {
-        ReflectionHelpers.setField(activity, "reconnectAttempts", 4)
+        repeat(4) { budget().schedule(startup = false) }
         report(status = CarPlayStatus.Failed("无线电暂不可用", transportFailure = TransportFailureKind.BLUETOOTH_OFF))
         val pending = ReflectionHelpers.getField<Runnable>(activity, "pendingReconnect")
         val handler = ReflectionHelpers.getField<Handler>(activity, "mainHandler")

@@ -57,7 +57,7 @@ class WirelessBootstrapHostRetryTest {
         assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertEquals(0, budget().retries)
-        assertEquals(0, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(0, budget().attempts)
         assertEquals(View.VISIBLE, retry.visibility)
         assertEquals(View.GONE, wifiRecovery.visibility)
     }
@@ -65,14 +65,14 @@ class WirelessBootstrapHostRetryTest {
     @Test fun userActionFailurePreventsAnAlreadyQueuedRetryFromExecuting() {
         report(CarPlayStatus.Failed("Bluetooth connection reset"))
         assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(1, budget().attempts)
 
         report(terminalFailure)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
         assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertEquals(0, ReflectionHelpers.getField<Int>(activity, "restartGeneration"))
-        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(1, budget().attempts)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
@@ -84,7 +84,7 @@ class WirelessBootstrapHostRetryTest {
         assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertEquals(0, ReflectionHelpers.getField<Int>(activity, "restartGeneration"))
-        assertEquals(0, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(0, budget().attempts)
         assertEquals(0, budget().retries)
         assertEquals(terminalStage, stage.text.toString())
         assertEquals(View.VISIBLE, retry.visibility)
@@ -96,7 +96,7 @@ class WirelessBootstrapHostRetryTest {
         report(transient)
         assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
         assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertEquals(1, ReflectionHelpers.getField<Int>(activity, "reconnectAttempts"))
+        assertEquals(1, budget().attempts)
         assertEquals(View.GONE, retry.visibility)
         assertEquals(View.GONE, wifiRecovery.visibility)
     }

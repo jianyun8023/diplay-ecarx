@@ -23,6 +23,25 @@
 
 当前平台状态另见 [ECARX 验收表](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵)。新增结果须注明源码／包、环境、场景和未覆盖范围；历史实车通过、最新变更未补验与确实未覆盖的目标硬件分别记录。原始日志、认证资产和设备标识留在本地，不提交仓库。
 
+## 宿主重试预算归属（2026-11-16）
+
+基于 `89ef31ab`，先在旧生产实现补齐宿主合同，再将启动五次预算、整栈退避计数及其重置／延迟规则接入
+Rust `session::connection_recovery`。Kotlin 保留 session 对象身份、首帧时钟采样、Handler／Runnable 和
+生命周期门禁；独立旧 Kotlin 算法仅留在 `testCore`。两套预算与 run 内恢复仍独立，调度即消耗且取消不退还，
+各重置入口和混合失败序列见[架构说明](ARCHITECTURE.zh-CN.md#8-新代码放在哪)。
+
+| 验证 | 结果 |
+| --- | --- |
+| 迁移前合同 | common 重试相关 40 项通过；补强稳定 60 秒不清整栈计数的断言后，宿主合同 32 项再次通过 |
+| 迁移后 JVM | common 71 项、shared 4 项通过，包含 API 28／33 的 transport 清理回归和独立旧算法对照；最终窗口常量归属及旧 JNI 清理后，common 重试相关 41 项、shared 13 项通过 |
+| Rust | 固定 Rust 1.97.1 的 session 测试 42 项通过；最终非法 selector 合同加入后，connection recovery 专项 4 项通过 |
+| R8 | mobile／maphost 的 `minifyReleaseWithR8` 通过，新增入口沿用 `NativeConnectionRecovery` 的保留规则 |
+| Android ARM64 | 最终源码以 Rust 1.97.1／NDK 28.2.13676358／API 28 编译通过，577 个 Java JNI 导出及 `JNI_OnLoad`、ELF 和来源记录校验通过 |
+
+本批未构建 ARMv7／x86_64、完整 APK，也未运行设备或实车验证；ARM64 编译及主机测试不代表设备端回调时序验收。
+本地原始日志为 `/tmp/host-retry-{old,old-frame,final,cargo-197,window-final-cargo,window-final-gradle,arm64-final}.log`。
+不改写以下历史测试与设备验收数字。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

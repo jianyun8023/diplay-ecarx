@@ -1,5 +1,6 @@
-//! Whole-stack recovery decisions. Retry counters and scheduling remain with the Android host.
+//! Whole-stack recovery decisions and host-lifetime retry state.
 use jni_sys::{jboolean, jclass, jint, jlong, JNIEnv};
+const STABLE_SESSION_MILLIS: i64 = 60_000;
 
 // ConnectionRecovery ordinals; preserve the host's existing precedence, including Wi-Fi reset.
 fn action(facts: i32, startup: i32) -> i32 {
@@ -27,10 +28,58 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
     action(facts, startup) | if facts & (1 | 4 | 8) != 0 { 8 } else { 0 }
 }
 
+// Bits 0..32 hold the wrapping JVM Int, bits 32..35 the startup count;
+// bits 35..37 describe the most recent schedule result.
+fn retry_transition(token: i64, event: i32) -> i64 {
+    let bits = token as u64;
+    let attempts = bits as u32 as i32;
+    let startup = ((bits >> 32) & 7) as i32;
+    let (attempts, startup, result) = match event {
+        0 if startup >= 5 => (attempts, startup, 3),
+        0 => (attempts.wrapping_add(1), startup + 1, 0),
+        1 => (attempts.wrapping_add(1), startup, 1),
+        2 => (attempts.wrapping_add(1), startup, 2),
+        3 => (0, startup, 0),
+        4 => (attempts, 0, 0),
+        _ => return token,
+    };
+    ((attempts as u32 as u64) | ((startup as u64) << 32) | (result << 35)) as i64
+}
+
+fn retry_query(token: i64, field: i32) -> i64 {
+    let bits = token as u64;
+    let attempts = bits as u32 as i32;
+    let startup = ((bits >> 32) & 7) as i32;
+    let result = (bits >> 35) & 3;
+    match field {
+        0 => attempts as i64,
+        1 => startup as i64,
+        2 => (result == 3) as i64,
+        3 => match result {
+            0 => retry_delay(startup - 1, false),
+            1 => retry_delay(attempts.wrapping_sub(1), true),
+            2 => retry_delay(attempts.wrapping_sub(1), false),
+            _ => 0,
+        },
+        4 => STABLE_SESSION_MILLIS,
+        _ => 0,
+    }
+}
+
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_retryDelay(
-    _env: *mut JNIEnv, _class: jclass, attempts: jint, tunnel: jboolean,
-) -> jlong { retry_delay(attempts, tunnel != 0) }
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_retryTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
+) -> jlong { retry_transition(token, event) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_retryQuery(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
+) -> jlong { retry_query(token, field) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_stable(
+    _env: *mut JNIEnv, _class: jclass, first: jlong, now: jlong,
+) -> jboolean { (now.wrapping_sub(first) >= STABLE_SESSION_MILLIS) as jboolean }
 
 #[cfg(test)]
 mod tests {
@@ -52,5 +101,37 @@ mod tests {
             vec![2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]);
         assert_eq!(retry_delay(i32::MAX, false), 30_000);
         for n in [0, 1, 4, 100] { assert_eq!(retry_delay(n, true), 15_000); }
+    }
+
+    #[test]
+    fn host_token_preserves_wrapping_and_separate_budgets() {
+        let mut state = retry_transition(i32::MAX as i64, 2);
+        assert_eq!(retry_query(state, 0), i32::MIN as i64);
+        assert_eq!(retry_query(state, 3), 30_000);
+        state = retry_transition(state, 2);
+        assert_eq!(retry_query(state, 0), i32::MIN as i64 + 1);
+        assert_eq!(retry_query(state, 3), retry_delay(i32::MIN, false));
+        for delay in [2_000, 4_000, 8_000, 16_000, 30_000] {
+            state = retry_transition(state, 0);
+            assert_eq!(retry_query(state, 3), delay);
+        }
+        let attempts = retry_query(state, 0);
+        state = retry_transition(state, 0);
+        assert_eq!(retry_query(state, 2), 1);
+        assert_eq!(retry_query(state, 0), attempts);
+        state = retry_transition(state, 3);
+        assert_eq!(retry_query(state, 0), 0);
+        assert_eq!(retry_query(state, 1), 5);
+        state = retry_transition(state, 4);
+        assert_eq!(retry_query(state, 1), 0);
+    }
+
+    #[test]
+    fn invalid_selectors_are_safe_at_the_jni_boundary() {
+        let state = retry_transition(0, 0);
+        assert_eq!(retry_transition(state, -1), state);
+        assert_eq!(retry_query(state, -1), 0);
+        assert_eq!(retry_query(3 << 35, 3), 0);
+        assert_eq!(retry_query(state, 4), 60_000);
     }
 }

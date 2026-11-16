@@ -1,9 +1,8 @@
 package com.shihab.diplay.orchestration
 
 import com.shihab.diplay.airplay.NativeMedia
-import com.shihab.diplay.transport.TransportFailureKind
 
-/** Rust selects the action; the host retains its retry budgets, callbacks and platform resources. */
+/** Rust owns recovery policy and retry budgets; the host retains callbacks and platform resources. */
 enum class ConnectionRecovery {
     RETRY, STARTUP_RETRY, STARTUP_STOP, USER_ACTION, WIFI_RESET, USB_PAIRING;
 
@@ -20,14 +19,29 @@ enum class ConnectionRecovery {
             return Decision(entries[result and 7], result and 8 != 0)
         }
 
-        fun retryDelayMillis(attempts: Int, kind: TransportFailureKind): Long {
-            NativeMedia.requireAvailable()
-            return NativeConnectionRecovery.retryDelay(attempts, kind == TransportFailureKind.IAP_TUNNEL)
-        }
     }
 }
 
 internal object NativeConnectionRecovery {
     @JvmStatic external fun action(facts: Int, startup: Int): Int
-    @JvmStatic external fun retryDelay(attempts: Int, tunnel: Boolean): Long
+    @JvmStatic external fun retryTransition(token: Long, event: Int): Long
+    @JvmStatic external fun retryQuery(token: Long, field: Int): Long
+    @JvmStatic external fun stable(first: Long, now: Long): Boolean
+}
+
+/** Host-lifetime retry state; the token is owned and interpreted by Rust. */
+class HostRetryState {
+    private var token = 0L
+    init { NativeMedia.requireAvailable() }
+    val attempts: Int get() = NativeConnectionRecovery.retryQuery(token, 0).toInt()
+    val startupRetries: Int get() = NativeConnectionRecovery.retryQuery(token, 1).toInt()
+    val stableSessionMillis: Long get() = NativeConnectionRecovery.retryQuery(token, 4)
+    fun schedule(startup: Boolean, tunnel: Boolean): Long? {
+        token = NativeConnectionRecovery.retryTransition(token, if (startup) 0 else if (tunnel) 1 else 2)
+        return if (NativeConnectionRecovery.retryQuery(token, 2) != 0L) null
+            else NativeConnectionRecovery.retryQuery(token, 3)
+    }
+    fun resetAttempts() { token = NativeConnectionRecovery.retryTransition(token, 3) }
+    fun resetStartup() { token = NativeConnectionRecovery.retryTransition(token, 4) }
+    fun stable(first: Long, now: Long): Boolean = NativeConnectionRecovery.stable(first, now)
 }

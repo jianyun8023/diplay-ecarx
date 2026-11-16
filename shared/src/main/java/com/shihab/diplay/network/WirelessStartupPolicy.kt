@@ -18,8 +18,6 @@ object WirelessStartupPolicy {
     const val CONFIRMED_STABLE_SAMPLES = 2
 
     const val FIRST_TCP_MILLIS = 30_000L
-    const val MAX_STARTUP_RETRIES = 5
-    const val STABLE_SESSION_MILLIS = 60_000L
 }
 
 enum class WirelessStartupFailure {

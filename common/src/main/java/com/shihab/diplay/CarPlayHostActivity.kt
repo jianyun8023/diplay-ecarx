@@ -102,7 +102,6 @@ import com.shihab.diplay.orchestration.CarPlayController
 import com.shihab.diplay.orchestration.CarPlayStartupTimeline
 import com.shihab.diplay.orchestration.CarPlayRuntimeConfig
 import com.shihab.diplay.network.WirelessStartupFailure
-import com.shihab.diplay.network.WirelessStartupPolicy
 import com.shihab.diplay.orchestration.CarPlayStatus
 import com.shihab.diplay.orchestration.CarPlayTransport
 import com.shihab.diplay.orchestration.ConnectionFailureCause
@@ -162,7 +161,6 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var connectionInstructionsView: TextView? = null
     private var connectionHelpView: TextView? = null
     private var wifiRecoveryButton: View? = null
-    private var reconnectAttempts = 0
     private val siriKey = WheelSiriKey()
     private val siriKeyPresses = WheelKeyPresses()
     private val mediaKeyPresses = WheelKeyPresses()
@@ -1965,7 +1963,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     shuttingDown.get() || menuOpen || handshakeResetInProgress) return@setOnClickListener
                 startupRetryBudget.manualRetry()
                 startupRetryStopped = false
-                reconnectAttempts = 0
+                startupRetryBudget.resetAttempts()
                 visibility = View.GONE
                 restartCarPlay(getString(R.string.connecting_to_your_iphone))
             }
@@ -4506,7 +4504,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     callPopupSessionReady = true
                     // A reconnect can select a different media-key owner without recreating this activity.
                     if (com.shihab.diplay.hud.EcarxCapabilities.detect(this@CarPlayHostActivity).identified) registerEcarxSteeringWheel()
-                    reconnectAttempts = 0
+                    startupRetryBudget.sessionActive()
                     logThemeState(ThemeModeDiagnostics.Source.SESSION_ACTIVE, resources.configuration)
                     syncAirPlayDarkMode(ThemeModeDiagnostics.Source.SESSION_ACTIVE)
                     yieldCarBluetooth()
@@ -4532,7 +4530,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                             startupRetryBudget.resetIfStable(session, android.os.SystemClock.elapsedRealtime())) {
                             appendLog("wireless startup retry budget reset after stable video session")
                         }
-                    }, WirelessStartupPolicy.STABLE_SESSION_MILLIS)
+                    }, startupRetryBudget.stableSessionMillis)
                 }
             }
 
@@ -5307,9 +5305,10 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (startupRetryStopped) { traceRetry(ConnectionTraceEvent.RETRY_STOPPED); return }
         if (reconnectScheduled) { traceRetry(ConnectionTraceEvent.ALREADY_SCHEDULED); return }
         val recovery = failure.recovery.action
-        val startupDelay = if (recovery == ConnectionRecovery.STARTUP_RETRY)
-            startupRetryBudget.nextDelayMillis() else null
-        if (startupFailure != null && startupDelay == null) {
+        val delayMillis = if (startupFailure == null || recovery == ConnectionRecovery.STARTUP_RETRY)
+            startupRetryBudget.schedule(recovery == ConnectionRecovery.STARTUP_RETRY,
+                failure.transportFailure == TransportFailureKind.IAP_TUNNEL) else null
+        if (startupFailure != null && delayMillis == null) {
             traceRetry(if (recovery == ConnectionRecovery.STARTUP_RETRY) ConnectionTraceEvent.RETRY_BUDGET_STOPPED else ConnectionTraceEvent.RETRY_NOT_RETRYABLE)
             startupRetryStopped = true
             startupRetryButton?.visibility = View.VISIBLE
@@ -5332,12 +5331,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         reconnectScheduled = true
         callPopupSessionReady = false
         val generation = restartGeneration
-        val delayMillis = if (startupDelay != null) {
-            startupDelay
-        } else {
-            ConnectionRecovery.retryDelayMillis(reconnectAttempts, failure.transportFailure)
-        }
-        reconnectAttempts += 1
+        checkNotNull(delayMillis)
         traceRetry(ConnectionTraceEvent.RETRY_SCHEDULED, generation, delayMillis)
         appendLog("$reason; retrying in ${delayMillis}ms generation=$generation startupFailure=$startupFailure startupRetries=${startupRetryBudget.retries}")
         val controlRunsAtFailure = controlRunningCount
