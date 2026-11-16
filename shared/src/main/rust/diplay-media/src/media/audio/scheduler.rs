@@ -151,8 +151,65 @@ pub fn navigation_route(follows: bool, configured: i32, ducking: bool) -> i32 {
 
 // Events: 1 acquire, 2 release (channel 1 media, 2 phone, 3 assistant), 3 a ducking loss, 4 a
 // transient loss, 5 a gain, 6/7 the requestAudioFocus result (granted/failed), 8 close.
-fn focus_primary(state: &[i64; 6]) -> i32 {
-    if state[1] > 0 { 2 } else if state[2] > 0 { 3 } else if state[0] > 0 { 1 } else { 0 }
+/// Per-channel output counts, the channel of the request Kotlin still holds (0 none), the reported
+/// grant fact and the media gain level. This is the business view of the six-word JNI token.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct FocusState {
+    media: i32,
+    phone: i32,
+    assistant: i32,
+    held_channel: i32,
+    granted: bool,
+    media_gain: MediaGain,
+}
+
+/// Gain levels returned to the platform: full volume, duck to 0.2 or mute.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum MediaGain {
+    #[default]
+    Full,
+    Duck,
+    Mute,
+}
+
+impl MediaGain {
+    fn decode(raw: i64) -> Self {
+        match raw { 1 => Self::Duck, 2 => Self::Mute, _ => Self::Full }
+    }
+    fn code(self) -> i32 {
+        match self { Self::Full => 0, Self::Duck => 1, Self::Mute => 2 }
+    }
+}
+
+impl FocusState {
+    /// Decode the six-word JNI token. Out-of-range media-gain words read as full, matching the old
+    /// `state[4] != 0` / `state[5]` fallthrough.
+    fn decode(token: &[i64; 6]) -> Self {
+        Self {
+            media: token[0] as i32,
+            phone: token[1] as i32,
+            assistant: token[2] as i32,
+            held_channel: token[3] as i32,
+            granted: token[4] != 0,
+            media_gain: MediaGain::decode(token[5]),
+        }
+    }
+    fn encode(self) -> [i64; 6] {
+        [self.media as i64, self.phone as i64, self.assistant as i64,
+            self.held_channel as i64, self.granted as i64, self.media_gain.code() as i64]
+    }
+    /// Phone outranks assistant outranks media.
+    fn primary_channel(&self) -> i32 {
+        if self.phone > 0 { 2 } else if self.assistant > 0 { 3 } else if self.media > 0 { 1 } else { 0 }
+    }
+    /// CarPlay music holds granted focus now, so the car's audio controller already plays Android.
+    fn holds_media(&self) -> bool { self.held_channel == 1 && self.granted }
+    fn count(&mut self, channel: i32) -> Option<&mut i32> {
+        match channel { 1 => Some(&mut self.media), 2 => Some(&mut self.phone), 3 => Some(&mut self.assistant), _ => None }
+    }
+    /// A rejected request silences every channel; an ordinary duck lowers only media.
+    fn media_target(&self) -> i32 { if self.granted { self.media_gain.code() } else { 2 } }
+    fn other_target(&self) -> i32 { if self.granted { 0 } else { 2 } }
 }
 
 // 1 gain, 2 gain transient, 3 gain transient may duck; Kotlin maps them to AudioManager constants.
@@ -160,82 +217,131 @@ fn focus_gain_intent(channel: i32) -> i32 {
     match channel { 1 => 1, 2 => 2, 3 => 3, _ => 0 }
 }
 
-// A rejected request silences every channel; an ordinary duck lowers only media.
-fn focus_media_target(state: &[i64; 6]) -> i32 { if state[4] != 0 { state[5] as i32 } else { 2 } }
-fn focus_other_target(state: &[i64; 6]) -> i32 { if state[4] != 0 { 0 } else { 2 } }
+/// One reported focus fact. The numeric codes exist only at the JNI boundary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FocusEvent {
+    Acquire, Release, DuckingLoss, TransientLoss, Gain, RequestGranted, RequestDenied, Close,
+}
 
-// Decision: 0 abandon the held request, 1 make a new one, 2 its channel, 3 its gain intent,
-// 4 media gain, 5 other-channel gain (full/duck/mute codes), 6 apply scope (0 nothing, 1 the new
-// output only, 2 all outputs). A new request's gains arrive with the reported result, never with
-// the plan.
-fn focus_step(state: &mut [i64; 6], event: i32, channel: i32, enabled: bool, mute_transient: bool) -> [i32; 7] {
-    let mut decision = [0; 7];
+impl FocusEvent {
+    fn from_code(code: i32) -> Option<Self> {
+        Some(match code {
+            1 => Self::Acquire, 2 => Self::Release, 3 => Self::DuckingLoss, 4 => Self::TransientLoss,
+            5 => Self::Gain, 6 => Self::RequestGranted, 7 => Self::RequestDenied, 8 => Self::Close,
+            _ => return None,
+        })
+    }
+}
+
+/// Outputs a plan's gains apply to.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum FocusScope { #[default] Nothing, NewOutput, AllOutputs }
+
+impl FocusScope {
+    fn code(self) -> i32 { match self { Self::Nothing => 0, Self::NewOutput => 1, Self::AllOutputs => 2 } }
+}
+
+/// One platform action plan. A new request's gains arrive with the reported result, never the plan.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct FocusDecision {
+    abandon: bool,
+    new_request: bool,
+    channel: i32,
+    gain_intent: i32,
+    media_gain: i32,
+    other_gain: i32,
+    scope: FocusScope,
+}
+
+impl FocusDecision {
+    /// Platform wire row: [abandon, new request, channel, gain intent, media gain, other gain, scope].
+    fn to_row(self) -> [i32; 7] {
+        [self.abandon as i32, self.new_request as i32, self.channel, self.gain_intent,
+            self.media_gain, self.other_gain, self.scope.code()]
+    }
+}
+
+/// The focus policy itself, expressed over named state, events and actions. A new request's gains
+/// arrive with the reported result, never with the plan.
+fn focus_step_policy(state: &mut FocusState, event: FocusEvent, channel: i32, enabled: bool, mute_transient: bool) -> FocusDecision {
+    let mut decision = FocusDecision::default();
     match event {
-        1 | 2 => {
-            if !enabled || !(1..=3).contains(&channel) { return decision; }
-            let slot = (channel - 1) as usize;
-            if event == 1 { state[slot] += 1 } else { state[slot] = (state[slot] - 1).max(0) }
-            let primary = focus_primary(state);
+        FocusEvent::Acquire | FocusEvent::Release => {
+            if !enabled { return decision; }
+            {
+                let Some(count) = state.count(channel) else { return decision };
+                if event == FocusEvent::Acquire { *count += 1 } else { *count = (*count - 1).max(0) }
+            }
+            let primary = state.primary_channel();
             if primary == 0 {
-                decision[0] = (state[3] != 0) as i32;
-                state[3] = 0;
-                state[4] = 1;
-                state[5] = 0;
-            } else if state[3] == primary as i64 && state[4] != 0 {
+                decision.abandon = state.held_channel != 0;
+                state.held_channel = 0;
+                state.granted = true;
+                state.media_gain = MediaGain::Full;
+            } else if state.held_channel == primary && state.granted {
                 // The held request already covers the primary channel; a new output only joins it.
-                if event == 1 {
-                    decision[4] = focus_media_target(state);
-                    decision[5] = focus_other_target(state);
-                    decision[6] = 1;
+                if event == FocusEvent::Acquire {
+                    decision.media_gain = state.media_target();
+                    decision.other_gain = state.other_target();
+                    decision.scope = FocusScope::NewOutput;
                 }
             } else {
-                decision[0] = (state[3] != 0) as i32;
-                decision[1] = 1;
-                decision[2] = primary;
-                decision[3] = focus_gain_intent(primary);
+                decision.abandon = state.held_channel != 0;
+                decision.new_request = true;
+                decision.channel = primary;
+                decision.gain_intent = focus_gain_intent(primary);
             }
         }
-        3 | 4 | 5 => {
+        FocusEvent::DuckingLoss | FocusEvent::TransientLoss | FocusEvent::Gain => {
             match event {
-                3 => state[5] = 1,
-                4 if mute_transient => state[5] = 2,
-                4 => return decision,
-                _ => { state[4] = 1; state[5] = 0; }
+                FocusEvent::DuckingLoss => state.media_gain = MediaGain::Duck,
+                FocusEvent::TransientLoss if mute_transient => state.media_gain = MediaGain::Mute,
+                FocusEvent::TransientLoss => return decision,
+                _ => { state.granted = true; state.media_gain = MediaGain::Full; }
             }
             // Kotlin skips only successfully applied gains; unchanged targets may need a retry.
-            decision[4] = focus_media_target(state);
-            decision[5] = focus_other_target(state);
-            decision[6] = 2;
+            decision.media_gain = state.media_target();
+            decision.other_gain = state.other_target();
+            decision.scope = FocusScope::AllOutputs;
         }
-        6 | 7 => {
+        FocusEvent::RequestGranted | FocusEvent::RequestDenied => {
             if !(1..=3).contains(&channel) { return decision; }
-            state[3] = channel as i64;
-            state[4] = if event == 6 { 1 } else { 0 };
-            state[5] = 0;
-            decision[4] = focus_media_target(state);
-            decision[5] = focus_other_target(state);
-            decision[6] = 2;
+            state.held_channel = channel;
+            state.granted = event == FocusEvent::RequestGranted;
+            state.media_gain = MediaGain::Full;
+            decision.media_gain = state.media_target();
+            decision.other_gain = state.other_target();
+            decision.scope = FocusScope::AllOutputs;
         }
-        8 => {
-            state[0] = 0;
-            state[1] = 0;
-            state[2] = 0;
-            if state[3] != 0 {
-                state[3] = 0;
-                state[4] = 1;
-                state[5] = 0;
-                decision[0] = 1;
+        FocusEvent::Close => {
+            state.media = 0;
+            state.phone = 0;
+            state.assistant = 0;
+            if state.held_channel != 0 {
+                state.held_channel = 0;
+                state.granted = true;
+                state.media_gain = MediaGain::Full;
+                decision.abandon = true;
             }
         }
-        _ => {}
     }
     decision
 }
 
-/// CarPlay music holds granted focus now, so the car's audio controller already plays Android.
-fn focus_holds_media(state: &[i64; 6]) -> bool {
-    state[3] == 1 && state[4] != 0
+/// JNI token boundary: decode `FocusState`, run the typed policy, re-encode the token and return the
+/// platform wire row. An unknown event code leaves the token unchanged and plans nothing.
+fn focus_step(state: &mut [i64; 6], event: i32, channel: i32, enabled: bool, mute_transient: bool) -> [i32; 7] {
+    let mut focus = FocusState::decode(state);
+    let decision = match FocusEvent::from_code(event) {
+        Some(event) => focus_step_policy(&mut focus, event, channel, enabled, mute_transient),
+        None => FocusDecision::default(),
+    };
+    *state = focus.encode();
+    decision.to_row()
 }
+
+/// The JNI token boundary for the media-focus probe.
+fn focus_holds_media(state: &[i64; 6]) -> bool { FocusState::decode(state).holds_media() }
 
 // 1 requests focus; release decisions return milliseconds. The tails cover buffered playout,
 // while 30/60 s bound missing unduck/silence events observed on head units.
@@ -493,6 +599,26 @@ mod tests {
         // With the setting off nothing is requested at all.
         assert_eq!(focus_step(&mut state, 1, 1, false, true), [0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(state, [0; 6]);
+    }
+
+    #[test]
+    fn focus_event_codes_round_trip_and_unknown_codes_are_inert() {
+        assert_eq!(FocusEvent::from_code(1), Some(FocusEvent::Acquire));
+        assert_eq!(FocusEvent::from_code(2), Some(FocusEvent::Release));
+        assert_eq!(FocusEvent::from_code(3), Some(FocusEvent::DuckingLoss));
+        assert_eq!(FocusEvent::from_code(4), Some(FocusEvent::TransientLoss));
+        assert_eq!(FocusEvent::from_code(5), Some(FocusEvent::Gain));
+        assert_eq!(FocusEvent::from_code(6), Some(FocusEvent::RequestGranted));
+        assert_eq!(FocusEvent::from_code(7), Some(FocusEvent::RequestDenied));
+        assert_eq!(FocusEvent::from_code(8), Some(FocusEvent::Close));
+        assert_eq!(FocusEvent::from_code(0), None);
+        assert_eq!(FocusEvent::from_code(99), None);
+        // An unknown event leaves the token untouched and plans nothing.
+        let mut token = [0i64; 6];
+        token[0] = 2;
+        let before = token;
+        assert_eq!(focus_step(&mut token, 99, 1, true, true), [0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(token, before);
     }
 }
 
