@@ -98,6 +98,8 @@ class AirPlaySession(
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
 ) : Closeable {
+    /** Process-unique holder identity for the media engine's output-identity leases. */
+    internal val leaseHolderId: Long = nextLeaseHolderId()
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
     private val controlCipherLock = Any()
@@ -1056,6 +1058,9 @@ class AirPlaySession(
     }
 
     private companion object {
+        private val LEASE_HOLDER_IDS = java.util.concurrent.atomic.AtomicLong()
+        private fun nextLeaseHolderId(): Long = LEASE_HOLDER_IDS.incrementAndGet()
+
         const val TAG = "diplay-usb"
         const val PLIST_CONTENT_TYPE = "application/x-apple-binary-plist"
         const val PAIRING_CONTENT_TYPE = "application/pairing+tlv8"

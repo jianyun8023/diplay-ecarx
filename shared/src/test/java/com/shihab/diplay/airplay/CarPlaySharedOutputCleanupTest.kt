@@ -38,8 +38,15 @@ class CarPlaySharedOutputCleanupTest {
         fun register(session: AirPlaySession, type: Int, audioType: String = "", microphone: Boolean = false): CarPlayMediaEngine.StreamKey {
             val key = CarPlayMediaEngine.StreamKey(session, type, audioType)
             streams[key] = Closeable { closed += key }
-            if (microphone) microphones[key] = MicrophoneConfig(audioType, 24_000, 1, type, 10,
-                InetAddress.getLoopbackAddress(), 50_000, ByteArray(32))
+            val screen = type == 110 || type == 111
+            NativeMedia.outputLeaseAcquire(engine.leaseEpoch, session.leaseHolderId,
+                if (screen) NativeMedia.LEASE_SCREEN else NativeMedia.LEASE_AUDIO, type, if (screen) "" else audioType)
+            if (microphone) {
+                microphones[key] = MicrophoneConfig(audioType, 24_000, 1, type, 10,
+                    InetAddress.getLoopbackAddress(), 50_000, ByteArray(32))
+                NativeMedia.outputLeaseAcquire(engine.leaseEpoch, session.leaseHolderId,
+                    NativeMedia.LEASE_MICROPHONE, type, audioType)
+            }
             return key
         }
         private fun session() = AirPlaySession(object : Socket() {

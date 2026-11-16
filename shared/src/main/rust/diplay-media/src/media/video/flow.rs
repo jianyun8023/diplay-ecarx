@@ -3,8 +3,6 @@
 mod jni;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-fn screen_output_may_stop(other_registration: bool) -> bool { !other_registration }
-
 static PENDING_TOUCH_NS: AtomicI64 = AtomicI64::new(0);
 pub fn touch_sent(sent_at: i64) { let _ = PENDING_TOUCH_NS.compare_exchange(0, sent_at, Ordering::Relaxed, Ordering::Relaxed); }
 pub fn touch_latency(now: i64) -> Option<i64> {
@@ -71,11 +69,6 @@ impl ReferenceChain {
 #[cfg(test)]
 mod contracts {
     use super::*;
-    #[test]
-    fn shared_output_screen_waits_for_the_last_registration() {
-        assert!(!screen_output_may_stop(true));
-        assert!(screen_output_may_stop(false));
-    }
     #[test]
     fn reference_is_accepted_only_after_input_queued() {
         let mut c = ReferenceChain::default();

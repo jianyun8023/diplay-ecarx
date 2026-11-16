@@ -59,7 +59,6 @@ internal object NativeConnectionRecovery {
     @JvmStatic external fun usbTakeover(facts: Int): Boolean
     @JvmStatic external fun usbTransition(token: Long, event: Int): Long
     @JvmStatic external fun usbQuery(token: Long, field: Int, takeover: Boolean): Long
-    @JvmStatic external fun usbRestore(hasApple: Boolean): Boolean
     @JvmStatic external fun usbFallbackAction(menu: Boolean, savedWireless: Boolean, hasController: Boolean): Int
 }
 
@@ -75,7 +74,6 @@ class HostUsbRecovery {
     fun disconnected() { token = NativeConnectionRecovery.usbTransition(token, 3) }
     fun delayMillis(takeover: Boolean): Long? = NativeConnectionRecovery.usbQuery(token, 1, takeover)
         .takeIf { it >= 0 }
-    fun shouldRestore(hasApple: Boolean): Boolean = NativeConnectionRecovery.usbRestore(hasApple)
     fun fallbackAction(menu: Boolean, savedWireless: Boolean, hasController: Boolean): FallbackAction =
         FallbackAction.entries[NativeConnectionRecovery.usbFallbackAction(menu, savedWireless, hasController)]
 

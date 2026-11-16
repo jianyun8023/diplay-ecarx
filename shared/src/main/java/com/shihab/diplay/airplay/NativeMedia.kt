@@ -96,7 +96,13 @@ internal object NativeMedia {
 
     @JvmStatic external fun audioFormatBits(bits: Long): IntArray
     @JvmStatic external fun audioRouteCreate(clockRate: Int, direct: Boolean): Long
-    @JvmStatic external fun audioOutputMayStop(otherRegistration: Boolean): Boolean
+    /** Output-identity lease kind codes shared with the Rust `output_lease` owner. */
+    const val LEASE_AUDIO = 0
+    const val LEASE_MICROPHONE = 1
+    const val LEASE_SCREEN = 2
+    /** Registers a session's lease on an output identity; only the last release may stop it. */
+    @JvmStatic external fun outputLeaseAcquire(epoch: Long, holder: Long, kind: Int, type: Int, audioType: String)
+    @JvmStatic external fun outputLeaseRelease(epoch: Long, holder: Long, kind: Int, type: Int, audioType: String): Boolean
     @JvmStatic external fun audioRouteSetQueue(handle: Long, retainedQueue: Long)
     @JvmStatic external fun audioRouteFeedback(handle: Long, reported: Long, nowNs: Long): LongArray?
     /** The route owner computes sampleTime and the reply entry; times arrive sampled once. */

@@ -208,8 +208,11 @@ open class ShadowNativeMedia {
 
         @JvmStatic @Implementation fun audioRouteCreate(clockRate: Int, direct: Boolean): Long =
             HostNative.call("airplay.NativeMedia", "audioRouteCreate", clockRate, direct) as Long
-        @JvmStatic @Implementation fun audioOutputMayStop(otherRegistration: Boolean): Boolean =
-            HostNative.call("airplay.NativeMedia", "audioOutputMayStop", otherRegistration) as Boolean
+        @JvmStatic @Implementation fun outputLeaseAcquire(epoch: Long, holder: Long, kind: Int, type: Int, audioType: String) {
+            HostNative.call("airplay.NativeMedia", "outputLeaseAcquire", epoch, holder, kind, type, audioType)
+        }
+        @JvmStatic @Implementation fun outputLeaseRelease(epoch: Long, holder: Long, kind: Int, type: Int, audioType: String): Boolean =
+            HostNative.call("airplay.NativeMedia", "outputLeaseRelease", epoch, holder, kind, type, audioType) as Boolean
 
         @JvmStatic @Implementation fun audioRouteSetQueue(handle: Long, retainedQueue: Long) {
             HostNative.call("airplay.NativeMedia", "audioRouteSetQueue", handle, retainedQueue)
@@ -586,8 +589,6 @@ class ShadowNativeConnectionRecovery {
             HostNative.call("orchestration.NativeConnectionRecovery", "usbTransition", token, event) as Long
         @JvmStatic @Implementation fun usbQuery(token: Long, field: Int, takeover: Boolean): Long =
             HostNative.call("orchestration.NativeConnectionRecovery", "usbQuery", token, field, takeover) as Long
-        @JvmStatic @Implementation fun usbRestore(hasApple: Boolean): Boolean =
-            HostNative.call("orchestration.NativeConnectionRecovery", "usbRestore", hasApple) as Boolean
         @JvmStatic @Implementation fun usbFallbackAction(menu: Boolean, savedWireless: Boolean, hasController: Boolean): Int =
             HostNative.call("orchestration.NativeConnectionRecovery", "usbFallbackAction", menu, savedWireless, hasController) as Int
     }

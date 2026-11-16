@@ -247,11 +247,6 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
 ) -> jlong { usb_query(token, field, takeover != 0) }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbRestore(
-    _env: *mut JNIEnv, _class: jclass, has_apple: jboolean,
-) -> jboolean { (has_apple == 0) as jboolean }
-
-#[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbFallbackAction(
     _env: *mut JNIEnv, _class: jclass, menu: jboolean, saved_wireless: jboolean, has_controller: jboolean,
 ) -> jint { usb_fallback_action(menu != 0, saved_wireless != 0, has_controller != 0) }

@@ -233,8 +233,6 @@ class ShadowNativeVideoTiming {
 @Implements(className = "com.shihab.diplay.media.NativeVideoFlow", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeVideoFlow {
     companion object {
-        @JvmStatic @Implementation fun screenOutputMayStop(otherRegistration: Boolean): Boolean =
-            HostNative.call("media.NativeVideoFlow", "screenOutputMayStop", otherRegistration) as Boolean
         @JvmStatic @Implementation fun inputCreate(start: Long, timeout: Long): LongArray =
             HostNative.call("media.NativeVideoFlow", "inputCreate", start, timeout) as LongArray
 

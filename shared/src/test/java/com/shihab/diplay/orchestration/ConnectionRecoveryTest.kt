@@ -31,8 +31,6 @@ class ConnectionRecoveryTest {
         assertEquals(old.delay(true), actual.delayMillis(true))
         actual.waiting(); actual.disconnected()
         assertEquals(old.delay(true), actual.delayMillis(true))
-        assertFalse(actual.shouldRestore(true))
-        assertTrue(actual.shouldRestore(false))
     }
     @Test fun hostFailureLatchesMatchFormerHostForIndependentTransitions() {
         val old = HostFailureReference()

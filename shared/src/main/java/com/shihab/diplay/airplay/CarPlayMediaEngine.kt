@@ -3,7 +3,6 @@ package com.shihab.diplay.airplay
 import android.util.Log
 import com.shihab.diplay.hud.NavigationOutputs
 import com.shihab.diplay.media.NativeAudioScheduler
-import com.shihab.diplay.media.NativeVideoFlow
 import com.shihab.diplay.transport.BlockingDuplexByteStream
 import java.io.Closeable
 import java.io.File
@@ -117,6 +116,8 @@ class CarPlayMediaEngine(
     )
 
     private val streams = ConcurrentHashMap<StreamKey, Closeable>()
+    /** This engine's lease namespace: a replaced engine starts with an empty sharing registry. */
+    internal val leaseEpoch = LEASE_EPOCHS.incrementAndGet()
     private val clusterVideoOwner = AtomicReference<ScreenStream?>()
     private val audioMeta = ConcurrentHashMap<StreamKey, AudioMeta>()
     private val pendingMicrophone = ConcurrentHashMap<StreamKey, MicrophoneConfig>()
@@ -164,6 +165,11 @@ class CarPlayMediaEngine(
     }
 
     override fun requestVideoFrameSample(): Boolean = sink.requestVideoFrameSample()
+
+    private fun acquireLease(session: AirPlaySession, kind: Int, type: Int, audioType: String) =
+        NativeMedia.outputLeaseAcquire(leaseEpoch, session.leaseHolderId, kind, type, audioType)
+    private fun releaseLease(session: AirPlaySession, kind: Int, type: Int, audioType: String): Boolean =
+        NativeMedia.outputLeaseRelease(leaseEpoch, session.leaseHolderId, kind, type, audioType)
 
     override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int? {
         // The screen SETUP shares the data-stream key derivation: the connection decimal and
@@ -222,7 +228,7 @@ class CarPlayMediaEngine(
                     )
                     clusterVideoOwner.compareAndSet(screen, null)
                     if (streams.remove(streamKey, screen)) {
-                        if (NativeVideoFlow.screenOutputMayStop(streams.keys.any { it.session !== session && it.type == type })) {
+                        if (releaseLease(session, NativeMedia.LEASE_SCREEN, type, "")) {
                             sink.onScreenStreamActive(type, false)
                         }
                     }
@@ -231,6 +237,7 @@ class CarPlayMediaEngine(
             },
         )
         streams.put(streamKey, screen)?.close()
+        acquireLease(session, NativeMedia.LEASE_SCREEN, type, "")
         if (type == STREAM_TYPE_ALT_SCREEN) clusterVideoOwner.set(screen)
         sink.onScreenStreamActive(type, true)
         return port
@@ -243,9 +250,13 @@ class CarPlayMediaEngine(
         val streamKey = StreamKey(session, type, audioType)
         val streamId = AudioStreamId(type, audioType)
         streams.remove(streamKey)?.close()
+        releaseLease(session, NativeMedia.LEASE_AUDIO, type, audioType)
         audioMeta.remove(streamKey)
         audioCaptures.remove(streamKey)?.close()
-        if (pendingMicrophone.remove(streamKey) != null) sink.onMicrophoneStopped(streamId)
+        if (pendingMicrophone.remove(streamKey) != null) {
+            releaseLease(session, NativeMedia.LEASE_MICROPHONE, type, audioType)
+            sink.onMicrophoneStopped(streamId)
+        }
         sink.onAudioStopped(streamId)
 
         // protocols::airplay interprets the request, derives the DataStream keys and plans the
@@ -266,7 +277,10 @@ class CarPlayMediaEngine(
         val latencyMs = plan.latencyMs
         val meta = AudioMeta(type, format, connectionId, latencyMs)
         val microphone = microphoneConfig(session, plan.microphone, format)
-        if (microphone != null) pendingMicrophone[streamKey] = microphone
+        if (microphone != null) {
+            pendingMicrophone[streamKey] = microphone
+            acquireLease(session, NativeMedia.LEASE_MICROPHONE, type, audioType)
+        }
         if (type == STREAM_TYPE_MAIN_AUDIO && audioType != "media") {
             session.logDebug(
                 "Audio: setup type=$type audioType=$audioType input=${stream["input"] ?: "none"} " +
@@ -284,6 +298,7 @@ class CarPlayMediaEngine(
         val audio = AudioStream(key, type, session::logDebug, preferNative = capture == null, clockRate = format.rtpClockRate)
         meta.route = audio.route
         streams[streamKey] = audio
+        acquireLease(session, NativeMedia.LEASE_AUDIO, type, audioType)
         audioMeta[streamKey] = meta
         var listening = false
         val (dataPort, controlPort) = try { audio.listen(
@@ -330,7 +345,8 @@ class CarPlayMediaEngine(
             },
         ).also { listening = true } } finally {
             if (!listening) {
-                streams.remove(streamKey, audio)
+                if (streams.remove(streamKey, audio)) releaseLease(session, NativeMedia.LEASE_AUDIO, type, audioType)
+                if (pendingMicrophone.remove(streamKey) != null) releaseLease(session, NativeMedia.LEASE_MICROPHONE, type, audioType)
                 audioMeta.remove(streamKey, meta)
                 if (capture != null) audioCaptures.remove(streamKey, capture)
                 capture?.close()
@@ -629,7 +645,7 @@ class CarPlayMediaEngine(
         tornDown.forEach { key ->
             val streamId = AudioStreamId(key.type, key.audioType)
             if (pendingMicrophone.remove(key) != null &&
-                NativeMedia.audioOutputMayStop(pendingMicrophone.keys.any { it.session !== session && it.type == key.type && it.audioType == key.audioType })) {
+                releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)) {
                 sink.onMicrophoneStopped(streamId)
             }
             audioMeta.remove(key)
@@ -637,14 +653,14 @@ class CarPlayMediaEngine(
             // BufferedAudioStream owns serialized sink cleanup; stopping it first from here
             // could interleave with its in-flight delivery and recreate a stale renderer.
             if (key.type != BufferedAudioStream.STREAM_TYPE &&
-                NativeMedia.audioOutputMayStop(streams.keys.any { it.session !== session && it.type == key.type && it.audioType == key.audioType })) {
+                releaseLease(session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)) {
                 sink.onAudioStopped(streamId)
             }
             val removed = streams.remove(key)
             if (type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
             removed?.close()
         }
-        if (isScreenStreamType(type) && NativeVideoFlow.screenOutputMayStop(streams.keys.any { it.session !== session && it.type == type })) {
+        if (isScreenStreamType(type) && releaseLease(session, NativeMedia.LEASE_SCREEN, type, "")) {
             sink.onScreenStreamActive(type, false)
         }
     }
@@ -671,7 +687,7 @@ class CarPlayMediaEngine(
         sessionStreams
             .filter { isScreenStreamType(it.type) }
             .forEach { key ->
-                if (NativeVideoFlow.screenOutputMayStop(streams.keys.any { it.session !== session && it.type == key.type })) {
+                if (releaseLease(session, NativeMedia.LEASE_SCREEN, key.type, "")) {
                     sink.onScreenStreamActive(key.type, false)
                 }
             }
@@ -688,15 +704,17 @@ class CarPlayMediaEngine(
             .forEach { key ->
                 val streamId = AudioStreamId(key.type, key.audioType)
                 if (pendingMicrophone.remove(key) != null &&
-                    NativeMedia.audioOutputMayStop(pendingMicrophone.keys.any { it.session !== session && it.type == key.type && it.audioType == key.audioType })) {
+                    releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)) {
                     sink.onMicrophoneStopped(streamId)
                 }
-                if (NativeMedia.audioOutputMayStop(streams.keys.any { it.type == key.type && it.audioType == key.audioType })) {
+                if (releaseLease(session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)) {
                     sink.onAudioStopped(streamId)
                 }
             }
         audioMeta.keys.filter { it.session === session }.forEach { audioMeta.remove(it) }
-        pendingMicrophone.keys.filter { it.session === session }.forEach { pendingMicrophone.remove(it) }
+        pendingMicrophone.keys.filter { it.session === session }.forEach { key ->
+            if (pendingMicrophone.remove(key) != null) releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)
+        }
         audioCaptures.entries.filter { it.key.session === session }.forEach { (key, capture) ->
             if (audioCaptures.remove(key, capture)) capture.close()
         }
@@ -782,6 +800,7 @@ class CarPlayMediaEngine(
         type == STREAM_TYPE_MAIN_SCREEN || type == STREAM_TYPE_ALT_SCREEN
 
     internal companion object {
+        private val LEASE_EPOCHS = java.util.concurrent.atomic.AtomicLong()
         private val CLUSTER_OUTPUT_FORMAT = Regex(
             "^output format requested=(\\d{1,5})x(\\d{1,5}) " +
                 "coded=(null|-?\\d{1,10})x(null|-?\\d{1,10}) " +

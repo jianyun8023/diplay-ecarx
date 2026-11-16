@@ -570,7 +570,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.usbTakeover || isDestroyed || shuttingDown.get()) return@Runnable
         val present = (getSystemService(USB_SERVICE) as UsbManager).deviceList.values
             .any { it.vendorId == IphoneUsbMatcher.APPLE_VENDOR_ID }
-        if (!usbRecovery.shouldRestore(present)) {
+        if (present) {
             appendLog("USB fallback skipped: iPhone still enumerated")
             return@Runnable
         }
