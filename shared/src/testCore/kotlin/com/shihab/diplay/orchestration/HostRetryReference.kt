@@ -31,3 +31,13 @@ class HostRetryReference {
     fun resetAttempts() { attempts = 0 }
     fun resetStartup() { retries = 0; disconnected() }
 }
+
+/** Previous host control observations, independent of the native token representation. */
+class ControlRecoveryReference {
+    private var count = 0
+    private var loss = false
+    fun running() { count++; loss = false }
+    fun loss() { loss = true }
+    fun snapshot(): Int = count
+    fun recoveredSince(snapshot: Int): Boolean = count != snapshot && !loss
+}

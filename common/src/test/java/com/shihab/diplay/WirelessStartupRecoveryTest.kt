@@ -27,7 +27,6 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
@@ -162,6 +161,118 @@ class WirelessStartupRecoveryTest {
 
     private fun listener() = ReflectionHelpers.callInstanceMethod<AirPlaySessionListener>(activity, "createSessionListener",
         from(Int::class.javaPrimitiveType, 0))
+
+    private fun retryTrace() = ConnectionDiagnostics.report(activity).lineSequence().last()
+    private fun retryTimer() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(31))
+
+    @Test fun bothRunningStatusesCancelPendingRebuildAtTheTimer() {
+        for (running in listOf(CarPlayStatus.RunningControl, CarPlayStatus.RunningWireless)) {
+            report(status = CarPlayStatus.Failed("lost"))
+            report(status = running)
+            retryTimer()
+            assertTrue(retryTrace(), retryTrace().contains("event=ALREADY_RECOVERED"))
+            assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        }
+    }
+
+    @Test fun oldGenerationStatusCannotChangeCurrentRecoveryDecision() {
+        ReflectionHelpers.setField(activity, "restartGeneration", 1)
+        report(1, CarPlayStatus.Failed("lost"))
+        report(0, CarPlayStatus.RunningControl)
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=RETRY_DISPATCHED"))
+
+        report(1, CarPlayStatus.Failed("lost again"))
+        report(1, CarPlayStatus.RunningWireless)
+        report(0, CarPlayStatus.Failed("old loss"))
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=ALREADY_RECOVERED"))
+    }
+
+    @Test fun failureOrControlEndAfterRunningKeepsPendingRebuild() {
+        for (loss in listOf(CarPlayStatus.Failed("lost again"), CarPlayStatus.ControlEnded)) {
+            report(status = CarPlayStatus.Failed("lost"))
+            report(status = CarPlayStatus.RunningControl)
+            report(status = loss)
+            retryTimer()
+            assertTrue(retryTrace(), retryTrace().contains("event=RETRY_DISPATCHED"))
+        }
+    }
+
+    @Test fun sessionActiveDoesNotCountAsRunningControl() {
+        report(status = CarPlayStatus.Failed("lost"))
+        listener().onSessionActive(mock(AirPlaySession::class.java))
+        shadowOf(Looper.getMainLooper()).idle()
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=RETRY_DISPATCHED"))
+    }
+
+    @Test fun sessionEndAndTransportErrorRespectCurrentSessionAndPendingLoss() {
+        val listener = listener()
+        val active = mock(AirPlaySession::class.java)
+        listener.onSessionActive(active)
+        shadowOf(Looper.getMainLooper()).idle()
+        report(status = CarPlayStatus.Failed("lost"))
+        report(status = CarPlayStatus.RunningWireless)
+        listener.onSessionEnded(mock(AirPlaySession::class.java))
+        shadowOf(Looper.getMainLooper()).idle()
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=ALREADY_RECOVERED"))
+
+        report(status = CarPlayStatus.Failed("lost"))
+        report(status = CarPlayStatus.RunningWireless)
+        listener.onSessionEnded(active)
+        shadowOf(Looper.getMainLooper()).idle()
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=RETRY_DISPATCHED"))
+
+        report(status = CarPlayStatus.Failed("lost"))
+        report(status = CarPlayStatus.RunningWireless)
+        listener.onTransportError("lost again", TransportFailureKind.OTHER)
+        shadowOf(Looper.getMainLooper()).idle()
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=RETRY_DISPATCHED"))
+    }
+
+    @Test fun staleTimerClearsTheNewerPendingFlagsBeforeCheckingGeneration() {
+        report(status = CarPlayStatus.Failed("old"))
+        report(status = CarPlayStatus.Failed("stop", automaticRetryAllowed = false))
+        ReflectionHelpers.callInstanceMethod<View>(activity, "buildContentView")
+        ReflectionHelpers.getField<View>(activity, "startupRetryButton").performClick()
+        ReflectionHelpers.setField(activity, "restartGeneration", 1)
+        report(1, CarPlayStatus.Failed("new", transportFailure = TransportFailureKind.IAP_TUNNEL))
+        val newRetry = ReflectionHelpers.getField<Runnable>(activity, "pendingReconnect")
+        val handler = ReflectionHelpers.getField<Handler>(activity, "mainHandler")
+        assertTrue(handler.hasCallbacks(newRetry))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertTrue(retryTrace(), retryTrace().contains("event=STALE_GENERATION"))
+        assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
+        assertNull(ReflectionHelpers.getField<Runnable?>(activity, "pendingReconnect"))
+        assertTrue(handler.hasCallbacks(newRetry))
+    }
+
+    @Test fun menuTimerDefersButClosingBeforeTimerKeepsItsRecoveryDecision() {
+        report(status = CarPlayStatus.Failed("lost"))
+        report(status = CarPlayStatus.RunningControl)
+        ReflectionHelpers.setField(activity, "menuOpen", true)
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=MENU_OPEN"))
+        assertTrue(ReflectionHelpers.getField(activity, "recoveryPendingAfterMenu"))
+
+        ReflectionHelpers.setField(activity, "handshakeResetInProgress", true)
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "finishSettingsMenu",
+            from(String::class.java, "closed"), from(Boolean::class.javaPrimitiveType, false))
+        ReflectionHelpers.setField(activity, "handshakeResetInProgress", false)
+        report(status = CarPlayStatus.Failed("lost"))
+        ReflectionHelpers.setField(activity, "menuOpen", true)
+        report(status = CarPlayStatus.RunningControl)
+        ReflectionHelpers.setField(activity, "handshakeResetInProgress", true)
+        ReflectionHelpers.callInstanceMethod<Void>(activity, "finishSettingsMenu",
+            from(String::class.java, "closed"), from(Boolean::class.javaPrimitiveType, false))
+        ReflectionHelpers.setField(activity, "handshakeResetInProgress", false)
+        retryTimer()
+        assertTrue(retryTrace(), retryTrace().contains("event=ALREADY_RECOVERED"))
+    }
 
     @Test fun activeSettingsAndManualRetryResetDifferentBudgets() {
         report()

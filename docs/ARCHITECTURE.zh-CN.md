@@ -275,6 +275,14 @@ session 引用身份、Handler／Runnable、菜单暂停、代际检查和实际
 蓝牙关闭和 tunnel 故障通过 `TransportFailureKind` 穿过异常、状态及 listener 边界，日志文字不选择恢复策略。
 无线蓝牙关闭保持现有 Rust 分类：要求用户操作后手动重试，不把测试里默认允许重试的合成状态当作生产行为。
 
+`connection_recovery` 还持有宿主观察到的控制连接进展与后续丢失状态。排队时捕获 opaque 快照，
+定时回调仅在观察到更新的 `RunningControl`／`RunningWireless` 且之后未再次丢失时跳过重建。
+`session active` 不等同于该恢复事件；此状态与预算独立，保留 JVM Int wrapping 语义，与宿主同寿命。
+Kotlin 在原位置报告事件：reporter 的状态更新先于菜单／后台处理，直接重连入口先记录丢失再检查已有 pending。
+Handler／Runnable、owner 与 session 引用、代际门禁以及先清 pending 再检查代际的现有顺序仍留在 Kotlin。
+本批不迁移菜单失败选择、退出菜单动作或后台接管策略；菜单中到期转恢复待办、提前关闭保留原定时器，
+以及保留后台握手后收到 Failed 就停止的行为，由宿主合同保护。
+
 蓝牙平台恢复由 `CarBluetoothProfileGuard` 持有 session／revision、SDK 代理和持久化 journal，
 不与连接重试预算合并。修改媒体策略前，原始策略与连接状态必须成功写盘；恢复未确认时保留 journal，
 供下次启动继续恢复。`phase=settled` 只表示本次恢复任务返回，仍须结合 `journalPending` 判断是否完成；

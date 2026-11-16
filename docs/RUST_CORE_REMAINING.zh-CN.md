@@ -42,6 +42,25 @@ Rust `session::connection_recovery`。Kotlin 保留 session 对象身份、首�
 本地原始日志为 `/tmp/host-retry-{old,old-frame,final,cargo-197,window-final-cargo,window-final-gradle,arm64-final}.log`。
 不改写以下历史测试与设备验收数字。
 
+## 连接恢复后的重建取消判断（2026-11-16）
+
+基于 `99b67ef0`，将宿主的 control-running 计数、后续 loss 标志及排队快照比较迁入
+`session::connection_recovery`。Kotlin 只保存 opaque 状态和快照，保留原事件位置、Handler 清理顺序、
+owner／session 身份及代际门禁。菜单暂缓与后台接管仅补合同，不迁移策略；已有重试预算与退避不变。
+
+迁移前新增合同 42 项通过；随后补强旧代际 reporter 不能污染当前判断的合同，旧宿主 39 项通过。
+菜单打开期间收到 Running 的合同也在旧宿主单项及迁移后 39 项宿主测试中通过。迁移后定向检查：
+
+| 检查 | 结果 |
+| --- | --- |
+| common／shared JVM | 82／5 项通过，覆盖恢复后跳过、再次丢失、session active 区别、当前／非当前 session、旧代际、菜单定时器及后台握手失败停止；独立旧 Kotlin 算法只在 testCore |
+| Rust 1.97.1 recovery | 5 项通过，包含 Int wrapping、snapshot 只比较计数和未知事件安全返回 |
+| R8 | mobile 检查通过，maphost 任务为 UP-TO-DATE；新增 JNI 沿用现有整类保留规则 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译及来源校验通过；579 个 Java JNI 导出及 `JNI_OnLoad`、ELF 验证通过 |
+
+本地日志：`/tmp/host-running-old.log`、`/tmp/host-control-{old-generation,old-menu,final-menu,final-gradle,final-cargo,arm64}.log`。
+本批未运行 ARMv7／x86_64 构建、完整 APK 或设备／实车验证；不改写上一批及历史验收范围。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

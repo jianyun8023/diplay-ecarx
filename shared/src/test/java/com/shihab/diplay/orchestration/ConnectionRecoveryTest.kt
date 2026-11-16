@@ -8,6 +8,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionRecoveryTest {
+    @Test fun controlRecoveryMatchesFormerHostAcrossSnapshotsAndLosses() {
+        val actual = ControlRecoveryState()
+        val old = ControlRecoveryReference()
+        val initial = actual.snapshot() to old.snapshot()
+        actual.loss(); old.loss()
+        assertEquals(old.recoveredSince(initial.second), actual.recoveredSince(initial.first))
+        val afterLoss = actual.snapshot() to old.snapshot()
+        actual.running(); old.running()
+        assertEquals(old.recoveredSince(initial.second), actual.recoveredSince(initial.first))
+        assertEquals(old.recoveredSince(afterLoss.second), actual.recoveredSince(afterLoss.first))
+        actual.loss(); old.loss()
+        assertEquals(old.recoveredSince(initial.second), actual.recoveredSince(initial.first))
+        actual.running(); old.running()
+        assertEquals(old.recoveredSince(initial.second), actual.recoveredSince(initial.first))
+    }
     @Test fun startupFailuresKeepTheirSeparateBudgetEligibility() {
         for (cause in WirelessStartupFailure.entries) {
             val expected = when (cause) {

@@ -81,6 +81,29 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
     _env: *mut JNIEnv, _class: jclass, first: jlong, now: jlong,
 ) -> jboolean { (now.wrapping_sub(first) >= STABLE_SESSION_MILLIS) as jboolean }
 
+// The low 32 bits are the wrapping JVM count; bit 32 marks a later loss.
+fn control_transition(token: i64, event: i32) -> i64 {
+    match event {
+        0 => (token as u32).wrapping_add(1) as i64,
+        1 => token | (1i64 << 32),
+        _ => token,
+    }
+}
+
+fn control_recovered(token: i64, snapshot: i64) -> bool {
+    token as u32 != snapshot as u32 && token & (1i64 << 32) == 0
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_controlTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
+) -> jlong { control_transition(token, event) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_controlRecovered(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, snapshot: jlong,
+) -> jboolean { control_recovered(token, snapshot) as jboolean }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,5 +156,16 @@ mod tests {
         assert_eq!(retry_query(state, -1), 0);
         assert_eq!(retry_query(3 << 35, 3), 0);
         assert_eq!(retry_query(state, 4), 60_000);
+    }
+
+    #[test]
+    fn control_recovery_uses_wrapping_count_and_latest_loss() {
+        let old = control_transition(i32::MAX as i64, 1);
+        let running = control_transition(old, 0);
+        assert_eq!(running as u32, i32::MIN as u32);
+        assert!(control_recovered(running, old));
+        assert!(!control_recovered(control_transition(running, 1), old));
+        assert!(!control_recovered(running, running | (1i64 << 32)));
+        assert_eq!(control_transition(running, -1), running);
     }
 }

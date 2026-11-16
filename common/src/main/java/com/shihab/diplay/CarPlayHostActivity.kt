@@ -2,6 +2,7 @@ package com.shihab.diplay
 
 import com.shihab.diplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
 import com.shihab.diplay.orchestration.ConnectionRecovery
+import com.shihab.diplay.orchestration.ControlRecoveryState
 import com.shihab.diplay.transport.TransportFailureKind
 
 import android.app.AlertDialog
@@ -692,8 +693,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     // How often the current controller reached its control loop, and whether a loss came after the
     // last time. A retry scheduled before the count went up leaves the attempt alone only while it is
     // still running when the retry fires (#873).
-    private var controlRunningCount = 0
-    private var lossSinceControlRunning = false
+    private val controlRecovery = ControlRecoveryState()
     private var sessionLog: SessionLogFile? = null
     /** Screen and car power events reach this host's log on the main thread, as every other line does. */
     private val mediaPowerLog: (String) -> Unit = { line -> mainHandler.post { appendLog(line) } }
@@ -4635,10 +4635,9 @@ open class CarPlayHostActivity : ComponentActivity() {
             scheduleUsbWirelessFallback()
         }
         if (status is CarPlayStatus.RunningControl || status is CarPlayStatus.RunningWireless) {
-            controlRunningCount++
-            lossSinceControlRunning = false
+            controlRecovery.running()
         } else if (status is CarPlayStatus.Failed || status is CarPlayStatus.ControlEnded) {
-            lossSinceControlRunning = true
+            controlRecovery.loss()
         }
         if (status is CarPlayStatus.Failed || status is CarPlayStatus.ControlEnded) {
             callPopupSessionReady = false
@@ -5297,7 +5296,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val knownCause = failure.knownCause
         if (!CarPlayBackgroundSession.isOwner(this)) { traceRetry(ConnectionTraceEvent.NOT_OWNER); return }
         // Also when a retry is already pending and this loss is dropped: that retry must not skip.
-        lossSinceControlRunning = true
+        controlRecovery.loss()
         if (menuOpen) recoveryPendingAfterMenu = true
         if (shuttingDown.get()) { traceRetry(ConnectionTraceEvent.SHUTTING_DOWN); return }
         if (menuOpen) { traceRetry(ConnectionTraceEvent.MENU_OPEN); return }
@@ -5334,7 +5333,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         checkNotNull(delayMillis)
         traceRetry(ConnectionTraceEvent.RETRY_SCHEDULED, generation, delayMillis)
         appendLog("$reason; retrying in ${delayMillis}ms generation=$generation startupFailure=$startupFailure startupRetries=${startupRetryBudget.retries}")
-        val controlRunsAtFailure = controlRunningCount
+        val controlAtFailure = controlRecovery.snapshot()
         val retry = Runnable {
             reconnectScheduled = false
             pendingReconnect = null
@@ -5358,7 +5357,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             // A wired attempt can report a failure and still go on: a second CarPlay mode request
             // failed while the iPhone was already switching, and the switch then completed (#873).
             // Leave it alone only if it is still running; a loss after its recovery still restarts.
-            if (controlRunningCount != controlRunsAtFailure && !lossSinceControlRunning) {
+            if (controlRecovery.recoveredSince(controlAtFailure)) {
                 traceRetry(ConnectionTraceEvent.ALREADY_RECOVERED, generation)
                 appendLog("Not reconnecting after $reason: the same attempt is running again")
                 return@Runnable

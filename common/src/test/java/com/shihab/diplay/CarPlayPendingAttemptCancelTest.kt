@@ -6,6 +6,7 @@ import com.shihab.diplay.airplay.AirPlaySession
 import com.shihab.diplay.media.AndroidMediaSink
 import com.shihab.diplay.media.CarPlayNowPlaying
 import com.shihab.diplay.orchestration.CarPlayController
+import com.shihab.diplay.orchestration.CarPlayStatus
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
@@ -101,7 +102,24 @@ class CarPlayPendingAttemptCancelTest {
         assertFalse("changing a setting mid-handshake is not a cancel", stopped)
     }
 
-    private fun storePendingSession(host: CarPlayHostActivity, stop: (() -> Unit) -> Unit) {
+    @Test fun leavingAfterStartSessionKeepsHandshakeButFailureStopsIt() {
+        val host = host()
+        var stopped = false
+        val controller = storePendingSession(host) { completion -> stopped = true; completion() }
+        `when`(controller.startSessionDispatched()).thenReturn(true)
+        ReflectionHelpers.setField(host, "controller", controller)
+
+        leaveConnectionScreen(host)
+        assertFalse(stopped)
+        assertTrue(ReflectionHelpers.getField(host, "attemptKeptInBackground"))
+        ReflectionHelpers.callInstanceMethod<(CarPlayStatus) -> Unit>(host, "createStatusReporter",
+            ClassParameter.from(Int::class.javaPrimitiveType, 0))(CarPlayStatus.Failed("connection lost"))
+        assertTrue(stopped)
+        assertFalse(ReflectionHelpers.getField(host, "attemptKeptInBackground"))
+        assertFalse(ReflectionHelpers.getField(host, "reconnectScheduled"))
+    }
+
+    private fun storePendingSession(host: CarPlayHostActivity, stop: (() -> Unit) -> Unit): CarPlayController {
         val controller = mock(CarPlayController::class.java)
         `when`(controller.nowPlayingSnapshot()).thenReturn(CarPlayNowPlaying())
         CarPlayBackgroundSession.store(
@@ -113,6 +131,7 @@ class CarPlayPendingAttemptCancelTest {
             CarPlaySessionDisplay(1280, 720, Surface.ROTATION_0, false, false, 1280, 720),
             stop,
         )
+        return controller
     }
 
     private fun leaveConnectionScreen(host: CarPlayHostActivity) {

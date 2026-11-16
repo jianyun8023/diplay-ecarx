@@ -554,6 +554,10 @@ class ShadowNativeConnectionRecovery {
             HostNative.call("orchestration.NativeConnectionRecovery", "retryQuery", token, field) as Long
         @JvmStatic @Implementation fun stable(first: Long, now: Long): Boolean =
             HostNative.call("orchestration.NativeConnectionRecovery", "stable", first, now) as Boolean
+        @JvmStatic @Implementation fun controlTransition(token: Long, event: Int): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "controlTransition", token, event) as Long
+        @JvmStatic @Implementation fun controlRecovered(token: Long, snapshot: Long): Boolean =
+            HostNative.call("orchestration.NativeConnectionRecovery", "controlRecovered", token, snapshot) as Boolean
     }
 }
 

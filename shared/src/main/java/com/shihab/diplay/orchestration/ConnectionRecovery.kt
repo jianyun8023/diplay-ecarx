@@ -27,6 +27,18 @@ internal object NativeConnectionRecovery {
     @JvmStatic external fun retryTransition(token: Long, event: Int): Long
     @JvmStatic external fun retryQuery(token: Long, field: Int): Long
     @JvmStatic external fun stable(first: Long, now: Long): Boolean
+    @JvmStatic external fun controlTransition(token: Long, event: Int): Long
+    @JvmStatic external fun controlRecovered(token: Long, snapshot: Long): Boolean
+}
+
+/** Host-lifetime observation of control recovery, separate from retry budgets. */
+class ControlRecoveryState {
+    private var token = 0L
+    init { NativeMedia.requireAvailable() }
+    fun running() { token = NativeConnectionRecovery.controlTransition(token, 0) }
+    fun loss() { token = NativeConnectionRecovery.controlTransition(token, 1) }
+    fun snapshot(): Long = token
+    fun recoveredSince(snapshot: Long): Boolean = NativeConnectionRecovery.controlRecovered(token, snapshot)
 }
 
 /** Host-lifetime retry state; the token is owned and interpreted by Rust. */
