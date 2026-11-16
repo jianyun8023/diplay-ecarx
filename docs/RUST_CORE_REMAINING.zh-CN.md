@@ -570,3 +570,15 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 | 未在本机执行 | 真机 wired 验证（需 USB 连接的 iPhone）；本机设备为 Android／无线场景 |
 
 wired `runStack` 的 bring-up 顺序已由 `session::wired_stack::advance(action, approved)` 驱动：核心发出 USBMUX／配对／CarKit／CSM／VPN／endpoint／control 的下一步或中止分支，Kotlin 执行每步 I/O 并回报 gate fact（I/O 体、资源所有权与 try/finally 原样保留）。wired 真机回归仍待 USB 连接的 iPhone。
+
+## “CarPlay 全在 Rust”收敛核对（2026-11-17）
+
+逐项核对"剩余非平台逻辑"，结论与对应 commit：
+
+- **时序/阈值（④）**：iAP2 引导阶段预算单源 `session::watchdog::budget`（`6e36ee37`）；wired 启动看门狗时限入 `session::controller::timing_policy` 索引 14/15（`3f480e18`）。Kotlin 剩余超时为平台 socket/无线电窗口，按边界保留。
+- **状态语义（②）**：恢复动作（`ConnectionRecovery.action`）、每代一次失败（`WirelessRunState.fail`）、失败分类（`WirelessRecoveryCore.classify`）均 Rust；Kotlin 仅 `CarPlayStatus` DTO 与 `debugLogMessage` 文案（展示/日志，属平台）。已满足，无需改。
+- **重试原因结构化（⑤）**：CarKit `StartService` 拒绝由 Rust `flow::rejection_reason` 返回结构化码（1=无效配对记录，2=无效 host id，`87b8949d`），Kotlin 抛 `IphoneUsbException.CarkitRejected(reason)` 直接读码；残余 `.contains` 仅平台事实（蓝牙设备名/errno 文本）。
+- **共享输出两套 owner（③）**：核实为**按输出域分离**——非缓冲 screen/audio/mic 的唯一“可停止”权威是 `media::output_lease`（`NativeAudioRoute`/`NativeVideoFlow` 仅渲染/输入，不做停止决策）；单条 type-103 buffered 渲染器由 `BufferedEngineCore`＋Kotlin `WeakHashMap` 弱资格＋退休屏障决定（AGENTS 明确弱资格须由 Kotlin 持有）。二者语义不同且都已在 Rust 决策，**合并会违背弱引用设计并有媒体回归风险，故按“不盲改”保留现状**。
+- **wired 收尾/释放计划（①）**：需 USB 连接的 iPhone 真机回归；按“不准盲改 wired 路径”暂缓，待设备可用再整体迁移。
+
+结论：safely-doable 的非平台逻辑（④②⑤）已收敛；③ 经核实为有意分离（非缺陷）；仅 ① 因缺少 USB iPhone 而按约束暂缓。
