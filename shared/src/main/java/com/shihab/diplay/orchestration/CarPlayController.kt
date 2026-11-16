@@ -1749,9 +1749,10 @@ class CarPlayController(
             val carkit = try {
                 carKitClient.open(pairRecord, config.label)
             } catch (error: Throwable) {
-                val rejection = rejectedPairRecordError(error)
-                if (savedPairRecord == null || rejection == null) throw error
-                debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
+                if (NativeWiredStack.carkitErrorAction(savedPairRecord != null, rejectedPairRecordErrorCode(error)) != 1) {
+                    throw error
+                }
+                debugLog("saved Lockdown pair record rejected by Lockdown; clearing and pairing again")
                 clearPairRecord()
                 pairRecord = pairNewRecord(pairingClient)
                 carKitClient.open(pairRecord, config.label)
@@ -1945,15 +1946,16 @@ class CarPlayController(
             onTrustPending = { onStatus(CarPlayStatus.WaitingForIphoneTrust) },
         ).pairRecord.also(savePairRecord)
 
-    private fun rejectedPairRecordError(error: Throwable): String? {
+    /** Platform classification of a CarKit-service open failure; the Rust wired owner decides the retry. */
+    private fun rejectedPairRecordErrorCode(error: Throwable): Int {
         var cause: Throwable? = error
         while (cause != null) {
             val message = cause.message.orEmpty()
-            if (message.contains("InvalidPairRecord", ignoreCase = true)) return "InvalidPairRecord"
-            if (message.contains("InvalidHostID", ignoreCase = true)) return "InvalidHostID"
+            if (message.contains("InvalidPairRecord", ignoreCase = true)) return 1
+            if (message.contains("InvalidHostID", ignoreCase = true)) return 2
             cause = cause.cause
         }
-        return null
+        return 0
     }
 
     // Kept across reconnects within this controller: resuming between attempts would start a scan.

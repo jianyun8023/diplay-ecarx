@@ -711,3 +711,11 @@ class ShadowNativeVehicleSpeed {
             HostNative.call("transport.NativeVehicleSpeed", "pascdEncode", gear, formattedParts) as String?
     }
 }
+
+@Implements(className = "com.shihab.diplay.orchestration.NativeWiredStack", isInAndroidSdk = false, callNativeMethodsByDefault = true)
+class ShadowNativeWiredStack {
+    companion object {
+        @JvmStatic @Implementation fun carkitErrorAction(hasSaved: Boolean, rejection: Int): Int =
+            HostNative.call("orchestration.NativeWiredStack", "carkitErrorAction", hasSaved, rejection) as Int
+    }
+}

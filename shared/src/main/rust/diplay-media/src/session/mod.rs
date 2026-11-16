@@ -12,5 +12,6 @@ pub mod hotspot_recovery;
 mod p2p_startup;
 pub mod wireless_recovery;
 pub mod wireless_state;
+pub mod wired_stack;
 
 pub mod report_subscription;
