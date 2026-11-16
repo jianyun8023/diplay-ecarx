@@ -2,6 +2,7 @@ package com.shihab.diplay
 
 import com.shihab.diplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
 import com.shihab.diplay.orchestration.ConnectionRecovery
+import com.shihab.diplay.orchestration.HostFailureState
 import com.shihab.diplay.orchestration.BackgroundAttemptState
 import com.shihab.diplay.orchestration.ControlRecoveryState
 import com.shihab.diplay.transport.TransportFailureKind
@@ -171,10 +172,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var delayedDoubleSiri: PendingAssignedSiriDoublePress? = null
     private val legacySiriPresses = mutableSetOf<Triple<Int, Int, Int>>()
     private val startupRetryBudget = WirelessStartupRetryBudget()
-    private var startupRetryStopped = false
-    private var usbPairingStoppedGeneration: Int? = null
+    private val failureState = HostFailureState()
     private var startupRetryButton: View? = null
-    private var startupFailureGeneration = -1
     private lateinit var airPlayIdentity: AirPlayIdentity
     private var languagePreferenceAtCreate = AppLocale.SYSTEM
     // The other CarPlay screen declaration opened in this one's place (CarPlayScreen).
@@ -577,8 +576,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         usbReenumerating = false
         val savedWireless = AirPlayPersistence.loadWirelessEnabled(this)
         appendLog("USB detached: wireless preference=$savedWireless; restoring transport")
-        startupRetryStopped = false
-        usbPairingStoppedGeneration = null
+        failureState.usbFallback()
         failurePendingAfterMenu = null
         startupRetryBudget.disconnected()
         if (menuOpen) {
@@ -1963,7 +1961,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 if (!CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity) ||
                     shuttingDown.get() || menuOpen || handshakeResetInProgress) return@setOnClickListener
                 startupRetryBudget.manualRetry()
-                startupRetryStopped = false
+                failureState.resume()
                 startupRetryBudget.resetAttempts()
                 visibility = View.GONE
                 restartCarPlay(getString(R.string.connecting_to_your_iphone))
@@ -4555,7 +4553,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                     CarPlayMediaSession.onSessionEnded(session)
                     restoreCarBluetooth()
                     mainHandler.removeCallbacks(autoPlayAfterYield)
-                    if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
+                    if (controllerGeneration != restartGeneration || failureState.stopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
                     clearIphoneCornerMask()
@@ -4575,7 +4573,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
             override fun onTransportError(message: String, kind: TransportFailureKind) {
                 runOnUiThread {
-                    if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
+                    if (controllerGeneration != restartGeneration || failureState.stopped) return@runOnUiThread
                     callPopupSessionReady = false
                     startupRetryBudget.disconnected()
                     if (menuOpen) {
@@ -4624,7 +4622,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private fun createStatusReporter(
         controllerGeneration: Int,
     ): (CarPlayStatus) -> Unit = report@{ status ->
-        if (controllerGeneration != restartGeneration || usbPairingStoppedGeneration == controllerGeneration) return@report
+        if (controllerGeneration != restartGeneration || failureState.usbBlocks(controllerGeneration)) return@report
         if (status is CarPlayStatus.WaitingForReenumeration) {
             usbReenumerating = true
             scheduleUsbWirelessFallback()
@@ -4661,7 +4659,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 )
                 if (decision.replace) failurePendingAfterMenu = status
                 if (decision.stop) {
-                    startupRetryStopped = true
+                    failureState.stop()
                     reconnectScheduled = false
                 }
             }
@@ -4672,7 +4670,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         val englishDescription = status.describe(englishResources)
         val knownCause = (status as? CarPlayStatus.Failed)?.knownCause
         // Once the retries stopped, a later failure of the same attempt, such as its cleanup, keeps the line saying so.
-        if (!startupRetryStopped || status !is CarPlayStatus.Failed || status.requiresManualRetry()) {
+        if (!failureState.stopped || status !is CarPlayStatus.Failed || status.requiresManualRetry()) {
             if (knownCause != null) setConnectionStage(ConnectionFailureGuidance.stage(knownCause))
             else setConnectionStage(description, englishDescription)
             LastConnectionProblem.follow(this, status)
@@ -4684,8 +4682,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         when (status) {
             is CarPlayStatus.Failed -> if (status.recovery.action == ConnectionRecovery.USB_PAIRING) {
                 // Stop cleanup callbacks and queued transport retries from re-prompting the phone.
-                usbPairingStoppedGeneration = controllerGeneration
-                startupRetryStopped = true
+                failureState.stopUsb(controllerGeneration)
                 reconnectScheduled = false
                 wifiRecoveryButton?.visibility = View.GONE
                 startupRetryButton?.visibility = View.VISIBLE
@@ -4694,15 +4691,14 @@ open class CarPlayHostActivity : ComponentActivity() {
             } else if (status.recovery.action == ConnectionRecovery.USER_ACTION) {
                 // Permission/radio/pairing prerequisites and explicit protocol rejection require
                 // driver action. Do not turn a stopped local recovery into a full-stack retry loop.
-                startupRetryStopped = true
+                failureState.stop()
                 reconnectScheduled = false
                 wifiRecoveryButton?.visibility = View.GONE
                 startupRetryButton?.visibility = View.VISIBLE
             } else {
                 wifiRecoveryButton?.visibility = View.GONE
                 if (status.startupFailure != null) {
-                    if (startupFailureGeneration == controllerGeneration) return@report
-                    startupFailureGeneration = controllerGeneration
+                    if (failureState.duplicateStartup(controllerGeneration)) return@report
                 }
                 reconnectAfterLoss(description, status)
             }
@@ -5305,7 +5301,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (shuttingDown.get()) { traceRetry(ConnectionTraceEvent.SHUTTING_DOWN); return }
         if (menuOpen) { traceRetry(ConnectionTraceEvent.MENU_OPEN); return }
         if (handshakeResetInProgress) { traceRetry(ConnectionTraceEvent.HANDSHAKE_RESET); return }
-        if (startupRetryStopped) { traceRetry(ConnectionTraceEvent.RETRY_STOPPED); return }
+        if (failureState.stopped) { traceRetry(ConnectionTraceEvent.RETRY_STOPPED); return }
         if (reconnectScheduled) { traceRetry(ConnectionTraceEvent.ALREADY_SCHEDULED); return }
         val recovery = failure.recovery.action
         val delayMillis = if (startupFailure == null || recovery == ConnectionRecovery.STARTUP_RETRY)
@@ -5313,7 +5309,7 @@ open class CarPlayHostActivity : ComponentActivity() {
                 failure.transportFailure == TransportFailureKind.IAP_TUNNEL) else null
         if (startupFailure != null && delayMillis == null) {
             traceRetry(if (recovery == ConnectionRecovery.STARTUP_RETRY) ConnectionTraceEvent.RETRY_BUDGET_STOPPED else ConnectionTraceEvent.RETRY_NOT_RETRYABLE)
-            startupRetryStopped = true
+            failureState.stop()
             startupRetryButton?.visibility = View.VISIBLE
             if (knownCause != null) {
                 setConnectionStage("${getString(ConnectionFailureGuidance.stage(knownCause))}\n" +
@@ -5346,14 +5342,14 @@ open class CarPlayHostActivity : ComponentActivity() {
             if (
                 shuttingDown.get() ||
                 menuOpen ||
-                handshakeResetInProgress || startupRetryStopped ||
+                handshakeResetInProgress || failureState.stopped ||
                 generation != restartGeneration
             ) {
                 traceRetry(when {
                     shuttingDown.get() -> ConnectionTraceEvent.SHUTTING_DOWN
                     menuOpen -> ConnectionTraceEvent.MENU_OPEN
                     handshakeResetInProgress -> ConnectionTraceEvent.HANDSHAKE_RESET
-                    startupRetryStopped -> ConnectionTraceEvent.RETRY_STOPPED
+                    failureState.stopped -> ConnectionTraceEvent.RETRY_STOPPED
                     else -> ConnectionTraceEvent.STALE_GENERATION
                 }, generation)
                 return@Runnable
@@ -5624,7 +5620,7 @@ open class CarPlayHostActivity : ComponentActivity() {
         recoveryPendingAfterMenu = false
         if (reconnect) {
             startupRetryBudget.manualRetry()
-            startupRetryStopped = false
+            failureState.resume()
         }
         when (ConnectionRecovery.menuExit(
             hasFailure = failure != null,

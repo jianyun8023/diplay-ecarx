@@ -52,6 +52,33 @@ internal object NativeConnectionRecovery {
     @JvmStatic external fun menuExit(facts: Int): Int
     @JvmStatic external fun backgroundTransition(token: Long, event: Int): Long
     @JvmStatic external fun backgroundConsumed(token: Long): Boolean
+    @JvmStatic external fun failureTransition(token: Long, event: Int, generation: Int): Long
+    @JvmStatic external fun failureQuery(token: Long, field: Int): Boolean
+    @JvmStatic external fun usbStopTransition(token: Long, event: Int, generation: Int): Long
+    @JvmStatic external fun usbStopMatches(token: Long, generation: Int): Boolean
+}
+
+/** Host-lifetime global stop and independent startup/USB generation latches. */
+class HostFailureState {
+    private var failureToken = 0L
+    private var usbToken = 0L
+    init { NativeMedia.requireAvailable() }
+    val stopped: Boolean get() = NativeConnectionRecovery.failureQuery(failureToken, 0)
+    fun stop() { failureToken = NativeConnectionRecovery.failureTransition(failureToken, 0, 0) }
+    fun resume() { failureToken = NativeConnectionRecovery.failureTransition(failureToken, 1, 0) }
+    fun duplicateStartup(generation: Int): Boolean {
+        failureToken = NativeConnectionRecovery.failureTransition(failureToken, 2, generation)
+        return NativeConnectionRecovery.failureQuery(failureToken, 1)
+    }
+    fun stopUsb(generation: Int) {
+        usbToken = NativeConnectionRecovery.usbStopTransition(usbToken, 0, generation)
+        stop()
+    }
+    fun usbBlocks(generation: Int): Boolean = NativeConnectionRecovery.usbStopMatches(usbToken, generation)
+    fun usbFallback() {
+        resume()
+        usbToken = NativeConnectionRecovery.usbStopTransition(usbToken, 1, 0)
+    }
 }
 
 /** Host-lifetime marker for an attempt deliberately kept after StartSession. */

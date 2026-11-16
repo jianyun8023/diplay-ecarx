@@ -97,6 +97,27 @@ Handler 和实际停止／接管。取消或无操作导航不额外清标记，
 本地日志：`/tmp/host-background-{old,final-gradle,final-cargo,arm64}.log`。本批未运行其他 ABI 构建、
 完整 APK 或设备／实车验证，不改写前面各批次的验收范围。
 
+## 宿主停止重试与失败去重状态（2026-11-16）
+
+基于 `a2eb630e`，先在旧宿主补齐行为合同，再将全局停止重试、启动失败同代去重、USB 配对停止代际
+迁入 `session::connection_recovery`。`HostFailureState` 只携带两个 opaque 值，不分配原生堆句柄，
+也不在 Kotlin 镜像保存三种状态。三者的独立含义及重置规则见[架构说明](ARCHITECTURE.zh-CN.md#8-新代码放在哪)。
+
+重试按钮／设置重连仅解除停止，USB 回退额外清除 USB 代际，均保留 startup 去重；session-active
+不解除停止。USB 屏蔽仍在 reporter 首个门禁、后台标记消费之前；startup 去重仍在原分支、实际重试
+门禁之前记录。预算、退避、UI、Handler、当前代际来源及事件处理顺序保持不变。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | 81 项通过：新增三状态合同 9 项、后台 15 项、菜单 12 项、startup 39 项、bootstrap 6 项；固定重试／保存后的代际断言，避免旧代被忽略造成假阳性 |
+| common／shared JVM | 124／8 项通过，含 API 28／33 transport 回归、LastConnectionProblem，以及独立旧 Kotlin 状态经真实 JNI 对照；覆盖初始 startup=-1、USB 空值与完整 Int 边界 |
+| Rust 1.97.1 recovery | 8 项通过，覆盖独立停止／恢复、同代重复、USB presence 和代际边界 |
+| R8 | mobile 检查通过，maphost 为 UP-TO-DATE；4 个新增 JNI 沿用已有整类 native 保留规则 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译和来源校验通过；587 个 Java JNI 导出及 JNI_OnLoad、ELF 校验通过 |
+
+本地日志：`/tmp/host-latch-{old,final-gradle,final-cargo,arm64}.log`。本批未运行其他 ABI 构建、完整 APK
+或设备／实车验证，不改写既有批次的验收范围。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

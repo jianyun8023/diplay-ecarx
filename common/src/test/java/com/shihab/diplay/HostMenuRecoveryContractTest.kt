@@ -77,19 +77,19 @@ class HostMenuRecoveryContractTest {
         open()
         report(stop)
         assertSame(stop, get<CarPlayStatus.Failed>("failurePendingAfterMenu"))
-        assertFalse(get("startupRetryStopped"))
+        assertFalse(host.testFailureState().stopped)
         val ordinary = CarPlayStatus.Failed("ordinary")
         report(ordinary)
         assertSame(ordinary, get<CarPlayStatus.Failed>("failurePendingAfterMenu"))
         report(manual)
         assertSame(manual, get<CarPlayStatus.Failed>("failurePendingAfterMenu"))
-        assertTrue(get("startupRetryStopped"))
+        assertTrue(host.testFailureState().stopped)
         val secondManual = CarPlayStatus.Failed("other manual", automaticRetryAllowed = false)
         report(secondManual)
         report(CarPlayStatus.Failed("cleanup"))
         report(CarPlayStatus.RunningControl)
         assertSame(manual, get<CarPlayStatus.Failed>("failurePendingAfterMenu"))
-        assertTrue(get("startupRetryStopped"))
+        assertTrue(host.testFailureState().stopped)
         assertFalse(get("reconnectScheduled"))
         assertEquals(0, budget().retries)
         assertEquals(0, budget().attempts)
@@ -97,7 +97,7 @@ class HostMenuRecoveryContractTest {
 
     @Test fun startupStopOnCancelStopsWithoutConsumingBudget() {
         open(); report(stop); finish(false)
-        assertTrue(get("startupRetryStopped"))
+        assertTrue(host.testFailureState().stopped)
         assertFalse(get("reconnectScheduled"))
         assertEquals(0, budget().retries)
         assertEquals(0, budget().attempts)
@@ -136,7 +136,7 @@ class HostMenuRecoveryContractTest {
         finish(true)
         assertEquals(0, budget().retries)
         assertEquals(2, budget().attempts)
-        assertFalse(get("startupRetryStopped"))
+        assertFalse(host.testFailureState().stopped)
         assertEquals(1, get<Int>("restartGeneration"))
     }
 
@@ -159,7 +159,7 @@ class HostMenuRecoveryContractTest {
         assertEquals(0, get<Int>("restartGeneration"))
 
         set("handshakeResetInProgress", false)
-        set("startupRetryStopped", false)
+        host.testFailureState().resume()
         set("wirelessEnabled", true)
         get<View>("wifiRecoveryButton").visibility = View.GONE
         open(); report(wifi); finish(true)
@@ -176,11 +176,11 @@ class HostMenuRecoveryContractTest {
     @Test fun replayPrecedesHandshakeAndHandshakePrecedesRestart() {
         withController(); set("handshakeResetInProgress", true)
         open(); report(stop); finish(false)
-        assertFalse(get("startupRetryStopped"))
+        assertFalse(host.testFailureState().stopped)
         assertTrue(ConnectionDiagnostics.report(host).contains("event=HANDSHAKE_RESET"))
         assertFalse(get("startAfterHandshakeReset"))
         assertEquals(0, get<Int>("restartGeneration"))
-        set("startupRetryStopped", false)
+        host.testFailureState().resume()
         open(); report(CarPlayStatus.Failed("ordinary")); finish(false)
         assertTrue(get("startAfterHandshakeReset"))
         assertEquals(0, get<Int>("restartGeneration"))
@@ -216,7 +216,7 @@ class HostMenuRecoveryContractTest {
         ReflectionHelpers.callInstanceMethod<Void>(host, "saveSettingsAndReconnect")
         assertTrue(get("menuOpen"))
         assertSame(manual, get<CarPlayStatus.Failed>("failurePendingAfterMenu"))
-        assertTrue(get("startupRetryStopped"))
+        assertTrue(host.testFailureState().stopped)
     }
 
     @Test fun usbDetachDuringMenuClearsFailureAndDefersRecovery() {
@@ -228,7 +228,7 @@ class HostMenuRecoveryContractTest {
             Intent(UsbManager.ACTION_USB_DEVICE_DETACHED).putExtra(UsbManager.EXTRA_DEVICE, usb))
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
         assertNull(get<CarPlayStatus.Failed?>("failurePendingAfterMenu"))
-        assertFalse(get("startupRetryStopped"))
+        assertFalse(host.testFailureState().stopped)
         assertTrue(get("recoveryPendingAfterMenu"))
         assertTrue(get("menuOpen"))
     }

@@ -68,10 +68,12 @@ class WirelessStartupRecoveryTest {
     @Test fun retryGateReasonsAreRecordedWithoutRearmingOrChangingPolicy() {
         for ((field, event) in listOf("menuOpen" to "MENU_OPEN", "handshakeResetInProgress" to "HANDSHAKE_RESET",
             "startupRetryStopped" to "RETRY_STOPPED", "reconnectScheduled" to "ALREADY_SCHEDULED")) {
-            ReflectionHelpers.setField(activity, field, true)
+            if (field == "startupRetryStopped") activity.testFailureState().stop()
+            else ReflectionHelpers.setField(activity, field, true)
             reconnectDirectly()
             assertTrue(ConnectionDiagnostics.report(activity).contains("event=$event"))
-            ReflectionHelpers.setField(activity, field, false)
+            if (field == "startupRetryStopped") activity.testFailureState().resume()
+            else ReflectionHelpers.setField(activity, field, false)
         }
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
@@ -104,10 +106,10 @@ class WirelessStartupRecoveryTest {
         ReflectionHelpers.setField(activity, "stageStatusView", stage)
         for ((generation, reason) in UsbPairingFailure.entries.withIndex()) {
             ReflectionHelpers.setField(activity, "restartGeneration", generation)
-            ReflectionHelpers.setField(activity, "startupRetryStopped", false)
+            activity.testFailureState().resume()
             report(generation, CarPlayStatus.Failed("permission denied", usbPairingFailure = reason))
             assertEquals(activity.getString(ConnectionFailureGuidance.pairingMessage(reason)), stage.text.toString())
-            assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+            assertTrue(activity.testFailureState().stopped)
             assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
             assertEquals(View.VISIBLE, retry.visibility)
             report(generation, CarPlayStatus.Failed("USB socket closed"))
@@ -123,7 +125,7 @@ class WirelessStartupRecoveryTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
         assertEquals(0, ReflectionHelpers.getField<Int>(activity, "restartGeneration"))
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
@@ -134,7 +136,7 @@ class WirelessStartupRecoveryTest {
         assertNotEquals(activity.getString(R.string.usb_trust_waiting), stage.text.toString())
         report(status = CarPlayStatus.WaitingForIphoneTrust)
         assertEquals(activity.getString(R.string.usb_trust_waiting), stage.text.toString())
-        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertFalse(activity.testFailureState().stopped)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
     }
 
@@ -144,15 +146,15 @@ class WirelessStartupRecoveryTest {
         report(status = refused)
         report(status = CarPlayStatus.Failed("USB closed"))
         assertEquals(refused, ReflectionHelpers.getField<CarPlayStatus.Failed>(activity, "failurePendingAfterMenu"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         ReflectionHelpers.setField(activity, "menuOpen", false)
         report(status = refused)
         assertEquals(View.VISIBLE, retry.visibility)
         ReflectionHelpers.setField(activity, "restartGeneration", 1)
-        ReflectionHelpers.setField(activity, "startupRetryStopped", false)
+        activity.testFailureState().resume()
         retry.visibility = View.GONE
         report(0, refused)
-        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertFalse(activity.testFailureState().stopped)
         report(1, CarPlayStatus.Failed("USB device disconnected"))
         assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
     }
@@ -375,7 +377,7 @@ class WirelessStartupRecoveryTest {
             report(generation)
         }
         assertEquals(5, budget().retries)
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
         assertEquals(View.VISIBLE, retry.visibility)
         report(5, CarPlayStatus.Failed("Bluetooth socket closed"))
@@ -395,7 +397,7 @@ class WirelessStartupRecoveryTest {
             startupFailure = WirelessStartupFailure.BLUETOOTH_UNUSABLE))
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
@@ -411,7 +413,7 @@ class WirelessStartupRecoveryTest {
         assertEquals(activity.getString(R.string.bluetooth_cannot_open_connections), stage.text.toString())
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
@@ -424,7 +426,7 @@ class WirelessStartupRecoveryTest {
         assertEquals(activity.getString(R.string.bluetooth_cannot_open_connections), stage.text.toString())
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
@@ -438,7 +440,7 @@ class WirelessStartupRecoveryTest {
         assertEquals(activity.getString(R.string.wifi_direct_refused_beside_hotspot), stage.text.toString())
         assertEquals(0, budget().retries)
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
@@ -450,7 +452,7 @@ class WirelessStartupRecoveryTest {
             transportFailure = TransportFailureKind.BLUETOOTH_OFF))
         assertEquals(activity.getString(R.string.turn_on_bluetooth_in_the_head_unit_s_settings_to_connect), stage.text.toString())
         assertFalse(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
         bluetooth(BluetoothAdapter.STATE_ON)
         shadowOf(Looper.getMainLooper()).idle()
@@ -498,7 +500,7 @@ class WirelessStartupRecoveryTest {
             report(generation, status)
             if (generation < 5) assertEquals(activity.getString(cause), stage.text.toString())
         }
-        assertTrue(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertTrue(activity.testFailureState().stopped)
         assertEquals(View.VISIBLE, retry.visibility)
         assertEquals(activity.getString(cause) + "\n" + activity.getString(R.string.wireless_startup_retries_exhausted),
             stage.text.toString())
@@ -529,7 +531,7 @@ class WirelessStartupRecoveryTest {
             "Hotspot control permission is missing. Open the car hotspot settings and connect again.",
             "Manual hotspot is not running on 5 GHz").forEachIndexed { generation, cause ->
             ReflectionHelpers.setField(activity, "restartGeneration", generation)
-            ReflectionHelpers.setField(activity, "startupRetryStopped", false)
+            activity.testFailureState().resume()
             report(generation, CarPlayStatus.Failed(cause, startupFailure = WirelessStartupFailure.HOTSPOT_CONFIGURATION))
             assertEquals(cause, activity.getString(R.string.hotspot_network_not_ready) + "\n" +
                 activity.getString(R.string.wireless_startup_retries_exhausted), stage.text.toString())
@@ -565,7 +567,7 @@ class WirelessStartupRecoveryTest {
         assertEquals(activity.getString(R.string.chosen_iphone_not_paired), stage.text.toString())
         assertEquals(0, budget().retries)
         assertTrue(ReflectionHelpers.getField(activity, "reconnectScheduled"))
-        assertFalse(ReflectionHelpers.getField(activity, "startupRetryStopped"))
+        assertFalse(activity.testFailureState().stopped)
         assertEquals(View.GONE, retry.visibility)
         assertTrue(ReflectionHelpers.getField<SessionLogFile>(activity, "sessionLog").awaitIdle(2_000))
         assertTrue(log.readText(), log.readText().contains("Failed: $notPaired; retrying in 2000ms generation=0 startupFailure=null"))

@@ -53,3 +53,20 @@ class BackgroundAttemptReference {
         return true
     }
 }
+
+/** Former Host failure latches; generations and the global stop are independent. */
+class HostFailureReference {
+    var stopped = false
+    private var startupGeneration = -1
+    private var usbGeneration: Int? = null
+    fun stop() { stopped = true }
+    fun resume() { stopped = false }
+    fun duplicateStartup(generation: Int): Boolean {
+        if (startupGeneration == generation) return true
+        startupGeneration = generation
+        return false
+    }
+    fun stopUsb(generation: Int) { usbGeneration = generation; stopped = true }
+    fun usbBlocks(generation: Int): Boolean = usbGeneration == generation
+    fun usbFallback() { stopped = false; usbGeneration = null }
+}

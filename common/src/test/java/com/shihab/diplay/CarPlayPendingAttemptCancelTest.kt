@@ -9,6 +9,7 @@ import com.shihab.diplay.media.AndroidMediaSink
 import com.shihab.diplay.media.CarPlayNowPlaying
 import com.shihab.diplay.orchestration.CarPlayController
 import com.shihab.diplay.orchestration.CarPlayStatus
+import com.shihab.diplay.orchestration.UsbPairingFailure
 import com.shihab.diplay.transport.TransportFailureKind
 import java.io.File
 import java.time.Duration
@@ -228,6 +229,22 @@ class CarPlayPendingAttemptCancelTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(0, stops)
         report(host, CarPlayStatus.Failed("current"), 1)
+        assertEquals(1, stops)
+        assertFalse(ReflectionHelpers.getField(host, "reconnectScheduled"))
+    }
+
+    @Test fun usbStoppedGenerationRejectsFailureBeforeBackgroundConsumption() {
+        val host = host()
+        var stops = 0
+        val controller = storePendingSession(host) { completion -> stops++; completion() }
+        ReflectionHelpers.setField(host, "controller", controller)
+        `when`(controller.startSessionDispatched()).thenReturn(true)
+        report(host, CarPlayStatus.Failed("refused", usbPairingFailure = UsbPairingFailure.TRUST_REFUSED))
+        leave(host, "home", true)
+        report(host, CarPlayStatus.Failed("blocked in same generation"))
+        assertEquals(0, stops)
+        ReflectionHelpers.setField(host, "restartGeneration", 1)
+        report(host, CarPlayStatus.Failed("new generation"), 1)
         assertEquals(1, stops)
         assertFalse(ReflectionHelpers.getField(host, "reconnectScheduled"))
     }

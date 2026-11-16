@@ -143,7 +143,7 @@ class LastConnectionProblemTest {
     @Test fun aCleanupFailureAfterTheRetriesStoppedKeepsTheProblem() {
         val host = host()
         host.report(hotspotOff)
-        assertTrue(ReflectionHelpers.getField(host, "startupRetryStopped"))
+        assertTrue(host.testFailureState().stopped)
         host.report(CarPlayStatus.Failed("Bluetooth socket closed"))
         assertEquals(context.getString(R.string.car_hotspot_is_off), host.shown("stageStatusView").lines().first())
         assertEquals(context.getString(R.string.car_hotspot_is_off), remembered())

@@ -155,6 +155,60 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
     _env: *mut JNIEnv, _class: jclass, token: jlong,
 ) -> jboolean { (token == 2) as jboolean }
 
+// Startup generation is XOR encoded so the all-zero initial token represents -1.
+// Bit 32 is the global stop, bit 33 the most recent startup-duplicate result.
+fn failure_transition(token: i64, event: i32, generation: i32) -> i64 {
+    let bits = token as u64;
+    let stopped = bits & (1 << 32);
+    let encoded = bits as u32;
+    match event {
+        0 => (encoded as u64 | (1 << 32)) as i64,
+        1 => encoded as i64,
+        2 => {
+            let next = (generation as u32) ^ u32::MAX;
+            (u64::from(next) | stopped | if encoded == next { 1 << 33 } else { 0 }) as i64
+        }
+        _ => token & !(1 << 33),
+    }
+}
+
+fn failure_query(token: i64, field: i32) -> bool {
+    match field { 0 => token & (1 << 32) != 0, 1 => token & (1 << 33) != 0, _ => false }
+}
+
+// USB's presence bit is separate, so every Int value including -1 is a valid generation.
+fn usb_stop_transition(token: i64, event: i32, generation: i32) -> i64 {
+    match event {
+        0 => (u64::from(generation as u32) | (1 << 32)) as i64,
+        1 => 0,
+        _ => token,
+    }
+}
+
+fn usb_stop_matches(token: i64, generation: i32) -> bool {
+    token & (1 << 32) != 0 && token as u32 == generation as u32
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_failureTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint, generation: jint,
+) -> jlong { failure_transition(token, event, generation) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_failureQuery(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
+) -> jboolean { failure_query(token, field) as jboolean }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbStopTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint, generation: jint,
+) -> jlong { usb_stop_transition(token, event, generation) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbStopMatches(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, generation: jint,
+) -> jboolean { usb_stop_matches(token, generation) as jboolean }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +294,29 @@ mod tests {
         assert_eq!(consumed, 2);
         assert_eq!(background_transition(consumed, 2), 0);
         assert_eq!(background_transition(kept, 1), 0);
+    }
+
+    #[test]
+    fn independent_failure_latches_keep_all_generations_and_initial_sentinels() {
+        let mut failure = failure_transition(0, 2, -1);
+        assert!(failure_query(failure, 1));
+        assert!(!usb_stop_matches(0, -1));
+        for generation in [i32::MIN, -1, 0, i32::MAX] {
+            failure = failure_transition(failure, 2, generation);
+            assert!(!failure_query(failure, 1));
+            failure = failure_transition(failure, 2, generation);
+            assert!(failure_query(failure, 1));
+            failure = failure_transition(failure, 0, 0);
+            assert!(failure_query(failure, 0));
+            failure = failure_transition(failure, 1, 0);
+            assert!(!failure_query(failure, 0));
+            assert!(failure_query(failure_transition(failure, 2, generation), 1));
+            let usb = usb_stop_transition(0, 0, generation);
+            assert!(usb_stop_matches(usb, generation));
+            assert!(!usb_stop_matches(usb_stop_transition(usb, 1, 0), generation));
+            assert_eq!(usb_stop_transition(usb, -1, 0), usb);
+        }
+        assert_eq!(failure_transition(failure, -1, 0), failure & !(1 << 33));
+        assert!(!failure_query(failure, -1));
     }
 }

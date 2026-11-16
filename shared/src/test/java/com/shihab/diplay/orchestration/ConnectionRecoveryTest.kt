@@ -8,6 +8,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionRecoveryTest {
+    @Test fun hostFailureLatchesMatchFormerHostForIndependentTransitions() {
+        val old = HostFailureReference()
+        val actual = HostFailureState()
+        for (generation in listOf(-1, Int.MIN_VALUE, 0, Int.MAX_VALUE, -1)) {
+            assertEquals(old.duplicateStartup(generation), actual.duplicateStartup(generation))
+            assertEquals(old.duplicateStartup(generation), actual.duplicateStartup(generation))
+            old.stopUsb(generation); actual.stopUsb(generation)
+            assertEquals(old.stopped, actual.stopped)
+            assertEquals(old.usbBlocks(generation), actual.usbBlocks(generation))
+            old.resume(); actual.resume()
+            assertEquals(old.stopped, actual.stopped)
+            assertEquals(old.usbBlocks(generation), actual.usbBlocks(generation))
+            old.usbFallback(); actual.usbFallback()
+            assertEquals(old.usbBlocks(generation), actual.usbBlocks(generation))
+            assertEquals(old.duplicateStartup(generation), actual.duplicateStartup(generation))
+        }
+    }
     @Test fun backgroundAttemptTransitionsMatchFormerHostMarker() {
         val actual = BackgroundAttemptState()
         val old = BackgroundAttemptReference()

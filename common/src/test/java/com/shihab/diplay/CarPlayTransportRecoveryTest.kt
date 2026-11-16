@@ -109,15 +109,14 @@ class CarPlayTransportRecoveryTest {
 
     @Test fun unplugAfterFailureRestoresWirelessAndClearsStoppedRetry() {
         attached()
-        set("startupRetryStopped", true)
-        set("usbPairingStoppedGeneration", 0)
+        host.testFailureState().stopUsb(0)
         set("menuOpen", true)
         receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
         loop.idleFor(1999, TimeUnit.MILLISECONDS)
         assertFalse(wireless())
         loop.idleFor(1, TimeUnit.MILLISECONDS)
         assertTrue(wireless())
-        assertFalse(ReflectionHelpers.getField(host, "startupRetryStopped"))
+        assertFalse(host.testFailureState().stopped)
         assertTrue(ReflectionHelpers.getField(host, "recoveryPendingAfterMenu"))
         assertTrue(AirPlayPersistence.loadWirelessEnabled(host))
     }

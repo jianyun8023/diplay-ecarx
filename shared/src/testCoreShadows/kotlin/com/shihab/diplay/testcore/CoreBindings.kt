@@ -566,6 +566,14 @@ class ShadowNativeConnectionRecovery {
             HostNative.call("orchestration.NativeConnectionRecovery", "backgroundTransition", token, event) as Long
         @JvmStatic @Implementation fun backgroundConsumed(token: Long): Boolean =
             HostNative.call("orchestration.NativeConnectionRecovery", "backgroundConsumed", token) as Boolean
+        @JvmStatic @Implementation fun failureTransition(token: Long, event: Int, generation: Int): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "failureTransition", token, event, generation) as Long
+        @JvmStatic @Implementation fun failureQuery(token: Long, field: Int): Boolean =
+            HostNative.call("orchestration.NativeConnectionRecovery", "failureQuery", token, field) as Boolean
+        @JvmStatic @Implementation fun usbStopTransition(token: Long, event: Int, generation: Int): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbStopTransition", token, event, generation) as Long
+        @JvmStatic @Implementation fun usbStopMatches(token: Long, generation: Int): Boolean =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbStopMatches", token, generation) as Boolean
     }
 }
 

@@ -288,6 +288,15 @@ Handler／Runnable、owner 与 session 引用、代际门禁以及先清 pending
 `onStart` 和通过原代际检查的 session-active 清标记，`onStop` 不改标记；其他错误通道不隐式视为 Failed。
 owner、controller、sink、监听器和 Handler、实际停止／接管继续在 Kotlin；新宿主接管资源时不继承旧宿主的标记或预算。
 
+宿主的停止重试、启动失败同代去重、USB 配对停止代际也由 `connection_recovery` 持有，三者保持独立语义。
+停止重试会拦截后续重试及相关 listener，但不等于屏蔽所有 status；USB 停止代际则在 reporter 入口、任何
+副作用之前屏蔽该代的全部 status。启动失败去重只在原有 startup 分支记录，先于 `reconnectAfterLoss`
+内的 owner／握手重置／停止等门禁，不以真正排入重试为条件；菜单内暂存不记录，退出重报才走该分支。
+初始 startup 代际仍是 `-1`，USB 标记的空值与任意 Int 代际有别。
+重试按钮和设置重连仅解除停止；USB 回退额外清除 USB 代际，均不清除 startup 去重。session-active
+不会解除停止，controller 更换不重置这三种状态；新 Host 使用初始状态。Kotlin 保留当前代际来源、
+UI 更新及回调／Handler 原顺序，只携带 opaque 值，不复制标记或解释编码。
+
 菜单的失败保留与退出恢复动作由 `connection_recovery` 的纯函数决定，不另建原生菜单状态。
 Kotlin 唯一持有完整暂存失败与恢复待办标记，并负责菜单可见性、设置校验／保存／回滚、Dialog 导航和 Handler。
 失败保留以 `requiresUserAction` 为依据：未锁定时后来失败覆盖前者，首个要求用户操作的失败锁定对象；
