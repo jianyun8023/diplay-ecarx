@@ -50,6 +50,15 @@ class CarPlayTransportRecoveryTest {
 
     @After fun cleanup() {
         call("restoreCarBluetooth")
+        // Finish the guard's writes before Robolectric resets the shared-preferences work queue.
+        val worker = ReflectionHelpers.getField<ExecutorService>(CarBluetoothProfileGuard, "worker")
+        val end = worker.submit {}
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8)
+        while (!end.isDone && System.nanoTime() < deadline) {
+            loop.idle()
+            Thread.sleep(5)
+        }
+        end.get(1, TimeUnit.SECONDS)
         ReflectionHelpers.getField<Handler>(host, "mainHandler").removeCallbacksAndMessages(null)
         assertTrue(AsyncDiagnosticLog.awaitIdle(2_000))
         ReflectionHelpers.getField<SessionLogFile>(host, "sessionLog").close()

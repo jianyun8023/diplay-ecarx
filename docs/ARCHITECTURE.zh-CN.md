@@ -263,6 +263,13 @@ session active 时重置计数；已标记的 iAP tunnel 错误仍固定等待 1
 蓝牙关闭和 tunnel 故障通过 `TransportFailureKind` 穿过异常、状态及 listener 边界，日志文字不选择恢复策略。
 无线蓝牙关闭保持现有 Rust 分类：要求用户操作后手动重试，不把测试里默认允许重试的合成状态当作生产行为。
 
+蓝牙平台恢复由 `CarBluetoothProfileGuard` 持有 session／revision、SDK 代理和持久化 journal，
+不与连接重试预算合并。修改媒体策略前，原始策略与连接状态必须成功写盘；恢复未确认时保留 journal，
+供下次启动继续恢复。`phase=settled` 只表示本次恢复任务返回，仍须结合 `journalPending` 判断是否完成；
+它不证明手机已重新连接（诊断明确记录 `connectionCompletion=not-awaited`）。最终诊断继续同步持久化，
+供 Activity 日志关闭后的报告读取。Robolectric 测试必须在清空偏好、关闭日志和重置 sandbox 前，
+有界等待 guard worker 完成，并推进主线程上的 SDK 回调；仅调用异步 `restore()` 不代表清理完成。
+
 - 按包、按帧执行的逻辑放进 `diplay-media`，在 Kotlin 侧只暴露句柄与配置；不要在接收或渲染循环里新建 `ByteArray`。
 - 核心选型、回退、路由和恢复决策放在对应 Rust owner；平台焦点请求、SDK 调用和设置存储保留 Kotlin 适配层。改动时同步其调用方与测试，不新增第二份核心状态。
 - 新的 JNI 入口跟随所属 owner 的边界；独立桥接放在 owner 的私有 `jni` 子模块，共享 JVM／NDK 设施留在 `platform`。每个入口检查参数边界后才触碰内存；Rust 侧不 `panic` 跨越 FFI（发布配置为 abort），错误以返回码或既有异常契约交给 Kotlin。
