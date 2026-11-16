@@ -10,6 +10,10 @@ pub const REJECTION_NONE: i32 = 0;
 pub const REJECTION_INVALID_PAIR_RECORD: i32 = 1;
 pub const REJECTION_INVALID_HOST_ID: i32 = 2;
 
+/// End state of the wired control loop, mirrored from `Iap2WiredControlTerminal` (its ordinal order).
+pub const TERMINAL_CHANNEL_CLOSED: i32 = 0;
+pub const TERMINAL_TIMED_OUT: i32 = 1;
+
 /// 1 = clear the saved record and pair again; 0 = rethrow the original failure. Only a saved record
 /// rejected as invalid (pair record or host id) is retried; a fresh pairing or any other failure is
 /// not, so a rejected saved record never loops.
@@ -18,11 +22,24 @@ pub fn carkit_error_action(has_saved: bool, rejection: i32) -> i32 {
     (has_saved && rejected) as i32
 }
 
+/// 1 = the control channel failed; 0 = it ended normally after a timeout. A closed channel is a
+/// failure the driver sees; a timed-out control loop is a normal end, not an NCM/AirPlay verdict.
+pub fn terminal_outcome(terminal: i32) -> i32 {
+    (terminal == TERMINAL_CHANNEL_CLOSED) as i32
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_carkitErrorAction(
     _: *mut JNIEnv, _: jclass, has_saved: jboolean, rejection: jint,
 ) -> jint {
     carkit_error_action(has_saved != 0, rejection)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_terminalOutcome(
+    _: *mut JNIEnv, _: jclass, terminal: jint,
+) -> jint {
+    terminal_outcome(terminal)
 }
 
 #[cfg(test)]
@@ -41,5 +58,12 @@ mod tests {
         ] {
             assert_eq!(carkit_error_action(saved, rejection), expected);
         }
+    }
+
+    #[test]
+    fn a_closed_channel_is_a_failure_but_a_timeout_is_a_normal_end() {
+        assert_eq!(terminal_outcome(TERMINAL_CHANNEL_CLOSED), 1);
+        assert_eq!(terminal_outcome(TERMINAL_TIMED_OUT), 0);
+        assert_eq!(terminal_outcome(99), 0);
     }
 }

@@ -717,5 +717,7 @@ class ShadowNativeWiredStack {
     companion object {
         @JvmStatic @Implementation fun carkitErrorAction(hasSaved: Boolean, rejection: Int): Int =
             HostNative.call("orchestration.NativeWiredStack", "carkitErrorAction", hasSaved, rejection) as Int
+        @JvmStatic @Implementation fun terminalOutcome(terminal: Int): Int =
+            HostNative.call("orchestration.NativeWiredStack", "terminalOutcome", terminal) as Int
     }
 }

@@ -1906,11 +1906,15 @@ class CarPlayController(
                 onProgress = { message -> handleWiredControlProgress(message, startWatchdog) },
                 startSessionAgain = ::startAgain,
             )
+            val terminalCode = when (result.terminal) {
+                Iap2WiredControlTerminal.CHANNEL_CLOSED -> 0
+                Iap2WiredControlTerminal.TIMED_OUT -> 1
+            }
             report(
-                when (result.terminal) {
-                    Iap2WiredControlTerminal.TIMED_OUT -> CarPlayStatus.ControlEnded
-                    Iap2WiredControlTerminal.CHANNEL_CLOSED ->
-                        CarPlayStatus.Failed("CarPlay control channel closed")
+                if (NativeWiredStack.terminalOutcome(terminalCode) == 1) {
+                    CarPlayStatus.Failed("CarPlay control channel closed")
+                } else {
+                    CarPlayStatus.ControlEnded
                 },
             )
         } catch (error: Throwable) {

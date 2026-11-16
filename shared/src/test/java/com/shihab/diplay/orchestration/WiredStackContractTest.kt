@@ -14,4 +14,11 @@ class WiredStackContractTest {
         assertEquals(0, NativeWiredStack.carkitErrorAction(hasSaved = false, rejection = 1))
         assertEquals(0, NativeWiredStack.carkitErrorAction(hasSaved = false, rejection = 0))
     }
+
+    @Test
+    fun aClosedControlChannelIsAFailureButATimeoutIsANormalEnd() {
+        assertEquals(1, NativeWiredStack.terminalOutcome(0)) // channel closed
+        assertEquals(0, NativeWiredStack.terminalOutcome(1)) // timed out
+        assertEquals(0, NativeWiredStack.terminalOutcome(99))
+    }
 }

@@ -8,4 +8,7 @@ internal object NativeWiredStack {
 
     /** 1 = clear the saved pair record and pair again; 0 = rethrow the original failure. */
     @JvmStatic external fun carkitErrorAction(hasSaved: Boolean, rejection: Int): Int
+
+    /** 1 = the control channel failed; 0 = it ended normally. Codes mirror Iap2WiredControlTerminal. */
+    @JvmStatic external fun terminalOutcome(terminal: Int): Int
 }
