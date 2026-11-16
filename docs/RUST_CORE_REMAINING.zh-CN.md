@@ -569,4 +569,4 @@ AAudio 的 PAUSING flush 警告在本地历史日志也可复现：workspace 根
 | APK 构建／lint（本机） | `:mobile:assembleDebug :maphost:assembleDebug :mobile:lintDebug :maphost:lintDebug` 通过（`DIPLAY_JNI_LIBS_DIR` 指向本机三 ABI 构建产物，`stageRustAndroidInputs` 来源校验通过） |
 | 未在本机执行 | 真机 wired 验证（需 USB 连接的 iPhone）；本机设备为 Android／无线场景 |
 
-剩余：wired `runStack` 的 I/O 串行组合仍留 Kotlin；如需 Rust 以 event→action 驱动整段 I/O 顺序，属高风险改动，应在真机／CI wired 回归可用时再合入，不以盲改替代验证。
+wired `runStack` 的 bring-up 顺序已由 `session::wired_stack::advance(action, approved)` 驱动：核心发出 USBMUX／配对／CarKit／CSM／VPN／endpoint／control 的下一步或中止分支，Kotlin 执行每步 I/O 并回报 gate fact（I/O 体、资源所有权与 try/finally 原样保留）。wired 真机回归仍待 USB 连接的 iPhone。
