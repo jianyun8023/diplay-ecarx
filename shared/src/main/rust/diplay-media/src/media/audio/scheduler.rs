@@ -2,6 +2,10 @@
 //! it tracks the unsigned AudioTrack/AAudio head across wrap without flushing queued sound, and
 //! decides the music rebuffer. Kotlin still performs the writes and owns the platform output.
 
+fn duck_output_may_notify(ducked: bool, session_closing: bool, released_current: bool, owner_present: bool) -> bool {
+    ducked || released_current || (!session_closing && !owner_present)
+}
+
 /// The device may grant a smaller track than requested; the start level must stay inside it.
 pub fn start_bytes_for(planned_start_bytes: i32, actual_capacity_bytes: i32, write_chunk_bytes: i32) -> i32 {
     if actual_capacity_bytes <= 0 {
@@ -258,6 +262,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_output_duck_uses_actual_release_and_preserves_ownerless_commands() {
+        assert!(duck_output_may_notify(true, false, false, true));
+        assert!(!duck_output_may_notify(false, false, false, true));
+        assert!(duck_output_may_notify(false, false, true, false));
+        assert!(duck_output_may_notify(false, false, false, false));
+        assert!(!duck_output_may_notify(false, true, false, true));
+        assert!(!duck_output_may_notify(false, true, false, false));
+        assert!(duck_output_may_notify(false, true, true, false));
+    }
+
+    #[test]
     fn focus_diagnostics_separates_platform_outcomes_and_keeps_snapshots_read_only() {
         let mut state = [0; 10];
         for result in [1, 0, i32::MIN, 2] {
@@ -484,6 +499,14 @@ mod tests {
 // ---- JNI boundary: `com.shihab.diplay.media.NativeAudioScheduler` ----
 
 use jni_sys::{jboolean, jclass, jint, jintArray, jlong, jlongArray, jstring, JNIEnv};
+
+#[no_mangle]
+pub extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_duckOutputMayNotify(
+    _: *mut JNIEnv, _: jclass, ducked: jboolean, session_closing: jboolean,
+    released_current: jboolean, owner_present: jboolean,
+) -> jboolean {
+    duck_output_may_notify(ducked != 0, session_closing != 0, released_current != 0, owner_present != 0) as jboolean
+}
 
 fn focus_diagnostics(state: &mut [i64; 10], event: i32, result: i32) -> Option<String> {
     if event == 0 {

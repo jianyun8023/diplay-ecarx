@@ -2,6 +2,8 @@ package com.shihab.diplay.airplay
 
 import android.util.Log
 import com.shihab.diplay.hud.NavigationOutputs
+import com.shihab.diplay.media.NativeAudioScheduler
+import com.shihab.diplay.media.NativeVideoFlow
 import com.shihab.diplay.transport.BlockingDuplexByteStream
 import java.io.Closeable
 import java.io.File
@@ -220,7 +222,9 @@ class CarPlayMediaEngine(
                     )
                     clusterVideoOwner.compareAndSet(screen, null)
                     if (streams.remove(streamKey, screen)) {
-                        sink.onScreenStreamActive(type, false)
+                        if (NativeVideoFlow.screenOutputMayStop(streams.keys.any { it.session !== session && it.type == type })) {
+                            sink.onScreenStreamActive(type, false)
+                        }
                     }
                     session.close()
                 }
@@ -624,27 +628,40 @@ class CarPlayMediaEngine(
         val tornDown = streams.keys.filter { it.session === session && it.type == type }
         tornDown.forEach { key ->
             val streamId = AudioStreamId(key.type, key.audioType)
-            if (pendingMicrophone.remove(key) != null) sink.onMicrophoneStopped(streamId)
+            if (pendingMicrophone.remove(key) != null &&
+                NativeMedia.audioOutputMayStop(pendingMicrophone.keys.any { it.session !== session && it.type == key.type && it.audioType == key.audioType })) {
+                sink.onMicrophoneStopped(streamId)
+            }
             audioMeta.remove(key)
             audioCaptures.remove(key)?.close()
             // BufferedAudioStream owns serialized sink cleanup; stopping it first from here
             // could interleave with its in-flight delivery and recreate a stale renderer.
-            if (key.type != BufferedAudioStream.STREAM_TYPE) sink.onAudioStopped(streamId)
+            if (key.type != BufferedAudioStream.STREAM_TYPE &&
+                NativeMedia.audioOutputMayStop(streams.keys.any { it.session !== session && it.type == key.type && it.audioType == key.audioType })) {
+                sink.onAudioStopped(streamId)
+            }
             val removed = streams.remove(key)
             if (type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
             removed?.close()
         }
-        if (isScreenStreamType(type)) sink.onScreenStreamActive(type, false)
+        if (isScreenStreamType(type) && NativeVideoFlow.screenOutputMayStop(streams.keys.any { it.session !== session && it.type == type })) {
+            sink.onScreenStreamActive(type, false)
+        }
     }
 
     override fun onAudioDuck(session: AirPlaySession, ducked: Boolean) {
-        if (ducked) duckingSession.set(session) else duckingSession.compareAndSet(session, null)
-        sink.onAudioDuck(ducked)
+        val released = if (ducked) { duckingSession.set(session); false } else duckingSession.compareAndSet(session, null)
+        if (NativeAudioScheduler.duckOutputMayNotify(ducked, sessionClosing = false, released, duckingSession.get() != null)) {
+            sink.onAudioDuck(ducked)
+        }
     }
 
     override fun onSessionClosed(session: AirPlaySession) {
         // A phone that disconnects during a prompt never sends unduckAudio.
-        if (duckingSession.compareAndSet(session, null)) sink.onAudioDuck(false)
+        val released = duckingSession.compareAndSet(session, null)
+        if (NativeAudioScheduler.duckOutputMayNotify(ducked = false, sessionClosing = true, released, duckingSession.get() != null)) {
+            sink.onAudioDuck(false)
+        }
         clearPendingIapTunnel(session)
         retireBuffered(session)
         videoSettingsChannels.remove(session)?.close()
@@ -653,7 +670,11 @@ class CarPlayMediaEngine(
         }
         sessionStreams
             .filter { isScreenStreamType(it.type) }
-            .forEach { sink.onScreenStreamActive(it.type, false) }
+            .forEach { key ->
+                if (NativeVideoFlow.screenOutputMayStop(streams.keys.any { it.session !== session && it.type == key.type })) {
+                    sink.onScreenStreamActive(key.type, false)
+                }
+            }
         sessionStreams.forEach {
             val removed = streams.remove(it)
             if (it.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
@@ -667,10 +688,12 @@ class CarPlayMediaEngine(
             .forEach { key ->
                 val streamId = AudioStreamId(key.type, key.audioType)
                 if (pendingMicrophone.remove(key) != null &&
-                    pendingMicrophone.keys.none { it.session !== session && it.type == key.type && it.audioType == key.audioType }) {
+                    NativeMedia.audioOutputMayStop(pendingMicrophone.keys.any { it.session !== session && it.type == key.type && it.audioType == key.audioType })) {
                     sink.onMicrophoneStopped(streamId)
                 }
-                if (streams.keys.none { it.type == key.type && it.audioType == key.audioType }) sink.onAudioStopped(streamId)
+                if (NativeMedia.audioOutputMayStop(streams.keys.any { it.type == key.type && it.audioType == key.audioType })) {
+                    sink.onAudioStopped(streamId)
+                }
             }
         audioMeta.keys.filter { it.session === session }.forEach { audioMeta.remove(it) }
         pendingMicrophone.keys.filter { it.session === session }.forEach { pendingMicrophone.remove(it) }

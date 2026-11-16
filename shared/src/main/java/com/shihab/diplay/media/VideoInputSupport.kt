@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit
 /** The decode-loop timing pieces the Kotlin side shares with the Rust vpipe. */
 internal object NativeVideoFlow {
     init { com.shihab.diplay.airplay.NativeMedia.requireAvailable() }
+    @JvmStatic external fun screenOutputMayStop(otherRegistration: Boolean): Boolean
     @JvmStatic external fun inputCreate(start: Long, timeout: Long): LongArray
     @JvmStatic external fun inputStep(owner: LongArray, event: Int, value: Long): Int
     @JvmStatic external fun inputResult(owner: LongArray): Int

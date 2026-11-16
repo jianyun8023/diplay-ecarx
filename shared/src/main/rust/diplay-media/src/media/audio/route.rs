@@ -4,6 +4,13 @@ use crate::protocols::bplist::{self, Value};
 use jni_sys::{jboolean, jclass, jint, jlong, jlongArray, jobject, JNIEnv};
 use std::sync::{Arc, Mutex};
 
+fn audio_output_may_stop(other_registration: bool) -> bool { !other_registration }
+
+#[no_mangle]
+pub extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioOutputMayStop(
+    _: *mut JNIEnv, _: jclass, other_registration: jboolean,
+) -> jboolean { audio_output_may_stop(other_registration != 0) as jboolean }
+
 pub struct AudioRoute { state: Mutex<State>, clock_rate: i64, direct: bool }
 struct State {
     target: Option<Arc<QueueOwner>>,
@@ -258,6 +265,12 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioFo
 mod tests {
     use super::*;
     use crate::media::packet::Pool;
+
+    #[test]
+    fn shared_output_audio_waits_for_the_last_registration() {
+        assert!(!audio_output_may_stop(true));
+        assert!(audio_output_may_stop(false));
+    }
 
     fn packet(pool: &Arc<Pool>, sample: u32) -> AudioPacket {
         let mut packet = pool.take(12);

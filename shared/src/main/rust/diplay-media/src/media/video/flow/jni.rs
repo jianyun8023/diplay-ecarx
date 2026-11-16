@@ -1,5 +1,10 @@
-use jni_sys::{jclass, jint, jlong, jlongArray, JNIEnv};
+use jni_sys::{jboolean, jclass, jint, jlong, jlongArray, JNIEnv};
 use std::ptr::null_mut;
+
+#[no_mangle]
+pub extern "system" fn Java_com_shihab_diplay_media_NativeVideoFlow_screenOutputMayStop(
+    _: *mut JNIEnv, _: jclass, other_registration: jboolean,
+) -> jboolean { super::screen_output_may_stop(other_registration != 0) as jboolean }
 
 unsafe fn ok(env: *mut JNIEnv) -> Option<()> { (((**env).ExceptionCheck.unwrap())(env) == 0).then_some(()) }
 unsafe fn invalid(env: *mut JNIEnv) {

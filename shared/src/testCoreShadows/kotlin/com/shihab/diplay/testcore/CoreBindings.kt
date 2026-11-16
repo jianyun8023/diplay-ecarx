@@ -211,6 +211,8 @@ open class ShadowNativeMedia {
 
         @JvmStatic @Implementation fun audioRouteCreate(clockRate: Int, direct: Boolean): Long =
             HostNative.call("airplay.NativeMedia", "audioRouteCreate", clockRate, direct) as Long
+        @JvmStatic @Implementation fun audioOutputMayStop(otherRegistration: Boolean): Boolean =
+            HostNative.call("airplay.NativeMedia", "audioOutputMayStop", otherRegistration) as Boolean
 
         @JvmStatic @Implementation fun audioRouteSetQueue(handle: Long, retainedQueue: Long) {
             HostNative.call("airplay.NativeMedia", "audioRouteSetQueue", handle, retainedQueue)

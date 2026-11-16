@@ -308,6 +308,58 @@ Robolectric directlyOn 执行真实 close，仅控制阻塞或清理后的异常
 当前 ADB 只有 Linux 宿主在线，Android 地址 offline；仪器测试未执行，未构建完整 APK 或完成设备／实车验收。
 既有 BufferedAudioSessionTest 的真实接收／释放屏障场景仍需 Android 设备运行，不以主机状态对照替代。
 
+## 非 buffered 清理与 duck 隔离（2026-11-16）
+
+第三、第四批已合并为 `0319d86a` 并推到 `dev`。随后按用户选择，先修复旧会话清理与 duck
+相互影响，再将这部分动作准入规则收进原有 Rust owner；不将普通流并入 buffered 协调器。
+
+- 音频／麦克风 TEARDOWN 按其他 session 的同 `AudioStreamId` 注册决定是否通知共享 sink 停止。
+- 主屏／仪表 TEARDOWN、session close 与 EOF 按其他 session 的同 type 注册决定是否通知 inactive；
+  EOF 仍先要求实际 `remove(key, screen)` 成功，不能仅用 cluster owner CAS 结果替代。
+- A duck → B duck → A unduck 不再释放 B 的提示音；B unduck 或关闭仍释放。无 owner 的重复 unduck
+  仍到达 sink；关闭非 owner 的 session 不额外发送 unduck。
+
+`media::audio::route` 决定音频／麦克风释放，`media::video::flow` 决定屏幕释放，
+`media::audio::scheduler` 决定 duck 通知。Kotlin 在原 sink 调用点重新读取注册事实，继续负责
+对象身份、表操作、实际 CAS／remove 结果及平台动作。没有新增 native 句柄、全局 session ID 或锁；
+单会话调用顺序、最后一条流的清理和原 disconnect 恢复路径保持不变。
+
+| 检查 | 结果 |
+| --- | --- |
+| 缺陷合同 | API 28 Robolectric 的 10 项真实 Engine 回调合同在旧实现中 6 项失败、4 项通过；最小 Kotlin 修复后 10 项通过，迁到 Rust 后仍全部通过。EOF 合同同时验证当前流最后关闭时恰好通知一次 inactive |
+| 最终定向 JVM | shared 56、common 15 共 71 项通过，0 failures／errors／skipped；包含新增 10 项、独立参考、会话隔离、screen listener、duck、route、buffered 屏障及仪表首帧回归 |
+| 独立参考 | shared 专用 `testCoreInternal` 保留迁移前最小 Kotlin 修复参考，真实 host JNI 对照全部 20 组布尔输入：audio 2、screen 2、duck 16；生命周期由 Engine 合同另行验证 |
+| Rust 1.97.1 | 三个 owner 的新增 `shared_output_` 定向测试 3 项通过；未将其记作全库测试 |
+| Android 测试源码／R8 | `:shared:compileDebugAndroidTestKotlin` 通过；mobile R8 实际执行通过，maphost 为 UP-TO-DATE。三个新增 JNI 方法均在 mobile keep seeds 中，沿用已有整类 native 规则 |
+| 最终三 ABI | ARM64／ARMv7／x86_64 均以 Rust 1.97.1、NDK 28.2.13676358、API 28 编译；各 618 个 Java JNI 导出及 JNI_OnLoad、ELF／来源校验通过 |
+
+本地日志：`/tmp/nonbuffered-cleanup-{old-red,kotlin-green,native-green,rust,final-gradle,abi}.log`，
+旧失败 XML 为 `/tmp/nonbuffered-cleanup-old-red.xml`。独立复核确认 fresh 注册查询、EOF remove 前置条件、
+duck 实际 CAS 及原调用顺序。本批仅验证顺序交接合同；注册查询到 sink 调用之间未增加原子资源锁，
+不据此宣称解决所有并发交错。未运行 Android 仪器测试、完整 APK 或设备／实车验收；API 28
+Robolectric 与 host JNI 不代替 native TCP、真实 renderer／AudioRecord 的跨会话交接验收。
+
+## 剩余协议规则与交接边界复核（2026-11-16）
+
+以下是本批清理修复后的源码链路分析，尚未新增对应运行复现合同。按失败影响及可独立交付程度排序，
+不把代码可达路径、历史设备通过与本批已测事实混算。
+
+| 优先级／候选 | 具体触发与当前边界 | 后续归属与合同 |
+| --- | --- | --- |
+| 高：普通音频输出退休与恢复 | `AndroidMediaSink.kt:489` 在 B 首包时 disconnect A；`audio/route.rs:100` 无 queue 返回 Callback，`receiver.rs:175` 回调；A 的 session stream key 仍有效（`CarPlayMediaEngine.kt:291`），可经 sink 按同 ID 向 B renderer 提交。与此同时 sink 914–922 行依赖同流 disconnect 后下一包恢复 terminal renderer | 沿 `media::audio::route` 区分被替换后的退休与恢复性 queue detach。先补 A→B→A 迟到包拒绝及同流 renderer 恢复正例，不能把全部 disconnect 改成永久 drop |
+| 高：麦克风实际发送配置交接 | `AndroidMediaSink.kt:552` 的 `computeIfAbsent(id)` 复用 A uplink；`MicrophoneUplink.kt:49` 在 running 时直接成功。B 同 ID 的不同 host／port／key 不会因此证明 sender 已切换，实际参数来自 `NativeUplinkSender.kt:29` | 沿 `media::audio::uplink` 收敛替换与提交判断；先覆盖不同配置和实际启动结果。Kotlin 保留 config／uplink 身份、AudioRecord、仲裁与实际启动关闭；本批停止通知隔离不能替代 sender 接管 |
+| 高：视频配置交付资格 | `video/receiver.rs:97` 回调 config；`CarPlayMediaEngine.kt:217` 仅检查各自 session key，旧 A 仍可经 sink 配置共享 type decoder。native 帧则不同：`NativeVideoRoute.kt:10` disconnect 后为空 targets，`vpipe.rs:368` 消费并释放，不据此声称已证实 native 混帧 | 沿 `media::video::flow`／既有 Route 明确 config 的交付资格，先补新旧配置交错及最后 owner 正例；Kotlin 保留 stream／decoder 身份与平台配置 |
+| 高：iAP tunnel 发布与执行寿命 | Controller 的 `startWirelessTunnelControl` 在 2920 行发布 B，但 2929 行仍排入单线程 executor；A 的 NO_TIMEOUT loop 可继续运行，回调主要按 run 判断。发布的 channel 与实际运行的 channel 可能不同 | 沿 `session::wireless_state`／controller 补重复 tunnel 的接受、替换与迟到回调合同，再决定提交点；不能未经合同直接增加拒绝门禁。metadata 属于 iAP channel 寿命，不按每次 AirPlay session 更换统一清空 |
+| 中：排队命令与旧 session UI 回调 | Controller 727／738 行捕获 session 后排队，执行时没有相邻 knob／viewArea 路径那样的当前身份检查；415 行旧 `requestUI` 回调也未按 active session 限定 | 沿现有 controller owner 定义来源准入；Kotlin 保留 Executor、session 身份和实际发送。补 A 排队→B 激活→A 仍开放的合同，不将迟到 A 命令改投 B |
+| 中：一般命令包络与 SETUP 整体形状 | `AirPlaySession.kt:794` 仍判断 stream header 和 params.data；二者有效即消费 remote 分支，即使内层 bplist 畸形也返回 200，不回退 duck／UI。694 行仍区分 streams List 与 peer metadata／timing／events 路径 | 分别沿 `protocols::airplay::control`／`setup` 形成具名计划，保留现有类型、缺省、转换与拒绝行为。解码对象及实际 callback 留 Kotlin；不新增 negotiated-stream 或 active-session 门禁 |
+| 后续小批：视频 URL 可播放规则 | `VideoInCar.kt:69` 仍持有 scheme 匹配／排除规则，两个生产消费者共用 | 可完整迁到既有 `protocols::airplay::video`；沿用独立 Kotlin 参考，不为单字段新增 owner |
+
+下一批优先普通音频 route 的退休／恢复区分，再处理麦克风 sender 和视频 config 资格。
+Controller tunnel 与排队命令另成行为合同批次，避免与媒体资源交接同时改变。仍保留以下提交时点：
+媒体 SETUP 返回非空结果后立即记录 accepted stream；控制响应写入后安装 cipher；每个已 flush 的读取批次
+执行原 setup-response 通知。协议 route、streamAction、features、teardown、night/navigation/availability
+及已迁移的 playback 判断已有 Rust owner，不因外围仍有 Kotlin 回调重复迁移。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

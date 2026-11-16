@@ -301,6 +301,13 @@ owner、transition、stream 引用及原 ownership lock，以 === 报告身份�
 只有匹配 transition 能提交或清屏障。异 session begin 已退休旧资格时，后续取消不恢复；普通 TEARDOWN
 不退休该 session。普通音频与 cluster 的资源身份和输出规则独立，不并入此 buffered 协调器。
 
+非 buffered 的共享清理同样按原媒体 owner 决定：`media::audio::route` 判断音频／麦克风释放，
+`media::video::flow` 判断屏幕释放，`media::audio::scheduler` 判断 duck 通知。Kotlin 在原 sink 调用点
+采样其他 session 的同 ID／type 注册，报告实际 conditional remove／CAS 结果，再执行动作；旧 TEARDOWN、
+close 或 EOF 不能清理仍有替代注册的输出，旧 unduck 也不能结束当前 prompt。最后一个 owner 的释放、
+空 owner 重复 unduck 和各单 session 调用顺序保留。这是清理准入，不代表 packet／config／sender 的
+交付归属已全部收敛；audio route 的 disconnect 回退仍服务同流恢复，不能直接改成永久 drop。
+
 失败恢复由三层共同执行：握手 attempt／wireless run 的预算和状态仍归 Rust 原有 owner；
 `session::connection_recovery` 统一全栈恢复动作、宿主两套重试计数、重置规则及退避；Kotlin 宿主保留
 session 引用身份、Handler／Runnable、菜单暂停、代际检查和实际 controller／sink 拆除，不保留镜像计数。

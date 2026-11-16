@@ -9,6 +9,8 @@ import org.robolectric.annotation.Implements
 @Implements(className = "com.shihab.diplay.media.NativeAudioScheduler", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativeAudioScheduler {
     companion object {
+        @JvmStatic @Implementation fun duckOutputMayNotify(ducked: Boolean, sessionClosing: Boolean, releasedCurrent: Boolean, ownerPresent: Boolean): Boolean =
+            HostNative.call("media.NativeAudioScheduler", "duckOutputMayNotify", ducked, sessionClosing, releasedCurrent, ownerPresent) as Boolean
         @JvmStatic @Implementation fun configure(handle: Long, planned: Int, capacity: Int, chunk: Int) {
             HostNative.call("media.NativeAudioScheduler", "configure", handle, planned, capacity, chunk)
         }

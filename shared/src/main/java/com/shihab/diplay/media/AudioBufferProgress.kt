@@ -33,6 +33,7 @@ internal class AudioBufferProgress(frameBytes: Int) : Closeable {
 
 internal object NativeAudioScheduler {
     init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    @JvmStatic external fun duckOutputMayNotify(ducked: Boolean, sessionClosing: Boolean, releasedCurrent: Boolean, ownerPresent: Boolean): Boolean
     @JvmStatic external fun configure(handle: Long, planned: Int, capacity: Int, chunk: Int)
     @JvmStatic external fun outputState(handle: Long, field: Int): Long
     @JvmStatic external fun writeLimit(handle: Long, remaining: Int, chunk: Int): Int
