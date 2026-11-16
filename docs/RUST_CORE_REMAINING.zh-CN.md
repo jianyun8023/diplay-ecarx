@@ -188,6 +188,40 @@ Kotlin 不再保留纯时间算法；独立旧算法仅在 testCore。Siri token
 本地日志：`/tmp/wheel-core-{old,final-gradle,final-cargo,arm64}.log`。本批未运行其他 ABI 构建、完整 APK
 或设备／实车验证；既有 ECARX 广播合同不替代尚未迁移的 Host／服务 pending 路径验收。
 
+## 媒体会话隔离与后续状态收敛（2026-11-16）
+
+以 `5cbbe6fa` 作历史对照，相关 AirPlay 媒体文件直到按键批 `f1956345` 均无变化。本轮先保持结构修复
+session 隔离：普通音频 feedback 只选请求 session 的 metadata，关闭只清该 session 的 metadata、
+pending microphone 和 capture。旧 session 关闭不停止仍被另一 session 注册的同 ID 麦克风；capture
+从表中移除后再关闭。残留表项也按各自所属 session 清理，不依赖 streams 表仍有对应条目。
+未改变原生媒体直连路径、buffered 退休屏障、资源锁或 onTeardown 的编排，未迁移 owner。
+
+| 检查 | 结果 |
+| --- | --- |
+| 修复前复现 | API 28 Robolectric 的 4 项新增合同均失败：跨 session feedback 混入、新 silent microphone 被取消、同 ID 麦克风错误 stop、新 capture 不可写；原有 5 项通过 |
+| 修复后 shared JVM | 49 项通过：隔离 10（含新增 API 28 合同 5 项）、engine 7、route feedback 3、microphone start 4、app microphone 7、buffered reply 2、独立 buffered reference 9、screen listener 7 |
+| Android 测试源码 | `:shared:compileDebugAndroidTestKotlin` 通过；只编译，未在设备执行 |
+| R8 | mobile 实际执行通过，maphost 为 UP-TO-DATE |
+| Rust／JNI／ABI | 本批未修改 Rust、JNI 声明或原生构建输入，未重建三 ABI；不将按键批的 602 JNI 或历史设备结果记作本批新验收 |
+
+本地日志：`/tmp/media-isolation-{red,red-api28,mic-red,green,final}.log`。四个失败均有反馈内容、
+真实 scheduler／sink 回调或采集文件写入见证，额外合同验证缺少 stream 条目时仍清理旧 metadata／capture。
+未运行完整 APK 或设备／实车验证，主机反馈与资源合同不等同于实际共享音路交接验收。
+
+重评后的后续三批保持独立：
+
+1. 缓冲音频 SETUP 的 shk／AAC／ct／spf 和控制请求 rate／rtpTime／flushUntilTS 仍在 Kotlin 解释；
+   扩展现有 `protocols::airplay::setup` 和 buffered owner，保留 Java Number 转换、缺省、拒绝顺序及回复布局。
+   现有 Rust 队列、锚点、控制状态与回复编码继续复用，不重新建立协议实现。
+2. 仪表内容分为 Controller 接受的跨 session 选择与 session 已交付内容。命令编码和 stream 代际已在
+   Rust；剩余是 requested／displayed／shown 及发送结果提交。迁前补 live session 的部分发送失败与排队
+   zoom 失效合同，showUI、关键帧各自结果及 stream 代际必须参与提交。
+3. 共享输出归属需要引擎寿命状态；bufferedOwner、退休集合和候选安装不能放进单 session owner。
+   在现有媒体 namespace／owner 内收敛，Kotlin 保留实际关闭、清理完成事实、资源锁与释放屏障。
+
+四种寿命及平台职责见[架构边界](ARCHITECTURE.zh-CN.md#8-新代码放在哪)；本轮仅实施第一批隔离，
+其余三批是后续方案，不表示已完成迁移。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

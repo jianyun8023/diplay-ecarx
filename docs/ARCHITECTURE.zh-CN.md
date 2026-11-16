@@ -264,6 +264,26 @@ session 引用及 Handler 留 Kotlin；Host／服务的 pending、1500 ms 释放
 
 ## 8. 新代码放在哪
 
+媒体状态按寿命收敛在现有六个 Rust namespace 内，协议规则与结果提交比包引用数量更能决定边界。
+以下是后续收敛目标，不表示尚在 Kotlin 的内容已完成迁移：
+
+| 寿命 | Rust 规则／状态的归属目标 | Kotlin 平台职责 |
+| --- | --- | --- |
+| Controller | `session::controller`：用户已接受的仪表选择、跨 session 恢复意图 | Controller、Executor、UI 回调与对象引用 |
+| 单个 AirPlay session | `session::airplay`：协商、stream 代际、内容发送计划及结果提交；命令布局复用 `protocols::airplay` | socket、cipher facade、写锁和平台对象身份 |
+| 共享媒体引擎 | 在媒体 owner 内持有跨 session 输出归属、候选替换及退休决策 | 流对象表、资源锁、实际关闭及清理完成事实 |
+| 单条媒体流 | 现有媒体 owner：队列、时钟、背压、编解码与路由 | Surface、AudioTrack、MediaCodec 和实际调用结果 |
+
+第一步只修现有 `CarPlayMediaEngine` 的 session 隔离：feedback 按请求 session 的身份选普通音频元数据；
+关闭只移除该 session 的 metadata、待启动麦克风与抓包对象，并在移出表后关闭抓包。共享麦克风 ID
+仍被其他 session 注册时，旧 session 关闭不能停止它。现有 buffered 退休屏障、锁及输出释放顺序保留，
+这一步不迁移 owner，也不宣称解决了所有共享输出替换问题。
+
+后续依次处理缓冲音频请求字段解释、仪表内容发送／提交、共享输出归属。缓冲 SETUP 计划扩展
+`protocols::airplay::setup`，控制操作解释归现有 buffered owner；NativeAirPlayProtocol 一次转为具名计划。
+仪表分别保留 Controller 接受选择与 session 实际交付的寿命，按 showUI／关键帧的各自执行结果与 stream
+代际提交。共享输出最后迁移；关闭旧流和报告清理完成仍由 Kotlin 执行，不能删除资源锁或释放屏障。
+
 失败恢复由三层共同执行：握手 attempt／wireless run 的预算和状态仍归 Rust 原有 owner；
 `session::connection_recovery` 统一全栈恢复动作、宿主两套重试计数、重置规则及退避；Kotlin 宿主保留
 session 引用身份、Handler／Runnable、菜单暂停、代际检查和实际 controller／sink 拆除，不保留镜像计数。

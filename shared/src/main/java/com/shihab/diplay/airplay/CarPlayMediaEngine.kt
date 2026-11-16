@@ -583,7 +583,7 @@ class CarPlayMediaEngine(
     }
 
     override fun onFeedback(session: AirPlaySession): Map<String, Any?>? {
-        val active = audioMeta.values.toList()
+        val active = audioMeta.entries.filter { it.key.session === session }.map { it.value }
         val buffered = bufferedStreams[session]
         if (active.isEmpty() && buffered == null) return null
         val streams = active.map { meta ->
@@ -666,13 +666,17 @@ class CarPlayMediaEngine(
             .filter { !isScreenStreamType(it.type) && it.type != STREAM_TYPE_DATA }
             .forEach { key ->
                 val streamId = AudioStreamId(key.type, key.audioType)
-                if (pendingMicrophone.remove(key) != null) sink.onMicrophoneStopped(streamId)
+                if (pendingMicrophone.remove(key) != null &&
+                    pendingMicrophone.keys.none { it.session !== session && it.type == key.type && it.audioType == key.audioType }) {
+                    sink.onMicrophoneStopped(streamId)
+                }
                 if (streams.keys.none { it.type == key.type && it.audioType == key.audioType }) sink.onAudioStopped(streamId)
             }
-        audioMeta.clear()
-        pendingMicrophone.clear()
-        audioCaptures.values.forEach(AudioPacketCapture::close)
-        audioCaptures.clear()
+        audioMeta.keys.filter { it.session === session }.forEach { audioMeta.remove(it) }
+        pendingMicrophone.keys.filter { it.session === session }.forEach { pendingMicrophone.remove(it) }
+        audioCaptures.entries.filter { it.key.session === session }.forEach { (key, capture) ->
+            if (audioCaptures.remove(key, capture)) capture.close()
+        }
     }
 
     /** Removes ownership before a close that may block on delivery or invoke the sink. */
