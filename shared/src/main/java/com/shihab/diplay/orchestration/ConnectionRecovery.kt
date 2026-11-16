@@ -56,6 +56,38 @@ internal object NativeConnectionRecovery {
     @JvmStatic external fun failureQuery(token: Long, field: Int): Boolean
     @JvmStatic external fun usbStopTransition(token: Long, event: Int, generation: Int): Long
     @JvmStatic external fun usbStopMatches(token: Long, generation: Int): Boolean
+    @JvmStatic external fun usbTakeover(facts: Int): Boolean
+    @JvmStatic external fun usbTransition(token: Long, event: Int): Long
+    @JvmStatic external fun usbQuery(token: Long, field: Int, takeover: Boolean): Long
+    @JvmStatic external fun usbRestore(hasApple: Boolean): Boolean
+    @JvmStatic external fun usbFallbackAction(menu: Boolean, savedWireless: Boolean, hasController: Boolean): Int
+}
+
+/** Host-local reenumeration state; the shared transport selection stays with Android. */
+class HostUsbRecovery {
+    enum class FallbackAction { DEFER, STOP, START, RESTART }
+    private var token = 0L
+    init { NativeMedia.requireAvailable() }
+    val reenumerating: Boolean get() = NativeConnectionRecovery.usbQuery(token, 0, false) != 0L
+    fun waiting() { token = NativeConnectionRecovery.usbTransition(token, 0) }
+    fun running() { token = NativeConnectionRecovery.usbTransition(token, 1) }
+    fun failed() { token = NativeConnectionRecovery.usbTransition(token, 2) }
+    fun disconnected() { token = NativeConnectionRecovery.usbTransition(token, 3) }
+    fun delayMillis(takeover: Boolean): Long? = NativeConnectionRecovery.usbQuery(token, 1, takeover)
+        .takeIf { it >= 0 }
+    fun shouldRestore(hasApple: Boolean): Boolean = NativeConnectionRecovery.usbRestore(hasApple)
+    fun fallbackAction(menu: Boolean, savedWireless: Boolean, hasController: Boolean): FallbackAction =
+        FallbackAction.entries[NativeConnectionRecovery.usbFallbackAction(menu, savedWireless, hasController)]
+
+    companion object {
+        fun shouldTakeOver(savedWireless: Boolean, wirelessSetupPresent: Boolean,
+            usbAutoTakeover: Boolean, defaultModeUsb: Boolean): Boolean {
+            NativeMedia.requireAvailable()
+            val facts = (if (savedWireless) 1 else 0) or (if (wirelessSetupPresent) 2 else 0) or
+                (if (usbAutoTakeover) 4 else 0) or (if (defaultModeUsb) 8 else 0)
+            return NativeConnectionRecovery.usbTakeover(facts)
+        }
+    }
 }
 
 /** Host-lifetime global stop and independent startup/USB generation latches. */

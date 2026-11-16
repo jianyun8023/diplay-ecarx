@@ -141,6 +141,30 @@ shutdown 合同在真实 shutdown 后恢复 fixture controller 引用，验证�
 验证后仅移除一条随常量迁移而悬空的宿主注释，并通过 diff-check；本批未运行其他 ABI 构建、完整 APK
 或设备／实车验证，不改写历史验收。
 
+## USB 接管与拔线回退决策（2026-11-16）
+
+基于 `5cbbe6fa`，先补旧宿主 USB 行为合同，再将接管选择、Host 重枚举状态、相对等待与回退动作
+交给 `session::connection_recovery`。`HostUsbRecovery` 仅携带 opaque 值，不保存共享 `usbTakeover`
+或创建原生堆句柄。Kotlin 继续负责共享接管事实、设置读取、设备枚举、Handler、菜单事务及实际重建。
+
+等待仍为普通 2 秒／重枚举 10 秒，每次重排重新起算；任意 Apple USB 设备在场即保留接管，不自动重排。
+接管拒绝的热入口也先取消回调，attach 不清重枚举；RunningControl 清状态并取消，Failed 清状态并改排
+普通等待，RunningWireless 不执行这些动作。回退保留菜单草稿，采用到期时读取的保存偏好，清停止／USB
+代际及首帧观察而不重置计数或 startup 去重。未增加 owner／代际门禁，菜单取消后的 controller 仍实时读取。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | 首轮 69 项通过：transport API 28／33 共 42、policy 6、failure latch 9、menu 12；补强 RunningControl 清状态、暂存失败和首帧观察清理后，旧宿主 transport 42 项再次通过 |
+| common／shared JVM | 126／9 项通过：common transport 42、policy 6、failure latch 9、menu 12、startup 39、budget 3、后台握手 15；shared 包含 16 组选择事实及 8 组回退事实经真实 JNI 与独立旧 Kotlin 算法对照 |
+| Rust 1.97.1 recovery | 9 项通过，包含重枚举转移、等待校准、接管与回退动作 |
+| R8 | mobile 实际执行通过，maphost 为 UP-TO-DATE；5 个新增 JNI 沿用 NativeConnectionRecovery 整类 native 保留规则 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译与来源校验通过；595 个 Java JNI 导出及 JNI_OnLoad、ELF 校验通过 |
+
+合同通过空枚举隔离非 Apple 过滤，使用真实 reporter 驱动 9999 ms／1 ms 重枚举边界，并以 generation
+推进及 teardown 提交见证实际重建入口；等待中关闭无线偏好仍须完成状态清理、保留 controller 和预算。
+本地日志：`/tmp/usb-recovery-{old,old-transport,final-gradle,final-cargo,arm64}.log`。验证后仅修正原策略注释
+中无线配置事实的说明，并通过 diff-check。本批未运行其他 ABI 构建、完整 APK 或设备／实车验证。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

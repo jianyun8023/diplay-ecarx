@@ -13,6 +13,7 @@ import com.shihab.diplay.airplay.AirPlaySessionListener
 import com.shihab.diplay.network.WirelessStartupFailure
 import com.shihab.diplay.orchestration.CarPlayStatus
 import com.shihab.diplay.orchestration.UsbPairingFailure
+import com.shihab.diplay.orchestration.HostUsbRecovery
 import java.time.Duration
 import java.util.concurrent.ExecutorService
 import org.junit.After
@@ -148,7 +149,7 @@ class HostFailureLatchContractTest {
         report(CarPlayStatus.WaitingForReenumeration)
         assertEquals(stage, get<String>("latestStage"))
         assertFalse(get("reconnectScheduled"))
-        assertFalse(get("usbReenumerating"))
+        assertFalse(get<HostUsbRecovery>("usbRecovery").reenumerating)
         assertEquals(0, budget().attempts)
     }
 

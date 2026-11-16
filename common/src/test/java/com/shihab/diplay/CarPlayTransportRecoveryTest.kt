@@ -8,6 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import com.shihab.diplay.airplay.AirPlaySession
 import com.shihab.diplay.bluetooth.CarBluetoothProfileGuard
+import com.shihab.diplay.orchestration.CarPlayController
+import com.shihab.diplay.orchestration.CarPlayStatus
+import com.shihab.diplay.orchestration.HostUsbRecovery
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 import org.junit.After
@@ -22,6 +25,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
+import org.robolectric.util.ReflectionHelpers.ClassParameter.from
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 33])
@@ -78,6 +82,10 @@ class CarPlayTransportRecoveryTest {
     private fun receive(action: String, device: UsbDevice = usb) =
         ReflectionHelpers.getField<BroadcastReceiver>(host, "usbConnectionReceiver").onReceive(host, event(action, device))
     private fun wireless() = call("getUseWirelessTransport") as Boolean
+    private fun report(status: CarPlayStatus) = ReflectionHelpers.callInstanceMethod<(CarPlayStatus) -> Unit>(host,
+        "createStatusReporter", from(Int::class.javaPrimitiveType, 0))(status)
+    private fun fallbackPending(): Boolean = ReflectionHelpers.getField<Handler>(host, "mainHandler")
+        .hasCallbacks(ReflectionHelpers.getField(host, "usbWirelessFallback"))
 
     @Test fun bothTransportsYieldCurrentPhoneNotSavedWirelessSelection() {
         CarBluetoothProfileGuard.saveMediaOnlyEnabled(host, true)
@@ -123,7 +131,7 @@ class CarPlayTransportRecoveryTest {
 
     @Test fun reenumerationReturnCancelsFallbackAndKeepsUsb() {
         attached()
-        set("usbReenumerating", true)
+        report(CarPlayStatus.WaitingForReenumeration)
         receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
         loop.idleFor(3000, TimeUnit.MILLISECONDS)
         assertFalse(wireless())
@@ -134,7 +142,7 @@ class CarPlayTransportRecoveryTest {
 
     @Test fun unplugDuringReenumerationEventuallyRestoresWireless() {
         attached()
-        set("usbReenumerating", true)
+        report(CarPlayStatus.WaitingForReenumeration)
         set("menuOpen", true)
         receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
         loop.idleFor(10_000, TimeUnit.MILLISECONDS)
@@ -180,6 +188,122 @@ class CarPlayTransportRecoveryTest {
         loop.idleFor(15_000, TimeUnit.MILLISECONDS)
         assertTrue(wireless())
         assertFalse(CarPlayBackgroundSession.usbTakeover)
+    }
+
+    @Test fun nonAppleDetachWithEmptyEnumerationNeverSchedulesFallback() {
+        attached()
+        val other = mock(UsbDevice::class.java)
+        `when`(other.vendorId).thenReturn(1234)
+        receive(UsbManager.ACTION_USB_DEVICE_DETACHED, other)
+        assertFalse(fallbackPending())
+        loop.idleFor(11_000, TimeUnit.MILLISECONDS)
+        assertTrue(CarPlayBackgroundSession.usbTakeover)
+    }
+
+    @Test fun reporterReenumerationWaitsTenSecondsAndWirelessDoesNotShortenIt() {
+        attached()
+        set("menuOpen", true)
+        report(CarPlayStatus.WaitingForReenumeration)
+        assertTrue(fallbackPending())
+        loop.idleFor(5_000, TimeUnit.MILLISECONDS)
+        report(CarPlayStatus.RunningWireless)
+        loop.idleFor(4_999, TimeUnit.MILLISECONDS)
+        assertTrue(CarPlayBackgroundSession.usbTakeover)
+        loop.idleFor(1, TimeUnit.MILLISECONDS)
+        assertFalse(CarPlayBackgroundSession.usbTakeover)
+        assertTrue(ReflectionHelpers.getField(host, "recoveryPendingAfterMenu"))
+    }
+
+    @Test fun runningControlCancelsWaitAndFailureRestartsRelativeTwoSecondDelay() {
+        attached()
+        set("menuOpen", true)
+        report(CarPlayStatus.WaitingForReenumeration)
+        loop.idleFor(5_000, TimeUnit.MILLISECONDS)
+        report(CarPlayStatus.RunningControl)
+        assertFalse(fallbackPending())
+        assertFalse(ReflectionHelpers.getField<HostUsbRecovery>(host, "usbRecovery").reenumerating)
+        loop.idleFor(6_000, TimeUnit.MILLISECONDS)
+        assertTrue(CarPlayBackgroundSession.usbTakeover)
+        report(CarPlayStatus.WaitingForReenumeration)
+        loop.idleFor(5_000, TimeUnit.MILLISECONDS)
+        report(CarPlayStatus.Failed("lost"))
+        loop.idleFor(1_999, TimeUnit.MILLISECONDS)
+        assertTrue(CarPlayBackgroundSession.usbTakeover)
+        loop.idleFor(1, TimeUnit.MILLISECONDS)
+        assertFalse(CarPlayBackgroundSession.usbTakeover)
+    }
+
+    @Test fun rejectedAttachAndReceiverAttachCancelTimerWithoutClearingReenumeration() {
+        attached()
+        set("menuOpen", true)
+        report(CarPlayStatus.WaitingForReenumeration)
+        configureWireless()
+        AirPlayPersistence.saveUsbAutoTakeover(host, false)
+        DiPlayPreferences.saveDefaultConnectionMode(host, DefaultConnectionMode.LAST_USED)
+        attached() // A protected wireless preference still cancels the pending timer.
+        assertFalse(fallbackPending())
+        receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        loop.idleFor(2_000, TimeUnit.MILLISECONDS)
+        assertTrue(CarPlayBackgroundSession.usbTakeover)
+        assertTrue(fallbackPending())
+        receive(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        assertFalse(fallbackPending())
+        receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        loop.idleFor(9_999, TimeUnit.MILLISECONDS)
+        assertTrue(CarPlayBackgroundSession.usbTakeover)
+        loop.idleFor(1, TimeUnit.MILLISECONDS)
+        assertFalse(CarPlayBackgroundSession.usbTakeover)
+    }
+
+    @Test fun fallbackReadsWirelessPreferenceAtDeadlineAndClearsStopBeforeReturning() {
+        attached()
+        ReflectionHelpers.setField(CarPlayBackgroundSession, "owner", host)
+        val controller = mock(CarPlayController::class.java)
+        set("controller", controller)
+        set("activeDisplaySize", CarPlayHostActivity.DisplaySize(1920, 1080))
+        set("menuOpen", true)
+        val deferred = CarPlayStatus.Failed("pending", automaticRetryAllowed = false)
+        report(deferred)
+        assertSame(deferred, ReflectionHelpers.getField<CarPlayStatus.Failed>(host, "failurePendingAfterMenu"))
+        set("menuOpen", false)
+        host.testFailureState().stopUsb(0)
+        val budget = ReflectionHelpers.getField<WirelessStartupRetryBudget>(host, "startupRetryBudget")
+        budget.schedule(startup = true)
+        val frameSession = Any()
+        assertTrue(budget.firstFrame(frameSession, 100))
+        receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        loop.idleFor(1_000, TimeUnit.MILLISECONDS)
+        AirPlayPersistence.saveWirelessEnabled(host, false)
+        loop.idleFor(1_000, TimeUnit.MILLISECONDS)
+        assertFalse(CarPlayBackgroundSession.usbTakeover)
+        assertFalse(host.testFailureState().stopped)
+        assertFalse(host.testFailureState().usbBlocks(0))
+        assertNull(ReflectionHelpers.getField<CarPlayStatus.Failed?>(host, "failurePendingAfterMenu"))
+        assertFalse(budget.resetIfStable(frameSession, 60_100))
+        assertFalse(wireless())
+        assertSame(controller, ReflectionHelpers.getField<CarPlayController>(host, "controller"))
+        assertEquals(0, ReflectionHelpers.getField<Int>(host, "restartGeneration"))
+        assertEquals(1, budget.retries)
+        assertEquals(1, budget.attempts)
+    }
+
+    @Test fun fallbackWithControllerRequestsRealStackRestart() {
+        attached()
+        ReflectionHelpers.setField(CarPlayBackgroundSession, "owner", host)
+        val original = ReflectionHelpers.getField<ExecutorService>(host, "teardownExecutor")
+        original.shutdownNow()
+        val executor = mock(ExecutorService::class.java)
+        set("teardownExecutor", executor)
+        val controller = mock(CarPlayController::class.java)
+        set("controller", controller)
+        set("activeDisplaySize", CarPlayHostActivity.DisplaySize(1920, 1080))
+        receive(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        loop.idleFor(2_000, TimeUnit.MILLISECONDS)
+        assertFalse(CarPlayBackgroundSession.usbTakeover)
+        assertTrue(wireless())
+        assertEquals(1, ReflectionHelpers.getField<Int>(host, "restartGeneration"))
+        assertNull(ReflectionHelpers.getField<CarPlayController?>(host, "controller"))
+        verify(executor).execute(any(Runnable::class.java))
     }
 
     // --- USB auto takeover policy (default off) ---

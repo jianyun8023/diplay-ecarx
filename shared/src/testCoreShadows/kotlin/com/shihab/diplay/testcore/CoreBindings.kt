@@ -574,6 +574,16 @@ class ShadowNativeConnectionRecovery {
             HostNative.call("orchestration.NativeConnectionRecovery", "usbStopTransition", token, event, generation) as Long
         @JvmStatic @Implementation fun usbStopMatches(token: Long, generation: Int): Boolean =
             HostNative.call("orchestration.NativeConnectionRecovery", "usbStopMatches", token, generation) as Boolean
+        @JvmStatic @Implementation fun usbTakeover(facts: Int): Boolean =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbTakeover", facts) as Boolean
+        @JvmStatic @Implementation fun usbTransition(token: Long, event: Int): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbTransition", token, event) as Long
+        @JvmStatic @Implementation fun usbQuery(token: Long, field: Int, takeover: Boolean): Long =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbQuery", token, field, takeover) as Long
+        @JvmStatic @Implementation fun usbRestore(hasApple: Boolean): Boolean =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbRestore", hasApple) as Boolean
+        @JvmStatic @Implementation fun usbFallbackAction(menu: Boolean, savedWireless: Boolean, hasController: Boolean): Int =
+            HostNative.call("orchestration.NativeConnectionRecovery", "usbFallbackAction", menu, savedWireless, hasController) as Int
     }
 }
 

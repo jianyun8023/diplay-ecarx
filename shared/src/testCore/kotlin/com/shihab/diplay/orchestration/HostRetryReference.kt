@@ -70,3 +70,17 @@ class HostFailureReference {
     fun usbBlocks(generation: Int): Boolean = usbGeneration == generation
     fun usbFallback() { stopped = false; usbGeneration = null }
 }
+
+/** USB takeover and fallback branches from the former Android host. */
+class HostUsbRecoveryReference {
+    var reenumerating = false
+    fun delay(takeover: Boolean): Long? = if (!takeover) null else if (reenumerating) 10_000 else 2_000
+    fun shouldTakeOver(saved: Boolean, setup: Boolean, auto: Boolean, usbDefault: Boolean): Boolean =
+        auto || usbDefault || !saved || !setup
+    fun fallback(menu: Boolean, saved: Boolean, controller: Boolean): HostUsbRecovery.FallbackAction = when {
+        menu -> HostUsbRecovery.FallbackAction.DEFER
+        !saved -> HostUsbRecovery.FallbackAction.STOP
+        controller -> HostUsbRecovery.FallbackAction.RESTART
+        else -> HostUsbRecovery.FallbackAction.START
+    }
+}

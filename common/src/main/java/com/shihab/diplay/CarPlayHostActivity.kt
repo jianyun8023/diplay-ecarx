@@ -3,6 +3,7 @@ package com.shihab.diplay
 import com.shihab.diplay.ConnectionDiagnostics.Event as ConnectionTraceEvent
 import com.shihab.diplay.orchestration.ConnectionRecovery
 import com.shihab.diplay.orchestration.HostFailureState
+import com.shihab.diplay.orchestration.HostUsbRecovery
 import com.shihab.diplay.orchestration.BackgroundAttemptState
 import com.shihab.diplay.orchestration.ControlRecoveryState
 import com.shihab.diplay.media.AutoPlayRecovery
@@ -551,7 +552,7 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var microphonePermissionResolved = false
     private var wirelessEnabled = false
     private val useWirelessTransport: Boolean get() = wirelessEnabled && !CarPlayBackgroundSession.usbTakeover
-    private var usbReenumerating = false
+    private val usbRecovery = HostUsbRecovery()
     private val usbConnectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val device = androidx.core.content.IntentCompat.getParcelableExtra(
@@ -569,33 +570,41 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.usbTakeover || isDestroyed || shuttingDown.get()) return@Runnable
         val present = (getSystemService(USB_SERVICE) as UsbManager).deviceList.values
             .any { it.vendorId == IphoneUsbMatcher.APPLE_VENDOR_ID }
-        if (present) {
+        if (!usbRecovery.shouldRestore(present)) {
             appendLog("USB fallback skipped: iPhone still enumerated")
             return@Runnable
         }
         CarPlayBackgroundSession.usbTakeover = false
-        usbReenumerating = false
+        usbRecovery.disconnected()
         val savedWireless = AirPlayPersistence.loadWirelessEnabled(this)
         appendLog("USB detached: wireless preference=$savedWireless; restoring transport")
         failureState.usbFallback()
         failurePendingAfterMenu = null
         startupRetryBudget.disconnected()
-        if (menuOpen) {
-            recoveryPendingAfterMenu = true
-            return@Runnable
+        when (usbRecovery.fallbackAction(
+            menu = menuOpen,
+            savedWireless = savedWireless,
+            hasController = !menuOpen && savedWireless && controller != null,
+        )) {
+            HostUsbRecovery.FallbackAction.DEFER -> recoveryPendingAfterMenu = true
+            HostUsbRecovery.FallbackAction.STOP -> wirelessEnabled = savedWireless
+            HostUsbRecovery.FallbackAction.START -> {
+                wirelessEnabled = savedWireless
+                requestStartupPrerequisites()
+            }
+            HostUsbRecovery.FallbackAction.RESTART -> {
+                wirelessEnabled = savedWireless
+                restartCarPlay("USB detached; restoring wireless")
+                requestStartupPrerequisites()
+            }
         }
-        wirelessEnabled = savedWireless
-        if (!wirelessEnabled) return@Runnable
-        if (controller != null) restartCarPlay("USB detached; restoring wireless")
-        requestStartupPrerequisites()
     }
 
     private fun scheduleUsbWirelessFallback() {
-        if (!CarPlayBackgroundSession.usbTakeover) return
+        val delayMillis = usbRecovery.delayMillis(CarPlayBackgroundSession.usbTakeover) ?: return
         mainHandler.removeCallbacks(usbWirelessFallback)
         // Switching USB configuration detaches the old node before the iPhone returns.
-        val delayMillis = if (usbReenumerating) 10_000L else 2_000L
-        appendLog("USB fallback pending delayMs=$delayMillis reenumerating=$usbReenumerating")
+        appendLog("USB fallback pending delayMs=$delayMillis reenumerating=${usbRecovery.reenumerating}")
         mainHandler.postDelayed(usbWirelessFallback, delayMillis)
     }
     private var mfiTarget = MfiTarget.LOCAL
@@ -4627,13 +4636,13 @@ open class CarPlayHostActivity : ComponentActivity() {
     ): (CarPlayStatus) -> Unit = report@{ status ->
         if (controllerGeneration != restartGeneration || failureState.usbBlocks(controllerGeneration)) return@report
         if (status is CarPlayStatus.WaitingForReenumeration) {
-            usbReenumerating = true
+            usbRecovery.waiting()
             scheduleUsbWirelessFallback()
         } else if (status is CarPlayStatus.RunningControl) {
-            usbReenumerating = false
+            usbRecovery.running()
             mainHandler.removeCallbacks(usbWirelessFallback)
         } else if (status is CarPlayStatus.Failed) {
-            usbReenumerating = false
+            usbRecovery.failed()
             scheduleUsbWirelessFallback()
         }
         if (status is CarPlayStatus.RunningControl || status is CarPlayStatus.RunningWireless) {

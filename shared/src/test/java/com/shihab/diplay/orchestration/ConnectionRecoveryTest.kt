@@ -8,6 +8,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionRecoveryTest {
+    @Test fun usbRecoveryMatchesFormerHostForPolicyAndEvents() {
+        val old = HostUsbRecoveryReference()
+        val actual = HostUsbRecovery()
+        for (bits in 0 until 16) {
+            val f = (0..3).map { bits and (1 shl it) != 0 }
+            assertEquals(old.shouldTakeOver(f[0], f[1], f[2], f[3]),
+                HostUsbRecovery.shouldTakeOver(f[0], f[1], f[2], f[3]))
+        }
+        for (bits in 0 until 8) {
+            val f = (0..2).map { bits and (1 shl it) != 0 }
+            assertEquals(old.fallback(f[0], f[1], f[2]), actual.fallbackAction(f[0], f[1], f[2]))
+        }
+        assertEquals(old.delay(false), actual.delayMillis(false))
+        assertEquals(old.delay(true), actual.delayMillis(true))
+        old.reenumerating = true; actual.waiting()
+        assertEquals(old.reenumerating, actual.reenumerating)
+        assertEquals(old.delay(true), actual.delayMillis(true))
+        old.reenumerating = false; actual.failed()
+        assertEquals(old.reenumerating, actual.reenumerating)
+        actual.waiting(); actual.running()
+        assertEquals(old.delay(true), actual.delayMillis(true))
+        actual.waiting(); actual.disconnected()
+        assertEquals(old.delay(true), actual.delayMillis(true))
+        assertFalse(actual.shouldRestore(true))
+        assertTrue(actual.shouldRestore(false))
+    }
     @Test fun hostFailureLatchesMatchFormerHostForIndependentTransitions() {
         val old = HostFailureReference()
         val actual = HostFailureState()

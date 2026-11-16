@@ -209,6 +209,53 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
     _env: *mut JNIEnv, _class: jclass, token: jlong, generation: jint,
 ) -> jboolean { usb_stop_matches(token, generation) as jboolean }
 
+fn usb_takeover(facts: i32) -> bool {
+    facts & (4 | 8) != 0 || facts & 1 == 0 || facts & 2 == 0
+}
+
+fn usb_transition(token: i64, event: i32) -> i64 {
+    match event { 0 => 1, 1..=3 => 0, _ => token }
+}
+
+fn usb_query(token: i64, field: i32, takeover: bool) -> i64 {
+    match field {
+        0 => (token == 1) as i64,
+        1 if !takeover => -1,
+        1 if token == 1 => 10_000,
+        1 => 2_000,
+        _ => -1,
+    }
+}
+
+fn usb_fallback_action(menu: bool, saved_wireless: bool, has_controller: bool) -> i32 {
+    if menu { 0 } else if !saved_wireless { 1 } else if has_controller { 3 } else { 2 }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbTakeover(
+    _env: *mut JNIEnv, _class: jclass, facts: jint,
+) -> jboolean { usb_takeover(facts) as jboolean }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
+) -> jlong { usb_transition(token, event) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbQuery(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint, takeover: jboolean,
+) -> jlong { usb_query(token, field, takeover != 0) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbRestore(
+    _env: *mut JNIEnv, _class: jclass, has_apple: jboolean,
+) -> jboolean { (has_apple == 0) as jboolean }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbFallbackAction(
+    _env: *mut JNIEnv, _class: jclass, menu: jboolean, saved_wireless: jboolean, has_controller: jboolean,
+) -> jint { usb_fallback_action(menu != 0, saved_wireless != 0, has_controller != 0) }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -318,5 +365,21 @@ mod tests {
         }
         assert_eq!(failure_transition(failure, -1, 0), failure & !(1 << 33));
         assert!(!failure_query(failure, -1));
+    }
+
+    #[test]
+    fn usb_reenumeration_delay_and_fallback_actions_are_independent() {
+        assert!(!usb_takeover(3));
+        for facts in [0, 1, 2, 7, 11, 15] { assert!(usb_takeover(facts)); }
+        let waiting = usb_transition(0, 0);
+        assert_eq!(usb_query(waiting, 1, true), 10_000);
+        assert_eq!(usb_query(waiting, 1, false), -1);
+        for event in [1, 2, 3] { assert_eq!(usb_query(usb_transition(waiting, event), 1, true), 2_000); }
+        assert_eq!(usb_transition(waiting, -1), waiting);
+        assert_eq!(usb_query(waiting, -1, true), -1);
+        assert_eq!(usb_fallback_action(true, true, true), 0);
+        assert_eq!(usb_fallback_action(false, false, true), 1);
+        assert_eq!(usb_fallback_action(false, true, false), 2);
+        assert_eq!(usb_fallback_action(false, true, true), 3);
     }
 }
