@@ -116,29 +116,6 @@ fn open_packet(key: &StreamKey, packet: &mut packet::Packet) -> Option<usize> {
 const RTP_HEADER_LEN: usize = 12;
 const NONCE_LEN: usize = 8;
 
-/// The opened RTP packet's handle, or 0 when the frame is malformed or does not open. The frame is
-/// a 12-byte RTP v2 header, ciphertext and tag sealed with `key` (timestamp and SSRC as associated
-/// data), then an 8-byte nonce.
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_openRtp(
-    env: *mut JNIEnv, _class: jclass, key: jbyteArray, body: jbyteArray, length: jint,
-) -> jlong {
-    let e = Env(env);
-    let length = length.max(0) as usize;
-    let mut key_bytes = [0u8; 32];
-    if length < RTP_HEADER_LEN + TAG_LEN + NONCE_LEN || length > e.array_len(body) ||
-        e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
-    let Some(stream_key) = StreamKey::new(&key_bytes) else { return 0 };
-    let mut packet = shared_pool().take(length);
-    let filled = e.read_array(body, 0, std::slice::from_raw_parts_mut(packet.spare(), length));
-    if !filled { packet.recycle(); return 0; }
-    packet.set_len(length);
-    match open_packet(&stream_key, &mut packet) {
-        Some(plain) => { packet.truncate(RTP_HEADER_LEN + plain); packet.into_handle() }
-        None => { packet.recycle(); 0 }
-    }
-}
-
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_bufferedCreate(
     _env: *mut JNIEnv, _class: jclass, sample_rate: jint,

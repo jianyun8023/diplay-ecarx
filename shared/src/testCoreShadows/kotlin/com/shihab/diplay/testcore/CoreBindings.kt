@@ -174,9 +174,6 @@ open class ShadowNativeMedia {
         @JvmStatic @Implementation fun vehicleStatusPayload(rangeKm: Int, rangeWarning: Boolean, batteryPercent: Double, currentChargeWh: Long, maxChargeWh: Long, energyMask: Int, maxRangeKm: Int, charging: Boolean): ByteArray? =
             HostNative.call("airplay.NativeMedia", "vehicleStatusPayload", rangeKm, rangeWarning, batteryPercent, currentChargeWh, maxChargeWh, energyMask, maxRangeKm, charging) as ByteArray?
 
-        @JvmStatic @Implementation fun openRtp(key: ByteArray, body: ByteArray, length: Int): Long =
-            HostNative.call("airplay.NativeMedia", "openRtp", key, body, length) as Long
-
         @JvmStatic @Implementation fun bufferedCreate(sampleRate: Int): Long =
             HostNative.call("airplay.NativeMedia", "bufferedCreate", sampleRate) as Long
         @JvmStatic @Implementation fun bufferedEngineCreate(): LongArray =

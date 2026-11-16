@@ -76,9 +76,6 @@ internal object NativeMedia {
     /** Stops a stream and gives up [handle]; also safe from the stream's own callbacks. */
     @JvmStatic external fun stop(handle: Long)
 
-    /** Opens one buffered-audio frame into a pooled RTP packet; 0 when it is malformed or does not open. */
-    @JvmStatic external fun openRtp(key: ByteArray, body: ByteArray, length: Int): Long
-
     @JvmStatic external fun bufferedCreate(sampleRate: Int): Long
     @JvmStatic external fun bufferedEngineCreate(): LongArray
     @JvmStatic external fun bufferedEngineStep(state: Long, operation: Int, eligibility: Long, facts: Int): LongArray
