@@ -720,6 +720,8 @@ fn timing_policy(field: i32) -> i64 {
         11 => 10_000,
         12 => 20_000,
         13 => 2_000,
+        14 => 30_000, // wired start watchdog: no AirPlay session after carplay-start-session
+        15 => 45_000, // wired start watchdog held once while the second start request can still go out
         _ => 0,
     }
 }
@@ -1000,6 +1002,13 @@ impl Proof {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wired_start_watchdog_limits_come_from_the_timing_policy() {
+        // Kotlin WiredStartWatchdog reads these indices; the values are the core's single source.
+        assert_eq!(timing_policy(14), 30_000);
+        assert_eq!(timing_policy(15), 45_000);
+    }
 
     #[test]
     fn enum_codes_map_both_ways_and_reject_unknown_codes() {

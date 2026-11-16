@@ -61,10 +61,10 @@ internal class WiredStartWatchdog(
     private fun cancel() { cancelTimer?.invoke(); cancelTimer = null }
 
     companion object {
-        /** The same limit as the wireless first connection (WirelessStartupPolicy.FIRST_TCP_MILLIS). */
-        const val TIMEOUT_MILLIS = 30_000L
+        /** Single-sourced from the core timing policy (index 14); same limit as the wireless first connection. */
+        val TIMEOUT_MILLIS: Long get() = ControllerLifecycleCore.timingPolicy(14)
 
-        /** Well past the latest USB network seen (30.2 s, #335) plus [WiredStartAgain.QUIET_MILLIS]. */
-        const val HELD_TIMEOUT_MILLIS = 45_000L
+        /** Single-sourced from the core timing policy (index 15); held once while the second request can still go out. */
+        val HELD_TIMEOUT_MILLIS: Long get() = ControllerLifecycleCore.timingPolicy(15)
     }
 }
