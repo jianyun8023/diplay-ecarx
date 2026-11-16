@@ -53,7 +53,10 @@ class LockdownCarKitClient(private val host: Iap2UsbMuxHost) {
                         handedOff = true
                         return@use result
                     }
-                    11 -> throw IphoneUsbException.Protocol(action[1] as String)
+                    11 -> throw IphoneUsbException.CarkitRejected(
+                        action[1] as String,
+                        (action[2] as LongArray).firstOrNull()?.toInt() ?: 0,
+                    )
                     else -> error("Invalid native service effect")
                 }
             }

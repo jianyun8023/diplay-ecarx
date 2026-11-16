@@ -233,7 +233,7 @@ impl Pair {
     }
 }
 
-pub(super) fn service_response(response: &Value, session: bool) -> Result<(i64, bool), Text> {
+pub(super) fn service_response(response: &Value, session: bool) -> Result<(i64, bool), (i64, Text)> {
     let request = if session {
         "StartSession"
     } else {
@@ -241,35 +241,68 @@ pub(super) fn service_response(response: &Value, session: bool) -> Result<(i64, 
     };
     match error_code(response) {
         Err(_) => {
-            return Err(text(&format!(
-                "{request} response Error was not text or integer"
-            )))
+            return Err((
+                0,
+                text(&format!("{request} response Error was not text or integer")),
+            ))
         }
         Ok(Some(code)) => {
+            // Classify the Lockdown rejection here so the platform carries a structured code, not text.
+            let reason = rejection_reason(&code);
             let mut t = text(&format!("Lockdown {request} failed: "));
             t.extend(code);
-            return Err(t);
+            return Err((reason, t));
         }
         _ => {}
     }
     if session {
         return match response.get("EnableSessionSSL") {
             Some(Value::Bool(true)) => Ok((0, true)),
-            Some(Value::Bool(false)) => Err(text("StartSession did not enable TLS")),
-            _ => Err(text(
-                "StartSession response omitted boolean EnableSessionSSL",
+            Some(Value::Bool(false)) => Err((0, text("StartSession did not enable TLS"))),
+            _ => Err((
+                0,
+                text("StartSession response omitted boolean EnableSessionSSL"),
             )),
         };
     }
     let port = match response.get("Port") {
         Some(Value::Int(n)) => *n,
-        _ => return Err(text("StartService response omitted integer Port")),
+        _ => return Err((0, text("StartService response omitted integer Port"))),
     };
     if !(1..=65535).contains(&port) {
-        return Err(text("StartService returned an invalid Port"));
+        return Err((0, text("StartService returned an invalid Port")));
     }
     Ok((
         port,
         matches!(response.get("EnableServiceSSL"), Some(Value::Bool(true))),
     ))
+}
+
+/// Structured Lockdown rejection code carried to the platform: 1 = invalid pair record,
+/// 2 = invalid host id, 0 = any other failure. The platform no longer string-matches the message.
+fn rejection_reason(code: &Text) -> i64 {
+    let s = String::from_utf16_lossy(code).to_ascii_lowercase();
+    if s.contains("invalidpairrecord") {
+        1
+    } else if s.contains("invalidhostid") {
+        2
+    } else {
+        0
+    }
+}
+
+#[cfg(test)]
+mod rejection_tests {
+    use super::rejection_reason;
+
+    #[test]
+    fn rejection_reason_classifies_lockdown_codes_structurally() {
+        let code = |s: &str| -> Vec<u16> { s.encode_utf16().collect() };
+        assert_eq!(rejection_reason(&code("InvalidPairRecord")), 1);
+        assert_eq!(rejection_reason(&code("InvalidHostID")), 2);
+        assert_eq!(rejection_reason(&code("invalidpairrecord")), 1);
+        assert_eq!(rejection_reason(&code("InvalidHostId")), 2);
+        assert_eq!(rejection_reason(&code("SomeOtherError")), 0);
+        assert_eq!(rejection_reason(&code("")), 0);
+    }
 }

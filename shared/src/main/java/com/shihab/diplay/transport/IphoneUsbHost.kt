@@ -635,4 +635,7 @@ sealed class IphoneUsbException(message: String, cause: Throwable? = null) : IOE
     class DeviceUnavailable(message: String, cause: Throwable? = null) : IphoneUsbException(message, cause)
     class TimedOut(message: String, cause: Throwable? = null) : IphoneUsbException(message, cause)
     class Protocol(message: String) : IphoneUsbException(message)
+
+    /** A CarKit-service open rejected by Lockdown; reason is the core's structured rejection code. */
+    class CarkitRejected(message: String, val reason: Int) : IphoneUsbException(message)
 }

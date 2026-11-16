@@ -676,7 +676,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_se
             ),
             2 => match super::flow::service_response(&e.value(response)?, true) {
                 Ok(_) => e.action(4, None, &[5000], None, None),
-                Err(t) => e.action(11, Some(&t), &[], None, None),
+                Err((reason, t)) => e.action(11, Some(&t), &[reason], None, None),
             },
             3 => e.request_action(
                 &dict(vec![
@@ -688,7 +688,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_se
             ),
             4 => match super::flow::service_response(&e.value(response)?, false) {
                 Ok((port, ssl)) => e.action(5, None, &[port, 5000, ssl as i64], None, None),
-                Err(t) => e.action(11, Some(&t), &[], None, None),
+                Err((reason, t)) => e.action(11, Some(&t), &[reason], None, None),
             },
             5 => e.action(10, None, &[], None, None),
             _ => unreachable!("private service stage"),

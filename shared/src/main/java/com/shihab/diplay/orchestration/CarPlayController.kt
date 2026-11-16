@@ -2007,13 +2007,11 @@ class CarPlayController(
             onTrustPending = { onStatus(CarPlayStatus.WaitingForIphoneTrust) },
         ).pairRecord.also(savePairRecord)
 
-    /** Platform classification of a CarKit-service open failure; the Rust wired owner decides the retry. */
+    /** Reads the core's structured CarKit rejection code (1 = invalid pair record, 2 = invalid host id). */
     private fun rejectedPairRecordErrorCode(error: Throwable): Int {
         var cause: Throwable? = error
         while (cause != null) {
-            val message = cause.message.orEmpty()
-            if (message.contains("InvalidPairRecord", ignoreCase = true)) return 1
-            if (message.contains("InvalidHostID", ignoreCase = true)) return 2
+            if (cause is IphoneUsbException.CarkitRejected) return cause.reason
             cause = cause.cause
         }
         return 0
