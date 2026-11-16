@@ -9,6 +9,7 @@ pub mod route_guidance;
 pub mod touch_slots;
 pub mod vehicle_speed;
 pub mod vehicle_status;
+mod wheel_keys;
 
 pub mod location;
 

@@ -165,6 +165,29 @@ shutdown 合同在真实 shutdown 后恢复 fixture controller 引用，验证�
 本地日志：`/tmp/usb-recovery-{old,old-transport,final-gradle,final-cargo,arm64}.log`。验证后仅修正原策略注释
 中无线配置事实的说明，并通过 diff-check。本批未运行其他 ABI 构建、完整 APK 或设备／实车验证。
 
+## 配对消费与 Siri 纯时间规则（2026-11-16）
+
+基于 `d05467de`，先在旧实现补齐合同，再将 `WheelKeyPresses` 的消费／提交规则与 `WheelSiriKey`
+单击／双击时间状态交给 `vehicle::wheel_keys`。每个消费者继续独立持有 opaque 值，Kotlin 保留 Any 键
+映射、原 equals/hashCode、`decide()` 调用与时间采样。正常返回后才提交，保留原 Action、异常不提交、
+同键重入后外层最终写入；已放行记录不等于不存在。单／双击共享同实例可空时间戳，400 ms、180 ms
+及配置上限含等号、拒绝后更新起点、确认后清空、Long wrapping 与非法上限不提交均保持。
+
+本批不改变 Host／服务的 pending、事件指纹、Handler、取消入口、1500 ms 第二次释放窗口或 VoiceKeyPair。
+Kotlin 不再保留纯时间算法；独立旧算法仅在 testCore。Siri token 使用 GC 数组保留完整 Long 与空值，
+无原生堆句柄、全局键注册表、隐式 session 重置或新锁。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | 25 项通过：配对 2、Siri 6、WheelZoom 14、键码 3；覆盖交错键／equals、记录 PASS、孤立 repeat／UP、callback 异常和重入，以及窗口边界、回拨、共享起点和 wrapping |
+| common／shared JVM | 89／2 项通过：common 为配对 2、Siri 6、WheelZoom 14、键码 3、service 24、joystick 7、HY 5、ECARX 28；shared 经真实 JNI 对照独立旧实现 |
+| Rust 1.97.1 wheel_keys | 2 项通过；JNI 位于 owner 私有模块，数组／参数失败抛异常而不提交新值 |
+| R8 | mobile 实际执行通过，maphost 为 UP-TO-DATE；新增 NativeWheelInput native 方法保留规则及 host shadow 注册 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译与来源校验通过；602 个 Java JNI 导出及 JNI_OnLoad、ELF 校验通过 |
+
+本地日志：`/tmp/wheel-core-{old,final-gradle,final-cargo,arm64}.log`。本批未运行其他 ABI 构建、完整 APK
+或设备／实车验证；既有 ECARX 广播合同不替代尚未迁移的 Host／服务 pending 路径验收。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

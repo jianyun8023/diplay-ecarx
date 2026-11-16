@@ -204,6 +204,14 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 - `protocols::airplay` 持有 `/info` 能力、固定 event／command、VideoInCar、Bonjour TXT／connect probe 编码，以及 SETUP 流字段解释、回复布局、DataStream-Salt 密钥派生和麦克风参数规则（audioType 请求规则含显式 input 优先、等待下行标志、端口范围、Opus 帧长／码率／时钟，参数复用 `media::audio::packetizer`）。Kotlin 保留 audioType／UUID 的平台文本转换、socket 绑定、MicrophoneConfig DTO 和实际执行；feedback／buffered 仍用的无符号回复编码留在各自 owner 旁。`media::audio::{routing, echo}` 持有路由与 speaker fallback、far-end PCM 和 capture clock；buffered owner 也持有 anchor／feedback 回复 schema 和 NTP 换算。Java bplist 数值／字符串转换与实际 SDK 执行继续保留。
 - 已迁协议、配对、媒体、导航／HUD、NTP、会话状态与恢复要求原生核心；旧算法只作为testCore对照。所有权与当前验收见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)，issue #96 保留已完成迁移的历史证据。PASCD／VehicleSpeedLocationProvider 的生产车速源已接入：`EcarxVehicleSpeedSource` 读取 ECARX `ISensor` 1048832（m/s）并经 VHAL `GEAR_SELECTION` 取得挡位，平台笔记已登记接口与单位；真实车机已记录订阅路径，完整动态数据链和服务断线恢复仍需对应证据。
 
+`vehicle::wheel_keys` 持有按键配对消费及 Siri 纯时间规则；每个消费者保存独立 opaque 值，Kotlin 保留
+Any 键映射及原 equals/hashCode 语义。未记录、已放行和已消费有别：孤立 repeat 不建记录，UP 先移除
+记录再取消费结果；只有未记录的首次 DOWN 调用 `decide()`，正常返回后才提交，并保留原 Action。
+回调异常不提交，重入时外层结果仍最后写入。不增加全局键表、超时或 session 重置。
+单击与双击在同一实例共享可空时间戳：400 ms 单击过滤被拒也更新起点，双击 180 ms 至配置上限含两端，
+确认后清起点；保留 Long wrapping，非法上限在状态更新前抛异常。时间读取、Android 事件与设置、
+session 引用及 Handler 留 Kotlin；Host／服务的 pending、1500 ms 释放窗口及 VoiceKeyPair 不在本批迁移范围。
+
 生产核心 facade 必须加载 Rust；独立旧算法只供测试对照，库加载失败显式上报。Bouncy Castle 已从 shared 生产依赖移除，仅作测试 oracle。AudioTrack、MediaCodec、AAudio 等真实硬件／SDK 能力回退保留。历史候选的双 ABI／设备结果仅适用于其构建源码；各批 JNI／R8／设备验收见[验收矩阵与历史审计](RUST_CORE_REMAINING.zh-CN.md)，不能用历史记录替代当前变更验收。
 
 ### 6.4 各路径的实现

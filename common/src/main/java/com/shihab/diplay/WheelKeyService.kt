@@ -12,6 +12,8 @@ import android.provider.Settings
 import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
+import com.shihab.diplay.vehicle.WheelInputPolicy
+import com.shihab.diplay.vehicle.WheelSiriState
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
 import java.util.concurrent.atomic.AtomicBoolean
@@ -684,20 +686,20 @@ private data class WheelKeyEventFingerprint(
 
 /** Keep the system's key stream well-formed even if settings/calls/routes change mid-press. */
 internal class WheelKeyPresses {
-    private val consumed = mutableMapOf<Any, Boolean>()
+    private val consumed = mutableMapOf<Any, Long>()
 
-    fun hasConsumedPress(key: Any): Boolean = consumed[key] == true
+    fun hasConsumedPress(key: Any): Boolean = WheelInputPolicy.consumed(consumed[key])
 
     fun filter(key: Any?, down: Boolean, firstPress: Boolean, decide: () -> WheelZoomKeys.Action): WheelZoomKeys.Action {
         key ?: return WheelZoomKeys.Action.PASS
-        if (!down) return disposition(consumed.remove(key) ?: false)
-        consumed[key]?.let { return disposition(it) }
-        // A repeat whose DOWN was not seen is passed without starting a new action or capture.
-        if (!firstPress) return WheelZoomKeys.Action.PASS
-        return decide().also { consumed[key] = it != WheelZoomKeys.Action.PASS }
+        val token = if (down) consumed[key] else consumed.remove(key)
+        return when (WheelInputPolicy.press(token, down, firstPress)) {
+            WheelInputPolicy.PressDecision.PASS -> WheelZoomKeys.Action.PASS
+            WheelInputPolicy.PressDecision.CONSUME -> WheelZoomKeys.Action.CONSUME
+            WheelInputPolicy.PressDecision.DECIDE ->
+                decide().also { consumed[key] = WheelInputPolicy.commit(it != WheelZoomKeys.Action.PASS) }
+        }
     }
-
-    private fun disposition(consume: Boolean) = if (consume) WheelZoomKeys.Action.CONSUME else WheelZoomKeys.Action.PASS
 }
 
 /** A key as the head unit reports it; code, scan code and device name tell keys apart. */
@@ -814,7 +816,7 @@ class WheelJoystick {
 
 /** When the Siri key opens Siri; no Android types, so it is unit-tested. */
 class WheelSiriKey {
-    private var lastPressMillis: Long? = null
+    private val state = WheelSiriState()
 
     enum class DoublePressAction { FIRST, REPEAT, CONFIRMED }
 
@@ -822,42 +824,21 @@ class WheelSiriKey {
      * Some head units send a held key as a new press about every 100 ms. Presses closer together than
      * [REPEAT_GAP_MILLIS] belong to the press before them, so a hold opens Siri once.
      */
-    fun opens(eventTimeMillis: Long): Boolean {
-        val last = lastPressMillis
-        lastPressMillis = eventTimeMillis
-        return last == null || eventTimeMillis - last >= REPEAT_GAP_MILLIS
-    }
+    fun opens(eventTimeMillis: Long): Boolean = state.opens(eventTimeMillis)
 
     /**
      * Distinguishes the first press, held-key repeats and the second distinct press inside
      * [maximumGapMillis]. Very close presses move the hold boundary so a long stream of repeats can
      * never look like a double press.
      */
-    fun onDoublePress(eventTimeMillis: Long, maximumGapMillis: Long): DoublePressAction {
-        require(maximumGapMillis >= MIN_DOUBLE_PRESS_GAP_MILLIS)
-        val last = lastPressMillis
-        val gap = last?.let { eventTimeMillis - it }
-        return when {
-            gap == null || gap <= 0 || gap > maximumGapMillis -> {
-                lastPressMillis = eventTimeMillis
-                DoublePressAction.FIRST
-            }
-            gap < MIN_DOUBLE_PRESS_GAP_MILLIS -> {
-                lastPressMillis = eventTimeMillis
-                DoublePressAction.REPEAT
-            }
-            else -> {
-                lastPressMillis = null
-                DoublePressAction.CONFIRMED
-            }
-        }
-    }
+    fun onDoublePress(eventTimeMillis: Long, maximumGapMillis: Long): DoublePressAction =
+        DoublePressAction.entries[state.doublePress(eventTimeMillis, maximumGapMillis)]
 
-    fun reset() { lastPressMillis = null }
+    fun reset() { state.reset() }
 
     companion object {
-        const val REPEAT_GAP_MILLIS = 400L
-        const val MIN_DOUBLE_PRESS_GAP_MILLIS = 180L
+        val REPEAT_GAP_MILLIS: Long get() = WheelInputPolicy.repeatGapMillis
+        val MIN_DOUBLE_PRESS_GAP_MILLIS: Long get() = WheelInputPolicy.minDoublePressGapMillis
         const val MAX_SECOND_PRESS_MILLIS = 1_500L
     }
 }

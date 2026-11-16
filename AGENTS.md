@@ -78,6 +78,8 @@ Rust sources live under `shared/src/main/rust/diplay-media/src/`: `protocols` (w
 
 Wired USB results belong to their diagnostic run. Reject and release stale Connected results, transfer a pipe exactly once to the mux factory, and order mux publication with close/run replacement under the existing resource monitor. Do not close resources or perform I/O under that monitor. A run's finally block terminates only its locally owned startup watchdog, never a replacement run's watchdog.
 
+Rust `vehicle::wheel_keys` owns WheelKeyPresses disposition/commit rules and WheelSiriKey timing state. Each consumer retains independent opaque values; Kotlin owns the Any-key map with its existing equality, null-key handling and callback execution. Keep absent, recorded PASS and recorded consumption distinct. Remove on UP before querying its disposition; call decide only for an unrecorded first DOWN and commit only after it returns normally, preserving its original Action and reentrant outer-write order. No global key registry, lossy hash identity, timeout or implicit session reset. Single/double Siri calls share one nullable timestamp per instance: rejected single presses refresh it, confirmed doubles clear it, 400 ms single and inclusive 180 ms/configured maximum double boundaries preserve wrapping Long subtraction. Invalid maximum intervals throw before state mutation. Kotlin retains time reads, KeyEvent/settings/session references and Handler; Host/service pending decisions, the 1500 ms release window and VoiceKeyPair remain outside this batch.
+
 ## Adding or moving a setting
 
 The Settings screen is grouped by driver goal, not by implementation.

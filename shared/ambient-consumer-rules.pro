@@ -37,6 +37,9 @@
 -keep class com.shihab.diplay.orchestration.NativeConnectionRecovery {
     native <methods>;
 }
+-keep class com.shihab.diplay.vehicle.NativeWheelInput {
+    native <methods>;
+}
 
 # The route JNI boundary owns a handle and constructs the existing maneuver DTO.
 -keep class com.shihab.diplay.hud.NativeHudPublication {
