@@ -61,6 +61,24 @@ owner／session 身份及代际门禁。菜单暂缓与后台接管仅补合同�
 本地日志：`/tmp/host-running-old.log`、`/tmp/host-control-{old-generation,old-menu,final-menu,final-gradle,final-cargo,arm64}.log`。
 本批未运行 ARMv7／x86_64 构建、完整 APK 或设备／实车验证；不改写上一批及历史验收范围。
 
+## 菜单暂缓与退出恢复决策（2026-11-16）
+
+基于 `b23584ae`，先补菜单行为合同，再将失败保留／停止动作及退出恢复选择交给
+`session::connection_recovery` 的纯函数。完整失败对象、待办标记、设置校验／保存／回滚、菜单与 Handler
+仍由 Kotlin 持有；没有增加 native 菜单状态或句柄。首个 manual 失败锁定、STARTUP_STOP 不锁定、
+有效传输方式、重报去重后不回退重建及原预算行为均保持。
+
+| 检查 | 结果 |
+| --- | --- |
+| 迁移前合同 | 新增 12 项菜单合同在旧宿主通过；同批既有 startup／bootstrap 39／6 项通过。复核补强了 USB 接管后的有效有线、Wi-Fi 重报优先拆除及有 controller 无待办不重建 |
+| 迁移后 common／shared | 94／6 项通过，包含 4 组保留条件和 512 组退出事实经真实 JNI 与独立旧 Kotlin if 链对照 |
+| Rust 1.97.1 recovery | 6 项通过；菜单入口无堆状态、无 panic 分支 |
+| R8 | mobile 检查通过，maphost 任务为 UP-TO-DATE；沿用 NativeConnectionRecovery 整类 native 保留规则 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译及来源校验通过；581 个 Java JNI 导出及 JNI_OnLoad、ELF 验证通过 |
+
+本地日志：`/tmp/host-menu-{old,old-review,final-gradle,final-cargo,arm64}.log`。最终调用改为具名参数后
+仅执行 `git diff --check`，不改变已验证逻辑。本批未运行其他 ABI 构建、完整 APK 或设备／实车验证。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

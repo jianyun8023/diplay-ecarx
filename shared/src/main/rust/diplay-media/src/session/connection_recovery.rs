@@ -104,6 +104,37 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnect
     _env: *mut JNIEnv, _class: jclass, token: jlong, snapshot: jlong,
 ) -> jboolean { control_recovered(token, snapshot) as jboolean }
 
+fn menu_failure(existing_manual: bool, incoming_manual: bool) -> i32 {
+    i32::from(!existing_manual) | (i32::from(incoming_manual) << 1)
+}
+
+fn menu_exit(facts: i32) -> i32 {
+    let has_failure = facts & 1 != 0;
+    let startup_or_manual = facts & (2 | 4) != 0;
+    let wifi_reset = facts & 8 != 0;
+    let reconnect = facts & 16 != 0;
+    let wireless = facts & 32 != 0;
+    if has_failure && ((startup_or_manual && !reconnect) || (wifi_reset && (!reconnect || wireless))) {
+        0
+    } else if facts & 64 != 0 {
+        1
+    } else if (reconnect || facts & 128 != 0) && facts & 256 != 0 {
+        2
+    } else {
+        3
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_menuFailure(
+    _env: *mut JNIEnv, _class: jclass, existing_manual: jboolean, incoming_manual: jboolean,
+) -> jint { menu_failure(existing_manual != 0, incoming_manual != 0) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_menuExit(
+    _env: *mut JNIEnv, _class: jclass, facts: jint,
+) -> jint { menu_exit(facts) }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +198,17 @@ mod tests {
         assert!(!control_recovered(control_transition(running, 1), old));
         assert!(!control_recovered(running, running | (1i64 << 32)));
         assert_eq!(control_transition(running, -1), running);
+    }
+
+    #[test]
+    fn menu_replay_and_stop_are_independent_and_precede_exit_actions() {
+        assert_eq!(menu_failure(false, false), 1);
+        assert_eq!(menu_failure(true, true), 2);
+        assert_eq!(menu_failure(true, false), 0);
+        assert_eq!(menu_exit(1 | 4 | 64 | 128 | 256), 0);
+        assert_eq!(menu_exit(1 | 8 | 16 | 32 | 64), 0);
+        assert_eq!(menu_exit(1 | 8 | 16 | 256), 2);
+        assert_eq!(menu_exit(64 | 128 | 256), 1);
+        assert_eq!(menu_exit(256), 3);
     }
 }

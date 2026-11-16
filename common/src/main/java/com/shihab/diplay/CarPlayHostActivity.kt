@@ -4655,8 +4655,12 @@ open class CarPlayHostActivity : ComponentActivity() {
         if (menuOpen) {
             if (status is CarPlayStatus.Failed) {
                 // Keep a terminal prerequisite/rejection even if teardown later reports plain IO.
-                if (failurePendingAfterMenu?.requiresManualRetry() != true) failurePendingAfterMenu = status
-                if (status.requiresManualRetry()) {
+                val decision = ConnectionRecovery.menuFailure(
+                    existingManual = failurePendingAfterMenu?.requiresManualRetry() == true,
+                    incomingManual = status.requiresManualRetry(),
+                )
+                if (decision.replace) failurePendingAfterMenu = status
+                if (decision.stop) {
                     startupRetryStopped = true
                     reconnectScheduled = false
                 }
@@ -5622,16 +5626,21 @@ open class CarPlayHostActivity : ComponentActivity() {
             startupRetryBudget.manualRetry()
             startupRetryStopped = false
         }
-        if (failure != null && (failure.startupFailure != null || failure.requiresManualRetry()) && !reconnect) {
-            createStatusReporter(restartGeneration)(failure)
-        } else if (failure?.wifiResetRequired == true && (!reconnect || useWirelessTransport)) {
-            createStatusReporter(restartGeneration)(failure)
-        } else if (handshakeResetInProgress) {
-            startAfterHandshakeReset = true
-        } else if ((reconnect || recoveryPending) && controller != null) {
-            restartCarPlay(if (reconnect) "Settings saved; reconnecting" else "Connection lost while settings were open; reconnecting")
-        } else {
-            maybeStartCarPlay()
+        when (ConnectionRecovery.menuExit(
+            hasFailure = failure != null,
+            startup = failure?.startupFailure != null,
+            manual = failure?.requiresManualRetry() == true,
+            wifiReset = failure?.wifiResetRequired == true,
+            reconnect = reconnect,
+            wireless = useWirelessTransport,
+            handshake = handshakeResetInProgress,
+            recoveryPending = recoveryPending,
+            hasController = controller != null,
+        )) {
+            ConnectionRecovery.MenuExit.REPLAY_FAILURE -> createStatusReporter(restartGeneration)(checkNotNull(failure))
+            ConnectionRecovery.MenuExit.HANDSHAKE_IN_PROGRESS -> startAfterHandshakeReset = true
+            ConnectionRecovery.MenuExit.RESTART -> restartCarPlay(if (reconnect) "Settings saved; reconnecting" else "Connection lost while settings were open; reconnecting")
+            ConnectionRecovery.MenuExit.START_IF_READY -> maybeStartCarPlay()
         }
     }
 

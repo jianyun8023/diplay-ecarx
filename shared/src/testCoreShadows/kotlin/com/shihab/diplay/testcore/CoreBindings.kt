@@ -558,6 +558,10 @@ class ShadowNativeConnectionRecovery {
             HostNative.call("orchestration.NativeConnectionRecovery", "controlTransition", token, event) as Long
         @JvmStatic @Implementation fun controlRecovered(token: Long, snapshot: Long): Boolean =
             HostNative.call("orchestration.NativeConnectionRecovery", "controlRecovered", token, snapshot) as Boolean
+        @JvmStatic @Implementation fun menuFailure(existingManual: Boolean, incomingManual: Boolean): Int =
+            HostNative.call("orchestration.NativeConnectionRecovery", "menuFailure", existingManual, incomingManual) as Int
+        @JvmStatic @Implementation fun menuExit(facts: Int): Int =
+            HostNative.call("orchestration.NativeConnectionRecovery", "menuExit", facts) as Int
     }
 }
 

@@ -7,6 +7,8 @@ enum class ConnectionRecovery {
     RETRY, STARTUP_RETRY, STARTUP_STOP, USER_ACTION, WIFI_RESET, USB_PAIRING;
 
     data class Decision(val action: ConnectionRecovery, val requiresUserAction: Boolean)
+    data class MenuFailureDecision(val replace: Boolean, val stop: Boolean)
+    enum class MenuExit { REPLAY_FAILURE, HANDSHAKE_IN_PROGRESS, RESTART, START_IF_READY }
 
     companion object {
         fun forFailure(failure: CarPlayStatus.Failed): Decision {
@@ -19,6 +21,23 @@ enum class ConnectionRecovery {
             return Decision(entries[result and 7], result and 8 != 0)
         }
 
+        fun menuFailure(existingManual: Boolean, incomingManual: Boolean): MenuFailureDecision {
+            NativeMedia.requireAvailable()
+            val result = NativeConnectionRecovery.menuFailure(existingManual, incomingManual)
+            return MenuFailureDecision(result and 1 != 0, result and 2 != 0)
+        }
+
+        fun menuExit(hasFailure: Boolean, startup: Boolean, manual: Boolean, wifiReset: Boolean,
+            reconnect: Boolean, wireless: Boolean, handshake: Boolean, recoveryPending: Boolean,
+            hasController: Boolean): MenuExit {
+            NativeMedia.requireAvailable()
+            val facts = (if (hasFailure) 1 else 0) or (if (startup) 2 else 0) or
+                (if (manual) 4 else 0) or (if (wifiReset) 8 else 0) or
+                (if (reconnect) 16 else 0) or (if (wireless) 32 else 0) or
+                (if (handshake) 64 else 0) or (if (recoveryPending) 128 else 0) or
+                (if (hasController) 256 else 0)
+            return MenuExit.entries[NativeConnectionRecovery.menuExit(facts)]
+        }
     }
 }
 
@@ -29,6 +48,8 @@ internal object NativeConnectionRecovery {
     @JvmStatic external fun stable(first: Long, now: Long): Boolean
     @JvmStatic external fun controlTransition(token: Long, event: Int): Long
     @JvmStatic external fun controlRecovered(token: Long, snapshot: Long): Boolean
+    @JvmStatic external fun menuFailure(existingManual: Boolean, incomingManual: Boolean): Int
+    @JvmStatic external fun menuExit(facts: Int): Int
 }
 
 /** Host-lifetime observation of control recovery, separate from retry budgets. */

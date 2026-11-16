@@ -8,6 +8,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionRecoveryTest {
+    @Test fun menuDecisionsMatchFormerHostBranchesForAllFacts() {
+        for (existing in listOf(false, true)) for (incoming in listOf(false, true)) {
+            val old = MenuRecoveryReference.failure(existing, incoming)
+            val actual = ConnectionRecovery.menuFailure(existing, incoming)
+            assertEquals(old.first, actual.replace)
+            assertEquals(old.second, actual.stop)
+        }
+        for (bits in 0 until 512) {
+            val f = (0..8).map { bits and (1 shl it) != 0 }
+            assertEquals("facts=$bits", MenuRecoveryReference.exit(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]),
+                ConnectionRecovery.menuExit(f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], f[8]))
+        }
+    }
     @Test fun controlRecoveryMatchesFormerHostAcrossSnapshotsAndLosses() {
         val actual = ControlRecoveryState()
         val old = ControlRecoveryReference()
