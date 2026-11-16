@@ -3,7 +3,7 @@
 //! The platform performs USBMUX, Lockdown pairing, CarKit, iAP2 CSM and NCM/VPN I/O; this owner
 //! decides the saved-pair-record rejection/retry outcome so the platform only executes a named
 //! action. The caller classifies its own platform exception into a rejection code (a Java fact).
-use jni_sys::{jboolean, jclass, jint, JNIEnv};
+use jni_sys::{jboolean, jclass, jint, jlong, JNIEnv};
 
 /// Platform classification of a CarKit-service open failure.
 pub const REJECTION_NONE: i32 = 0;
@@ -66,6 +66,60 @@ pub fn advance(action: i32, approved: i32) -> i32 {
     }
 }
 
+// ---- Wired teardown / release plan ----
+//
+// The platform owns the actual Closeable/socket objects; the core owns which resources to release,
+// in what order, and the NCM-close vs VPN-detach branch, for the exception and finally paths. Kotlin
+// iterates the packed plan and calls the existing close/detach statements verbatim.
+pub const TEARDOWN_CATCH: i32 = 0;
+pub const TEARDOWN_FINALLY: i32 = 1;
+
+pub const TD_CLOSE_CSM: i32 = 0;
+pub const TD_CLOSE_MUX: i32 = 1;
+pub const TD_CLOSE_NCM_CATCH: i32 = 2;
+pub const TD_DETACH_VPN: i32 = 3;
+pub const TD_TERMINATE_WATCHDOG: i32 = 4;
+pub const TD_CLOSE_OWNED_IF_STALE: i32 = 5;
+pub const TD_CLOSE_USB_SESSION: i32 = 6;
+pub const TD_CLOSE_NCM_FINALLY: i32 = 7;
+
+// Fact bits: 1 = stale run (not current), 2 = NCM owned locally, 4 = USB session owned locally.
+pub fn teardown_plan(phase: i32, facts: i32) -> Vec<i32> {
+    let stale = facts & 1 != 0;
+    let ncm_owned = facts & 2 != 0;
+    let usb_owned = facts & 4 != 0;
+    match phase {
+        TEARDOWN_CATCH => {
+            let mut plan = vec![TD_CLOSE_CSM, TD_CLOSE_MUX];
+            plan.push(if ncm_owned { TD_CLOSE_NCM_CATCH } else { TD_DETACH_VPN });
+            plan
+        }
+        TEARDOWN_FINALLY => {
+            let mut plan = vec![TD_TERMINATE_WATCHDOG];
+            if stale {
+                plan.push(TD_CLOSE_OWNED_IF_STALE);
+            }
+            if usb_owned {
+                plan.push(TD_CLOSE_USB_SESSION);
+            }
+            if ncm_owned {
+                plan.push(TD_CLOSE_NCM_FINALLY);
+            }
+            plan
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Packs the ordered plan as nibbles (action+1, 0 = end): at most four actions fit in a jlong.
+pub fn teardown_plan_packed(phase: i32, facts: i32) -> i64 {
+    let mut packed: i64 = 0;
+    for (i, action) in teardown_plan(phase, facts).into_iter().enumerate().take(15) {
+        packed |= ((action as i64) + 1) << (4 * i as i64);
+    }
+    packed
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_carkitErrorAction(
     _: *mut JNIEnv, _: jclass, has_saved: jboolean, rejection: jint,
@@ -85,6 +139,13 @@ pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_adv
     _: *mut JNIEnv, _: jclass, action: jint, approved: jint,
 ) -> jint {
     advance(action, approved)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_teardownPlan(
+    _: *mut JNIEnv, _: jclass, phase: jint, facts: jint,
+) -> jlong {
+    teardown_plan_packed(phase, facts)
 }
 
 #[cfg(test)]
@@ -130,5 +191,38 @@ mod tests {
         assert_eq!(advance(BRING_UP_ATTACH_VPN, 0), BRING_UP_ABORT_DETACH_VPN);
         // Unknown actions are inert and stop the loop.
         assert_eq!(advance(999, 1), BRING_UP_DONE);
+    }
+
+    #[test]
+    fn teardown_plan_orders_release_and_reflects_ownership_facts() {
+        // catch: CSM then MUX, then NCM close when NCM is owned...
+        assert_eq!(
+            teardown_plan(TEARDOWN_CATCH, 2),
+            vec![TD_CLOSE_CSM, TD_CLOSE_MUX, TD_CLOSE_NCM_CATCH]
+        );
+        // ...otherwise detach VPN.
+        assert_eq!(
+            teardown_plan(TEARDOWN_CATCH, 0),
+            vec![TD_CLOSE_CSM, TD_CLOSE_MUX, TD_DETACH_VPN]
+        );
+        // finally with nothing owned and a current run: only terminate the watchdog.
+        assert_eq!(teardown_plan(TEARDOWN_FINALLY, 0), vec![TD_TERMINATE_WATCHDOG]);
+        // finally stale + USB + NCM owned: ordered plan in the documented order.
+        assert_eq!(
+            teardown_plan(TEARDOWN_FINALLY, 1 | 4 | 2),
+            vec![
+                TD_TERMINATE_WATCHDOG,
+                TD_CLOSE_OWNED_IF_STALE,
+                TD_CLOSE_USB_SESSION,
+                TD_CLOSE_NCM_FINALLY,
+            ]
+        );
+        // packed nibbles preserve order and count.
+        assert_eq!(
+            teardown_plan_packed(TEARDOWN_CATCH, 0),
+            (TD_CLOSE_CSM as i64 + 1)
+                | ((TD_CLOSE_MUX as i64 + 1) << 4)
+                | ((TD_DETACH_VPN as i64 + 1) << 8)
+        );
     }
 }

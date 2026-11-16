@@ -721,5 +721,7 @@ class ShadowNativeWiredStack {
             HostNative.call("orchestration.NativeWiredStack", "terminalOutcome", terminal) as Int
         @JvmStatic @Implementation fun advance(action: Int, approved: Int): Int =
             HostNative.call("orchestration.NativeWiredStack", "advance", action, approved) as Int
+        @JvmStatic @Implementation fun teardownPlan(phase: Int, facts: Int): Long =
+            HostNative.call("orchestration.NativeWiredStack", "teardownPlan", phase, facts) as Long
     }
 }

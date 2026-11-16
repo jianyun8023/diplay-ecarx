@@ -29,4 +29,19 @@ internal object NativeWiredStack {
 
     /** Next bring-up action from (current action, approved gate fact); the core owns the order. */
     @JvmStatic external fun advance(action: Int, approved: Int): Int
+
+    /** Wired teardown plan phases/actions, shared with session::wired_stack::teardown_plan. */
+    const val TEARDOWN_CATCH = 0
+    const val TEARDOWN_FINALLY = 1
+    const val TD_CLOSE_CSM = 0
+    const val TD_CLOSE_MUX = 1
+    const val TD_CLOSE_NCM_CATCH = 2
+    const val TD_DETACH_VPN = 3
+    const val TD_TERMINATE_WATCHDOG = 4
+    const val TD_CLOSE_OWNED_IF_STALE = 5
+    const val TD_CLOSE_USB_SESSION = 6
+    const val TD_CLOSE_NCM_FINALLY = 7
+
+    /** Packed ordered teardown plan (nibbles, action+1, 0 = end); the core owns the release order. */
+    @JvmStatic external fun teardownPlan(phase: Int, facts: Int): Long
 }

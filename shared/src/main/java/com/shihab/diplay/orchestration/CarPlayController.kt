@@ -1976,24 +1976,43 @@ class CarPlayController(
             }
         } catch (error: Throwable) {
             debugLog("wired bring-up failed", error)
-            // Stop control and USBMUX before releasing NCM back to the kernel driver.
+            // Stop control and USBMUX before releasing NCM back to the kernel driver. The core owns
+            // the release order and the NCM-close vs VPN-detach branch; the statements below are verbatim.
             val failed = takeOwnedWiredResources(WiredResources(ownedCsm, ownedMux, ownedVpn))
-            closeBestEffort("CSM") { failed.csm?.close() }
-            closeBestEffort("USBMUX") { failed.mux?.close() }
-            if (ncmOwnedLocally) {
-                closeBestEffort("NCM") { ncm.close() }
-                ncmOwnedLocally = false
-            } else {
-                closeBestEffort("VPN/NCM") { failed.vpn?.let { vpnService?.detachWired(it) } }
+            var plan = NativeWiredStack.teardownPlan(
+                NativeWiredStack.TEARDOWN_CATCH, if (ncmOwnedLocally) 2 else 0,
+            )
+            while (plan != 0L) {
+                when (((plan and 0xF) - 1).toInt()) {
+                    NativeWiredStack.TD_CLOSE_CSM -> closeBestEffort("CSM") { failed.csm?.close() }
+                    NativeWiredStack.TD_CLOSE_MUX -> closeBestEffort("USBMUX") { failed.mux?.close() }
+                    NativeWiredStack.TD_CLOSE_NCM_CATCH -> {
+                        closeBestEffort("NCM") { ncm.close() }
+                        ncmOwnedLocally = false
+                    }
+                    NativeWiredStack.TD_DETACH_VPN ->
+                        closeBestEffort("VPN/NCM") { failed.vpn?.let { vpnService?.detachWired(it) } }
+                }
+                plan = plan ushr 4
             }
             failWired(error, run)
         } finally {
-            ownedStartWatchdog?.terminate()
-            if (!isWiredRunCurrent(run)) {
-                closeWiredResources(takeOwnedWiredResources(WiredResources(ownedCsm, ownedMux, ownedVpn)))
+            var plan = NativeWiredStack.teardownPlan(
+                NativeWiredStack.TEARDOWN_FINALLY,
+                (if (!isWiredRunCurrent(run)) 1 else 0) or
+                    (if (ncmOwnedLocally) 2 else 0) or
+                    (if (usbOwnedLocally) 4 else 0),
+            )
+            while (plan != 0L) {
+                when (((plan and 0xF) - 1).toInt()) {
+                    NativeWiredStack.TD_TERMINATE_WATCHDOG -> ownedStartWatchdog?.terminate()
+                    NativeWiredStack.TD_CLOSE_OWNED_IF_STALE ->
+                        closeWiredResources(takeOwnedWiredResources(WiredResources(ownedCsm, ownedMux, ownedVpn)))
+                    NativeWiredStack.TD_CLOSE_USB_SESSION -> closeBestEffort("USBMUX") { usbSession.close() }
+                    NativeWiredStack.TD_CLOSE_NCM_FINALLY -> ncm.close()
+                }
+                plan = plan ushr 4
             }
-            if (usbOwnedLocally) closeBestEffort("USBMUX") { usbSession.close() }
-            if (ncmOwnedLocally) ncm.close()
         }
     }
 
