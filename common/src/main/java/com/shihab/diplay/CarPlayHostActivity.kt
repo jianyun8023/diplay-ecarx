@@ -5,6 +5,7 @@ import com.shihab.diplay.orchestration.ConnectionRecovery
 import com.shihab.diplay.orchestration.HostFailureState
 import com.shihab.diplay.orchestration.BackgroundAttemptState
 import com.shihab.diplay.orchestration.ControlRecoveryState
+import com.shihab.diplay.media.AutoPlayRecovery
 import com.shihab.diplay.transport.TransportFailureKind
 
 import android.app.AlertDialog
@@ -756,7 +757,7 @@ open class CarPlayHostActivity : ComponentActivity() {
 
     private var autoPlaySchedule = 0
     private var autoPlaySession: AirPlaySession? = null
-    private var autoPlayChecks = 0
+    private val autoPlayRecovery = AutoPlayRecovery()
 
     /**
      * Nudges the iPhone once the head unit's Bluetooth is out of the way.
@@ -778,17 +779,19 @@ open class CarPlayHostActivity : ComponentActivity() {
             }
             val bluetoothOn = headUnitBluetoothOn()
             val playback = controller?.nowPlayingSnapshot()
-            logPlaybackRecovery("AutoPlay check schedule=$autoPlaySchedule checks=$autoPlayChecks bluetoothOn=$bluetoothOn " +
+            logPlaybackRecovery("AutoPlay check schedule=$autoPlaySchedule checks=${autoPlayRecovery.checks} bluetoothOn=$bluetoothOn " +
                 "playing=${playback?.playing} elapsedMs=${playback?.elapsedMillis}")
-            if (bluetoothOn) {
-                autoPlayChecks += 1
-                if (autoPlayChecks <= AUTO_PLAY_MAX_CHECKS) {
-                    mainHandler.postDelayed(this, AUTO_PLAY_RETRY_MILLIS)
-                    logPlaybackRecovery("AutoPlay waiting schedule=$autoPlaySchedule check=$autoPlayChecks max=$AUTO_PLAY_MAX_CHECKS")
+            when (autoPlayRecovery.check(bluetoothOn)) {
+                AutoPlayRecovery.Action.WAIT -> {
+                    mainHandler.postDelayed(this, autoPlayRecovery.retryDelayMillis)
+                    logPlaybackRecovery("AutoPlay waiting schedule=$autoPlaySchedule check=${autoPlayRecovery.checks} max=${autoPlayRecovery.maxChecks}")
                     return
                 }
-                logPlaybackRecovery("AutoPlay skipped schedule=$autoPlaySchedule reason=bluetooth-still-on")
-                return
+                AutoPlayRecovery.Action.GIVE_UP -> {
+                    logPlaybackRecovery("AutoPlay skipped schedule=$autoPlaySchedule reason=bluetooth-still-on")
+                    return
+                }
+                AutoPlayRecovery.Action.SEND -> Unit
             }
             logPlaybackRecovery("AutoPlay enqueue schedule=$autoPlaySchedule index=${CarPlayMediaButton.PLAY}")
             val sent = sendHostMedia(controller, CarPlayMediaButton.PLAY, "autoplay")
@@ -4428,19 +4431,19 @@ open class CarPlayHostActivity : ComponentActivity() {
      */
     private fun scheduleAutoPlayAfterYield() {
         val session = activeAirPlaySession ?: return
-        if (autoPlaySession === session) {
+        if (autoPlayRecovery.duplicate(autoPlaySession === session)) {
             logPlaybackRecovery("AutoPlay skipped schedule=$autoPlaySchedule reason=duplicate-session")
             return
         }
         mainHandler.removeCallbacks(autoPlayAfterYield)
         autoPlaySession = session
-        autoPlayChecks = 0
+        autoPlayRecovery.reset()
         autoPlaySchedule++
         val enabled = CarBluetoothProfileGuard.adapterEnabled(this)
         logPlaybackRecovery("AutoPlay schedule=$autoPlaySchedule adapterMode=$enabled " +
-            "mediaOnly=${CarBluetoothProfileGuard.mediaOnlyEnabled(this)} delayMs=$AUTO_PLAY_AFTER_YIELD_MILLIS")
+            "mediaOnly=${CarBluetoothProfileGuard.mediaOnlyEnabled(this)} delayMs=${autoPlayRecovery.initialDelayMillis}")
         if (!enabled) return
-        mainHandler.postDelayed(autoPlayAfterYield, AUTO_PLAY_AFTER_YIELD_MILLIS)
+        mainHandler.postDelayed(autoPlayAfterYield, autoPlayRecovery.initialDelayMillis)
     }
 
     private fun restoreCarBluetooth() {
@@ -6273,10 +6276,6 @@ open class CarPlayHostActivity : ComponentActivity() {
         // On the teardown thread: bounded sequencing wait. Release notification retains ownership beyond
         // this budget when a codec is still busy.
         const val SINK_RELEASE_WAIT_MILLIS = 2_000L
-        // The guard's own adapter delay, plus the moment the adapter itself takes to go off.
-        private const val AUTO_PLAY_AFTER_YIELD_MILLIS = 3_000L
-        private const val AUTO_PLAY_RETRY_MILLIS = 2_000L
-        private const val AUTO_PLAY_MAX_CHECKS = 5
         private const val CLUSTER_IDLE_RELEASE_MILLIS = 15_000L
         // The first frame normally comes within a second of the screen stream opening.
         private const val NO_PICTURE_MILLIS = 10_000L

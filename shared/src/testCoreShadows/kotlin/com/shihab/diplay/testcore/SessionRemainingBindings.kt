@@ -11,6 +11,12 @@ import org.robolectric.annotation.Implements
 @Implements(className = "com.shihab.diplay.media.NativePlaybackCore", isInAndroidSdk = false, callNativeMethodsByDefault = true)
 class ShadowNativePlaybackCore {
     companion object {
+        @JvmStatic @Implementation fun autoPlayDuplicate(sameSession: Boolean): Boolean =
+            HostNative.call("media.NativePlaybackCore", "autoPlayDuplicate", sameSession) as Boolean
+        @JvmStatic @Implementation fun autoPlayTransition(token: Long, event: Int): Long =
+            HostNative.call("media.NativePlaybackCore", "autoPlayTransition", token, event) as Long
+        @JvmStatic @Implementation fun autoPlayQuery(token: Long, field: Int): Long =
+            HostNative.call("media.NativePlaybackCore", "autoPlayQuery", token, field) as Long
         @JvmStatic @Implementation fun nowCreate(): LongArray = HostNative.call("media.NativePlaybackCore", "nowCreate") as LongArray
         @JvmStatic @Implementation fun nowSnapshot(owner: Array<LongArray>): CarPlayNowPlaying =
             snapshot(requireNotNull(HostNative.call("media.NativePlaybackCore", "nowSnapshot", owner)))

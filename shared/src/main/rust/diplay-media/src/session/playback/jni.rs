@@ -4,6 +4,21 @@ use jni_sys::{
 };
 use std::ptr::null_mut;
 
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_autoPlayDuplicate(
+    _env: *mut JNIEnv, _class: jclass, same_session: jboolean,
+) -> jboolean { (same_session != 0) as jboolean }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_autoPlayTransition(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
+) -> jlong { super::auto_play_transition(token, event) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_autoPlayQuery(
+    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
+) -> jlong { super::auto_play_query(token, field) }
+
 unsafe fn invalid(env: *mut JNIEnv) {
     let f = &**env;
     if (f.ExceptionCheck.unwrap())(env) != 0 {

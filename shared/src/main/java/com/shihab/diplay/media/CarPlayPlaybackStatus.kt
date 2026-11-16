@@ -46,6 +46,9 @@ class CarPlayPlaybackStatus {
 
 /** The tokens are opaque GC values: no native allocation or additional release lifetime. */
 internal object NativePlaybackCore {
+    @JvmStatic external fun autoPlayDuplicate(sameSession: Boolean): Boolean
+    @JvmStatic external fun autoPlayTransition(token: Long, event: Int): Long
+    @JvmStatic external fun autoPlayQuery(token: Long, field: Int): Long
     @JvmStatic external fun nowCreate(): LongArray
     @JvmStatic external fun nowSnapshot(owner: Array<LongArray>): CarPlayNowPlaying
     @JvmStatic external fun nowAccept(owner: Array<LongArray>, id: Int, payload: ByteArray): CarPlayNowPlaying?
@@ -64,4 +67,21 @@ internal object NativePlaybackCore {
     @JvmStatic external fun navigationEvent(owner: Array<LongArray>, event: Int, id: Long,
         stream: Int, hasStream: Boolean, now: Long, buffered: Long, tail: Long, priority: Boolean): Long
     @JvmStatic external fun navigationSnapshot(owner: Array<LongArray>, now: Long): LongArray
+}
+
+/** The host keeps session references and scheduling; Rust owns the check budget. */
+class AutoPlayRecovery {
+    enum class Action { WAIT, SEND, GIVE_UP }
+    private var token = 0L
+    init { NativeMedia.requireAvailable() }
+    fun duplicate(sameSession: Boolean): Boolean = NativePlaybackCore.autoPlayDuplicate(sameSession)
+    fun reset() { token = NativePlaybackCore.autoPlayTransition(token, 0) }
+    val checks: Int get() = NativePlaybackCore.autoPlayQuery(token, 0).toInt()
+    val maxChecks: Int get() = NativePlaybackCore.autoPlayQuery(token, 2).toInt()
+    val initialDelayMillis: Long get() = NativePlaybackCore.autoPlayQuery(token, 3)
+    val retryDelayMillis: Long get() = NativePlaybackCore.autoPlayQuery(token, 4)
+    fun check(bluetoothOn: Boolean): Action {
+        token = NativePlaybackCore.autoPlayTransition(token, if (bluetoothOn) 1 else 2)
+        return Action.entries[NativePlaybackCore.autoPlayQuery(token, 1).toInt()]
+    }
 }

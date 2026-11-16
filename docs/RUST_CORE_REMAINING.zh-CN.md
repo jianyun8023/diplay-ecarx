@@ -118,6 +118,29 @@ Handler 和实际停止／接管。取消或无操作导航不额外清标记，
 本地日志：`/tmp/host-latch-{old,final-gradle,final-cargo,arm64}.log`。本批未运行其他 ABI 构建、完整 APK
 或设备／实车验证，不改写既有批次的验收范围。
 
+## 宿主自动播放决策与等待预算（2026-11-16）
+
+基于 `ed01bc2f`，先补齐旧宿主行为合同，再将重复激活决策、蓝牙等待计数及等待／发送／放弃规则
+交给 `session::playback`。`AutoPlayRecovery` 携带 opaque Long，不创建原生堆句柄或 session 映射。
+Kotlin 保留最近 session 引用与身份比较、模式和蓝牙 SDK 查询、Handler、取消入口、诊断序号及实际发送。
+
+新 session 先占用再读设置；重复激活只抑制 Play，不阻止前面的蓝牙让位。模式关闭、发送被拒、等待耗尽
+和取消均不为同一最近 session 重新排队，A→B→A 仍可重新占用。首次 3 秒、五次相对 2 秒延期不变，
+第六次检查蓝牙关闭仍可发送，开启则放弃；没有引入 13 秒硬截止。后台接管仅占用引用，不额外播放。
+
+| 检查 | 结果 |
+| --- | --- |
+| 旧实现合同 | 14 项通过；补强耗尽后先关闭蓝牙再验证不重排、设置读取时点、真实 session-ended 取消、A→B→A、onStop 与 shutdown、重复 session 仍执行蓝牙让位；第 13 秒边界以 999 ms 未发送／再 1 ms 发送复核 |
+| common／shared JVM | 38／6 项通过：common 自动播放 14、Smooth lifecycle 9、后台握手 15；shared 独立旧算法经真实 JNI 对照 1、既有 PlaybackStatus 5 |
+| Rust 1.97.1 playback | 7 项通过，包含等待计数、相对延期校准和 Int wrapping |
+| R8 | mobile 实际执行通过，maphost 为 UP-TO-DATE；3 个新增 JNI 沿用 NativePlaybackCore 整类保留规则 |
+| Android ARM64 | Rust 1.97.1／NDK 28.2.13676358／API 28 编译和来源校验通过；590 个 Java JNI 导出及 JNI_OnLoad、ELF 校验通过 |
+
+shutdown 合同在真实 shutdown 后恢复 fixture controller 引用，验证回调不读取播放快照、不发送且记录取消，
+避免 controller 已被清空掩盖门禁缺失。本地日志：`/tmp/autoplay-{old,old-boundary,final-gradle,final-cargo,arm64}.log`。
+验证后仅移除一条随常量迁移而悬空的宿主注释，并通过 diff-check；本批未运行其他 ABI 构建、完整 APK
+或设备／实车验证，不改写历史验收。
+
 ## G/H 本次改动的验证边界（2026-11-15）
 
 本次代码将 AAC 输入组装／调度与麦克风分帧、echo lease、统计、编码发送收敛到 Rust/C；Speex 静态链接到核心，按用户要求删除 Kotlin 数据／Java socket 后备。小米 8／API 35 同一最终测试 APK 在 ARM64、ARMv7 各通过 22 项、0 失败、0 跳过，包含真实 AudioRecord 经 Speex／PCM／Opus 到加密 UDP、关闭重开和真实 AAC 解码输出。见[本批设备验证](benchmarks/native-aac-capture-2026-11-15.md)与[当前架构](ARCHITECTURE.zh-CN.md)。本批未做真实 iPhone 通话、实车音路、声学 AEC 或性能验证，不重开下面已收尾的历史场景。

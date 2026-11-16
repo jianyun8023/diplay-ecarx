@@ -5,6 +5,59 @@ mod artwork_queue;
 mod publication;
 use crate::protocols::iap2_body::parse_parameter_list;
 
+const AUTO_PLAY_MAX_CHECKS: i32 = 5;
+const AUTO_PLAY_INITIAL_MILLIS: i64 = 3_000;
+const AUTO_PLAY_RETRY_MILLIS: i64 = 2_000;
+
+// The low 32 bits preserve Kotlin's wrapping Int count; bits 32..34 hold the last action.
+fn auto_play_transition(token: i64, event: i32) -> i64 {
+    let checks = token as u32 as i32;
+    let (checks, action) = match event {
+        0 => (0, 0),
+        1 => {
+            let next = checks.wrapping_add(1);
+            (next, if next <= AUTO_PLAY_MAX_CHECKS { 0 } else { 2 })
+        }
+        2 => (checks, 1),
+        _ => (checks, 2),
+    };
+    (u64::from(checks as u32) | ((action as u64) << 32)) as i64
+}
+
+fn auto_play_query(token: i64, field: i32) -> i64 {
+    match field {
+        0 => token as u32 as i32 as i64,
+        1 => ((token as u64 >> 32) & 3) as i64,
+        2 => AUTO_PLAY_MAX_CHECKS as i64,
+        3 => AUTO_PLAY_INITIAL_MILLIS,
+        4 => AUTO_PLAY_RETRY_MILLIS,
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod auto_play_tests {
+    use super::*;
+
+    #[test]
+    fn check_budget_stays_relative_and_preserves_wrapping() {
+        let mut token = 0;
+        assert_eq!(auto_play_query(token, 3), 3_000);
+        assert_eq!(auto_play_query(token, 4), 2_000);
+        for check in 1..=5 {
+            token = auto_play_transition(token, 1);
+            assert_eq!(auto_play_query(token, 0), check);
+            assert_eq!(auto_play_query(token, 1), 0);
+        }
+        assert_eq!(auto_play_query(auto_play_transition(token, 2), 1), 1);
+        token = auto_play_transition(token, 1);
+        assert_eq!(auto_play_query(token, 1), 2);
+        assert_eq!(auto_play_query(auto_play_transition(i32::MAX as i64, 1), 0), i32::MIN as i64);
+        assert_eq!(auto_play_query(auto_play_transition(token, -1), 1), 2);
+        assert_eq!(auto_play_transition(token, 0), 0);
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 struct NowPlaying {
     text: [Option<Vec<u16>>; 4],
