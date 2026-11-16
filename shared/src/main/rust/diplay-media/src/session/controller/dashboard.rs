@@ -1,4 +1,79 @@
 //! Controller-lifetime accepted selection, distinct from each session's delivered content.
+
+/// Operation codes crossing the JNI boundary (`NativeControllerDashboard_transition`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DashboardTransition {
+    /// Commit an accepted selection after a send attempt.
+    CommitSelection,
+    /// Commit a restore attempt for a stream.
+    CommitRestore,
+    /// Begin a visibility plan without committing the shown flag yet.
+    BeginVisibility,
+    /// Commit the shown flag.
+    CommitVisibility,
+    /// Apply the physical/instrument visibility for a session.
+    SetPhysicalVisible,
+    /// Clear the physical visibility.
+    Close,
+}
+
+impl DashboardTransition {
+    const ALL: [DashboardTransition; 6] = [
+        DashboardTransition::CommitSelection,
+        DashboardTransition::CommitRestore,
+        DashboardTransition::BeginVisibility,
+        DashboardTransition::CommitVisibility,
+        DashboardTransition::SetPhysicalVisible,
+        DashboardTransition::Close,
+    ];
+
+    fn code(self) -> i64 {
+        match self {
+            DashboardTransition::CommitSelection => 0,
+            DashboardTransition::CommitRestore => 1,
+            DashboardTransition::BeginVisibility => 2,
+            DashboardTransition::CommitVisibility => 3,
+            DashboardTransition::SetPhysicalVisible => 4,
+            DashboardTransition::Close => 5,
+        }
+    }
+
+    pub(super) fn from_code(code: i64) -> Option<Self> {
+        Self::ALL.into_iter().find(|&operation| operation.code() == code)
+    }
+}
+
+/// Operation codes crossing the JNI boundary (`NativeControllerDashboard_query`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum DashboardQuery {
+    /// Whether the accepted selection should be sent for the current snapshot.
+    Selection,
+    /// Whether a visibility event needs a send.
+    Visibility,
+    /// Result of a selection commit.
+    CommitResult,
+}
+
+impl DashboardQuery {
+    const ALL: [DashboardQuery; 3] = [
+        DashboardQuery::Selection,
+        DashboardQuery::Visibility,
+        DashboardQuery::CommitResult,
+    ];
+
+    fn code(self) -> i64 {
+        match self {
+            DashboardQuery::Selection => 0,
+            DashboardQuery::Visibility => 1,
+            DashboardQuery::CommitResult => 3,
+        }
+    }
+
+    pub(super) fn from_code(code: i64) -> Option<Self> {
+        Self::ALL.into_iter().find(|&operation| operation.code() == code)
+    }
+}
+
 pub(super) struct Dashboard {
     accepted_url: Option<Vec<u16>>,
     shown: bool,
@@ -52,43 +127,42 @@ impl Dashboard {
 
     pub(super) fn transition(
         &mut self,
-        operation: i32,
+        operation: DashboardTransition,
         url: Option<Vec<u16>>,
         first: bool,
         second: bool,
         stream: i32,
     ) {
         match operation {
-            0 if first && second => {
+            DashboardTransition::CommitSelection if first && second => {
                 self.accepted_url = url;
                 self.epoch = self.epoch.wrapping_add(1);
             }
-            1 if first && second && stream > 0 => {
+            DashboardTransition::CommitRestore if first && second && stream > 0 => {
                 self.epoch = self.epoch.wrapping_add(1);
             }
-            2 if !first => self.shown = true,
-            3 => {
+            DashboardTransition::BeginVisibility if !first => self.shown = true,
+            DashboardTransition::CommitVisibility => {
                 self.shown = first;
                 self.epoch = self.epoch.wrapping_add(1);
             }
-            4 => {
+            DashboardTransition::SetPhysicalVisible => {
                 let next = first && !second;
                 if self.physical != next {
                     self.physical = next;
                     self.epoch = self.epoch.wrapping_add(1);
                 }
             }
-            5 => self.physical = false,
+            DashboardTransition::Close => self.physical = false,
             _ => {}
         }
     }
 
-    pub(super) fn query(&self, operation: i32, first: bool, second: bool) -> i64 {
+    pub(super) fn query(&self, operation: DashboardQuery, first: bool, second: bool) -> i64 {
         match operation {
-            0 => (self.shown || !first) as i64,
-            1 => (!(first == self.shown && (!first || second))) as i64,
-            3 => (first && second) as i64,
-            _ => 0,
+            DashboardQuery::Selection => (self.shown || !first) as i64,
+            DashboardQuery::Visibility => (!(first == self.shown && (!first || second))) as i64,
+            DashboardQuery::CommitResult => (first && second) as i64,
         }
     }
 
@@ -143,13 +217,13 @@ mod tests {
     fn accepted_selection_survives_failed_replacement_and_utf16_roundtrip() {
         let url = vec![0, 0xd800, 0xffff, 0xdc00];
         let mut state = Dashboard::new(Some(url.clone()));
-        state.transition(0, Some(vec![42]), false, true, 1);
-        state.transition(0, Some(vec![43]), true, false, 1);
+        state.transition(DashboardTransition::CommitSelection, Some(vec![42]), false, true, 1);
+        state.transition(DashboardTransition::CommitSelection, Some(vec![43]), true, false, 1);
         assert_eq!(
             Dashboard::decode(&state.encode()).unwrap().accepted_url(),
             Some(url.as_slice())
         );
-        state.transition(0, Some(vec![]), true, true, 1);
+        state.transition(DashboardTransition::CommitSelection, Some(vec![]), true, true, 1);
         assert_eq!(state.accepted_url(), Some([].as_slice()));
         assert_eq!(state.epoch, 1);
     }
@@ -157,23 +231,44 @@ mod tests {
     #[test]
     fn paused_selection_restore_and_visibility_have_independent_commits() {
         let mut state = Dashboard::new(None);
-        state.transition(3, None, false, false, 1);
-        assert_eq!(state.query(0, true, false), 0);
-        assert_eq!(state.query(0, false, false), 1);
-        state.transition(0, Some(vec![42]), true, true, 1);
+        state.transition(DashboardTransition::CommitVisibility, None, false, false, 1);
+        assert_eq!(state.query(DashboardQuery::Selection, true, false), 0);
+        assert_eq!(state.query(DashboardQuery::Selection, false, false), 1);
+        state.transition(DashboardTransition::CommitSelection, Some(vec![42]), true, true, 1);
         assert!(!state.shown);
-        state.transition(1, None, true, true, 0);
+        state.transition(DashboardTransition::CommitRestore, None, true, true, 0);
         assert_eq!(state.epoch, 2);
-        state.transition(1, None, true, true, 1);
+        state.transition(DashboardTransition::CommitRestore, None, true, true, 1);
         assert_eq!(state.epoch, 3);
-        state.transition(2, None, false, false, 1);
+        state.transition(DashboardTransition::BeginVisibility, None, false, false, 1);
         assert!(state.shown);
-        assert_eq!(state.query(1, true, true), 0);
-        assert_eq!(state.query(1, true, false), 1);
+        assert_eq!(state.query(DashboardQuery::Visibility, true, true), 0);
+        assert_eq!(state.query(DashboardQuery::Visibility, true, false), 1);
         state.epoch = i32::MAX;
-        state.transition(4, None, true, false, 1);
+        state.transition(DashboardTransition::SetPhysicalVisible, None, true, false, 1);
         assert_eq!(state.epoch, i32::MIN);
-        state.transition(4, None, true, false, 1);
+        state.transition(DashboardTransition::SetPhysicalVisible, None, true, false, 1);
         assert_eq!(state.epoch, i32::MIN);
+    }
+
+    #[test]
+    fn dashboard_operation_codes_map_both_ways() {
+        for code in 0..=5 {
+            let operation = DashboardTransition::from_code(code).expect("known transition code");
+            assert_eq!(operation.code(), code);
+        }
+        assert_eq!(DashboardTransition::from_code(6), None);
+        assert_eq!(DashboardTransition::from_code(-1), None);
+
+        for (code, expected) in [
+            (0, DashboardQuery::Selection),
+            (1, DashboardQuery::Visibility),
+            (3, DashboardQuery::CommitResult),
+        ] {
+            assert_eq!(DashboardQuery::from_code(code), Some(expected));
+            assert_eq!(expected.code(), code);
+        }
+        assert_eq!(DashboardQuery::from_code(2), None);
+        assert_eq!(DashboardQuery::from_code(4), None);
     }
 }

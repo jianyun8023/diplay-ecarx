@@ -1,6 +1,6 @@
 use super::{
     configuration, expected_control_close, handoff_in_progress, timing_policy, wireless_close_plan,
-    Controller, Proof, Vpn, HEADER,
+    ControllerState, DecisionCode, EventCode, KeyEventCode, Proof, ProofEvent, Vpn, VpnEvent, HEADER,
 };
 use jni_sys::{
     jboolean, jclass, jint, jintArray, jlong, jlongArray, jobjectArray, jstring, JNIEnv,
@@ -50,7 +50,7 @@ unsafe fn value_array(env: *mut JNIEnv, owner: jobjectArray) -> Option<jlongArra
         Some(array)
     }
 }
-unsafe fn read(env: *mut JNIEnv, owner: jobjectArray) -> Option<Controller> {
+unsafe fn read(env: *mut JNIEnv, owner: jobjectArray) -> Option<ControllerState> {
     let array = value_array(env, owner)?;
     let f = &**env;
     let size = (f.GetArrayLength.unwrap())(env, array);
@@ -63,19 +63,19 @@ unsafe fn read(env: *mut JNIEnv, owner: jobjectArray) -> Option<Controller> {
     if (f.ExceptionCheck.unwrap())(env) != 0 {
         return None;
     }
-    let state = Controller::decode(&words);
+    let state = ControllerState::decode(&words);
     if state.is_none() {
         invalid(env);
     }
     state
 }
-unsafe fn save(env: *mut JNIEnv, owner: jobjectArray, state: &Controller) {
+unsafe fn save(env: *mut JNIEnv, owner: jobjectArray, state: &ControllerState) {
     let array = long_array(env, &state.encode());
     if !array.is_null() {
         ((**env).SetObjectArrayElement.unwrap())(env, owner, 0, array);
     }
 }
-unsafe fn read_header(env: *mut JNIEnv, owner: jobjectArray) -> Option<[i64; HEADER]> {
+unsafe fn read_header(env: *mut JNIEnv, owner: jobjectArray) -> Option<ControllerState> {
     let array = value_array(env, owner)?;
     let f = &**env;
     if (f.GetArrayLength.unwrap())(env, array) < HEADER as jint {
@@ -87,11 +87,11 @@ unsafe fn read_header(env: *mut JNIEnv, owner: jobjectArray) -> Option<[i64; HEA
     if (f.ExceptionCheck.unwrap())(env) != 0 {
         return None;
     }
-    if !Controller::valid_header(&header) {
+    let state = ControllerState::decode_header(&header);
+    if state.is_none() {
         invalid(env);
-        return None;
     }
-    Some(header)
+    state
 }
 unsafe fn pair(env: *mut JNIEnv, token: jlongArray) -> Option<[i64; 2]> {
     let f = &**env;
@@ -115,7 +115,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     wireless: jboolean,
     location: jboolean,
 ) -> jlongArray {
-    long_array(env, &Controller::new(wireless != 0, location != 0).encode())
+    long_array(env, &ControllerState::new(wireless != 0, location != 0).encode())
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_query(
@@ -126,7 +126,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
 ) -> jlong {
     // Hot read-only gates need no allocation or decoding of unrelated USB device keys.
     read_header(env, owner)
-        .map(|header| Controller::query(&header, field))
+        .map(|state| state.query(field))
         .unwrap_or(0)
 }
 #[no_mangle]
@@ -141,7 +141,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     let Some(mut state) = read(env, owner) else {
         return 0;
     };
-    let result = state.event(event, value, present != 0);
+    let result = match EventCode::from_code(event as i64) {
+        Some(code) => state.event(code, value, present != 0),
+        None => 0,
+    };
     save(env, owner, &state);
     result
 }
@@ -155,16 +158,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     other: jlong,
     facts: jlong,
 ) -> jlong {
-    read_header(env, owner)
-        .map(|header| {
-            Controller {
-                header,
-                grant_attempts: Vec::new(),
-                pending_grants: Vec::new(),
-            }
-            .decide(decision, value, other, facts)
-        })
-        .unwrap_or(0)
+    let Some(state) = read_header(env, owner) else {
+        return 0;
+    };
+    let Some(decision) = DecisionCode::from_code(decision as i64) else {
+        return 0;
+    };
+    state.decide(decision, value, other, facts)
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_key(
@@ -188,7 +188,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     if (f.ExceptionCheck.unwrap())(env) != 0 {
         return 0;
     }
-    let result = state.key(event, units);
+    let result = match KeyEventCode::from_code(event as i64) {
+        Some(code) => state.key(code, units),
+        None => false,
+    };
     save(env, owner, &state);
     result as jboolean
 }
@@ -292,7 +295,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jlongArray {
-    long_array(env, &[0, 0])
+    long_array(env, &Vpn::new().encode())
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_vpnQuery(
@@ -304,14 +307,14 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     let Some(words) = pair(env, token) else {
         return 0;
     };
-    if !(0..=1).contains(&words[0]) || words[1] != words[1] as i32 as i64 {
+    let Some(state) = Vpn::decode(&words) else {
         invalid(env);
         return 0;
-    }
+    };
     if field == 0 {
-        words[0] as jint
+        state.active as jint
     } else {
-        words[1] as jint
+        state.generation
     }
 }
 #[no_mangle]
@@ -326,22 +329,15 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     let Some(words) = pair(env, token) else {
         return 0;
     };
-    if !(0..=1).contains(&words[0]) || words[1] != words[1] as i32 as i64 {
+    let Some(mut state) = Vpn::decode(&words) else {
         invalid(env);
         return 0;
-    }
-    let mut state = Vpn {
-        active: words[0] != 0,
-        generation: words[1] as i32,
     };
-    let result = state.event(event, generation, current != 0);
-    ((**env).SetLongArrayRegion.unwrap())(
-        env,
-        token,
-        0,
-        2,
-        [state.active as i64, state.generation as i64].as_ptr(),
-    );
+    let result = match VpnEvent::from_code(event as i64) {
+        Some(code) => state.event(code, generation, current != 0),
+        None => 0,
+    };
+    ((**env).SetLongArrayRegion.unwrap())(env, token, 0, 2, state.encode().as_ptr());
     result
 }
 #[no_mangle]
@@ -349,7 +345,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     env: *mut JNIEnv,
     _class: jclass,
 ) -> jlongArray {
-    long_array(env, &[-1, 0])
+    long_array(env, &Proof::new().encode())
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_proofEvent(
@@ -363,22 +359,15 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     let Some(words) = pair(env, token) else {
         return 0;
     };
-    if words[0] != words[0] as i32 as i64 || !(0..16).contains(&words[1]) {
+    let Some(mut proof) = Proof::decode(&words) else {
         invalid(env);
         return 0;
-    }
-    let mut proof = Proof {
-        generation: words[0] as i32,
-        flags: words[1],
     };
-    let result = proof.event(event, generation, same_session != 0);
-    ((**env).SetLongArrayRegion.unwrap())(
-        env,
-        token,
-        0,
-        2,
-        [proof.generation as i64, proof.flags].as_ptr(),
-    );
+    let result = match ProofEvent::from_code(event as i64) {
+        Some(code) => proof.event(code, generation, same_session != 0),
+        None => false,
+    };
+    ((**env).SetLongArrayRegion.unwrap())(env, token, 0, 2, proof.encode().as_ptr());
     result as jboolean
 }
 
@@ -441,13 +430,15 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControl
     let Some(mut state) = dashboard_read(env, token) else {
         return null_mut();
     };
-    state.transition(
-        operation,
-        dashboard_url(env, url),
-        first != 0,
-        second != 0,
-        stream,
-    );
+    if let Some(operation) = super::dashboard::DashboardTransition::from_code(operation as i64) {
+        state.transition(
+            operation,
+            dashboard_url(env, url),
+            first != 0,
+            second != 0,
+            stream,
+        );
+    }
     long_array(env, &state.encode())
 }
 
@@ -460,9 +451,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeControl
     first: jboolean,
     second: jboolean,
 ) -> jlong {
-    dashboard_read(env, token)
-        .map(|state| state.query(operation, first != 0, second != 0))
-        .unwrap_or(0)
+    let Some(state) = dashboard_read(env, token) else {
+        return 0;
+    };
+    match super::dashboard::DashboardQuery::from_code(operation as i64) {
+        Some(operation) => state.query(operation, first != 0, second != 0),
+        None => 0,
+    }
 }
 
 #[no_mangle]
