@@ -79,6 +79,11 @@ class AndroidMediaSink(
     private val navigationFollowsIphone: Boolean = false,
     /** ECARX only: replay the car's CarPlay duck broadcast and alternate-audio mode (experimental wheel volume). */
     private val ecarxNavigationWheelHandshake: () -> Boolean = { false },
+    /**
+     * True when the handshake owns the duck: the car lowers its own focus group from the duck
+     * broadcast, so DiPlay must not also duck the music for the same prompt.
+     */
+    private val carOwnsNavigationDuck: () -> Boolean = { false },
     private val debugLogsEnabled: () -> Boolean = { false },
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
@@ -110,8 +115,11 @@ class AndroidMediaSink(
         // in the music (car test 2026-11-07). Without music it still asks: after a cold boot the
         // amplifier has no source until something holds focus, and a first prompt was silent.
         skipRequest = {
-            navigationFollowsIphone && promptRoute() == NavigationAudioRoute.MUSIC_STREAM &&
-                audioFocusCoordinator.mediaHoldsFocus()
+            // The car's duck broadcast lowers the music group itself on the car-owned route; asking
+            // for a second duck there would lower it twice (the car restores its own level on unduck).
+            carOwnsNavigationHandshake() ||
+                (navigationFollowsIphone && promptRoute() == NavigationAudioRoute.MUSIC_STREAM &&
+                    audioFocusCoordinator.mediaHoldsFocus())
         },
         report = onAudioDiagnostic,
     )
@@ -145,6 +153,11 @@ class AndroidMediaSink(
      */
     private fun promptRoute(): Int = if (iphoneDucking) navigationRoute()
         else followingNavigationRenderer?.navigationRoute ?: navigationRoute()
+
+    /** The car lowers the music itself only for a prompt on its own navigation channel (route 0). */
+    private fun carOwnsNavigationHandshake(): Boolean =
+        carOwnsNavigationDuck() && ecarxNavigationWheelHandshake() &&
+            navigationFollowsIphone && promptRoute() == NavigationAudioRoute.CAR_CHANNEL
 
     override fun onAudioDuck(ducked: Boolean) = onAudioDuck(ducked, null)
 

@@ -136,7 +136,7 @@ stateDiagram-v2
 
 - ECARX 会静默吞掉 `USAGE_ASSISTANT`，Siri 走媒体输出。
 - 导航 usage 在音频控制器子通道播放，车机把音乐压到几乎听不见且 Android 无法设定幅度；混进音乐流则按导航/媒体音量差缩放。iPhone 的 `duckAudio` 比播报音频流早 80 / 210 ms 到达（实车 2026-11-07），据此在流打开时选通路。
-- 车机音量键的目标不是音频焦点：Geely `CarAudioImplDCY11.getSuggestedAudioUsage()` 先看 `mCPDuckingState && isAlternateAudioOn()`，成立才返回导航 usage 12；`mCPDuckingState` 只由 CarPlay duck 广播建立，alternate 模式由 content type 33 的焦点请求打开。DiPlay 在实验性方向盘导航音量开关下复刻这两步，实车待验证；普通 Android 或未开开关时不发送广播、不请求 alternate。
+- 车机音量键的目标不是音频焦点：Geely `CarAudioImplDCY11.getSuggestedAudioUsage()` 先看 `mCPDuckingState && isAlternateAudioOn()`，成立才返回导航 usage 12；`mCPDuckingState` 只由 CarPlay duck 广播建立，alternate 模式由 content type 33 的焦点请求打开。DiPlay 在实验性方向盘导航音量开关下复刻这两步，实车待验证；普通 Android 或未开开关时不发送广播、不请求 alternate。车机导航通道（route 0）上压低只由车机负责：DiPlay 发 duck 信号后跳过自己的 promptFocus，避免两重压低；音乐流（route 3）维持原有 DiPlay 处理。
 - 冷启动后车机功放在没有任何焦点时不选源；导航播报需要持有可压低的临时焦点。
 - Geely/Lynk 车机只为 `VOICE_COMMUNICATION` 源打开麦克风，`VOICE_RECOGNITION` 录到静音。
 - GKUI 麦克风仲裁服务端未实现，申请必然失败；原厂助手与 CarPlay 的硬件麦克风争用没有解。

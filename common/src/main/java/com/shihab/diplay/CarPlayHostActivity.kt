@@ -4404,6 +4404,11 @@ open class CarPlayHostActivity : ComponentActivity() {
                 NavigationWheelSettings.enabled(this) &&
                     com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified
             },
+            // With the handshake on, the car's duck broadcast owns the music level on its route.
+            carOwnsNavigationDuck = {
+                NavigationWheelSettings.enabled(this) &&
+                    com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified
+            },
         )
     }
 
