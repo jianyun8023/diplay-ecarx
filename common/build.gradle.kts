@@ -1,5 +1,6 @@
 plugins {
     id("com.android.library")
+    id("org.jetbrains.kotlinx.kover")
 }
 
 val mockitoAgent by configurations.creating {
@@ -27,6 +28,11 @@ android {
         // ceiling: adding one more Robolectric class pushed a full run into OutOfMemoryError in
         // unrelated tests, on CI and locally both.
         unitTests.all { it.maxHeapSize = "2g" }
+    }
+    // Baseline existing lint findings (vendor/RestrictedApi/UseKtx/SetTextI18n legacy) so CI
+    // gates only NEW regressions. Regenerate with `./gradlew :common:updateLintBaseline`.
+    lint {
+        baseline = file("lint-baseline.xml")
     }
 }
 

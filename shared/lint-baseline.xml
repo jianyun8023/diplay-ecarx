@@ -1,0 +1,983 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 9.3.0" type="baseline" client="gradle" dependencies="false" name="AGP (9.3.0)" variant="all" version="9.3.0">
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        val accepted = runCatching { adapter.enable() }.getOrDefault(false)"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="312"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            adapter.bondedDevices.firstOrNull { it.address.equals(state.peerAddress, ignoreCase = true) }"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="439"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="                        synchronized(lock) { current() &amp;&amp; adapter.enable() }"
+        errorLine2="                                                          ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="680"
+            column="59"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            adapter.bondedDevices.orEmpty()"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="809"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="                device.name?.contains(&quot;iPhone&quot;, ignoreCase = true) == true"
+        errorLine2="                ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="822"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="                            &quot;wireless selected Bluetooth target name=${device.name ?: &quot;unknown&quot;} &quot; +"
+        errorLine2="                                                                       ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/CarPlayController.kt"
+            line="2516"
+            column="72"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Missing permissions required by BluetoothAdapter.getAddress: android.permission.LOCAL_MAC_ADDRESS"
+        errorLine1="                adapter.address"
+        errorLine2="                ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/CarPlayController.kt"
+            line="3669"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        wifiManager.startLocalOnlyHotspot(callback, main)"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="224"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            AudioRecord.Builder()"
+        errorLine2="            ^">
+        <location
+            file="src/main/java/com/shihab/diplay/media/MicrophoneUplink.kt"
+            line="141"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            p2pManager.requestGroupInfo(current) { result.set(it); latch.countDown() }"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="88"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="                            p2pManager.createGroup(p2pChannel, createActionListener(attempt, request))"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="248"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="                            p2pManager.createGroup(p2pChannel, config, createActionListener(attempt, request))"
+        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="250"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            p2pManager.requestGroupInfo(channel) { result.set(it); reply.countDown() }"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="454"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        p2pManager.requestGroupInfo(channel) {"
+        errorLine2="        ^">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="665"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            p2pManager.requestGroupInfo(channel) { current ->"
+        errorLine2="            ^">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="875"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        val bonded = adapter.bondedDevices.orEmpty()"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/WirelessBluetoothConnection.kt"
+            line="59"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            device.name?.contains(&quot;iPhone&quot;, ignoreCase = true) == true"
+        errorLine2="            ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/WirelessBluetoothConnection.kt"
+            line="70"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="                    connectedIPhones.joinToString { &quot;${it.name ?: &quot;iPhone&quot;} (${it.address})&quot; },"
+        errorLine2="                                                       ~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/WirelessBluetoothConnection.kt"
+            line="90"
+            column="56"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="        val candidates = adapter.bondedDevices.orEmpty().filter { device ->"
+        errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/WirelessBluetoothConnection.kt"
+            line="116"
+            column="26"/>
+    </issue>
+
+    <issue
+        id="MissingPermission"
+        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
+        errorLine1="            device.name?.contains(&quot;iPhone&quot;, ignoreCase = true) == true &amp;&amp;"
+        errorLine2="            ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/WirelessBluetoothConnection.kt"
+            line="117"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ApplySharedPref"
+        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
+        errorLine1="                        store.edit().putString(KEY_RESTORE_DIAGNOSTIC, diagnostic).commit()"
+        errorLine2="                                                                                   ~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="265"
+            column="84"/>
+    </issue>
+
+    <issue
+        id="ApplySharedPref"
+        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
+        errorLine1="                            .putBoolean(KEY_MEDIA_CONNECTED, remaining.first() in connected).commit()"
+        errorLine2="                                                                                             ~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="776"
+            column="94"/>
+    </issue>
+
+    <issue
+        id="ApplySharedPref"
+        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
+        errorLine1="            if (failed || message.startsWith(&quot;factoryNavigation restore=running&quot;)) editor.commit()"
+        errorLine2="                                                                                          ~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxFactoryNavigationRestore.kt"
+            line="170"
+            column="91"/>
+    </issue>
+
+    <issue
+        id="ApplySharedPref"
+        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
+        errorLine1="                editor.putBoolean(MIGRATED, true).commit()"
+        errorLine2="                                                  ~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/storage/LegacyPreferences.kt"
+            line="115"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="ApplySharedPref"
+        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
+        errorLine1="        else prefs.edit().remove(&quot;confirmed&quot;).commit()"
+        errorLine2="                                              ~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/P2pConfigurationMemory.kt"
+            line="35"
+            column="47"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 34 (current min is 24): `android.net.wifi.WifiConfiguration.KeyMgmt#WPA2_PSK`"
+        errorLine1="            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA2_PSK)"
+        errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/CarHotspotConfigWrite.kt"
+            line="152"
+            column="45"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 34 (current min is 24): `android.net.wifi.WifiConfiguration.KeyMgmt#WPA2_PSK`"
+        errorLine1="            ManualHotspotSecurity.WPA2 -> saved.allowedKeyManagement.get(WifiConfiguration.KeyMgmt.WPA2_PSK) &amp;&amp;"
+        errorLine2="                                                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/CarHotspotConfigWrite.kt"
+            line="165"
+            column="74"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 24): `android.net.wifi.WifiManager#UNKNOWN_SSID`"
+        errorLine1="        ?.takeUnless { it == WifiManager.UNKNOWN_SSID || it.isEmpty() }"
+        errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ExistingWifiManager.kt"
+            line="197"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration#BAND_5GHZ`"
+        errorLine1="                        .invoke(builder, preferredChannel, SoftApConfiguration.BAND_5GHZ)"
+        errorLine2="                                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="203"
+            column="60"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration#BAND_5GHZ`"
+        errorLine1="                        .invoke(builder, SoftApConfiguration.BAND_5GHZ)"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="208"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 34 (current min is 26): `android.net.wifi.WifiConfiguration.KeyMgmt#WPA2_PSK`"
+        errorLine1="        val wpa2 = keyManagement.get(WifiConfiguration.KeyMgmt.WPA2_PSK)"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="712"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 29 (current min is 26): `android.net.wifi.WifiConfiguration.KeyMgmt#SAE`"
+        errorLine1="        val sae = keyManagement.get(WifiConfiguration.KeyMgmt.SAE)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="713"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 29 (current min is 26): `android.net.wifi.WifiConfiguration.KeyMgmt#OWE`"
+        errorLine1="        val owe = keyManagement.get(WifiConfiguration.KeyMgmt.OWE)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="714"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 34 (current min is 24): `android.net.wifi.WifiConfiguration.KeyMgmt#WPA2_PSK`"
+        errorLine1="        val wpa2 = keyManagement.get(WifiConfiguration.KeyMgmt.WPA2_PSK)"
+        errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ManualHotspotManager.kt"
+            line="380"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 29 (current min is 24): `android.net.wifi.WifiConfiguration.KeyMgmt#SAE`"
+        errorLine1="        val sae = keyManagement.get(WifiConfiguration.KeyMgmt.SAE)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ManualHotspotManager.kt"
+            line="381"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 36 (current min is 24): `android.net.wifi.p2p.WifiP2pManager#NO_PERMISSION`"
+        errorLine1="                    failure.reason == WifiP2pManager.NO_PERMISSION || failure.reason == WifiP2pManager.P2P_UNSUPPORTED)) {"
+        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/P2pStartupRecovery.kt"
+            line="82"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="InlinedApi"
+        message="Field requires API level 30 (current min is 24): `android.media.MediaFormat#KEY_LOW_LATENCY`"
+        errorLine1="            if (lowLatency) keys[MediaFormat.KEY_LOW_LATENCY] = 1"
+        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/media/VideoDecoder.kt"
+            line="538"
+            column="34"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="`&lt;com.shihab.diplay.telecom.PhoneAudioConnectionService>` requires API level 26 (current min is 24)"
+        errorLine1="        &lt;service"
+        errorLine2="        ^">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="89"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 28 (current min is 24): `android.media.AudioDeviceInfo#getAddress`"
+        errorLine1="                &quot;routeId=${currentTrack?.routedDevice?.id ?: -1} routeType=${currentTrack?.routedDevice?.type ?: -1} routeAddress=${currentTrack?.routedDevice?.address ?: &quot;none&quot;} &quot; +"
+        errorLine2="                                                                                                                                                                ~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/media/AudioRenderer.kt"
+            line="880"
+            column="161"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 24): `android.media.AudioManager#getAvailableCommunicationDevices`"
+        errorLine1="                val speaker = manager.availableCommunicationDevices"
+        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/media/CallSpeaker.kt"
+            line="21"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 24): `android.media.AudioManager#setCommunicationDevice`"
+        errorLine1="                if (!manager.setCommunicationDevice(speaker)) return null"
+        errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/media/CallSpeaker.kt"
+            line="23"
+            column="30"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 31 (current min is 24): `android.media.AudioManager#clearCommunicationDevice`"
+        errorLine1="                CallSpeaker { manager.clearCommunicationDevice() }"
+        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/media/CallSpeaker.kt"
+            line="24"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 30 (current min is 24): `android.net.wifi.WifiConfiguration()`"
+        errorLine1="            val proposed = WifiConfiguration(current)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/CarHotspotBand.kt"
+            line="80"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 30 (current min is 24): `android.net.wifi.WifiConfiguration()`"
+        errorLine1="            val config = if (sdk == 28) WifiConfiguration(current!!).apply {"
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/CarHotspotConfigWrite.kt"
+            line="81"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 30 (current min is 24): `android.net.wifi.WifiConfiguration()`"
+        errorLine1="                    if (original == null) original = WifiConfiguration(config)"
+        errorLine2="                                                     ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/CarHotspotProbe.kt"
+            line="57"
+            column="54"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 30 (current min is 24): `android.net.wifi.WifiConfiguration()`"
+        errorLine1="                    val desired = WifiConfiguration(if (action == Action.RESTORE) backup else"
+        errorLine2="                                  ~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/CarHotspotProbe.kt"
+            line="65"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration.Builder()`"
+        errorLine1="                val builder = SoftApConfiguration.Builder()"
+        errorLine2="                                                  ~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="189"
+            column="51"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration.Builder`"
+        errorLine1="                SoftApConfiguration.Builder::class.java.getMethod(&quot;setSsid&quot;, String::class.java)"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="190"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration.Builder`"
+        errorLine1="                SoftApConfiguration.Builder::class.java.getMethod(&quot;setPassphrase&quot;, String::class.java, Int::class.javaPrimitiveType)"
+        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="192"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration.Builder`"
+        errorLine1="                    SoftApConfiguration.Builder::class.java.getMethod(&quot;setChannel&quot;, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="202"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Class requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration.Builder`"
+        errorLine1="                    SoftApConfiguration.Builder::class.java.getMethod(&quot;setBand&quot;, Int::class.javaPrimitiveType)"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="207"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 36 (current min is 33): `android.net.wifi.SoftApConfiguration.Builder#build`"
+        errorLine1="                    WifiManager.LocalOnlyHotspotCallback::class.java).invoke(wifiManager, builder.build(), executor, callback)"
+        errorLine2="                                                                                                  ~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotManager.kt"
+            line="212"
+            column="99"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Field requires API level 36 (current min is 24): `getInterfaces`"
+        errorLine1="            observed = publicTethering?.interfaces ?: legacyApInterfaces(),"
+        errorLine2="                                        ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ManualHotspotInterfaces.kt"
+            line="53"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 36 (current min is 24): `close`"
+        errorLine1="    override fun close() { publicTethering?.close() }"
+        errorLine2="                                            ~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ManualHotspotInterfaces.kt"
+            line="135"
+            column="45"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `stop`"
+        errorLine1="            watcher?.stop()"
+        errorLine2="                     ~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/telecom/PhoneAudioRoute.kt"
+            line="197"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            val manager = Class.forName(&quot;android.os.ServiceManager&quot;)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="908"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="        val carType = Class.forName(CAR_CLASS)"
+        errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxDayNight.kt"
+            line="297"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="        val listenerType = Class.forName(PROPERTY_LISTENER)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxDayNight.kt"
+            line="298"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            Class.forName(&quot;android.cevt.dimsupportservice.DimSupportManager&quot;)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxDimApi.kt"
+            line="152"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="        val listenerType = Class.forName(PROPERTY_LISTENER)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxVehicleSignalProbe.kt"
+            line="46"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="        val created = Class.forName(CAR_CLASS)"
+        errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxVehicleSignalProbe.kt"
+            line="90"
+            column="23"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="        val listenerType = Class.forName(PROPERTY_LISTENER)"
+        errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxVehicleSpeedSource.kt"
+            line="132"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="        val propertyCar = requireNotNull(Class.forName(CAR).getMethod(&quot;createCar&quot;, Context::class.java,"
+        errorLine2="                                         ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxVehicleSpeedSource.kt"
+            line="164"
+            column="42"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            runCatching { properties.javaClass.getMethod(&quot;unregisterListener&quot;, Class.forName(PROPERTY_LISTENER)).invoke(properties, listener) }"
+        errorLine2="                                                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxVehicleSpeedSource.kt"
+            line="208"
+            column="80"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            val type = Class.forName(&quot;android.net.wifi.WifiManager\$SoftApCallback&quot;)"
+        errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/LocalOnlyHotspotRadioInfo.kt"
+            line="37"
+            column="24"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            invokePlatform(service, Class.forName(&quot;android.net.IConnectivityManager&quot;), context.packageName, enabled, response)"
+        errorLine2="                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ManualHotspotControl.kt"
+            line="234"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="                runCatching { Class.forName(&quot;android.net.IConnectivityManager&quot;) }"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/PlatformTetheringStart.kt"
+            line="51"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            val binder = Class.forName(&quot;android.os.ServiceManager&quot;)"
+        errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/PlatformTetheringStart.kt"
+            line="125"
+            column="26"/>
+    </issue>
+
+    <issue
+        id="PrivateApi"
+        message="Accessing internal APIs via reflection is not supported and may not work on all devices or in the future"
+        errorLine1="            Class.forName(&quot;android.net.IConnectivityManager\$Stub&quot;)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/PlatformTetheringStart.kt"
+            line="127"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="SoonBlockedPrivateApi"
+        message="Reflective access to mService will throw an exception when targeting API 37 and above"
+        errorLine1="            val service = ConnectivityManager::class.java.getDeclaredField(&quot;mService&quot;)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/ManualHotspotControl.kt"
+            line="231"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="SoonBlockedPrivateApi"
+        message="Reflective access to mService will throw an exception when targeting API 37 and above"
+        errorLine1="            val service = ConnectivityManager::class.java.getDeclaredField(&quot;mService&quot;)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/PlatformTetheringStart.kt"
+            line="115"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="UnusedAttribute"
+        message="Attribute `usesPermissionFlags` is only used in API level 31 and higher (current min is 24)"
+        errorLine1="        android:usesPermissionFlags=&quot;neverForLocation&quot; />"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="20"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="WrongConstant"
+        message="Must be one of: AudioAttributes.CONTENT_TYPE_UNKNOWN, AudioAttributes.CONTENT_TYPE_SPEECH, AudioAttributes.CONTENT_TYPE_MUSIC, AudioAttributes.CONTENT_TYPE_MOVIE, AudioAttributes.CONTENT_TYPE_SONIFICATION"
+        errorLine1="        val attributes = AudioAttributes.Builder().setContentType(content)"
+        errorLine2="                                                                  ~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/media/NavigationAudioAttributes.kt"
+            line="9"
+            column="67"/>
+    </issue>
+
+    <issue
+        id="WrongConstant"
+        message="Must be one of: BluetoothAdapter.STATE_DISCONNECTED, BluetoothAdapter.STATE_CONNECTING, BluetoothAdapter.STATE_CONNECTED, BluetoothAdapter.STATE_DISCONNECTING"
+        errorLine1="                    adapter.getProfileConnectionState(profile) == BluetoothProfile.STATE_CONNECTED"
+        errorLine2="                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/WirelessBluetoothConnection.kt"
+            line="243"
+            column="67"/>
+    </issue>
+
+    <issue
+        id="ProtectedPermissions"
+        message="Permission is only granted to system apps"
+        errorLine1="    &lt;uses-permission android:name=&quot;android.permission.BLUETOOTH_PRIVILEGED&quot; />"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="51"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="ProtectedPermissions"
+        message="Permission is only granted to system apps"
+        errorLine1="    &lt;uses-permission android:name=&quot;android.permission.CHANGE_COMPONENT_ENABLED_STATE&quot; />"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="53"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="ProtectedPermissions"
+        message="Permission is only granted to system apps"
+        errorLine1="    &lt;uses-permission android:name=&quot;android.permission.REAL_GET_TASKS&quot; />"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="55"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        message="`receiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for AUTONAVI_STANDARD_BROADCAST_SEND"
+        errorLine1="        else appContext.registerReceiver(receiver, IntentFilter(AMAP_ACTION))"
+        errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxDayNight.kt"
+            line="230"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        message="`receiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for ecarx.intent.action.ECARX_KEY_RVOICEASSIST_EVENT"
+        errorLine1="        else context.registerReceiver(receiver, filter)"
+        errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxKeyBroadcasts.kt"
+            line="73"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        message="`receiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for ecarx.intent.action.ECARX_KEY_RCALL_EVENT"
+        errorLine1="        else context.registerReceiver(receiver, filter)"
+        errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxKeyBroadcasts.kt"
+            line="91"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        message="`receiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for com.ecarx.input.action.ACTION_INPUT_KEY_SERVICE_READY"
+        errorLine1="                else app.registerReceiver(receiver, IntentFilter(READY))"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxSwKeyIntercept.kt"
+            line="126"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        message="`receiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for an IntentFilter that cannot be inspected by lint"
+        errorLine1="            appContext.registerReceiver(receiver, filter)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/transport/IphoneUsbHost.kt"
+            line="388"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnspecifiedRegisterReceiverFlag"
+        message="`receiver` is missing `RECEIVER_EXPORTED` or `RECEIVER_NOT_EXPORTED` flag for unprotected broadcasts registered for an IntentFilter that cannot be inspected by lint"
+        errorLine1="            context.registerReceiver(receiver, filter, senderPermission(context), null)"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/transport/UsbPermissionBroadcast.kt"
+            line="21"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="DiscouragedApi"
+        message="Use of `scheduleAtFixedRate` is strongly discouraged because it can lead to unexpected behavior when Android processes become cached (tasks may unexpectedly execute hundreds or thousands of times in quick succession when a process changes from cached to uncached); prefer using `scheduleWithFixedDelay`"
+        errorLine1="                reassert = worker.scheduleAtFixedRate("
+        errorLine2="                           ^">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="644"
+            column="28"/>
+    </issue>
+
+    <issue
+        id="DiscouragedApi"
+        message="Use of `scheduleAtFixedRate` is strongly discouraged because it can lead to unexpected behavior when Android processes become cached (tasks may unexpectedly execute hundreds or thousands of times in quick succession when a process changes from cached to uncached); prefer using `scheduleWithFixedDelay`"
+        errorLine1="        Executors.newSingleThreadScheduledExecutor { runnable ->"
+        errorLine2="        ^">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxHudBridge.kt"
+            line="414"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="HardwareIds"
+        message="Using `getAddress` to get device identifiers is not recommended"
+        errorLine1="                adapter.address"
+        errorLine2="                ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/orchestration/CarPlayController.kt"
+            line="3669"
+            column="17"/>
+    </issue>
+
+    <issue
+        id="HardwareIds"
+        message="Using `getString` to get device identifiers is not recommended"
+        errorLine1="        val id = runCatching { Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID) }"
+        errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/network/WifiP2pGroupManager.kt"
+            line="65"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields (static reference to `Session` which has field `context` pointing to `Context`); this is a memory leak"
+        errorLine1="    private var session: Session? = null"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/bluetooth/CarBluetoothProfileGuard.kt"
+            line="97"
+            column="5"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields; this is a memory leak"
+        errorLine1="    private var context: Context? = null"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/shihab/diplay/hud/EcarxHudBridge.kt"
+            line="157"
+            column="5"/>
+    </issue>
+
+</issues>
