@@ -145,7 +145,7 @@ class NativeVideoRouteDeviceTest {
             send(0)
             awaitFrames(first, 1)
             awaitFrames(mirror, 1)
-            val stats = LongArray(14)
+            val stats = LongArray(16)
             NativeMedia.pipeTakeStats(first, stats, IntArray(1024))
             assertEquals(1L, stats[6])
             assertEquals(6L, stats[7])
