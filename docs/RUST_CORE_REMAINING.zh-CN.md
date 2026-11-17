@@ -579,6 +579,7 @@ wired `runStack` 的 bring-up 顺序已由 `session::wired_stack::advance(action
 - **状态语义（②）**：恢复动作（`ConnectionRecovery.action`）、每代一次失败（`WirelessRunState.fail`）、失败分类（`WirelessRecoveryCore.classify`）均 Rust；Kotlin 仅 `CarPlayStatus` DTO 与 `debugLogMessage` 文案（展示/日志，属平台）。已满足，无需改。
 - **重试原因结构化（⑤）**：CarKit `StartService` 拒绝由 Rust `flow::rejection_reason` 返回结构化码（1=无效配对记录，2=无效 host id，`87b8949d`），Kotlin 抛 `IphoneUsbException.CarkitRejected(reason)` 直接读码；残余 `.contains` 仅平台事实（蓝牙设备名/errno 文本）。
 - **共享输出两套 owner（③）**：核实为**按输出域分离**——非缓冲 screen/audio/mic 的唯一“可停止”权威是 `media::output_lease`（`NativeAudioRoute`/`NativeVideoFlow` 仅渲染/输入，不做停止决策）；单条 type-103 buffered 渲染器由 `BufferedEngineCore`＋Kotlin `WeakHashMap` 弱资格＋退休屏障决定（AGENTS 明确弱资格须由 Kotlin 持有）。二者语义不同且都已在 Rust 决策，**合并会违背弱引用设计并有媒体回归风险，故按“不盲改”保留现状**。
+- **共享输出释放顺序（③ 补强）**：`onTeardown` 统一为"先摘除并关闭源流，再按最后持有者释放并停止"；只对音频类型释放音频/麦克风 lease（屏幕 110/111、数据 130 的 teardown 不再误发 `onAudioStopped`）；`onAudio` 的同 session 替换按最后持有者门控停止。Rust `output_lease` 增单测（未知持有者释放不停共享输出），`CarPlaySharedOutputCleanupTest` 增 3 例（源先于 sink、屏幕/数据不误停），shared 2113/0、cargo 318/0。
 - **wired 收尾/释放计划（①）**：release 顺序与“关 NCM / detach VPN”分支的决策已下沉 `session::wired_stack::teardownPlan(phase, facts)`（Rust 单测 + Kotlin 契约测试），Kotlin 仅按计划执行原有 close/detach 语句；wired 真机回归仍待 USB 连接的 iPhone。
 
 结论：safely-doable 的非平台逻辑（④②⑤）已收敛；③ 经核实为有意分离（非缺陷）；① 的决策层已下沉，仅真机回归待 USB iPhone。
