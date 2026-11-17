@@ -692,6 +692,13 @@ class CarPlayMediaEngine(
         val sessionStreams = streams.keys.filter {
             it.session === session && it.type != BufferedAudioStream.STREAM_TYPE
         }
+        // Detach and close every source first, then release leases, so a final flush lands on a live
+        // renderer and only the last holder stops a shared sink (same order as teardown).
+        sessionStreams.forEach {
+            val removed = streams.remove(it)
+            if (it.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
+            removed?.close()
+        }
         sessionStreams
             .filter { isScreenStreamType(it.type) }
             .forEach { key ->
@@ -699,11 +706,6 @@ class CarPlayMediaEngine(
                     sink.onScreenStreamActive(key.type, false)
                 }
             }
-        sessionStreams.forEach {
-            val removed = streams.remove(it)
-            if (it.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
-            removed?.close()
-        }
         // A session that ends without TEARDOWN (a wireless restart) must still release its renderers,
         // or they keep their codec, track and focus until the sink closes. Renderers are keyed by stream
         // id only, so one a newer session already uses stays.

@@ -214,6 +214,14 @@ class CarPlaySharedOutputCleanupTest {
         assertTrue(rig.streams.isEmpty())
     }
 
+    @Test fun screenSessionCloseRetiresTheSourceBeforeStoppingTheOutput() = Rig().use { rig ->
+        rig.register(rig.old, 110)
+        rig.engine.onSessionClosed(rig.old)
+        assertEquals(listOf("close", "screen"), rig.events)
+        assertEquals(listOf(110 to false), rig.screens)
+        assertTrue("a screen session close must not emit an audio stop", rig.audioStops.isEmpty())
+    }
+
     @Test fun onlyClosingCurrentDuckOwnerReleasesPrompt() = Rig().use { rig ->
         rig.engine.onAudioDuck(rig.old, true)
         rig.engine.onAudioDuck(rig.current, true)
