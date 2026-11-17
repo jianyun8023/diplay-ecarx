@@ -1,0 +1,27 @@
+# Shared editor/formatting baseline. detekt enforces bug-level Kotlin rules
+# (config/detekt/detekt.yml); this file defines the Kotlin style contract for IDEs and for a
+# future ktlint pass. Long-line limits are intentionally not enforced yet: the source keeps
+# some long protocol/format strings, and normalizing them is a separate whole-tree change.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{kt,kts}]
+max_line_length = off
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.rs]
+indent_size = 4

@@ -49,6 +49,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.1'
+          components: clippy, rustfmt
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
@@ -56,8 +57,45 @@ jobs:
           key: ${{ runner.os }}-diplay-media-host
       - name: Rust Android provenance regression tests
         run: python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'
+      - name: Rust formatting
+        run: cargo fmt --manifest-path shared/src/main/rust/diplay-media/Cargo.toml --check
       - name: Rust core unit tests
         run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
+      # Bug-level lints only (correctness/suspicious). The crate still carries style/complexity
+      # warnings kept as tracked backlog; tighten to `-D warnings` after that cleanup lands.
+      - name: Rust clippy (bug-level lints)
+        run: >
+          cargo clippy --locked --all-targets
+          --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
+          -- -D clippy::correctness -D clippy::suspicious
+
+  # Bug-level Kotlin static analysis. Runs the detekt CLI on JDK 21: the Gradle daemon pins
+  # JDK 25 (gradle/gradle-daemon-jvm.properties) and detekt 1.23's embedded compiler rejects it.
+  kotlin_static:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache detekt CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/detekt
+          key: detekt-${{ runner.os }}-1.23.8
+      - name: detekt (bug-level Kotlin rules)
+        run: bash scripts/run_detekt.sh
+      - name: Upload detekt report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-report
+          path: build/reports/detekt/
+          if-no-files-found: ignore
 
   # Default builds a single ARM64 leg and uploads its library + JNI export list.
   # ARMv7 and x86_64 are opt-in: run scripts/check_rust_android_native.sh <abi> locally.
@@ -166,6 +204,48 @@ jobs:
             common/build/reports/open-source-ui/
             common/build/reports/side-panel-ui/
 
+  # Non-blocking coverage (Kover). Deliberately not part of the required `check` aggregate:
+  # it publishes trends without failing a PR on coverage thresholds.
+  coverage:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.1'
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: shared/src/main/rust/diplay-media -> target
+          key: ${{ runner.os }}-diplay-media-host
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Kover coverage (shared + common)
+        run: >
+          ./gradlew
+          :shared:koverXmlReportDebug :common:koverXmlReportDebug
+          :shared:koverHtmlReportDebug :common:koverHtmlReportDebug
+          --build-cache --stacktrace
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            shared/build/reports/kover/
+            common/build/reports/kover/
+          if-no-files-found: ignore
+
   build:
     needs: [changes, native]
     if: needs.changes.outputs.core == 'true'
@@ -197,7 +277,7 @@ jobs:
       - name: Lint, debug APKs and release optimization (parallel)
         run: >
           ./gradlew
-          :mobile:lintDebug :maphost:lintDebug
+          :mobile:lintDebug :maphost:lintDebug :shared:lintDebug :common:lintDebug
           :mobile:assembleDebug :maphost:assembleDebug
           :mobile:minifyReleaseWithR8 :maphost:minifyReleaseWithR8
           --parallel --max-workers=4 --build-cache --configuration-cache --stacktrace
@@ -244,17 +324,17 @@ jobs:
   # Single required status: green when every job succeeded or was skipped for a
   # docs-only change; red if any job failed.
   check:
-    needs: [changes, rust_tests, native, unit_tests, build]
+    needs: [changes, rust_tests, kotlin_static, native, unit_tests, build]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Aggregate required result
         run: |
-          printf 'changes=%s rust-tests=%s native=%s unit-tests=%s build=%s\n' \
-            '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'
+          printf 'changes=%s rust-tests=%s kotlin-static=%s native=%s unit-tests=%s build=%s\n' \
+            '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.kotlin_static.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'
           fail=0
-          for r in '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'; do
+          for r in '${{ needs.changes.result }}' '${{ needs.rust_tests.result }}' '${{ needs.kotlin_static.result }}' '${{ needs.native.result }}' '${{ needs.unit_tests.result }}' '${{ needs.build.result }}'; do
             case "$r" in
               success|skipped) ;;
               *) echo "A required job did not succeed: $r" >&2; fail=1 ;;

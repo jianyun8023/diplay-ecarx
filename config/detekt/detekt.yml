@@ -1,0 +1,34 @@
+# DiPlay detekt configuration (applied to :shared and :common, main sources).
+#
+# Scope: this gate is tuned to catch likely BUGS, not style. The codebase is a platform
+# adapter that intentionally uses vendor/reflective calls, specific-exception handling and
+# long protocol strings, so the opinionated style/complexity/naming/formatting groups are
+# off. What remains (potential-bugs, coroutines, performance minus SpreadOperator) flagged
+# zero issues when introduced, so this is a clean zero-baseline gate: it fails only on a NEW
+# likely-bug pattern.
+#
+# Style/formatting is tracked separately via .editorconfig. Enforcing detekt-formatting
+# (ktlint rules) or the style group would first need a whole-tree normalization PR, the same
+# way `cargo fmt` does for the Rust core, so it is deliberately not gated here yet.
+build:
+  maxIssues: 0
+
+style:
+  active: false
+
+complexity:
+  active: false
+
+naming:
+  active: false
+
+exceptions:
+  active: false
+
+empty-blocks:
+  active: false
+
+performance:
+  # Reflection call sites legitimately spread argument arrays; not a defect here.
+  SpreadOperator:
+    active: false
