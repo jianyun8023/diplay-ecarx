@@ -107,7 +107,7 @@ pub fn seal(key: &LessSafeKey, payload_type: u8, sequence: u16, timestamp: u32, 
 
 impl Uplink {
     pub(super) fn new(key: &[u8], payload_type: i32, address: &[u8], scope_id: i32, port: i32,
-                      opus_bitrate: i32, rtp_samples_per_packet: i32) -> Option<Box<Self>> {
+                      opus_bitrate: i32, rtp_samples_per_packet: i32, seed_nonce: u64) -> Option<Box<Self>> {
         use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket};
         if !(1..=65535).contains(&port) { return None; }
         let unbound = UnboundKey::new(&CHACHA20_POLY1305, key).ok()?;
@@ -123,9 +123,13 @@ impl Uplink {
         Some(Box::new(Uplink {
             socket, address, key: LessSafeKey::new(unbound),
             payload_type: (payload_type & 0x7f) as u8, samples_per_packet: rtp_samples_per_packet as u32, encoder,
-            sequence: 0, timestamp: 0, nonce: 0, pcm: Vec::new(), packet: Vec::new(),
+            sequence: 0, timestamp: 0, nonce: seed_nonce, pcm: Vec::new(), packet: Vec::new(),
         }))
     }
+
+    /// The current ChaCha counter, snapshotted so an identical-key replacement sender resumes it
+    /// instead of reusing nonce space. RTP sequence/timestamp stay fresh on replacement.
+    pub(super) fn nonce(&self) -> u64 { self.nonce }
 
     /// Sends one captured frame (16-bit little-endian PCM). Returns the packets sent
     /// (0 when the encoder produced nothing), -1 when encoding failed, or -errno when the send failed.
@@ -346,5 +350,18 @@ mod tests {
         unsafe { opus_encoder_destroy(encoder); opus_decoder_destroy(decoder) };
         let ratio = energy_out / energy_in;
         assert!((0.7..1.3).contains(&ratio), "{ratio}");
+    }
+}
+
+#[cfg(test)]
+mod nonce_seed_tests {
+    use super::Uplink;
+
+    #[test]
+    fn a_replacement_sender_can_resume_the_previous_nonce() {
+        let key = [0u8; 32];
+        let up = Uplink::new(&key, 96, &[127, 0, 0, 1], 0, 5000, 0, 480, 7).unwrap();
+        // Seeded so an identical-key replacement sender resumes the counter instead of reusing nonce space.
+        assert_eq!(up.nonce(), 7);
     }
 }

@@ -27,11 +27,13 @@ internal class MicrophoneUplink(
     private val speakerphoneCall: Boolean = false,
     /** Current output owner; queried without sink locks so a recovered renderer can replace its ring. */
     private val echoReferenceSource: () -> EchoReference? = { null },
-    private val nativeSenderFactory: (MicrophoneConfig) -> NativeUplinkSender? = NativeUplinkSender::create,
+    private val nativeSenderFactory: (MicrophoneConfig, Long) -> NativeUplinkSender? = NativeUplinkSender::create,
     private val noAudioRestartMillis: Long = NO_AUDIO_RESTART_MILLIS,
     private val onCaptureState: () -> Unit = {},
     /** Read for a report window that recorded no sound; see [silenceDetail]. */
     private val audioManager: AudioManager? = null,
+    /** Seed for an identical-key replacement sender so it resumes the ChaCha counter. */
+    private val initialNonce: Long = 0L,
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
@@ -98,7 +100,7 @@ internal class MicrophoneUplink(
 
         recorder = nextRecorder
         val nextSender = try {
-            nativeSenderFactory(config)?.also { nativeSender = it } ?: run {
+            nativeSenderFactory(config, initialNonce)?.also { nativeSender = it } ?: run {
                 Log.w(TAG, "microphone native pipeline is unavailable")
                 stats.failure(MicrophoneFailureStage.NATIVE_PIPELINE)
                 release()
@@ -163,6 +165,9 @@ internal class MicrophoneUplink(
     }
 
     // Called by the native worker at every completed frame, without the release monitor.
+    /** The running sender's ChaCha counter, snapshotted before an identical-key replacement. */
+    internal fun currentNonce(): Long = nativeSender?.snapshotNonce() ?: 0L
+
     private fun captureRunning(): Boolean = running.get()
     private fun captureEchoSource(): EchoReference? = if (running.get()) echoReferenceSource() else null
 

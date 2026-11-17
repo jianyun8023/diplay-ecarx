@@ -15,7 +15,7 @@ open class MicrophoneCaptureContract {
             receiver.soTimeout = 5_000
             val key = ByteArray(32) { (it * 13).toByte() }
             val handle = NativeMicrophone.create(key, 100, receiver.localAddress.address, 0, receiver.localPort,
-                0, 320, 640, 16_000, 1)
+                0, 320, 640, 16_000, 1, 0)
             assertNotEquals(0L, handle)
             val stats = NativeCaptureStats.create(0)
             val host = Host()
@@ -54,7 +54,7 @@ open class MicrophoneCaptureContract {
                 receiver.soTimeout = 5_000
                 val samples = rate / 50
                 val handle = NativeMicrophone.create(ByteArray(32), 100, receiver.localAddress.address,
-                    0, receiver.localPort, 0, samples, samples * 2, rate, 1)
+                    0, receiver.localPort, 0, samples, samples * 2, rate, 1, 0)
                 assertNotEquals(0L, handle)
                 EchoReference(rate).use { reference ->
                     val host = Host().apply { source = reference }

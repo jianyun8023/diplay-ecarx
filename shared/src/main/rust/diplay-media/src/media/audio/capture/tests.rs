@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn capture(rate: i32, samples: usize) -> Capture {
     Capture {
-        sender: Uplink::new(&[0; 32], 100, &[127, 0, 0, 1], 0, 9, 0, samples as i32).unwrap(),
+        sender: Uplink::new(&[0; 32], 100, &[127, 0, 0, 1], 0, 9, 0, samples as i32, 0).unwrap(),
         frame: vec![0; samples * 2], filled: 0, rate, channels: 1, clock: [0; 3],
         speex: Speex::new(samples, rate), reference: vec![0; samples], echo: None, source: std::ptr::null_mut(),
     }

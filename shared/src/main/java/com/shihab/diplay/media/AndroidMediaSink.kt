@@ -560,13 +560,18 @@ class AndroidMediaSink(
             // running sender; any change (port, key or format) replaces it instead of keeping the
             // sender that captured the earlier configuration.
             val fingerprint = microphoneFingerprint(config)
+            val keyFingerprint = config.key.joinToString("") { "%02x".format(it.toInt() and 0xff) }
             val handoff = microphoneConfigHandoffs.getOrPut(id) { NativeMicrophone.uplinkConfigCreate() }
             val existing = microphoneUplinks[id]
+            var seedNonce = 0L
             if (existing != null) {
-                if (NativeMicrophone.uplinkConfigDecide(handoff, fingerprint) == 0) {
+                val decision = NativeMicrophone.uplinkConfigDecide(handoff, fingerprint, keyFingerprint)
+                if (decision == 0) {
                     existing.start()
                     return
                 }
+                // Same key but different settings: resume the counter so ChaCha nonce space is never reused.
+                if (decision == 2) seedNonce = existing.currentNonce()
                 microphoneUplinks.remove(id, existing)
                 existing.close()
             }
@@ -576,6 +581,7 @@ class AndroidMediaSink(
                 // This lookup must stay lock-free: the capture owns its own reference monitor.
                 echoReferenceSource = { if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null },
                 audioManager = audioManager,
+                initialNonce = seedNonce,
                 onCaptureState = { reportMicrophoneState(id, "capture") })
             if (!uplink.start()) {
                 restoreAudioMode(id)
@@ -583,7 +589,7 @@ class AndroidMediaSink(
             }
             microphoneUplinks[id] = uplink
             // Confirm the new effective configuration only after the sender actually started.
-            NativeMicrophone.uplinkConfigCommit(handoff, fingerprint)
+            NativeMicrophone.uplinkConfigCommit(handoff, fingerprint, keyFingerprint)
         } catch (error: Exception) {
             Log.e("diplay-usb", "microphone start failed stream=$id", error)
             MicrophoneCaptureStats.reportStartFailure(config, error, onAudioDiagnostic)

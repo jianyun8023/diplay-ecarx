@@ -53,7 +53,7 @@ class MicrophoneEncoderAttachmentTest {
 
     @Test fun missingNativePipelineFailsWithoutStartingTheRecorder() {
         lateinit var recorder: AudioRecord
-        val next = MicrophoneUplink(config(), onDiagnostic = diagnostics::add, nativeSenderFactory = {
+        val next = MicrophoneUplink(config(), onDiagnostic = diagnostics::add, nativeSenderFactory = { _, _ ->
             recorder = field(uplink!!, "recorder") as AudioRecord
             null
         })
@@ -76,7 +76,7 @@ class MicrophoneEncoderAttachmentTest {
     @Test fun senderFactoryExceptionReleasesSdkResourcesAndPreservesTheFailure() {
         val failure = IllegalStateException("sender creation failed")
         lateinit var recorder: AudioRecord
-        val next = MicrophoneUplink(config(), nativeSenderFactory = {
+        val next = MicrophoneUplink(config(), nativeSenderFactory = { _, _ ->
             recorder = field(uplink!!, "recorder") as AudioRecord
             throw failure
         })

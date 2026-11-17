@@ -7,9 +7,11 @@ import org.robolectric.annotation.Implements
 class ShadowNativeMicrophone {
     companion object {
         @JvmStatic @Implementation fun create(key: ByteArray, payloadType: Int, address: ByteArray, scopeId: Int, port: Int,
-            bitrate: Int, samplesPerPacket: Int, frameBytes: Int, sampleRate: Int, channels: Int): Long =
+            bitrate: Int, samplesPerPacket: Int, frameBytes: Int, sampleRate: Int, channels: Int, seedNonce: Long): Long =
             HostNative.call("media.NativeMicrophone", "create", key, payloadType, address, scopeId, port,
-                bitrate, samplesPerPacket, frameBytes, sampleRate, channels) as Long
+                bitrate, samplesPerPacket, frameBytes, sampleRate, channels, seedNonce) as Long
+        @JvmStatic @Implementation fun uplinkNonce(handle: Long): Long =
+            HostNative.call("media.NativeMicrophone", "uplinkNonce", handle) as Long
         @JvmStatic @Implementation fun enableEcho(handle: Long, source: Any?): Boolean =
             HostNative.call("media.NativeMicrophone", "enableEcho", handle, source) as Boolean
         @JvmStatic @Implementation fun disableEcho(handle: Long) { HostNative.call("media.NativeMicrophone", "disableEcho", handle) }
@@ -19,10 +21,10 @@ class ShadowNativeMicrophone {
         @JvmStatic @Implementation fun close(handle: Long) { HostNative.call("media.NativeMicrophone", "close", handle) }
         @JvmStatic @Implementation fun uplinkConfigCreate(): Long =
             HostNative.call("media.NativeMicrophone", "uplinkConfigCreate") as Long
-        @JvmStatic @Implementation fun uplinkConfigDecide(handle: Long, fingerprint: String): Int =
-            HostNative.call("media.NativeMicrophone", "uplinkConfigDecide", handle, fingerprint) as Int
-        @JvmStatic @Implementation fun uplinkConfigCommit(handle: Long, fingerprint: String) {
-            HostNative.call("media.NativeMicrophone", "uplinkConfigCommit", handle, fingerprint)
+        @JvmStatic @Implementation fun uplinkConfigDecide(handle: Long, fingerprint: String, keyFingerprint: String): Int =
+            HostNative.call("media.NativeMicrophone", "uplinkConfigDecide", handle, fingerprint, keyFingerprint) as Int
+        @JvmStatic @Implementation fun uplinkConfigCommit(handle: Long, fingerprint: String, keyFingerprint: String) {
+            HostNative.call("media.NativeMicrophone", "uplinkConfigCommit", handle, fingerprint, keyFingerprint)
         }
         @JvmStatic @Implementation fun uplinkConfigDestroy(handle: Long) {
             HostNative.call("media.NativeMicrophone", "uplinkConfigDestroy", handle)
