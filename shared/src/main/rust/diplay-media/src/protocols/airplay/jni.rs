@@ -1,6 +1,6 @@
 use super::{bonjour, control, info, setup, video, Value};
 use crate::protocols::bplist::jni::{read_value, replace_map_value, write_value};
-use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jstring, jvalue, JNIEnv};
+use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jobjectArray, jstring, jvalue, JNIEnv};
 use std::ffi::{CStr, CString};
 use std::ptr::null_mut;
 
@@ -529,6 +529,68 @@ unsafe fn map_get(env: *mut JNIEnv, map: jobject, key: &str) -> Option<jobject> 
         return None;
     }
     Some(value)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_setupStreams(
+    env: *mut JNIEnv, _: jclass, body: jobject,
+) -> jobject {
+    let f = &**env;
+    if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
+    let result = (|| {
+        let streams = map_get(env, body, "streams")?;
+        let list = (f.FindClass.unwrap())(env, c"java/util/List".as_ptr());
+        if list.is_null() { return None; }
+        let is_list = !streams.is_null() && (f.IsInstanceOf.unwrap())(env, streams, list) != 0;
+        match setup::envelope(is_list) {
+            setup::Envelope::Streams => Some(streams),
+            setup::Envelope::Peer => None,
+        }
+    })();
+    (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()))
+}
+
+// Long.parseLong retains the platform's Unicode digits; only malformed numbers become missing.
+unsafe fn stream_header(env: *mut JNIEnv, header: jstring) -> Option<i64> {
+    if header.is_null() { return None; }
+    let f = &**env;
+    let class = (f.FindClass.unwrap())(env, c"java/lang/Long".as_ptr());
+    let malformed = (f.FindClass.unwrap())(env, c"java/lang/NumberFormatException".as_ptr());
+    if class.is_null() || malformed.is_null() { return None; }
+    let parse = (f.GetStaticMethodID.unwrap())(env, class, c"parseLong".as_ptr(), c"(Ljava/lang/String;)J".as_ptr());
+    if parse.is_null() { return None; }
+    let value = (f.CallStaticLongMethodA.unwrap())(env, class, parse, [jvalue { l: header }].as_ptr());
+    if (f.ExceptionCheck.unwrap())(env) == 0 { return Some(value); }
+    let error = (f.ExceptionOccurred.unwrap())(env);
+    (f.ExceptionClear.unwrap())(env);
+    if (f.IsInstanceOf.unwrap())(env, error, malformed) == 0 { (f.Throw.unwrap())(env, error); }
+    None
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_commandEnvelope(
+    env: *mut JNIEnv, _: jclass, header: jstring, params: jobject,
+) -> jobjectArray {
+    let f = &**env;
+    if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
+    let result = (|| {
+        let stream_id = stream_header(env, header);
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        let data = map_get(env, params, "data")?;
+        let bytes = (f.FindClass.unwrap())(env, c"[B".as_ptr());
+        if bytes.is_null() { return None; }
+        let is_bytes = !data.is_null() && (f.IsInstanceOf.unwrap())(env, data, bytes) != 0;
+        let stream_id = control::remote_stream(stream_id, is_bytes)?;
+        let class = (f.FindClass.unwrap())(env, c"java/lang/Object".as_ptr());
+        if class.is_null() { return None; }
+        let values = (f.NewObjectArray.unwrap())(env, 2, class, null_mut());
+        if values.is_null() { return None; }
+        let id = write_value(env, &Value::Int(stream_id as u64))?;
+        (f.SetObjectArrayElement.unwrap())(env, values, 0, id);
+        (f.SetObjectArrayElement.unwrap())(env, values, 1, data);
+        Some(values)
+    })();
+    (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()))
 }
 
 /// Kotlin's `(value as? Number)?.toLong()`: absent or non-Number values stay missing.

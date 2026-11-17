@@ -19,6 +19,23 @@ internal object NativeAirPlayProtocol {
     @JvmStatic external fun availability(token: LongArray, event: Int, value: Boolean): Int
     @JvmStatic external fun cornerMask(value: Any?, depth: Int): ByteArray?
 
+    sealed interface SetupPlan {
+        class Streams(val entries: List<*>) : SetupPlan
+        data object Peer : SetupPlan
+    }
+    class RemoteCommandPlan(val streamId: Long, val data: ByteArray)
+
+    fun setupPlan(body: Map<String, Any?>): SetupPlan =
+        setupStreams(body)?.let { SetupPlan.Streams(it) } ?: SetupPlan.Peer
+
+    fun remoteCommandPlan(header: String?, params: Map<String, Any?>): RemoteCommandPlan? {
+        val values = commandEnvelope(header, params) ?: return null
+        return RemoteCommandPlan(values[0] as Long, values[1] as ByteArray)
+    }
+
+    @JvmStatic private external fun setupStreams(body: Map<String, Any?>): List<*>?
+    @JvmStatic private external fun commandEnvelope(header: String?, params: Map<String, Any?>): Array<Any?>?
+
     /**
      * SETUP interpretation and reply layout behind `protocols::airplay::setup`. [audioSetupPlan]
      * reads the stream fields, derives the DataStream keys and plans the microphone; a null

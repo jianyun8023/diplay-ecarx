@@ -701,9 +701,9 @@ class AirPlaySession(
             return RtspMessage.Response(status = 400)
         }
         debugLog("airplay SETUP keys=${dict.keys.sorted()}")
-        val streams = dict["streams"] as? List<*>
-        if (streams != null) {
-            val responseStreams = handleStreams(streams)
+        val setup = NativeAirPlayProtocol.setupPlan(dict)
+        if (setup is NativeAirPlayProtocol.SetupPlan.Streams) {
+            val responseStreams = handleStreams(setup.entries)
             debugLog("airplay SETUP response streams=$responseStreams")
             val body = BplistCodec.encode(AirPlayCommands.streams(responseStreams))
             trace { "airplay SETUP response bplistHex=${body.toHex()}" }
@@ -809,11 +809,10 @@ class AirPlaySession(
         } else {
             debugLog("airplay command type=" + type + " keys=" + params.keys.sorted())
         }
-        val streamId = request.headers["x-apple-streamid"]?.toLongOrNull()
-        val data = params["data"] as? ByteArray
-        if (streamId != null && data != null) {
-            runCatching { asMap(BplistCodec.decode(data)) }.getOrNull()
-                ?.let { listener.onRemoteControlMessage(this, streamId, it) }
+        val remote = NativeAirPlayProtocol.remoteCommandPlan(request.headers["x-apple-streamid"], params)
+        if (remote != null) {
+            runCatching { asMap(BplistCodec.decode(remote.data)) }.getOrNull()
+                ?.let { listener.onRemoteControlMessage(this, remote.streamId, it) }
             return RtspMessage.Response(status = 200)
         }
         commandPlan.navigationEntity?.let { entity ->

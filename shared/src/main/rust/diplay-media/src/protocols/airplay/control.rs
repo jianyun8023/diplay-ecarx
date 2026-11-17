@@ -1,5 +1,9 @@
 use super::*;
 
+pub(super) fn remote_stream(stream_id: Option<i64>, data_is_bytes: bool) -> Option<i64> {
+    stream_id.filter(|_| data_is_bytes)
+}
+
 fn hex_uid(uid: i32) -> String {
     if uid < 0 {
         format!("-{:x}", uid.unsigned_abs())
@@ -208,4 +212,16 @@ pub(super) fn command(operation: i32, arguments: &Value) -> Result<Value> {
         }
         _ => return Err("Invalid AirPlay command operation"),
     })
+}
+
+#[cfg(test)]
+mod remote_stream_tests {
+    use super::remote_stream;
+
+    #[test]
+    fn remote_stream_requires_an_id_and_byte_data() {
+        assert_eq!(remote_stream(Some(5), true), Some(5));
+        assert_eq!(remote_stream(Some(5), false), None);
+        assert_eq!(remote_stream(None, true), None);
+    }
 }

@@ -55,6 +55,12 @@ class ShadowNativeAirPlayProtocol {
         @JvmStatic @Implementation fun cornerMask(value: Any?, depth: Int): ByteArray? =
             HostNative.call("airplay.NativeAirPlayProtocol", "cornerMask", value, depth) as ByteArray?
 
+        @JvmStatic @Implementation fun setupStreams(body: Map<String, Any?>): List<*>? =
+            HostNative.call("airplay.NativeAirPlayProtocol", "setupStreams", body) as List<*>?
+
+        @JvmStatic @Implementation fun commandEnvelope(header: String?, params: Map<String, Any?>): Array<Any?>? =
+            HostNative.call("airplay.NativeAirPlayProtocol", "commandEnvelope", header, params) as Array<Any?>?
+
         @JvmStatic @Implementation fun audioSetup(
             type: Int,
             audioType: String,

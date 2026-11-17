@@ -20,6 +20,12 @@ pub(super) const REPLY_REMOTE_CONTROL: i32 = 1;
 pub(super) const REPLY_DATA: i32 = 2;
 pub(super) const REPLY_BUFFERED: i32 = 3;
 
+pub(super) enum Envelope { Streams, Peer }
+
+pub(super) fn envelope(streams_is_list: bool) -> Envelope {
+    if streams_is_list { Envelope::Streams } else { Envelope::Peer }
+}
+
 pub(super) fn buffered_format_supported(bits: i64) -> bool { format_bits(bits as u64)[0] == 0 }
 
 pub(super) fn buffered_optional_int_valid(present: bool, value: Option<i32>, expected: i32) -> bool {
@@ -308,5 +314,16 @@ mod tests {
         assert_eq!(int_connection(-1), ConnectionSlot::UnsignedDecimal(4_294_967_295));
         assert_eq!(unsigned_decimal_string(u64::MAX), "18446744073709551615");
         assert_eq!(unsigned_decimal_string(4_294_967_295), "4294967295");
+    }
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::{envelope, Envelope};
+
+    #[test]
+    fn envelope_selects_streams_only_for_a_list() {
+        assert!(matches!(envelope(true), Envelope::Streams));
+        assert!(matches!(envelope(false), Envelope::Peer));
     }
 }
