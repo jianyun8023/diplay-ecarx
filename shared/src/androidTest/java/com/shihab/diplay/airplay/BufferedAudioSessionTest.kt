@@ -287,7 +287,8 @@ class BufferedAudioSessionTest {
         val id = AudioStreamId(103, "media")
         // Freeze only the buffered scheduling clock, so pause/resume retains the same inaudible
         // preload while the real output worker and encrypted TCP receiver run normally.
-        val buffered = BufferedAudioStream(ByteArray(32), format, sink, nanoTime = { 0L })
+        val buffered = BufferedAudioStream(ByteArray(32), format, sink, nanoTime = { 0L },
+            expectedPeer = InetAddress.getByName("127.0.0.1"))
         try {
             buffered.start()
             Socket("127.0.0.1", buffered.port).use { socket ->
