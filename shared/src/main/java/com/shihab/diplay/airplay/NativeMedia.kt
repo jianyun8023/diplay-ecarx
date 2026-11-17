@@ -32,6 +32,7 @@ internal object NativeMedia {
     @JvmStatic external fun hidKnobReport(select: Boolean, home: Boolean, back: Boolean, x: Int, y: Int, wheel: Int): ByteArray
     /** Both media and telephony report the low byte of the index. */
     @JvmStatic external fun hidIndexReport(index: Int): ByteArray
+    @JvmStatic external fun hidIndexPressRelease(index: Int): ByteArray
     /** 0 touch, 1 knob, 2 media, 3 telephony; touch bounds retain their low 16 bits. */
     @JvmStatic external fun hidDescriptor(kind: Int, xMax: Int, yMax: Int): ByteArray
 

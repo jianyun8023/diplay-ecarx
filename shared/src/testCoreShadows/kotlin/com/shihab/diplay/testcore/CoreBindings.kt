@@ -26,6 +26,9 @@ class ShadowNativeAirPlayNegotiation {
         @JvmStatic @Implementation fun route(state: LongArray, method: String, path: String, bodyBytes: Int): Int =
             HostNative.call("airplay.NativeAirPlayNegotiation", "route", state, method, path, bodyBytes) as Int
 
+        @JvmStatic @Implementation fun eventCommand(path: String): Boolean =
+            HostNative.call("airplay.NativeAirPlayNegotiation", "eventCommand", path) as Boolean
+
         @JvmStatic @Implementation fun streamAction(state: LongArray, type: Int): Int =
             HostNative.call("airplay.NativeAirPlayNegotiation", "streamAction", state, type) as Int
 
@@ -158,6 +161,9 @@ open class ShadowNativeMedia {
 
         @JvmStatic @Implementation fun hidIndexReport(index: Int): ByteArray =
             HostNative.call("airplay.NativeMedia", "hidIndexReport", index) as ByteArray
+
+        @JvmStatic @Implementation fun hidIndexPressRelease(index: Int): ByteArray =
+            HostNative.call("airplay.NativeMedia", "hidIndexPressRelease", index) as ByteArray
 
         @JvmStatic @Implementation fun hidDescriptor(kind: Int, xMax: Int, yMax: Int): ByteArray =
             HostNative.call("airplay.NativeMedia", "hidDescriptor", kind, xMax, yMax) as ByteArray

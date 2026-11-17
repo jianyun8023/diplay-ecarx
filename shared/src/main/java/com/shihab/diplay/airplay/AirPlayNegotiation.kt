@@ -54,6 +54,8 @@ internal class AirPlayNegotiation(config: AirPlayConfig) {
 
     @Synchronized fun route(method: String, path: String, bodyBytes: Int): RequestAction =
         RequestAction.entries[NativeAirPlayNegotiation.route(state, method, path, bodyBytes)]
+    /** Whether an incoming event-channel request is a control command (Rust owns the dispatch). */
+    fun eventCommand(path: String): Boolean = NativeAirPlayNegotiation.eventCommand(path)
     @Synchronized fun streamAction(type: Int): StreamAction =
         StreamAction.entries[NativeAirPlayNegotiation.streamAction(state, type)]
     /** After a control response is written: whether the core now wants the control cipher installed. */
@@ -101,6 +103,7 @@ internal object NativeAirPlayNegotiation {
     @JvmStatic external fun query(state: LongArray, field: Int): Long
     @JvmStatic external fun event(state: LongArray, event: Int, value: Int): Boolean
     @JvmStatic external fun route(state: LongArray, method: String, path: String, bodyBytes: Int): Int
+    @JvmStatic external fun eventCommand(path: String): Boolean
     @JvmStatic external fun streamAction(state: LongArray, type: Int): Int
     @JvmStatic external fun afterResponse(state: LongArray, keysAvailable: Boolean): Int
     @JvmStatic external fun accepted(state: LongArray, type: Int): Int

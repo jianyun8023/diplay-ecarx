@@ -59,6 +59,9 @@ object AirPlayHid {
 
     fun mediaReport(index: Int): ByteArray = NativeMedia.hidIndexReport(index)
 
+    /** The press(index) then release(0) bytes for a media/telephony key, decided in Rust. */
+    fun indexPressRelease(index: Int): ByteArray = NativeMedia.hidIndexPressRelease(index)
+
     fun telephonyReport(index: Int): ByteArray = NativeMedia.hidIndexReport(index)
 
     private fun descriptor(kind: Int, xMax: Int = 0, yMax: Int = 0): ByteArray =

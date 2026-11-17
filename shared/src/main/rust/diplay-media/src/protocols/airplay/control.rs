@@ -116,6 +116,7 @@ pub(super) fn command(operation: i32, arguments: &Value) -> Result<Value> {
             ("dataPort", int(integer(port)?)),
         ]),
         (14, [streams]) => dict([("streams", array(list(streams)?.iter().cloned()))]),
+        (18, []) => array([int(2), int(3)]),
         (15, [kind, params]) => {
             let kind = string(kind)?;
             let is = |name: &str| kind.iter().copied().eq(name.encode_utf16());
@@ -272,8 +273,7 @@ mod command_interpretation_tests {
     }
 
     #[test]
-    fn command_extracts_the_navigation_entity_from_app_states() {
-        let params = dict([(
+    fn command_extracts_the_navigation_entity_from_app_states() {        let params = dict([(
             "appStates",
             array([
                 dict([("appStateID", int(1)), ("entity", int(7))]),

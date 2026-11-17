@@ -39,6 +39,20 @@ pub fn knob_report(select: bool, home: bool, back: bool, x: i32, y: i32, wheel: 
 
 pub fn index_report(index: i32) -> [u8; 1] { [index as u8] }
 
+/// A media/telephony key press then release: the index byte followed by the released (0) byte.
+pub fn index_press_release(index: i32) -> [u8; 2] { [index as u8, 0] }
+
+#[cfg(test)]
+mod index_press_release_tests {
+    use super::index_press_release;
+
+    #[test]
+    fn press_then_release_is_the_index_followed_by_zero() {
+        assert_eq!(index_press_release(5), [5, 0]);
+        assert_eq!(index_press_release(0), [0, 0]);
+    }
+}
+
 pub fn descriptor(kind: i32, x_max: i32, y_max: i32) -> Option<Vec<u8>> {
     Some(match kind {
         0 => {
@@ -139,6 +153,11 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidKnob
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidIndexReport(
     env: *mut JNIEnv, _class: jclass, index: jint,
 ) -> jbyteArray { bytes(env, &index_report(index)) }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidIndexPressRelease(
+    env: *mut JNIEnv, _class: jclass, index: jint,
+) -> jbyteArray { bytes(env, &index_press_release(index)) }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_hidDescriptor(

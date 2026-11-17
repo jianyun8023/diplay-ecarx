@@ -142,6 +142,9 @@ internal object AirPlayCommands {
     fun keyFrame(uuid: String? = null) = command(3, uuid)
     fun zoom(zoomIn: Boolean) = command(4, zoomIn)
     fun siri(action: Int) = command(5, action)
+    /** The request/release action sequence Rust decides for a Siri invocation. */
+    fun siriSequence(): IntArray =
+        (NativeAirPlayProtocol.control(18, emptyList()) as List<*>).map { (it as Number).toInt() }.toIntArray()
     fun navigationExit(claim: Boolean) = command(6, claim)
     fun iap(data: ByteArray) = command(7, data)
     fun night(night: Boolean) = command(8, night)

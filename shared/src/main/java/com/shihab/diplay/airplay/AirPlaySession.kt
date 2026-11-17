@@ -389,20 +389,21 @@ class AirPlaySession(
         val startedNs = System.nanoTime()
         // An executor accepting a key is not evidence that either HID report reached the socket.
         debugLog("Playback recovery session=${System.identityHashCode(this)} media HID begin index=$index monotonicNs=$startedNs")
-        val down = sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(index))
-        val up = sendHidReport(AirPlayHid.MEDIA_HID_UID, AirPlayHid.mediaReport(0))
+        val pair = AirPlayHid.indexPressRelease(index)
+        val down = sendHidReport(AirPlayHid.MEDIA_HID_UID, byteArrayOf(pair[0]))
+        val up = sendHidReport(AirPlayHid.MEDIA_HID_UID, byteArrayOf(pair[1]))
         debugLog("Playback recovery session=${System.identityHashCode(this)} media HID complete index=$index startedNs=$startedNs downWritten=$down upWritten=$up " +
             "writeMs=${(System.nanoTime() - startedNs) / 1_000_000}")
     }
 
     fun sendTelephony(index: Int) {
-        sendHidReport(AirPlayHid.TELEPHONY_HID_UID, AirPlayHid.telephonyReport(index))
-        sendHidReport(AirPlayHid.TELEPHONY_HID_UID, AirPlayHid.telephonyReport(0))
+        val pair = AirPlayHid.indexPressRelease(index)
+        sendHidReport(AirPlayHid.TELEPHONY_HID_UID, byteArrayOf(pair[0]))
+        sendHidReport(AirPlayHid.TELEPHONY_HID_UID, byteArrayOf(pair[1]))
     }
 
     fun invokeSiri() {
-        sendCommand(AirPlayCommands.siri(2))
-        sendCommand(AirPlayCommands.siri(3))
+        for (action in AirPlayCommands.siriSequence()) sendCommand(AirPlayCommands.siri(action))
     }
 
     /**
@@ -1022,7 +1023,7 @@ class AirPlaySession(
                         "airplay event rx ${message.method} ${message.path} cseq=${message.headers["cseq"] ?: "-"} body=${message.body.size}",
                     )
                     val response = RtspMessage.buildResponse(message,
-                        if (message.path == "/command") handleCommand(message) else RtspMessage.Response(status = 200))
+                        if (negotiation.eventCommand(message.path)) handleCommand(message) else RtspMessage.Response(status = 200))
                     trace {
                         "airplay event rx headers=${message.headers} " +
                             "bodyHex=${message.body.toHex()}"

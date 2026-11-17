@@ -184,6 +184,17 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegoti
     state.route(&method, &path, size)
 }
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_eventCommand(
+    env: *mut JNIEnv,
+    _class: jclass,
+    path: jstring,
+) -> jboolean {
+    match string(env, path) {
+        Some(path) => super::event_command(&path) as jboolean,
+        None => 0,
+    }
+}
+#[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayNegotiation_timingAction(
     env: *mut JNIEnv,
     _class: jclass,

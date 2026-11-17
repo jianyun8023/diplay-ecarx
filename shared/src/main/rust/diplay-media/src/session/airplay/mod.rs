@@ -3,6 +3,21 @@
 mod cluster_content;
 mod jni;
 
+/// Whether an incoming event-channel request is a control command the session must answer.
+pub fn event_command(path: &str) -> bool { path == "/command" }
+
+#[cfg(test)]
+mod event_command_tests {
+    use super::event_command;
+
+    #[test]
+    fn only_the_exact_slash_command_path_is_a_control_command() {
+        assert!(event_command("/command"));
+        assert!(!event_command("/feedback"));
+        assert!(!event_command("/command/extra"));
+    }
+}
+
 const WORDS: usize = 54;
 /// The first remote-control data stream id a session hands out.
 const FIRST_REMOTE_CONTROL_STREAM_ID: i64 = 3;
