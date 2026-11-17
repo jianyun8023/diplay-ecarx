@@ -81,7 +81,8 @@ class BootReceiver : BroadcastReceiver() {
             // uses Bluetooth. It skips itself once a session holds the guard.
             CarBluetoothProfileGuard.recoverIfStale(context)
             if (BootCarPlayLaunch.open(context, early = true)) {
-                Log.i(TAG, "CarPlay opened at user unlock")
+                // With a car hotspot the screen opens from the readiness gate's callback, not here.
+                Log.i(TAG, "CarPlay launch requested at user unlock")
             }
         }.onFailure { Log.w(TAG, "CarPlay at user unlock failed; BOOT_COMPLETED will retry", it) }
     }

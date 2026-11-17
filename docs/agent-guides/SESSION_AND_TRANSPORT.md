@@ -35,6 +35,8 @@ Wired USB results belong to their diagnostic run. Reject and release stale Conne
 
 - Rust `session::hotspot_recovery` owns stable-sample confirmation, first-sample fast confirmation with change fallback, hotspot readiness deadlines/polls, radio-return wait budgets and process-wide radio outage expiry. Kotlin retains Android AP/interface identification and identity comparisons, clock/cancellation reads and SDK polling. Preserve callback/clock order, the 2/3-sample thresholds and 250/500 ms polls.
 
+- The first-post-boot readiness gate is Kotlin policy, not a new owner: `BootReadinessGate` (`common`) waits off the receiver thread and `CarHotspotReady` (`shared`) feeds the wait through the existing `ManualHotspotReadiness` samples, stable-sample rule and 250 ms poll. Only the boot auto-start of a car-hotspot run waits before it opens the CarPlay screen, capped at 20 s and fail-open; an unobservable AP state ends the wait at once, the hotspot start still runs before and independently of the gate, and nothing gates on Bluetooth or on the iPhone joining the AP. User connects, settings return, USB-to-wireless switching, notification/dashboard intents and reconnect-after-loss never reach `BootCarPlayLaunch`, so they keep their unchanged timing.
+
 - Rust `session::p2p_startup` owns remembered-frequency validation, aligned/band/manual channel plans, bounded BUSY retry and compatibility fallback decisions. Kotlin retains WifiP2pManager operations, platform prerequisites/interlocks and original exception identities; uncertain timeouts cannot trigger another create request.
 
 ## Dashboard content lifetimes

@@ -28,6 +28,12 @@ object CarPlayStartupTimeline {
         LAUNCHER_FIRST_BATCH,
         /** The same wait ended without that broadcast, after the 5 s wait. */
         LAUNCHER_FIRST_BATCH_MISSED,
+        /**
+         * The first-post-boot gate stopped waiting for the car hotspot before it opened the CarPlay
+         * screen. Carries `waitedMs=`, `reason=ready|timeout|cancelled|unobservable|error`,
+         * `apEnabled=` and `address=`.
+         */
+        BOOT_READY_GATE,
         LAUNCHER_CREATE,
         LAUNCHER_RESUME,
         AUTO_CONNECT_DISPATCH,
@@ -86,6 +92,10 @@ object CarPlayStartupTimeline {
     /**
      * Enum fields and numeric IDs only. Do not add SSID, BSSID, passwords, phone addresses,
      * private authentication material or exception messages to this persisted trace.
+     *
+     * [detail] is the single documented exception: the boot gate's own wait outcome
+     * (`waitedMs=…`, enum `reason=…`, `apEnabled=…` and the head unit's own hotspot
+     * `address=`). It never carries anything about the phone.
      */
     @Synchronized
     fun record(
@@ -98,10 +108,11 @@ object CarPlayStartupTimeline {
         elapsedMs: Long = SystemClock.elapsedRealtime(),
         decoderId: Int? = null,
         decoderEpoch: Long? = null,
+        detail: String? = null,
     ) {
         if (!isMeasuredMode(mode)) return
         val line = format(elapsedMs, stage, mode, bootCount(context),
-            Process.myPid(), generation, owner, attempt) +
+            Process.myPid(), generation, owner, attempt, detail) +
             if (decoderId != null && decoderEpoch != null) " decoderId=$decoderId decoderEpoch=$decoderEpoch" else ""
         Log.i(TAG, line)
         runCatching {
@@ -110,6 +121,25 @@ object CarPlayStartupTimeline {
             prefs.edit().putString(KEY, (recent.takeLast(LIMIT - 1) + line).joinToString("\n")).apply()
         }
     }
+
+    /**
+     * One line for the first-post-boot gate's wait: [reason] is the gate's own outcome name
+     * (`ready`, `timeout`, `cancelled`, `unobservable`, `error`).
+     */
+    fun recordBootReadyGate(
+        context: Context,
+        mode: WirelessHotspotMode,
+        waitedMs: Long,
+        reason: String,
+        apEnabled: Boolean?,
+        address: String?,
+    ) = record(
+        context,
+        Stage.BOOT_READY_GATE,
+        mode,
+        detail = "waitedMs=$waitedMs reason=$reason apEnabled=${apEnabled ?: "unobservable"} " +
+            "address=${address ?: "none"}",
+    )
 
     internal fun format(
         elapsedMs: Long,
@@ -120,6 +150,7 @@ object CarPlayStartupTimeline {
         generation: Int? = null,
         owner: Int? = null,
         attempt: Int? = null,
+        detail: String? = null,
     ): String = buildString {
         append("elapsedSinceBootMs=").append(elapsedMs)
         append(" stage=").append(stage)
@@ -129,6 +160,7 @@ object CarPlayStartupTimeline {
         attempt?.let { append(" attempt=").append(it) }
         append(" bootCount=").append(bootCount)
         append(" process=").append(process)
+        detail?.let { append(" ").append(it) }
     }
 
     internal fun metrics(lines: List<String>): String {

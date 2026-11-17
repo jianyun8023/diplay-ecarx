@@ -16,6 +16,7 @@
 ## 阶段与判读
 
 1. `LAUNCHER_CREATE` → `AUTO_CONNECT_DISPATCH` → `PROJECTION_REQUEST` → `HOST_CREATE`：自动启动及页面流转。
+   `BOOT_READY_GATE` 记录开机自动启动打开 CarPlay 页面之前等待车机热点可用的结果（`waitedMs=`、`reason=ready|timeout|cancelled|unobservable|error`、`apEnabled=`、`address=`）：上限 20 秒，超时、异常或读不到热点状态即放行，热点启动仍在其之前且独立运行。该项只是应用启动阶段的等待，不替代也不缩短控制器内部的热点就绪规则；用户手动连接、设置返回、USB 转无线和断线重连路径不经过它。
 2. `HOTSPOT_PREPARE_BEGIN/END`、`NETWORK_BACKEND_READY`、`ENDPOINT_READY`：系统热点开关、接口/地址；现有 Wi-Fi 不创建热点。
 3. `CONTROLLER_START`、`LOCAL_MFI_READY`、`WIRELESS_RUN_START`、`AIRPLAY_LISTENING`、`BONJOUR_STARTED`：控制器、监听准备。
 4. `RFCOMM_CONNECTED`、`IAP2_CSM_READY`、`IPHONE_MFI_ACCEPTED`、`START_SESSION_SENT`：蓝牙与协议。
