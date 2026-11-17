@@ -1,6 +1,7 @@
 # Rust 核心验收状态与历史审计
 
 - **输入小批迁移（HID/Siri/事件分派）**：`vehicle::hid::index_press_release` 提供媒体/电话键"按下(index)/释放(0)"字节对；`protocols::airplay` 操作 18 返回 Siri 请求/释放动作序列 (2,3)；`session::airplay::event_command` 判断事件通道请求是否为 `/command`。Kotlin 仅执行发送。Rust 单测 + Kotlin native 契约测试；cargo 323、shared 2117、三 ABI 原生 631、设备 androidTest 190/190。
+- **PairVerify/PairSetup 完整 transcript（2026-11-17）**：为关闭「外部认证向量缺完整 transcript」缺口，用独立参考实现（[`scripts/gen_pair_transcripts.py`](../scripts/gen_pair_transcripts.py)，Python `cryptography` + 已独立复算的 SRP 数学）生成固定 M1–M4／M1–M6 原始字节，固化为 `pair-verify-transcript.properties`／`pair-setup-transcript.properties`。Rust 只增加 `#[cfg(test)]` 的确定性 seam（`PairVerify::use_ephemeral_seed`、`PairSetup::use_srp_secret`，生产仍 `SystemRandom`），对 M2／M4／M6 与派生 control key 逐字节断言。cargo 325 通过；三 ABI 原生 631 JNI／来源校验通过。**来源为独立参考实现，非第三方抓包**（见[向量清单](PROTOCOL_VECTORS.zh-CN.md)）。
 
 ## 当前状态与验收矩阵（2026-11-15）
 
@@ -21,7 +22,7 @@
 | 导航音量键 | 11 月 14 日 17:25 历史诊断报告记录服务未启用；相关本地测试已有覆盖。用户随后明确确认此项 OK。 | 已收尾，不再把历史未启用快照或此前复测计划列为当前待办。 |
 | 双屏／HUD／生命周期与长测 | 历史 v149 实车有 cluster 首帧，#98 小米 8 台架有 overlay 地图实际渲染；#113 新会话记录了两路接收。 | HUD／车道、双屏生命周期及已有性能记录已由用户确认 OK，不再追加回放、实体显示核验或长测。原记录覆盖范围保持不变。 |
 | v149 观察项与 QTI low-latency | [#99 v150 实车评论](https://github.com/jianyun8023/diplay-ecarx/issues/99#issuecomment-6872722131)已验证低延迟开关下发／撤销、正常起播；延迟对照无可测收益，驱动未回报实际生效，保持默认关闭。 | #99 的 08:24:18–08:24:38 Host 暂停，用户已确认记不清操作背景，**仅保留观察，不认定故障或当前回归**。3.2 秒音频到达间隙／stale backlog、熄火后状态也先核操作背景和当前包复现，再决定是否处理。等待数据的 `readsOver250Ms` 不等于处理耗时。 |
-| 独立协议样本 | 保留数学参考、旧实现差分及已登记的外部向量。 | PairVerify／PairSetup 外部完整 transcript 的资料来源缺口保留；HUD／车道已确认 OK，不再要求补固定输入输出回放。自写 fixture 不改称外部独立证据。 |
+| 独立协议样本 | 保留数学参考、旧实现差分及已登记的外部向量。 | PairVerify／PairSetup 已补**完整 transcript**（独立参考实现固定字节 + Rust 逐字节断言，2026-11-17）；HUD／车道已确认 OK，不再要求补固定输入输出回放。来源为独立参考实现而非第三方抓包；如需第三方互通证据仍应补外部发布向量或已知密钥真实抓包。 |
 
 当前平台状态另见 [ECARX 验收表](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵)。新增结果须注明源码／包、环境、场景和未覆盖范围；历史实车通过、最新变更未补验与确实未覆盖的目标硬件分别记录。原始日志、认证资产和设备标识留在本地，不提交仓库。
 
@@ -471,7 +472,7 @@ API 28 首轮 49 项中两项暴露 Android／桌面平台差异：Regex 数字�
 | R8 优化发布包的实际运行（部分完成） | 小米 8 已完成下述 v149 正式 Release 包的无线会话／主屏／音频运行，AAudio 最小修复已完成独立设备验收；真实 CarPlay 修后重放、实车及目标 SDK／组合场景仍待验收 |
 | PASCD 真实车速装配 | 已接入 ECARX `ISensor` 1048832（m/s）与 VHAL `GEAR_SELECTION`，`EcarxVehicleSpeedSource` 驱动既有 Rust PASCD 编码；接口／单位／权限已在平台笔记登记。仍需目标车实车验证订阅、权限、断线恢复与单位 |
 | ECARX 真实 SDK 方法／签名 ABI | 提供含真实 JVM `.class`、可加载的 SDK class JAR 后运行现有 ABI 测试，或另行核验真实 DEX 的类型／方法签名；只有 `classes.dex` 的候选 JAR 不能直接用于 URLClassLoader 合同 |
-| 外部完整 PairVerify／PairSetup transcript、更多真实 CSM／HUD 固定输入输出 | 取得可公开登记来源的独立固定样本；现有数学参考／旧实现差分继续使用，不虚称外部 golden |
+| 更多真实 CSM／HUD 固定输入输出；PairVerify／PairSetup 的第三方互通证据 | PairVerify／PairSetup 完整 transcript 已用独立参考实现固定（2026-11-17），非第三方抓包；仍需更多真实 CSM 帧样本，以及取得可公开登记的第三方发布向量或已知密钥真实抓包以补互通证据 |
 
 上述源码冻结／模拟器验证阶段未操作物理手机或车机；后续小米 8 真机运行另记如下，车机仍未验收。上述项目是硬件／独立样本验收条件，不是继续保留第二套 Kotlin 核心算法的理由。
 

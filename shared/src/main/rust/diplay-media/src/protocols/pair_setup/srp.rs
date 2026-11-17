@@ -65,7 +65,7 @@ impl Srp {
         random.fill(&mut private).ok()?;
         Some(Self::with_secrets(salt, private))
     }
-    fn with_secrets(salt: [u8; 16], private: [u8; 32]) -> Self {
+    pub(super) fn with_secrets(salt: [u8; 16], private: [u8; 32]) -> Self {
         let x = BigUint::from_bytes_be(&hash(&[&salt, &hash(&[b"Pair-Setup:3939"])]));
         let g = BigUint::from(5u8);
         let verifier = g.modpow(&x, modulus());

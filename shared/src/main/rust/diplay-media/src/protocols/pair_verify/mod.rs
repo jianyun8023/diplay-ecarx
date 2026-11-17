@@ -2,7 +2,7 @@
 //! ported from our Kotlin contract, including its partial M1 updates and truncated-TLV handling.
 mod jni;
 
-use crate::protocols::{crypto::{controller_public_key, hkdf32, StreamKey}, tlv8::{decode, encode}};
+use crate::protocols::{crypto::{controller_public_key, hkdf32, x25519_pair, x25519_shared, StreamKey}, tlv8::{decode, encode}};
 use ring::{
     agreement,
     rand::SystemRandom,
@@ -25,6 +25,9 @@ pub struct PairVerify {
     encryption_key: Option<[u8; 32]>,
     pub keys: Option<([u8; 32], [u8; 32])>,
     pub controller_id: Option<Vec<u8>>,
+    // Production is always None (SystemRandom). Tests pin the X25519 ephemeral scalar so a
+    // complete handshake transcript can be asserted byte-for-byte against an external reference.
+    ephemeral_seed: Option<[u8; 32]>,
 }
 
 impl PairVerify {
@@ -41,7 +44,15 @@ impl PairVerify {
             encryption_key: None,
             keys: None,
             controller_id: None,
+            ephemeral_seed: None,
         }
+    }
+
+    /// Test seam: pin the X25519 ephemeral private scalar so a full transcript is reproducible.
+    #[cfg(test)]
+    fn use_ephemeral_seed(mut self, seed: [u8; 32]) -> Self {
+        self.ephemeral_seed = Some(seed);
+        self
     }
 
     pub fn handle(
@@ -66,19 +77,36 @@ impl PairVerify {
         let Some(client) = tlv.get(&PUBLIC_KEY) else {
             return Some(error(2));
         };
-        let private =
-            agreement::EphemeralPrivateKey::generate(&agreement::X25519, &SystemRandom::new())
-                .ok()?;
-        let public = private.compute_public_key().ok()?.as_ref().to_vec();
         // Kotlin publishes these before agreement; a failed new M1 must not leave an old transcript usable.
-        self.own_public = Some(public.clone());
-        self.client_public = Some(client.clone());
-        // BC's offset constructor consumes the first 32 bytes, but signatures include the entire raw key.
-        let peer = agreement::UnparsedPublicKey::new(&agreement::X25519, client.get(..32)?);
-        let shared = agreement::agree_ephemeral(private, &peer, |bytes| {
-            <[u8; 32]>::try_from(bytes).unwrap()
-        })
-        .ok()?;
+        match self.ephemeral_seed {
+            Some(seed) => {
+                let (clamped, public) = x25519_pair(seed);
+                self.own_public = Some(public.to_vec());
+                self.client_public = Some(client.clone());
+                // BC's offset constructor consumes the first 32 bytes, but signatures use the entire raw key.
+                let peer: [u8; 32] = client.get(..32)?.try_into().ok()?;
+                let shared = x25519_shared(clamped, peer)?;
+                self.m2_reply(public.to_vec(), client.clone(), shared)
+            }
+            None => {
+                let private =
+                    agreement::EphemeralPrivateKey::generate(&agreement::X25519, &SystemRandom::new())
+                        .ok()?;
+                let public = private.compute_public_key().ok()?.as_ref().to_vec();
+                self.own_public = Some(public.clone());
+                self.client_public = Some(client.clone());
+                let peer = agreement::UnparsedPublicKey::new(&agreement::X25519, client.get(..32)?);
+                let shared = agreement::agree_ephemeral(private, &peer, |bytes| {
+                    <[u8; 32]>::try_from(bytes).unwrap()
+                })
+                .ok()?;
+                self.m2_reply(public, client.clone(), shared)
+            }
+        }
+    }
+
+    /// Shared tail of M2: publish the agreed secret, seal the accessory signature, emit state 2.
+    fn m2_reply(&mut self, public: Vec<u8>, client: Vec<u8>, shared: [u8; 32]) -> Option<Vec<u8>> {
         self.shared = Some(shared);
         let encryption_key = hkdf32(
             &shared,
@@ -87,7 +115,7 @@ impl PairVerify {
         );
         self.encryption_key = Some(encryption_key);
 
-        let message = [public.as_slice(), &self.accessory_id, client].concat();
+        let message = [public.as_slice(), &self.accessory_id, client.as_slice()].concat();
         // An invalid identity still fails at signing, after shared/encryption have been published.
         let signature = self.signing.as_ref()?.sign(&message);
         let sub = encode(&[
@@ -478,5 +506,64 @@ mod tests {
         fragmented.extend_from_slice(&[7; 255]);
         fragmented.extend_from_slice(&[3, 1, 8]);
         assert_eq!(decode(&fragmented)[&3], [vec![7; 255], vec![8]].concat());
+    }
+
+    fn transcript() -> HashMap<String, Vec<u8>> {
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../test/resources/pair-verify-transcript.properties"
+        ));
+        let mut map = HashMap::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let bytes: Vec<u8> = value
+                    .as_bytes()
+                    .chunks(2)
+                    .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                    .collect();
+                map.insert(key.to_string(), bytes);
+            }
+        }
+        map
+    }
+
+    fn arr32(bytes: &[u8]) -> [u8; 32] {
+        bytes.try_into().unwrap()
+    }
+
+    /// Complete M1..M4 lifecycle against a fixed external transcript: the responder's M2 and M4
+    /// bytes and the derived control keys must equal the independently generated reference.
+    #[test]
+    fn external_complete_transcript_matches_byte_for_byte_and_derives_control_keys() {
+        let fixture = transcript();
+        let accessory_id = fixture["accessory_id"].clone();
+        let controller_id = fixture["controller_id"].clone();
+        let controller_public = fixture["controller_public"].clone();
+        let mut owner = PairVerify::new(
+            fixture["accessory_seed"].clone(),
+            accessory_id,
+        )
+        .use_ephemeral_seed(arr32(&fixture["ephemeral_scalar"]));
+
+        // M1 -> M2: no stored key is consulted, and control keys do not exist yet.
+        let m2 = owner.handle(&fixture["m1_request"], |_| panic!("M1 must not consult storage"));
+        assert_eq!(m2, fixture["expected_m2"]);
+        assert!(owner.keys.is_none());
+
+        // M3 -> M4: verifies the controller signature, crosses control keys, marks the session.
+        let m4 = owner.handle(&fixture["m3_request"], |found| {
+            assert_eq!(found, controller_id.as_slice());
+            Some(controller_public.clone())
+        });
+        assert_eq!(m4, fixture["expected_m4"]);
+        assert_eq!(owner.controller_id.as_deref(), Some(controller_id.as_slice()));
+        assert_eq!(
+            owner.keys,
+            Some((arr32(&fixture["control_read_key"]), arr32(&fixture["control_write_key"])))
+        );
     }
 }

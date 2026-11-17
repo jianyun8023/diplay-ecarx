@@ -11,6 +11,7 @@
 | 目标车机日志 | ECARX 753 / 820A 实车与桌面 dump（见[实验记录](benchmarks/native-media-2026-11-12.md)） | PASCD 固定报文及厂商语义；HUD 完整输入输出样本仍待补 |
 | Android 平台 | API 28 / API 35 行为对照 | UTF-16／ASCII 替换、`Math.round`、Long 环绕等 |
 | 独立 SRP 数学参考 | [公开输入及固定结果](../shared/src/test/resources/pairsetup-srp-golden.properties)，Python 标准库 hashlib／pow 独立重算 | 固定 SRP A／B／S／K／M1／M2；不是完整 PairSetup TLV transcript |
+| 独立参考实现（完整 transcript） | 生成脚本 [`scripts/gen_pair_transcripts.py`](../scripts/gen_pair_transcripts.py)，Python `cryptography` 46.0.5（X25519／Ed25519／ChaCha20-Poly1305／HKDF-SHA512）+ 上行的独立 SRP 数学；固定输入：accessory seed `0x11`(verify)/`0x21`(setup)、X25519 ephemeral `0x42`、controller seed `0x33`/`0x31`、SRP salt `0x11`/b `0x22`/a `0x33` | PairVerify 完整 M1–M4、PairSetup 完整 M1–M6 的固定字节与期望回复；**独立参考实现，非第三方抓包** |
 
 规则：
 
@@ -37,6 +38,8 @@
 | PairVerify | 拒绝与宽容样本 | 伪签名／低阶点／非规范 y／未知 controller 拒绝；截断必需项失败，已完成项后的截断 duplicate 可被忽略 | 同上 | `controller_public_key` 及握手测试 | 同上 |
 | PairSetup／SRP | LIVI srpSalt／srpB + 独立数学参考 | LIVI 仅固定 salt、B长度／哈希；数学 fixture 固定完整 A／B／S／K／proof | `Srp6aContractTest` | `protocols/pair_setup/srp` 固定数学 fixture | `NativePairSetupDeviceTest` |
 | PairSetup | 完整随机 M1–M6 与错误／部分提交合同 | 独立 SRP client、BC 签名／AEAD、实时存储；非外部完整 golden | `PairSetupContractTest` | `protocols/pair_setup` save／M6／identity failure 合同 | `NativePairSetupDeviceTest` |
+| PairVerify | 完整 M1–M4 transcript（独立参考固定字节） | M2／M4 逐字节一致 + `control_read/write_key` 派生一致；无随机 | `PairVerifyContractTest`（BC 对照） | `pair_verify::tests::external_complete_transcript_matches_byte_for_byte_and_derives_control_keys` | `NativePairVerifyDeviceTest` |
+| PairSetup | 完整 M1–M6 transcript（独立参考固定字节） | M2／M4／M6 逐字节一致 + save 标识／公钥 + `complete`；SRP 用固定 salt/b | `PairSetupContractTest`（BC 对照） | `pair_setup::tests::external_complete_transcript_matches_byte_for_byte_through_save_and_m6` | `NativePairSetupDeviceTest` |
 | EV 0xA101 | 电耗已知／未知／溢出 | 固定参数字节 | `Iap2VehicleStatusTest` | `vehicle/vehicle_status` 测试 | `NativeVehicleStatusDeviceTest` |
 | 导航 | TLV／缓存／ETA／溢出 | 固定输入输出 | `RouteGuidanceStateTest` | `vehicle/route_guidance` 测试 | `NativeRouteGuidanceDeviceTest` |
 | iAP2 body | 参数顺序／重复 id／畸形长度／精确预算／复制 | 参数头 `u16 length｜u16 id｜payload`；standalone parse 可接受不能再 encode 的大参数 | `Iap2ProtocolTest` + `parseKotlin/encodeKotlin` | `protocols/iap2_body` 测试 | `NativeIap2BodyDeviceTest` |
@@ -50,7 +53,7 @@
 
 ## 3. 独立证据的历史缺口
 
-1. **PairVerify 没有完整 transcript 的外部 golden**：目前用独立客户端与 BC 合同交叉验证；应补一份固定 M1/M2/M3 原始字节与期望回复。
+1. **PairVerify／PairSetup 完整 transcript（2026-11-17 已补）**：现由独立参考实现（[`scripts/gen_pair_transcripts.py`](../scripts/gen_pair_transcripts.py)，Python `cryptography` + 已独立复算的 SRP 数学）生成固定 M1–M4／M1–M6 原始字节与期望回复，Rust 对 M2／M4／M6 与派生 control key 逐字节断言通过。来源为**独立参考实现，而非第三方抓包**；若需第三方互通证据，仍应补一份外部实现发布向量或已知密钥真实抓包。
 2. **bplist 失败样本**主要是实现内的变异 fuzz，缺一份来自外部实现的畸形样本集。
 3. **iAP2 body** 尚未登记更多真实 CSM 帧样本；应从实车／原始日志补固定帧。此表列源码测试入口，当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)，issue #96 和实验记录保留历史批次结果。
 4. **HUD/仪表**：原清单曾要求补车机日志的输入→期望值样本；2026-11-14 用户确认 HUD／车道及日夜初始化 OK，取消追加回放／补证待办。既有合同与原始样本来源记录保留，不改称新增的外部 golden。
@@ -61,3 +64,4 @@
 2. 把原始字节以十六进制字面量或资源文件加入测试，不从生产实现导出。
 3. Kotlin 与 Rust 各写独立断言；增加设备 parity 时，对比 native 与测试源码中的独立参考或固定字节，不恢复生产 Kotlin 算法回退。
 4. 若桌面与 Android 行为不同，新增平台专属黄金值并注明原因。
+5. 完整握手 transcript 用 `python3 scripts/gen_pair_transcripts.py` 生成到 `shared/src/test/resources/`（固定输入写在脚本内，不读生产实现输出）；修改握手常量后须重跑并对 diff 逐字节复核。Rust 的确定性测试 seam（`PairVerify::use_ephemeral_seed`、`PairSetup::use_srp_secret`，仅 `#[cfg(test)]`）用于注入固定秘密；生产路径仍用 `SystemRandom`。

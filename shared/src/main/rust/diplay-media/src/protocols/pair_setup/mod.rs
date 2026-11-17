@@ -14,6 +14,9 @@ struct PairSetup {
     srp: Option<srp::Srp>,
     key: Option<[u8; 64]>,
     complete: bool,
+    // Production is always None (random SRP secrets). Tests pin the SRP salt/private so a
+    // complete M1..M6 transcript can be asserted byte-for-byte against an external reference.
+    srp_secret: Option<([u8; 16], [u8; 32])>,
 }
 struct Save {
     identifier: Vec<u8>,
@@ -39,15 +42,27 @@ impl PairSetup {
             srp: None,
             key: None,
             complete: false,
+            srp_secret: None,
         }
+    }
+
+    /// Test seam: pin the SRP salt and private value so the full transcript is reproducible.
+    #[cfg(test)]
+    fn use_srp_secret(mut self, salt: [u8; 16], private: [u8; 32]) -> Self {
+        self.srp_secret = Some((salt, private));
+        self
     }
     fn handle(&mut self, body: &[u8]) -> Step {
         let items = decode(body);
         let state = items.get(&6).and_then(|v| v.first()).copied().unwrap_or(0);
         let reply = match state {
             1 => {
-                let Some(srp) = srp::Srp::start() else {
-                    return Step::Reply(error(1));
+                let srp = match self.srp_secret {
+                    Some((salt, private)) => srp::Srp::with_secrets(salt, private),
+                    None => match srp::Srp::start() {
+                        Some(srp) => srp,
+                        None => return Step::Reply(error(1)),
+                    },
                 };
                 let reply = encode(&[(6, &[2]), (3, &srp.public), (2, &srp.salt)]);
                 self.srp = Some(srp);
@@ -219,5 +234,64 @@ mod tests {
             panic!("short controller key must not reach the store")
         };
         assert_eq!(reply, error(6));
+    }
+
+    fn transcript() -> std::collections::HashMap<String, Vec<u8>> {
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../test/resources/pair-setup-transcript.properties"
+        ));
+        let mut map = std::collections::HashMap::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let bytes: Vec<u8> = value
+                    .as_bytes()
+                    .chunks(2)
+                    .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+                    .collect();
+                map.insert(key.to_string(), bytes);
+            }
+        }
+        map
+    }
+
+    /// Complete M1..M6 lifecycle against a fixed external transcript: M2/M4 replies, the
+    /// save commit, and the sealed M6 must all equal the independent reference byte-for-byte.
+    #[test]
+    fn external_complete_transcript_matches_byte_for_byte_through_save_and_m6() {
+        let fixture = transcript();
+        let salt: [u8; 16] = fixture["srp_salt"].as_slice().try_into().unwrap();
+        let b_private: [u8; 32] = fixture["srp_b_private"].as_slice().try_into().unwrap();
+        let mut owner = PairSetup::new(
+            &fixture["accessory_seed"],
+            fixture["accessory_public"].clone(),
+            fixture["accessory_id"].clone(),
+        )
+        .use_srp_secret(salt, b_private);
+
+        let Step::Reply(m2) = owner.handle(&fixture["m1_request"]) else {
+            panic!("M1 must reply")
+        };
+        assert_eq!(m2, fixture["expected_m2"]);
+
+        let Step::Reply(m4) = owner.handle(&fixture["m3_request"]) else {
+            panic!("M3 must reply")
+        };
+        assert_eq!(m4, fixture["expected_m4"]);
+
+        let Step::Save(saved) = owner.handle(&fixture["m5_request"]) else {
+            panic!("authenticated M5 must request a store commit")
+        };
+        assert_eq!(saved.identifier, fixture["controller_id"]);
+        assert_eq!(saved.public, fixture["controller_public"]);
+        assert!(!owner.complete);
+
+        let m6 = owner.after_save(saved);
+        assert_eq!(m6, fixture["expected_m6"]);
+        assert!(owner.complete);
     }
 }
