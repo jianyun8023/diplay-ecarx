@@ -20,10 +20,11 @@ class CarPlaySharedOutputCleanupTest {
         val screens = mutableListOf<Pair<Int, Boolean>>()
         val ducks = mutableListOf<Boolean>()
         val closed = mutableListOf<CarPlayMediaEngine.StreamKey>()
+        val events = mutableListOf<String>()
         val engine = CarPlayMediaEngine(object : MediaSink {
-            override fun onAudioStopped(id: AudioStreamId) { audioStops += id }
-            override fun onMicrophoneStopped(id: AudioStreamId) { micStops += id }
-            override fun onScreenStreamActive(type: Int, active: Boolean) { screens += type to active }
+            override fun onAudioStopped(id: AudioStreamId) { audioStops += id; events += "stop" }
+            override fun onMicrophoneStopped(id: AudioStreamId) { micStops += id; events += "mic-stop" }
+            override fun onScreenStreamActive(type: Int, active: Boolean) { screens += type to active; events += "screen" }
             override fun onAudioDuck(ducked: Boolean) { ducks += ducked }
         })
         val old = session()
@@ -38,7 +39,7 @@ class CarPlaySharedOutputCleanupTest {
 
         fun register(session: AirPlaySession, type: Int, audioType: String = "", microphone: Boolean = false): CarPlayMediaEngine.StreamKey {
             val key = CarPlayMediaEngine.StreamKey(session, type, audioType)
-            streams[key] = Closeable { closed += key }
+            streams[key] = Closeable { closed += key; events += "close" }
             val screen = type == 110 || type == 111
             NativeMedia.outputLeaseAcquire(engine.leaseEpoch, session.leaseHolderId,
                 if (screen) NativeMedia.LEASE_SCREEN else NativeMedia.LEASE_AUDIO, type, if (screen) "" else audioType)
@@ -182,6 +183,35 @@ class CarPlaySharedOutputCleanupTest {
         rig.engine.onTeardown(rig.third, 100)
         assertEquals(listOf(AudioStreamId(100, "media")), rig.audioStops)
         assertEquals(listOf(first, second, third), rig.closed)
+    }
+
+    @Test fun audioTeardownRetiresTheSourceBeforeStoppingTheSharedOutput() = Rig().use { rig ->
+        val key = rig.register(rig.old, 100, "media")
+        rig.engine.onTeardown(rig.old, 100)
+        assertEquals(listOf(key), rig.closed)
+        // The stream is detached and closed before the sink is asked to stop, so a final flush
+        // lands on a live renderer.
+        assertEquals(listOf("close", "stop"), rig.events)
+        assertEquals(listOf(AudioStreamId(100, "media")), rig.audioStops)
+    }
+
+    @Test fun screenTeardownNeverEmitsASpuriousAudioStop() = Rig().use { rig ->
+        val old = rig.register(rig.old, 110)
+        val current = rig.register(rig.current, 110)
+        rig.engine.onTeardown(rig.old, 110)
+        assertTrue("a screen teardown must not release/stop an audio output", rig.audioStops.isEmpty())
+        assertEquals(listOf(old), rig.closed)
+        assertTrue(rig.streams.containsKey(current))
+    }
+
+    @Test fun dataStreamTeardownClosesTheSourceWithoutAnAudioStop() = Rig().use { rig ->
+        val key = CarPlayMediaEngine.StreamKey(rig.old, 130)
+        // A data stream holds no audio/microphone lease.
+        rig.streams[key] = Closeable { rig.closed += key }
+        rig.engine.onTeardown(rig.old, 130)
+        assertTrue("a data teardown must not emit an audio stop", rig.audioStops.isEmpty())
+        assertEquals(listOf(key), rig.closed)
+        assertTrue(rig.streams.isEmpty())
     }
 
     @Test fun onlyClosingCurrentDuckOwnerReleasesPrompt() = Rig().use { rig ->

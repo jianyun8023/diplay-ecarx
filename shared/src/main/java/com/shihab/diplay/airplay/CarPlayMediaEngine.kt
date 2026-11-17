@@ -249,15 +249,18 @@ class CarPlayMediaEngine(
         // type 100); only the same (type, audioType) pair replaces a previous stream.
         val streamKey = StreamKey(session, type, audioType)
         val streamId = AudioStreamId(type, audioType)
+        // Replacement retires this session's own previous stream for the same output identity. The
+        // shared-output stop is admitted only when this release is the last holder, so a re-SETUP by
+        // one session never stops an output another live session still shares.
         streams.remove(streamKey)?.close()
-        releaseLease(session, NativeMedia.LEASE_AUDIO, type, audioType)
+        val audioMayStop = releaseLease(session, NativeMedia.LEASE_AUDIO, type, audioType)
         audioMeta.remove(streamKey)
         audioCaptures.remove(streamKey)?.close()
-        if (pendingMicrophone.remove(streamKey) != null) {
-            releaseLease(session, NativeMedia.LEASE_MICROPHONE, type, audioType)
+        if (pendingMicrophone.remove(streamKey) != null &&
+            releaseLease(session, NativeMedia.LEASE_MICROPHONE, type, audioType)) {
             sink.onMicrophoneStopped(streamId)
         }
-        sink.onAudioStopped(streamId)
+        if (audioMayStop) sink.onAudioStopped(streamId)
 
         // protocols::airplay interprets the request, derives the DataStream keys and plans the
         // microphone; the platform binds the sockets and constructs its own MicrophoneConfig.
@@ -642,23 +645,28 @@ class CarPlayMediaEngine(
         }
         // TEARDOWN carries only the stream type; release every audioType variant of it.
         val tornDown = streams.keys.filter { it.session === session && it.type == type }
+        // Detach and close each source first: a shared output must stop receiving packets before its
+        // sink is asked to stop, so a final flush lands on a still-live renderer.
         tornDown.forEach { key ->
-            val streamId = AudioStreamId(key.type, key.audioType)
-            if (pendingMicrophone.remove(key) != null &&
-                releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)) {
-                sink.onMicrophoneStopped(streamId)
-            }
-            audioMeta.remove(key)
-            audioCaptures.remove(key)?.close()
-            // BufferedAudioStream owns serialized sink cleanup; stopping it first from here
-            // could interleave with its in-flight delivery and recreate a stale renderer.
-            if (key.type != BufferedAudioStream.STREAM_TYPE &&
-                releaseLease(session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)) {
-                sink.onAudioStopped(streamId)
-            }
             val removed = streams.remove(key)
-            if (type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
+            if (key.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
             removed?.close()
+        }
+        // Then release output leases. Only an audio stream holds an audio/microphone lease, so screen
+        // and data teardowns never emit a spurious audio stop; and only the last holder may stop it.
+        tornDown.forEach { key ->
+            if (!isScreenStreamType(key.type) && key.type != STREAM_TYPE_DATA) {
+                val streamId = AudioStreamId(key.type, key.audioType)
+                if (pendingMicrophone.remove(key) != null &&
+                    releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)) {
+                    sink.onMicrophoneStopped(streamId)
+                }
+                audioMeta.remove(key)
+                audioCaptures.remove(key)?.close()
+                if (releaseLease(session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)) {
+                    sink.onAudioStopped(streamId)
+                }
+            }
         }
         if (isScreenStreamType(type) && releaseLease(session, NativeMedia.LEASE_SCREEN, type, "")) {
             sink.onScreenStreamActive(type, false)

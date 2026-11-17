@@ -156,4 +156,14 @@ mod tests {
         assert!(release(4, 5, OutputKind::Screen, 111, String::new()));
         assert!(release(3, 5, OutputKind::Screen, 111, String::new()));
     }
+
+    #[test]
+    fn releasing_a_holder_that_never_held_does_not_stop_a_shared_output() {
+        // A re-SETUP by a session that does not currently hold the identity (a co-tenant already
+        // registered it) must not be admitted as the last release and stop the shared output.
+        let e = 9;
+        acquire(e, 2, OutputKind::Audio, 100, "media".into());
+        assert!(!release(e, 1, OutputKind::Audio, 100, "media".into()));
+        assert!(release(e, 2, OutputKind::Audio, 100, "media".into()));
+    }
 }
