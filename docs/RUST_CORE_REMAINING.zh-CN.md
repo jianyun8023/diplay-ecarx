@@ -351,8 +351,8 @@ Robolectric 与 host JNI 不代替 native TCP、真实 renderer／AudioRecord �
 | 高：视频配置交付资格 | `video/receiver.rs:97` 回调 config；`CarPlayMediaEngine.kt:217` 仅检查各自 session key，旧 A 仍可经 sink 配置共享 type decoder。native 帧则不同：`NativeVideoRoute.kt:10` disconnect 后为空 targets，`vpipe.rs:368` 消费并释放，不据此声称已证实 native 混帧 | 沿 `media::video::flow`／既有 Route 明确 config 的交付资格，先补新旧配置交错及最后 owner 正例；Kotlin 保留 stream／decoder 身份与平台配置 |
 | 高：iAP tunnel 发布与执行寿命 | Controller 的 `startWirelessTunnelControl` 在 2920 行发布 B，但 2929 行仍排入单线程 executor；A 的 NO_TIMEOUT loop 可继续运行，回调主要按 run 判断。发布的 channel 与实际运行的 channel 可能不同 | 沿 `session::wireless_state`／controller 补重复 tunnel 的接受、替换与迟到回调合同，再决定提交点；不能未经合同直接增加拒绝门禁。metadata 属于 iAP channel 寿命，不按每次 AirPlay session 更换统一清空 |
 | 中：排队命令与旧 session UI 回调 | Controller 727／738 行捕获 session 后排队，执行时没有相邻 knob／viewArea 路径那样的当前身份检查；415 行旧 `requestUI` 回调也未按 active session 限定 | 沿现有 controller owner 定义来源准入；Kotlin 保留 Executor、session 身份和实际发送。补 A 排队→B 激活→A 仍开放的合同，不将迟到 A 命令改投 B |
-| 中：一般命令包络与 SETUP 整体形状 | `AirPlaySession.kt:794` 仍判断 stream header 和 params.data；二者有效即消费 remote 分支，即使内层 bplist 畸形也返回 200，不回退 duck／UI。694 行仍区分 streams List 与 peer metadata／timing／events 路径 | 分别沿 `protocols::airplay::control`／`setup` 形成具名计划，保留现有类型、缺省、转换与拒绝行为。解码对象及实际 callback 留 Kotlin；不新增 negotiated-stream 或 active-session 门禁 |
-| 后续小批：视频 URL 可播放规则 | `VideoInCar.kt:69` 仍持有 scheme 匹配／排除规则，两个生产消费者共用 | 可完整迁到既有 `protocols::airplay::video`；沿用独立 Kotlin 参考，不为单字段新增 owner |
+| ✅ 已完成：一般命令包络与 SETUP 整体形状 | 已迁入 `protocols::airplay`：`NativeAirPlayProtocol.setupPlan`（streams-vs-peer 信封）与 `remoteCommandPlan`（remote 信封）在 Rust 判定（`363b614c`）；控制命令解释（noisy／duck／ui／navigationEntity）在 `control` op15 且有单测（`57db7caa`）。Kotlin 仅消费具名计划、解码与回调 | 完成；保留类型／缺省／转换／拒绝行为，解码对象与实际 callback 留 Kotlin，未新增 negotiated-stream 或 active-session 门禁 |
+| ✅ 已完成：视频 URL 可播放规则 | 已迁 `protocols::airplay::video` op10（`playable_url`）；`VideoInCar.isPlayableUrl` 与 `parseItem` 改调 Rust 并删除 Kotlin scheme 常量；Rust 单测 + Kotlin 契约测试覆盖 | 完成；http／https 与 app-scheme 规则、本地／FairPlay 排除均在 Rust |
 
 下一批优先普通音频 route 的退休／恢复区分，再处理麦克风 sender 和视频 config 资格。
 Controller tunnel 与排队命令另成行为合同批次，避免与媒体资源交接同时改变。仍保留以下提交时点：
