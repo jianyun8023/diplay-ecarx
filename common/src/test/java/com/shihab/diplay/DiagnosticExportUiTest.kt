@@ -78,12 +78,7 @@ class DiagnosticExportUiTest {
             "phase=finished enabled=true result=TIMED_OUT after=OFF")
         try {
             ReflectionHelpers.callInstanceMethod<Unit>(activity, "chooseReportDestination")
-            val deadline = System.nanoTime() + 5_000_000_000L
-            while (ShadowAlertDialog.getLatestAlertDialog() == null && System.nanoTime() < deadline) {
-                Thread.sleep(20)
-                shadowOf(Looper.getMainLooper()).idle()
-            }
-            val saved = requireNotNull(ShadowAlertDialog.getLatestAlertDialog())
+            val saved = awaitAlertDialog()
             val reports = File(context.getExternalFilesDir(null)!!, "diagnostic-reports")
             val file = reports.listFiles()!!.single()
             assertTrue(file.name.endsWith(".txt"))
@@ -110,14 +105,32 @@ class DiagnosticExportUiTest {
             assertTrue(report.contains("Firmware: product="))
             assertTrue(report.contains("action=MANUAL_HOTSPOT phase=finished enabled=true result=TIMED_OUT after=OFF"))
             saved.getButton(android.app.AlertDialog.BUTTON_POSITIVE).performClick()
-            shadowOf(Looper.getMainLooper()).idle()
-            val viewer = ShadowAlertDialog.getLatestAlertDialog()
+            // The viewer dialog is built by showDiagnosticReport() after an off-main reportTail()
+            // hop, so a single idle() races it on loaded CI runners: wait for a dialog that is not
+            // the one we just dismissed instead of sampling the latest one once.
+            val viewer = awaitAlertDialog(exclude = saved)
             assertTrue(descendants(viewer.window!!.decorView).filterIsInstance<TextView>()
                 .any { it.isTextSelectable && it.text.contains("Android 9 / API 28") })
             viewer.dismiss()
         } finally {
             controller.pause().stop().destroy()
         }
+    }
+
+    /** Drains the main looper until a dialog newer than [exclude] shows up, or fails loudly. */
+    private fun awaitAlertDialog(
+        exclude: android.app.AlertDialog? = null,
+        timeoutMs: Long = 5_000,
+    ): android.app.AlertDialog {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            val candidate = ShadowAlertDialog.getLatestAlertDialog()
+            if (candidate != null && candidate !== exclude) return candidate
+            Thread.sleep(20)
+        }
+        fail("no alert dialog appeared within ${timeoutMs}ms")
+        throw AssertionError("unreachable")
     }
 
     private fun descendants(view: View): Sequence<View> = sequence {
