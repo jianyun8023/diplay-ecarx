@@ -49,7 +49,13 @@ pub fn apple_to_amap(maneuver_type: i32, driving_side: i32) -> i32 {
         2 | 21 | 48 => 3,
         13 | 49 | 52 => 4,
         14 | 50 | 53 => 5,
-        8 | 9 => if driving_side == 1 { 4 } else { 5 },
+        8 | 9 => {
+            if driving_side == 1 {
+                4
+            } else {
+                5
+            }
+        }
         4 | 18 | 26 => 8,
         19 => 24,
         5 | 15 | 16 | 17 | 51 => 20,
@@ -66,7 +72,11 @@ pub fn apple_to_amap(maneuver_type: i32, driving_side: i32) -> i32 {
 
 pub fn arrow_id(maneuver_type: i32, driving_side: i32) -> i32 {
     let amap = apple_to_amap(maneuver_type, driving_side);
-    if amap > 0 { amap_to_ecarx(amap, 0) } else { NO_ARROW }
+    if amap > 0 {
+        amap_to_ecarx(amap, 0)
+    } else {
+        NO_ARROW
+    }
 }
 
 #[cfg(test)]
@@ -123,20 +133,39 @@ use jni_sys::{jclass, jint, JNIEnv};
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_amapToEcarx(
-    _env: *mut JNIEnv, _class: jclass, icon_id: jint, around_num: jint,
-) -> jint { amap_to_ecarx(icon_id, around_num) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    icon_id: jint,
+    around_num: jint,
+) -> jint {
+    amap_to_ecarx(icon_id, around_num)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_ecarxToAmap(
-    _env: *mut JNIEnv, _class: jclass, arrow_id: jint,
-) -> jint { ecarx_to_amap(arrow_id) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    arrow_id: jint,
+) -> jint {
+    ecarx_to_amap(arrow_id)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_appleToAmap(
-    _env: *mut JNIEnv, _class: jclass, maneuver_type: jint, driving_side: jint,
-) -> jint { apple_to_amap(maneuver_type, driving_side) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    maneuver_type: jint,
+    driving_side: jint,
+) -> jint {
+    apple_to_amap(maneuver_type, driving_side)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeClusterArrow_arrowId(
-    _env: *mut JNIEnv, _class: jclass, maneuver_type: jint, driving_side: jint,
-) -> jint { arrow_id(maneuver_type, driving_side) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    maneuver_type: jint,
+    driving_side: jint,
+) -> jint {
+    arrow_id(maneuver_type, driving_side)
+}

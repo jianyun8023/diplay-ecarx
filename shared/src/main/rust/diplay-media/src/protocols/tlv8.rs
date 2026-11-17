@@ -40,4 +40,3 @@ pub(super) fn encode(items: &[(u8, &[u8])]) -> Vec<u8> {
     }
     output
 }
-

@@ -6,18 +6,32 @@ use std::ptr::null_mut;
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_autoPlayDuplicate(
-    _env: *mut JNIEnv, _class: jclass, same_session: jboolean,
-) -> jboolean { (same_session != 0) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    same_session: jboolean,
+) -> jboolean {
+    (same_session != 0) as jboolean
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_autoPlayTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
-) -> jlong { super::auto_play_transition(token, event) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+) -> jlong {
+    super::auto_play_transition(token, event)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_autoPlayQuery(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
-) -> jlong { super::auto_play_query(token, field) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    field: jint,
+) -> jlong {
+    super::auto_play_query(token, field)
+}
 
 unsafe fn invalid(env: *mut JNIEnv) {
     let f = &**env;
@@ -261,23 +275,43 @@ unsafe fn glance_snapshot(env: *mut JNIEnv, state: &GlanceSong) -> jobject {
         return null_mut();
     }
     let result = (|| -> Option<jobject> {
-        let class = (f.FindClass.unwrap())(env, c"com/shihab/diplay/media/CarPlayGlanceSong".as_ptr());
-        if class.is_null() { return None; }
-        let init = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(),
-            c"(Ljava/lang/String;Ljava/lang/String;Z)V".as_ptr());
-        if init.is_null() { return None; }
+        let class =
+            (f.FindClass.unwrap())(env, c"com/shihab/diplay/media/CarPlayGlanceSong".as_ptr());
+        if class.is_null() {
+            return None;
+        }
+        let init = (f.GetMethodID.unwrap())(
+            env,
+            class,
+            c"<init>".as_ptr(),
+            c"(Ljava/lang/String;Ljava/lang/String;Z)V".as_ptr(),
+        );
+        if init.is_null() {
+            return None;
+        }
         let mut strings = [null_mut(); 2];
         for (index, value) in [&state.title, &state.artist].iter().enumerate() {
             if let Some(value) = value {
                 strings[index] = (f.NewString.unwrap())(env, value.as_ptr(), value.len() as jint);
-                if strings[index].is_null() { return None; }
+                if strings[index].is_null() {
+                    return None;
+                }
             }
         }
-        let args = [jvalue { l: strings[0] }, jvalue { l: strings[1] }, jvalue { z: state.playing as jboolean }];
+        let args = [
+            jvalue { l: strings[0] },
+            jvalue { l: strings[1] },
+            jvalue {
+                z: state.playing as jboolean,
+            },
+        ];
         let result = (f.NewObjectA.unwrap())(env, class, init, args.as_ptr());
-        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        if (f.ExceptionCheck.unwrap())(env) != 0 {
+            return None;
+        }
         Some(result)
-    })().unwrap_or(null_mut());
+    })()
+    .unwrap_or(null_mut());
     (f.PopLocalFrame.unwrap())(env, result)
 }
 
@@ -419,22 +453,32 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativePlaybackCore_na
 use super::artwork_recovery::{Metadata, Recovery};
 unsafe fn metadata(env: *mut JNIEnv, value: jlongArray) -> Option<Metadata> {
     let f = &**env;
-    if value.is_null() { invalid(env); return None; }
+    if value.is_null() {
+        invalid(env);
+        return None;
+    }
     let len = (f.GetArrayLength.unwrap())(env, value);
     let mut words = vec![0; len as usize];
     (f.GetLongArrayRegion.unwrap())(env, value, 0, len, words.as_mut_ptr());
     let result = Metadata::decode(&words);
-    if result.is_none() { invalid(env); }
+    if result.is_none() {
+        invalid(env);
+    }
     result
 }
 unsafe fn recovery(env: *mut JNIEnv, owner: jobjectArray) -> Option<Recovery> {
     let state = Recovery::decode(&read(env, owner)?);
-    if state.is_none() { invalid(env); }
+    if state.is_none() {
+        invalid(env);
+    }
     state
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeTrackChanged(
-    env: *mut JNIEnv, _: jclass, old: jlongArray, new: jlongArray,
+    env: *mut JNIEnv,
+    _: jclass,
+    old: jlongArray,
+    new: jlongArray,
 ) -> jboolean {
     match (metadata(env, old), metadata(env, new)) {
         (Some(old), Some(new)) => old.track_changed(&new) as jboolean,
@@ -443,57 +487,103 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeRecoveryCreate(
-    env: *mut JNIEnv, _: jclass,
-) -> jlongArray { array(env, &Recovery::default().encode()) }
+    env: *mut JNIEnv,
+    _: jclass,
+) -> jlongArray {
+    array(env, &Recovery::default().encode())
+}
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeRecoveryQuery(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, field: jint,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    field: jint,
 ) -> jlong {
-    let Some(state) = recovery(env, owner) else { return 0; };
-    match field { 0 => state.generation, 1 => state.scheduled() as i64, _ => { invalid(env); 0 } }
+    let Some(state) = recovery(env, owner) else {
+        return 0;
+    };
+    match field {
+        0 => state.generation,
+        1 => state.scheduled() as i64,
+        _ => {
+            invalid(env);
+            0
+        }
+    }
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeRecoveryPrepare(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, action: jint, token: jlong,
-    info: jlongArray, color: jboolean,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    action: jint,
+    token: jlong,
+    info: jlongArray,
+    color: jboolean,
 ) -> jboolean {
-    let Some(mut state) = recovery(env, owner) else { return 0; };
-    let Some(info) = metadata(env, info) else { return 0; };
+    let Some(mut state) = recovery(env, owner) else {
+        return 0;
+    };
+    let Some(info) = metadata(env, info) else {
+        return 0;
+    };
     let result = state.prepare(action, token, info, color != 0);
     save(env, owner, &state.encode());
     result as jboolean
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeRecoveryComplete(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, action: jint, token: jlong, allowed: jboolean,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    action: jint,
+    token: jlong,
+    allowed: jboolean,
 ) -> jboolean {
-    let Some(mut state) = recovery(env, owner) else { return 0; };
+    let Some(mut state) = recovery(env, owner) else {
+        return 0;
+    };
     let result = state.complete(action, token, allowed != 0);
     save(env, owner, &state.encode());
     result as jboolean
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeRecoveryFinished(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, token: jlong,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    token: jlong,
 ) {
-    let Some(mut state) = recovery(env, owner) else { return; };
+    let Some(mut state) = recovery(env, owner) else {
+        return;
+    };
     state.finished(token);
     save(env, owner, &state.encode());
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeRecoveryEvents(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
 ) -> jlongArray {
-    let Some(mut state) = recovery(env, owner) else { return null_mut(); };
+    let Some(mut state) = recovery(env, owner) else {
+        return null_mut();
+    };
     let result = array(env, &state.events);
-    if !result.is_null() { state.events.clear(); save(env, owner, &state.encode()); }
+    if !result.is_null() {
+        state.events.clear();
+        save(env, owner, &state.encode());
+    }
     result
 }
 
 use super::publication::{valid_artwork, Publication};
 unsafe fn raw_array(env: *mut JNIEnv, value: jlongArray) -> Option<Vec<i64>> {
     let f = &**env;
-    if value.is_null() { invalid(env); return None; }
+    if value.is_null() {
+        invalid(env);
+        return None;
+    }
     let len = (f.GetArrayLength.unwrap())(env, value);
     let mut words = vec![0; len as usize];
     (f.GetLongArrayRegion.unwrap())(env, value, 0, len, words.as_mut_ptr());
@@ -501,31 +591,63 @@ unsafe fn raw_array(env: *mut JNIEnv, value: jlongArray) -> Option<Vec<i64>> {
 }
 unsafe fn publication(env: *mut JNIEnv, owner: jobjectArray) -> Option<Publication> {
     let state = Publication::decode(&read(env, owner)?);
-    if state.is_none() { invalid(env); }
+    if state.is_none() {
+        invalid(env);
+    }
     state
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativePublicationCreate(
-    env: *mut JNIEnv, _: jclass,
-) -> jlongArray { array(env, &Publication::default().encode()) }
+    env: *mut JNIEnv,
+    _: jclass,
+) -> jlongArray {
+    array(env, &Publication::default().encode())
+}
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativePublicationPlan(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, info: jlongArray, artwork: jlongArray, selected: jboolean,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    info: jlongArray,
+    artwork: jlongArray,
+    selected: jboolean,
 ) -> jint {
-    let Some(state) = publication(env, owner) else { return 0; };
-    let Some(info) = metadata(env, info) else { return 0; };
-    let Some(artwork) = raw_array(env, artwork) else { return 0; };
-    if !valid_artwork(&artwork) { invalid(env); return 0; }
+    let Some(state) = publication(env, owner) else {
+        return 0;
+    };
+    let Some(info) = metadata(env, info) else {
+        return 0;
+    };
+    let Some(artwork) = raw_array(env, artwork) else {
+        return 0;
+    };
+    if !valid_artwork(&artwork) {
+        invalid(env);
+        return 0;
+    }
     state.plan(&info, &artwork, selected != 0)
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativePublicationCommit(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, info: jlongArray, artwork: jlongArray,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    info: jlongArray,
+    artwork: jlongArray,
 ) {
-    let Some(mut state) = publication(env, owner) else { return; };
-    let Some(info) = metadata(env, info) else { return; };
-    let Some(artwork) = raw_array(env, artwork) else { return; };
-    if !valid_artwork(&artwork) { invalid(env); return; }
+    let Some(mut state) = publication(env, owner) else {
+        return;
+    };
+    let Some(info) = metadata(env, info) else {
+        return;
+    };
+    let Some(artwork) = raw_array(env, artwork) else {
+        return;
+    };
+    if !valid_artwork(&artwork) {
+        invalid(env);
+        return;
+    }
     state.commit(info, artwork);
     save(env, owner, &state.encode());
 }
@@ -533,30 +655,55 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_
 use super::artwork_queue::{content_hash, ArtworkQueue};
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeArtworkCreate(
-    env: *mut JNIEnv, _: jclass,
-) -> jlongArray { array(env, &ArtworkQueue::default().encode()) }
+    env: *mut JNIEnv,
+    _: jclass,
+) -> jlongArray {
+    array(env, &ArtworkQueue::default().encode())
+}
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeArtworkHash(
-    env: *mut JNIEnv, _: jclass, bytes: jbyteArray,
+    env: *mut JNIEnv,
+    _: jclass,
+    bytes: jbyteArray,
 ) -> jlongArray {
     let f = &**env;
-    if bytes.is_null() { invalid(env); return null_mut(); }
+    if bytes.is_null() {
+        invalid(env);
+        return null_mut();
+    }
     let len = (f.GetArrayLength.unwrap())(env, bytes);
     let mut data = vec![0; len as usize];
     (f.GetByteArrayRegion.unwrap())(env, bytes, 0, len, data.as_mut_ptr() as *mut i8);
-    if (f.ExceptionCheck.unwrap())(env) != 0 { return null_mut(); }
+    if (f.ExceptionCheck.unwrap())(env) != 0 {
+        return null_mut();
+    }
     array(env, &content_hash(&data))
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_media_PlaybackMetadataCore_nativeArtworkEvent(
-    env: *mut JNIEnv, _: jclass, owner: jobjectArray, event: jint, session: jlong, id: jlong,
-    version: jlong, hash: jlongArray,
+    env: *mut JNIEnv,
+    _: jclass,
+    owner: jobjectArray,
+    event: jint,
+    session: jlong,
+    id: jlong,
+    version: jlong,
+    hash: jlongArray,
 ) -> jlongArray {
-    let Some(words) = read(env, owner) else { return null_mut(); };
-    let Some(mut state) = ArtworkQueue::decode(&words) else { invalid(env); return null_mut(); };
-    let Some(hash) = raw_array(env, hash) else { return null_mut(); };
+    let Some(words) = read(env, owner) else {
+        return null_mut();
+    };
+    let Some(mut state) = ArtworkQueue::decode(&words) else {
+        invalid(env);
+        return null_mut();
+    };
+    let Some(hash) = raw_array(env, hash) else {
+        return null_mut();
+    };
     let action = state.event(event, session, id, version, &hash);
     let result = array(env, &state.snapshot(action));
-    if !result.is_null() { save(env, owner, &state.encode()); }
+    if !result.is_null() {
+        save(env, owner, &state.encode());
+    }
     result
 }

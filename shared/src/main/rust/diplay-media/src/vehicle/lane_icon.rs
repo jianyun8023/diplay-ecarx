@@ -38,7 +38,13 @@ pub fn for_lane(status: i32, angles: &[i32], highlight_angle: Option<i32>) -> Op
             Some(0) => Some(71),
             Some(-90) => Some(72),
             Some(-180) => Some(73),
-            _ => if status == 2 { Some(56) } else { Some(49) },
+            _ => {
+                if status == 2 {
+                    Some(56)
+                } else {
+                    Some(49)
+                }
+            }
         };
     } else {
         return None;
@@ -59,7 +65,13 @@ pub fn for_lane(status: i32, angles: &[i32], highlight_angle: Option<i32>) -> Op
             };
         }
     }
-    Some(base + if highlight.is_some() || status == 2 { 15 } else { 0 })
+    Some(
+        base + if highlight.is_some() || status == 2 {
+            15
+        } else {
+            0
+        },
+    )
 }
 
 #[cfg(test)]
@@ -109,7 +121,12 @@ use jni_sys::{jboolean, jclass, jint, jintArray, JNIEnv};
 /// `highlight_angle` is ignored when `has_highlight` is false. Returns -1 for no icon.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeLaneIcon_forLane(
-    env: *mut JNIEnv, _class: jclass, status: jint, angles: jintArray, highlight_angle: jint, has_highlight: jboolean,
+    env: *mut JNIEnv,
+    _class: jclass,
+    status: jint,
+    angles: jintArray,
+    highlight_angle: jint,
+    has_highlight: jboolean,
 ) -> jint {
     let mut values = Vec::new();
     if !angles.is_null() {
@@ -117,7 +134,9 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_hud_NativeLaneIcon_forLane(
         let count = (f.GetArrayLength.unwrap())(env, angles) as usize;
         values = vec![0i32; count];
         (f.GetIntArrayRegion.unwrap())(env, angles, 0, count as jint, values.as_mut_ptr());
-        if crate::platform::jvm::Env(env).clear_exception() { return -1; }
+        if crate::platform::jvm::Env(env).clear_exception() {
+            return -1;
+        }
     }
     let highlight = (has_highlight != 0).then_some(highlight_angle);
     for_lane(status, &values, highlight).unwrap_or(-1)

@@ -12,19 +12,37 @@ impl Publication {
         let end = 1usize.checked_add(len)?;
         let metadata = words.get(1..end)?;
         let artwork = words.get(end..)?.to_vec();
-        if !valid_artwork(&artwork) { return None; }
-        Some(Self { previous: if len == 0 { None } else { Some(Metadata::decode(metadata)?) }, artwork })
+        if !valid_artwork(&artwork) {
+            return None;
+        }
+        Some(Self {
+            previous: if len == 0 {
+                None
+            } else {
+                Some(Metadata::decode(metadata)?)
+            },
+            artwork,
+        })
     }
     pub fn encode(&self) -> Vec<i64> {
-        let metadata = self.previous.as_ref().map(Metadata::encode).unwrap_or_default();
+        let metadata = self
+            .previous
+            .as_ref()
+            .map(Metadata::encode)
+            .unwrap_or_default();
         let mut out = vec![metadata.len() as i64];
         out.extend(metadata);
-        if self.artwork.is_empty() { out.push(-1); } else { out.extend(&self.artwork); }
+        if self.artwork.is_empty() {
+            out.push(-1);
+        } else {
+            out.extend(&self.artwork);
+        }
         out
     }
     pub fn plan(&self, info: &Metadata, artwork: &[i64], selected: bool) -> i32 {
-        let acquire = self.previous.as_ref().map_or(true, |p|
-            selected || (info.playing && (!p.playing || p.text[3] != info.text[3])));
+        let acquire = self.previous.as_ref().map_or(true, |p| {
+            selected || (info.playing && (!p.playing || p.text[3] != info.text[3]))
+        });
         let mut media = info.clone();
         media.numbers[0] = None;
         let publish = self.previous.as_ref() != Some(&media) || self.artwork != artwork;
@@ -39,7 +57,9 @@ impl Publication {
 pub(super) fn valid_artwork(words: &[i64]) -> bool {
     match words.first() {
         Some(-1) => words.len() == 1,
-        Some(&len) if len >= 0 => len as usize == words.len() - 1 && words[1..].iter().all(|v| (0..=65535).contains(v)),
+        Some(&len) if len >= 0 => {
+            len as usize == words.len() - 1 && words[1..].iter().all(|v| (0..=65535).contains(v))
+        }
         _ => false,
     }
 }
@@ -59,6 +79,11 @@ mod tests {
         assert_eq!(state.plan(&info, &[-1], true), 1);
         info.numbers[2] = Some(1);
         assert_eq!(state.plan(&info, &[-1], false), 2);
-        assert_eq!(Publication::decode(&state.encode()).unwrap().plan(&info, &[-1], false), 2);
+        assert_eq!(
+            Publication::decode(&state.encode())
+                .unwrap()
+                .plan(&info, &[-1], false),
+            2
+        );
     }
 }

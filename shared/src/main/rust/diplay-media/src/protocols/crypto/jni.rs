@@ -124,7 +124,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_x25519
         return null_mut();
     };
     // BC's generated encoded private key is clamped already; imported keys clamp at multiplication.
-    let(private,public)=x25519_pair(seed);
+    let (private, public) = x25519_pair(seed);
     pair(env, &private, &public)
 }
 #[no_mangle]
@@ -140,7 +140,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeCrypto_x25519
     let Some(peer) = prefix(env, peer) else {
         return null_mut();
     };
-    let Some(shared) = x25519_shared(private,peer) else {
+    let Some(shared) = x25519_shared(private, peer) else {
         throw(
             env,
             c"java/lang/IllegalStateException",

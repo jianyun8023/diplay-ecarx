@@ -23,8 +23,16 @@ const ONE_SECOND: i64 = 1_000_000_000;
 impl Default for FramePacer {
     fn default() -> Self {
         FramePacer {
-            window: 240, percentile: 5, refresh_every: 30, slew_per_second: 0.002, reset_nanos: 500_000_000,
-            max_early_nanos: 100_000_000, residuals: Default::default(), frames: 0, candidate: 0, offset: None,
+            window: 240,
+            percentile: 5,
+            refresh_every: 30,
+            slew_per_second: 0.002,
+            reset_nanos: 500_000_000,
+            max_early_nanos: 100_000_000,
+            residuals: Default::default(),
+            frames: 0,
+            candidate: 0,
+            offset: None,
             last_arrival_nanos: 0,
         }
     }
@@ -32,12 +40,19 @@ impl Default for FramePacer {
 
 impl FramePacer {
     pub fn frame_time(&mut self, enabled: bool, sender_nanos: i64, arrival_nanos: i64) -> i64 {
-        if enabled && sender_nanos > 0 && arrival_nanos > 0 { self.local_time(sender_nanos, arrival_nanos) } else { 0 }
+        if enabled && sender_nanos > 0 && arrival_nanos > 0 {
+            self.local_time(sender_nanos, arrival_nanos)
+        } else {
+            0
+        }
     }
     /// The frame's local time, or 0 when that is implausible (show it as soon as it is decoded).
     pub fn local_time(&mut self, sender_nanos: i64, arrival_nanos: i64) -> i64 {
-        self.residuals.push_back(arrival_nanos.wrapping_sub(sender_nanos));
-        if self.residuals.len() > self.window { self.residuals.pop_front(); }
+        self.residuals
+            .push_back(arrival_nanos.wrapping_sub(sender_nanos));
+        if self.residuals.len() > self.window {
+            self.residuals.pop_front();
+        }
         let warming_up = self.frames < self.refresh_every;
         if warming_up || self.frames % self.refresh_every == 0 {
             let mut sorted: Vec<i64> = self.residuals.iter().copied().collect();
@@ -46,9 +61,13 @@ impl FramePacer {
         }
         self.frames = self.frames.wrapping_add(1);
         let offset = match self.offset {
-            Some(offset) if !warming_up && self.candidate.wrapping_sub(offset) <= self.reset_nanos &&
-                offset.wrapping_sub(self.candidate) <= self.max_early_nanos => {
-                let step = (arrival_nanos.wrapping_sub(self.last_arrival_nanos).max(0) as f64 * self.slew_per_second) as i64;
+            Some(offset)
+                if !warming_up
+                    && self.candidate.wrapping_sub(offset) <= self.reset_nanos
+                    && offset.wrapping_sub(self.candidate) <= self.max_early_nanos =>
+            {
+                let step = (arrival_nanos.wrapping_sub(self.last_arrival_nanos).max(0) as f64
+                    * self.slew_per_second) as i64;
                 offset.wrapping_add(self.candidate.wrapping_sub(offset).clamp(-step, step))
             }
             _ => self.candidate,
@@ -56,14 +75,23 @@ impl FramePacer {
         self.offset = Some(offset);
         self.last_arrival_nanos = arrival_nanos;
         let local = sender_nanos.wrapping_add(offset);
-        if (-ONE_SECOND..=self.max_early_nanos).contains(&local.wrapping_sub(arrival_nanos)) { local } else { 0 }
+        if (-ONE_SECOND..=self.max_early_nanos).contains(&local.wrapping_sub(arrival_nanos)) {
+            local
+        } else {
+            0
+        }
     }
 }
 
 const OUTPUT_SLOTS: usize = 64;
 const PAUSE_HELD_FRAMES: usize = 3;
 #[derive(Clone, Copy, Default)]
-struct OutputSlot { presentation_us: i64, queued_ns: i64, paced: bool, before_pause: bool }
+struct OutputSlot {
+    presentation_us: i64,
+    queued_ns: i64,
+    paced: bool,
+    before_pause: bool,
+}
 
 pub struct OutputTiming {
     slots: [OutputSlot; OUTPUT_SLOTS],
@@ -83,28 +111,49 @@ pub struct OutputPlan {
     pub late: bool,
 }
 impl OutputTiming {
-    pub fn reset_slots(&mut self) { self.slots = [OutputSlot::default(); OUTPUT_SLOTS]; }
+    pub fn reset_slots(&mut self) {
+        self.slots = [OutputSlot::default(); OUTPUT_SLOTS];
+    }
     pub fn new(initial_delay: i64, queued_slots_only: bool) -> Self {
-        Self { slots: [OutputSlot::default(); OUTPUT_SLOTS], next: 0, recent_paced: [None; PAUSE_HELD_FRAMES],
-            last_queued_ns: 0, resumed_at_ns: 0, last_local_ns: 0, queued_slots_only,
-            delay: (initial_delay > 0).then(|| PacingDelay::new(initial_delay)) }
+        Self {
+            slots: [OutputSlot::default(); OUTPUT_SLOTS],
+            next: 0,
+            recent_paced: [None; PAUSE_HELD_FRAMES],
+            last_queued_ns: 0,
+            resumed_at_ns: 0,
+            last_local_ns: 0,
+            queued_slots_only,
+            delay: (initial_delay > 0).then(|| PacingDelay::new(initial_delay)),
+        }
     }
     pub fn queued(&mut self, presentation_us: i64, local_ns: i64, now: i64) {
-        if self.last_queued_ns != 0 && now.wrapping_sub(self.last_queued_ns) > 500_000_000 { self.resumed_at_ns = now; }
+        if self.last_queued_ns != 0 && now.wrapping_sub(self.last_queued_ns) > 500_000_000 {
+            self.resumed_at_ns = now;
+        }
         self.last_queued_ns = now;
-        self.slots[self.next] = OutputSlot { presentation_us, queued_ns: now, paced: local_ns > 0, before_pause: false };
+        self.slots[self.next] = OutputSlot {
+            presentation_us,
+            queued_ns: now,
+            paced: local_ns > 0,
+            before_pause: false,
+        };
         if local_ns > 0 {
             if self.last_local_ns != 0 && local_ns.wrapping_sub(self.last_local_ns) > 120_000_000 {
-                for held in self.recent_paced.iter().flatten() { self.slots[*held].before_pause = true; }
+                for held in self.recent_paced.iter().flatten() {
+                    self.slots[*held].before_pause = true;
+                }
             }
             self.last_local_ns = local_ns;
-            self.recent_paced.rotate_right(1); self.recent_paced[0] = Some(self.next);
+            self.recent_paced.rotate_right(1);
+            self.recent_paced[0] = Some(self.next);
         }
         self.next = (self.next + 1) % OUTPUT_SLOTS;
     }
     pub fn plan(&mut self, presentation_us: i64, now: i64, shown: bool) -> OutputPlan {
         // The Java SDK path historically selects the first matching zero timestamp, even in an empty slot.
-        let slot = self.slots.iter().find(|s| s.presentation_us == presentation_us && (!self.queued_slots_only || s.queued_ns != 0));
+        let slot = self.slots.iter().find(|s| {
+            s.presentation_us == presentation_us && (!self.queued_slots_only || s.queued_ns != 0)
+        });
         let entry = slot.copied().unwrap_or_default();
         let held_over_gap = entry.queued_ns > 0 && entry.queued_ns < self.resumed_at_ns;
         let latency = (entry.queued_ns > 0).then(|| now.wrapping_sub(entry.queued_ns));
@@ -115,12 +164,26 @@ impl OutputTiming {
         let mut pacing_delay = None;
         if paced {
             let delay = self.delay.as_mut().unwrap();
-            if !held_over_gap && !pause_held { delay.on_frame(now.wrapping_sub(local)); }
-            pacing_delay = Some(delay.nanos); target = local.wrapping_add(delay.nanos);
+            if !held_over_gap && !pause_held {
+                delay.on_frame(now.wrapping_sub(local));
+            }
+            pacing_delay = Some(delay.nanos);
+            target = local.wrapping_add(delay.nanos);
         }
-        let render_at = (1..=1_000_000_000).contains(&target.wrapping_sub(now)).then_some(target);
-        OutputPlan { latency, held_over_gap, pacing_delay, render_at,
-            late: render_at.is_none() && shown && self.delay.is_some() && !held_over_gap && !pause_held }
+        let render_at = (1..=1_000_000_000)
+            .contains(&target.wrapping_sub(now))
+            .then_some(target);
+        OutputPlan {
+            latency,
+            held_over_gap,
+            pacing_delay,
+            render_at,
+            late: render_at.is_none()
+                && shown
+                && self.delay.is_some()
+                && !held_over_gap
+                && !pause_held,
+        }
     }
 }
 
@@ -145,9 +208,19 @@ impl PacingDelay {
         let (min_nanos, max_nanos) = (30_000_000, 200_000_000);
         let nanos = initial_nanos.clamp(min_nanos, max_nanos);
         PacingDelay {
-            min_nanos, max_nanos, percentile: 90, refresh_every: 15, margin_nanos: 20_000_000,
-            rise_per_frame: 1_000_000, fall_per_frame: 500_000, needs: vec![0; 120], count: 0, next: 0, frames: 0,
-            nanos, goal: nanos,
+            min_nanos,
+            max_nanos,
+            percentile: 90,
+            refresh_every: 15,
+            margin_nanos: 20_000_000,
+            rise_per_frame: 1_000_000,
+            fall_per_frame: 500_000,
+            needs: vec![0; 120],
+            count: 0,
+            next: 0,
+            frames: 0,
+            nanos,
+            goal: nanos,
         }
     }
 
@@ -155,14 +228,22 @@ impl PacingDelay {
         let window = self.needs.len();
         self.needs[self.next] = needed_nanos.clamp(0, self.max_nanos);
         self.next = (self.next + 1) % window;
-        if self.count < window { self.count += 1; }
+        if self.count < window {
+            self.count += 1;
+        }
         self.frames = self.frames.wrapping_add(1);
         if self.frames % self.refresh_every == 0 {
             let mut sorted = self.needs[..self.count].to_vec();
             sorted.sort_unstable();
-            self.goal = sorted[(self.count - 1) * self.percentile / 100].wrapping_add(self.margin_nanos).clamp(self.min_nanos, self.max_nanos);
+            self.goal = sorted[(self.count - 1) * self.percentile / 100]
+                .wrapping_add(self.margin_nanos)
+                .clamp(self.min_nanos, self.max_nanos);
         }
-        self.nanos = self.nanos.wrapping_add(self.goal.wrapping_sub(self.nanos).clamp(-self.fall_per_frame, self.rise_per_frame));
+        self.nanos = self.nanos.wrapping_add(
+            self.goal
+                .wrapping_sub(self.nanos)
+                .clamp(-self.fall_per_frame, self.rise_per_frame),
+        );
     }
 }
 
@@ -199,41 +280,77 @@ impl BacklogRecovery {
     }
 
     /// True when the backlog behind the current frame calls for recovery.
-    pub fn observe(&mut self, now_ns: i64, current_received_ns: i64, pending_frames: usize, newest_pending_received_ns: Option<i64>) -> bool {
+    pub fn observe(
+        &mut self,
+        now_ns: i64,
+        current_received_ns: i64,
+        pending_frames: usize,
+        newest_pending_received_ns: Option<i64>,
+    ) -> bool {
         if let Some(ends) = self.startup_ends_ns {
-            if now_ns < ends { self.reset(); return false; }
+            if now_ns < ends {
+                self.reset();
+                return false;
+            }
             self.startup_ends_ns = None;
         }
-        let Some(newest) = newest_pending_received_ns else { self.reset(); return false };
-        if pending_frames == 0 || current_received_ns > now_ns || newest > now_ns || newest < current_received_ns ||
-            self.last_observed_ns.is_some_and(|last| now_ns < last) {
+        let Some(newest) = newest_pending_received_ns else {
+            self.reset();
+            return false;
+        };
+        if pending_frames == 0
+            || current_received_ns > now_ns
+            || newest > now_ns
+            || newest < current_received_ns
+            || self.last_observed_ns.is_some_and(|last| now_ns < last)
+        {
             self.reset();
             return false;
         }
         self.last_observed_ns = Some(now_ns);
         let age = now_ns.wrapping_sub(current_received_ns);
         let span = newest.wrapping_sub(current_received_ns);
-        if age <= LOW_AGE_NS || span <= LOW_SPAN_NS { self.reset(); return false; }
-        if age >= HARD_AGE_NS && span >= SOFT_SPAN_NS { self.reset(); return true; }
-        if age <= SOFT_AGE_NS || span < SOFT_SPAN_NS { return false; }
+        if age <= LOW_AGE_NS || span <= LOW_SPAN_NS {
+            self.reset();
+            return false;
+        }
+        if age >= HARD_AGE_NS && span >= SOFT_SPAN_NS {
+            self.reset();
+            return true;
+        }
+        if age <= SOFT_AGE_NS || span < SOFT_SPAN_NS {
+            return false;
+        }
         let Some(start) = self.episode_start_ns else {
             self.episode_start_ns = Some(now_ns);
             self.initial_span_ns = span;
             self.initial_pending_frames = pending_frames as i32;
             return false;
         };
-        let growing = span.wrapping_sub(self.initial_span_ns) >= SPAN_GROWTH_NS ||
-            (pending_frames as i32).wrapping_sub(self.initial_pending_frames) >= FRAME_GROWTH;
-        if now_ns.wrapping_sub(start) >= GRACE_NS && growing { self.reset(); return true; }
+        let growing = span.wrapping_sub(self.initial_span_ns) >= SPAN_GROWTH_NS
+            || (pending_frames as i32).wrapping_sub(self.initial_pending_frames) >= FRAME_GROWTH;
+        if now_ns.wrapping_sub(start) >= GRACE_NS && growing {
+            self.reset();
+            return true;
+        }
         false
     }
 }
 
 /// `VideoRecoveryFrameAge.isObsolete`: a keyframe that waited 1.5 s with a newer frame 100 ms later
 /// behind it is not worth decoding.
-pub fn is_obsolete(now_ns: i64, received_ns: i64, pending_frames: usize, newest_pending_received_ns: Option<i64>) -> bool {
-    now_ns >= received_ns && now_ns.wrapping_sub(received_ns) >= 1_500_000_000 && pending_frames > 0 &&
-        newest_pending_received_ns.is_some_and(|newest| newest <= now_ns && newest.wrapping_sub(received_ns) >= 100_000_000)
+pub fn is_obsolete(
+    now_ns: i64,
+    received_ns: i64,
+    pending_frames: usize,
+    newest_pending_received_ns: Option<i64>,
+) -> bool {
+    now_ns >= received_ns
+        && now_ns.wrapping_sub(received_ns) >= 1_500_000_000
+        && pending_frames > 0
+        && newest_pending_received_ns.is_some_and(|newest| {
+            newest <= now_ns && newest.wrapping_sub(received_ns) >= 100_000_000
+        })
 }
 
 #[cfg(test)]
@@ -246,7 +363,10 @@ mod tests {
         // A steady 10 ms link delay: the local time is the arrival time.
         for n in 0..40 {
             let sender = n * 16_666_667;
-            assert_eq!(pacer.local_time(sender, sender + 10_000_000), sender + 10_000_000);
+            assert_eq!(
+                pacer.local_time(sender, sender + 10_000_000),
+                sender + 10_000_000
+            );
         }
         // A frame stamped two seconds early is implausible.
         assert_eq!(pacer.local_time(0, 3 * ONE_SECOND), 0);
@@ -255,7 +375,9 @@ mod tests {
     #[test]
     fn the_delay_moves_towards_its_goal_slowly() {
         let mut delay = PacingDelay::new(50_000_000);
-        for _ in 0..15 { delay.on_frame(100_000_000); }
+        for _ in 0..15 {
+            delay.on_frame(100_000_000);
+        }
         // goal 120 ms; one 1 ms step on the frame that set it.
         assert_eq!(delay.nanos, 51_000_000);
     }

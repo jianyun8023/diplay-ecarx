@@ -4,7 +4,11 @@ use crate::protocols::bplist::{self, Value};
 use jni_sys::{jboolean, jclass, jint, jlong, jlongArray, jobject, JNIEnv};
 use std::sync::{Arc, Mutex};
 
-pub struct AudioRoute { state: Mutex<State>, clock_rate: i64, direct: bool }
+pub struct AudioRoute {
+    state: Mutex<State>,
+    clock_rate: i64,
+    direct: bool,
+}
 struct State {
     target: Option<Arc<QueueOwner>>,
     closed: bool,
@@ -20,18 +24,28 @@ struct State {
     probe: ClockProbe,
 }
 #[derive(Default)]
-struct ClockProbe { stream_start: Option<i64>, first: Option<(u32, i64)>, done: bool }
+struct ClockProbe {
+    stream_start: Option<i64>,
+    first: Option<(u32, i64)>,
+    done: bool,
+}
 
 impl ClockProbe {
     fn observe(&mut self, sample: u32, now: i64) -> Option<i32> {
-        if self.done { return None; }
+        if self.done {
+            return None;
+        }
         let start = *self.stream_start.get_or_insert(now);
         let Some((first_sample, first_ns)) = self.first else {
-            if now.wrapping_sub(start) >= 1_000_000_000 { self.first = Some((sample, now)); }
+            if now.wrapping_sub(start) >= 1_000_000_000 {
+                self.first = Some((sample, now));
+            }
             return None;
         };
         let elapsed = now.wrapping_sub(first_ns);
-        if elapsed < 3_000_000_000 { return None; }
+        if elapsed < 3_000_000_000 {
+            return None;
+        }
         self.done = true;
         let rate = sample.wrapping_sub(first_sample) as f64 * 1_000_000_000.0 / elapsed as f64;
         Some(math_round(rate) as i32)
@@ -46,16 +60,36 @@ pub(crate) fn math_round(value: f64) -> i64 {
     if (0..64).contains(&shift) {
         let significand = (bits & 0x000f_ffff_ffff_ffff) | 0x0010_0000_0000_0000;
         (((significand >> shift) + 1) >> 1) as i64
-    } else { value as i64 }
+    } else {
+        value as i64
+    }
 }
 
-pub enum Delivery { Callback(AudioPacket), Queued(Arc<QueueOwner>), Closed }
+pub enum Delivery {
+    Callback(AudioPacket),
+    Queued(Arc<QueueOwner>),
+    Closed,
+}
 impl AudioRoute {
     pub fn new(clock_rate: i64, direct: bool) -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(State { target: None, closed: false, retired: false, newest: None, newest_rx_ns: 0,
-            baseline_logged: false, last_overrun_ns: None, max_ahead: i64::MIN, overrun_samples: 0,
-            first_overrun_sample_ns: None, anchor: None, probe: ClockProbe::default() }),
-            clock_rate, direct })
+        Arc::new(Self {
+            state: Mutex::new(State {
+                target: None,
+                closed: false,
+                retired: false,
+                newest: None,
+                newest_rx_ns: 0,
+                baseline_logged: false,
+                last_overrun_ns: None,
+                max_ahead: i64::MIN,
+                overrun_samples: 0,
+                first_overrun_sample_ns: None,
+                anchor: None,
+                probe: ClockProbe::default(),
+            }),
+            clock_rate,
+            direct,
+        })
     }
 
     /// The first decrypted sample and its monotonic origin, committed from the platform's
@@ -72,39 +106,57 @@ impl AudioRoute {
         let state = self.state.lock().unwrap();
         let (first, origin) = state.anchor?;
         let elapsed_sec = ((now_ns - origin) as f64 / 1e9 - latency_ms as f64 / 1000.0).max(0.0);
-        Some((((first as i32) as i64 & 0xffff_ffff) + math_round(elapsed_sec * self.clock_rate as f64))
-            & 0xffff_ffff)
+        Some(
+            (((first as i32) as i64 & 0xffff_ffff)
+                + math_round(elapsed_sec * self.clock_rate as f64))
+                & 0xffff_ffff,
+        )
     }
 
     /// Sampled after the first-start callback, exactly where the old media-engine observer ran.
     pub fn observe(&self, sample: u32, now: i64) -> Option<i32> {
         let mut state = self.state.lock().unwrap();
-        if state.closed { return None; }
-        if state.newest.is_none_or(|old| sample.wrapping_sub(old) as i32 > 0) {
+        if state.closed {
+            return None;
+        }
+        if state
+            .newest
+            .is_none_or(|old| sample.wrapping_sub(old) as i32 > 0)
+        {
             state.newest = Some(sample);
             state.newest_rx_ns = now;
         }
         state.probe.observe(sample, now)
     }
 
-    pub fn capture_wire(&self) -> bool { !self.direct }
+    pub fn capture_wire(&self) -> bool {
+        !self.direct
+    }
 
-    pub fn closed(&self) -> bool { self.state.lock().unwrap().closed }
+    pub fn closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
 
     pub fn deliver(&self, packet: AudioPacket) -> Delivery {
         let state = self.state.lock().unwrap();
-        if state.closed || state.retired { return Delivery::Closed; }
+        if state.closed || state.retired {
+            return Delivery::Closed;
+        }
         let target = self.direct.then(|| state.target.clone()).flatten();
         drop(state);
         if let Some(target) = target {
             target.push(packet);
             Delivery::Queued(target)
-        } else { Delivery::Callback(packet) }
+        } else {
+            Delivery::Callback(packet)
+        }
     }
 
     fn set_queue(&self, target: Option<Arc<QueueOwner>>) {
         let mut state = self.state.lock().unwrap();
-        if !state.closed && self.direct { state.target = target; }
+        if !state.closed && self.direct {
+            state.target = target;
+        }
     }
 
     fn close(&self) {
@@ -124,7 +176,9 @@ impl AudioRoute {
 
     fn feedback(&self, reported: u32, now: i64) -> Option<[i64; 7]> {
         let mut state = self.state.lock().unwrap();
-        if state.closed { return None; }
+        if state.closed {
+            return None;
+        }
         let received = state.newest?;
         let ahead = reported.wrapping_sub(received) as i32 as i64;
         let overrun = ahead as f64 > 0.1 * self.clock_rate as f64;
@@ -137,121 +191,217 @@ impl AudioRoute {
             state.first_overrun_sample_ns = None;
         }
         let first = !state.baseline_logged;
-        if !first && (!overrun || state.last_overrun_ns.is_some_and(|last| now.wrapping_sub(last) < 10_000_000_000)) {
+        if !first
+            && (!overrun
+                || state
+                    .last_overrun_ns
+                    .is_some_and(|last| now.wrapping_sub(last) < 10_000_000_000))
+        {
             return None;
         }
         state.baseline_logged = true;
-        if overrun { state.last_overrun_ns = Some(now); }
+        if overrun {
+            state.last_overrun_ns = Some(now);
+        }
         // This is the span of observed overrun samples, not proof of a continuous fault between them.
-        let span_ms = state.first_overrun_sample_ns.map_or(0, |first| now.wrapping_sub(first).max(0) / 1_000_000);
-        Some([received as i64, ahead * 1000 / self.clock_rate, overrun as i64,
-            state.max_ahead * 1000 / self.clock_rate, state.overrun_samples, span_ms,
-            now.wrapping_sub(state.newest_rx_ns).max(0) / 1_000_000])
+        let span_ms = state
+            .first_overrun_sample_ns
+            .map_or(0, |first| now.wrapping_sub(first).max(0) / 1_000_000);
+        Some([
+            received as i64,
+            ahead * 1000 / self.clock_rate,
+            overrun as i64,
+            state.max_ahead * 1000 / self.clock_rate,
+            state.overrun_samples,
+            span_ms,
+            now.wrapping_sub(state.newest_rx_ns).max(0) / 1_000_000,
+        ])
     }
 }
 
 pub unsafe fn retain(handle: jlong) -> Option<Arc<AudioRoute>> {
-    if handle == 0 { return None; }
+    if handle == 0 {
+        return None;
+    }
     Arc::increment_strong_count(handle as *const AudioRoute);
     Some(Arc::from_raw(handle as *const AudioRoute))
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteCreate(
-    _env: *mut JNIEnv, _class: jclass, rate: jint, direct: jboolean,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    rate: jint,
+    direct: jboolean,
 ) -> jlong {
-    if rate <= 0 { return 0; }
+    if rate <= 0 {
+        return 0;
+    }
     Arc::into_raw(AudioRoute::new(rate as i64, direct != 0)) as jlong
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteSetQueue(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, queue: jlong,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    queue: jlong,
 ) {
     let target = queue::consume_reference(queue);
-    if handle != 0 { (&*(handle as *const AudioRoute)).set_queue(target); }
+    if handle != 0 {
+        (&*(handle as *const AudioRoute)).set_queue(target);
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteRetire(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) { if handle != 0 { (&*(handle as *const AudioRoute)).retire(); } }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+) {
+    if handle != 0 {
+        (&*(handle as *const AudioRoute)).retire();
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteFeedback(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, reported: jlong, now: jlong,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    reported: jlong,
+    now: jlong,
 ) -> jlongArray {
-    if handle == 0 { return std::ptr::null_mut(); }
-    let Some(row) = (&*(handle as *const AudioRoute)).feedback(reported as u32, now) else { return std::ptr::null_mut() };
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    let Some(row) = (&*(handle as *const AudioRoute)).feedback(reported as u32, now) else {
+        return std::ptr::null_mut();
+    };
     let out = ((**env).NewLongArray.unwrap())(env, row.len() as jint);
-    if out.is_null() || ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
+    if out.is_null() || ((**env).ExceptionCheck.unwrap())(env) != 0 {
+        return std::ptr::null_mut();
+    }
     ((**env).SetLongArrayRegion.unwrap())(env, out, 0, row.len() as jint, row.as_ptr());
-    if ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
+    if ((**env).ExceptionCheck.unwrap())(env) != 0 {
+        return std::ptr::null_mut();
+    }
     out
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteAnchor(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, first_sample: jint, origin_ns: jlong,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    first_sample: jint,
+    origin_ns: jlong,
 ) {
-    if handle != 0 { (&*(handle as *const AudioRoute)).anchor(first_sample, origin_ns); }
+    if handle != 0 {
+        (&*(handle as *const AudioRoute)).anchor(first_sample, origin_ns);
+    }
 }
 
 /// The complete single-stream feedback entry: the route owner computes sampleTime and assembles
 /// the reply dict, with the platform-encoded connection and NTP objects put back unchanged.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteFeedbackEntry(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, stream_type: jint, now: jlong,
-    latency_ms: jint, connection: jobject, timestamp: jobject,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    stream_type: jint,
+    now: jlong,
+    latency_ms: jint,
+    connection: jobject,
+    timestamp: jobject,
 ) -> jobject {
     let null = std::ptr::null_mut();
-    if handle == 0 { return null; }
+    if handle == 0 {
+        return null;
+    }
     let route = &*(handle as *const AudioRoute);
     let mut fields = vec![
         ("type".encode_utf16().collect(), Value::Int32(stream_type)),
-        ("sampleRate".encode_utf16().collect(), Value::Int32(route.clock_rate as i32)),
+        (
+            "sampleRate".encode_utf16().collect(),
+            Value::Int32(route.clock_rate as i32),
+        ),
     ];
     let anchored = route.sample_time(now, latency_ms);
     if let Some(sample_time) = anchored {
         fields.extend([
             ("streamConnectionID".encode_utf16().collect(), Value::Null),
             ("timestamp".encode_utf16().collect(), Value::Null),
-            ("timestampRawNs".encode_utf16().collect(), Value::Int(now as u64)),
-            ("sampleTime".encode_utf16().collect(), Value::Int(sample_time as u64)),
+            (
+                "timestampRawNs".encode_utf16().collect(),
+                Value::Int(now as u64),
+            ),
+            (
+                "sampleTime".encode_utf16().collect(),
+                Value::Int(sample_time as u64),
+            ),
         ]);
     }
-    let Some(map) = bplist::jni::write_value(env, &Value::Dict(fields)) else { return null; };
+    let Some(map) = bplist::jni::write_value(env, &Value::Dict(fields)) else {
+        return null;
+    };
     if anchored.is_some() {
         bplist::jni::replace_map_value(env, map, "streamConnectionID", connection);
-        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return null; }
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 {
+            return null;
+        }
         bplist::jni::replace_map_value(env, map, "timestamp", timestamp);
-        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return null; }
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 {
+            return null;
+        }
     }
     map
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteDestroy(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) { if handle != 0 { Arc::from_raw(handle as *const AudioRoute).close(); } }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+) {
+    if handle != 0 {
+        Arc::from_raw(handle as *const AudioRoute).close();
+    }
+}
 
 /// Negotiated audioFormat bits. Opus wins over AAC; PCM formats require an exact table key.
 pub(crate) fn format_bits(bits: u64) -> [i32; 4] {
     if bits & 0x7000_0000 != 0 {
-        let clock = if bits & 0x4000_0000 != 0 { 48_000 } else if bits & 0x2000_0000 != 0 { 24_000 } else { 16_000 };
+        let clock = if bits & 0x4000_0000 != 0 {
+            48_000
+        } else if bits & 0x2000_0000 != 0 {
+            24_000
+        } else {
+            16_000
+        };
         return [1, 48_000, 1, clock];
     }
     if bits & 0x00c0_0000 != 0 {
-        let rate = if bits & 0x0080_0000 != 0 { 48_000 } else { 44_100 };
+        let rate = if bits & 0x0080_0000 != 0 {
+            48_000
+        } else {
+            44_100
+        };
         return [0, rate, 2, rate];
     }
     let (rate, channels) = match bits {
-        0x4 => (8_000, 1), 0x8 => (8_000, 2),
-        0x10 => (16_000, 1), 0x20 => (16_000, 2),
-        0x40 => (24_000, 1), 0x80 => (24_000, 2),
-        0x100 => (32_000, 1), 0x200 => (32_000, 2),
-        0x400 => (44_100, 1), 0x800 => (44_100, 2),
-        0x4000 => (48_000, 1), 0x8000 => (48_000, 2),
+        0x4 => (8_000, 1),
+        0x8 => (8_000, 2),
+        0x10 => (16_000, 1),
+        0x20 => (16_000, 2),
+        0x40 => (24_000, 1),
+        0x80 => (24_000, 2),
+        0x100 => (32_000, 1),
+        0x200 => (32_000, 2),
+        0x400 => (44_100, 1),
+        0x800 => (44_100, 2),
+        0x4000 => (48_000, 1),
+        0x8000 => (48_000, 2),
         _ => (44_100, 2),
     };
     [2, rate, channels, rate]
@@ -259,13 +409,19 @@ pub(crate) fn format_bits(bits: u64) -> [i32; 4] {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioFormatBits(
-    env: *mut JNIEnv, _class: jclass, bits: jlong,
+    env: *mut JNIEnv,
+    _class: jclass,
+    bits: jlong,
 ) -> jni_sys::jintArray {
     let row = format_bits(bits as u64);
     let out = ((**env).NewIntArray.unwrap())(env, 4);
-    if out.is_null() || ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
+    if out.is_null() || ((**env).ExceptionCheck.unwrap())(env) != 0 {
+        return std::ptr::null_mut();
+    }
     ((**env).SetIntArrayRegion.unwrap())(env, out, 0, 4, row.as_ptr());
-    if ((**env).ExceptionCheck.unwrap())(env) != 0 { return std::ptr::null_mut(); }
+    if ((**env).ExceptionCheck.unwrap())(env) != 0 {
+        return std::ptr::null_mut();
+    }
     out
 }
 
@@ -276,29 +432,48 @@ mod tests {
 
     fn packet(pool: &Arc<Pool>, sample: u32) -> AudioPacket {
         let mut packet = pool.take(12);
-        unsafe { std::ptr::write_bytes(packet.spare(), 0, 12); packet.set_len(12); }
-        AudioPacket { handle: packet.into_handle(), sample, arrived_ns: 1 }
+        unsafe {
+            std::ptr::write_bytes(packet.spare(), 0, 12);
+            packet.set_len(12);
+        }
+        AudioPacket {
+            handle: packet.into_handle(),
+            sample,
+            arrived_ns: 1,
+        }
     }
 
     #[test]
     fn target_replacement_close_and_legacy_callbacks_keep_one_packet_owner() {
         let pool = Pool::new();
         let route = AudioRoute::new(48_000, true);
-        assert!(matches!(route.deliver(packet(&pool, 1)), Delivery::Callback(_)));
+        assert!(matches!(
+            route.deliver(packet(&pool, 1)),
+            Delivery::Callback(_)
+        ));
         let queue = QueueOwner::new(48_000, false);
         let weak = Arc::downgrade(&queue);
         route.set_queue(Some(queue.clone()));
-        assert!(matches!(route.deliver(packet(&pool, 2)), Delivery::Queued(_)));
+        assert!(matches!(
+            route.deliver(packet(&pool, 2)),
+            Delivery::Queued(_)
+        ));
         assert_eq!(pool.outstanding(), 1);
         queue.close();
         assert_eq!(pool.outstanding(), 0);
         // An already-closed target drops incoming packets, never hands them to a stale JVM sink.
-        assert!(matches!(route.deliver(packet(&pool, 3)), Delivery::Queued(_)));
+        assert!(matches!(
+            route.deliver(packet(&pool, 3)),
+            Delivery::Queued(_)
+        ));
         assert_eq!(pool.outstanding(), 0);
         route.set_queue(None);
         drop(queue);
         assert!(weak.upgrade().is_none());
-        assert!(matches!(route.deliver(packet(&pool, 4)), Delivery::Callback(_)));
+        assert!(matches!(
+            route.deliver(packet(&pool, 4)),
+            Delivery::Callback(_)
+        ));
         route.close();
         assert!(matches!(route.deliver(packet(&pool, 5)), Delivery::Closed));
         assert_eq!(pool.outstanding(), 0);
@@ -309,14 +484,20 @@ mod tests {
         let pool = Pool::new();
         let route = AudioRoute::new(48_000, true);
         // A queue-less detach is recoverable: the packet still goes to the Kotlin callback.
-        assert!(matches!(route.deliver(packet(&pool, 1)), Delivery::Callback(_)));
+        assert!(matches!(
+            route.deliver(packet(&pool, 1)),
+            Delivery::Callback(_)
+        ));
         // Retirement (this stream was replaced by another session) drops instead of calling back.
         route.retire();
         assert!(matches!(route.deliver(packet(&pool, 2)), Delivery::Closed));
         // A queue present before retirement is ignored after retirement as well.
         let queued = AudioRoute::new(48_000, true);
         queued.set_queue(Some(QueueOwner::new(48_000, false)));
-        assert!(matches!(queued.deliver(packet(&pool, 3)), Delivery::Queued(_)));
+        assert!(matches!(
+            queued.deliver(packet(&pool, 3)),
+            Delivery::Queued(_)
+        ));
         queued.retire();
         assert!(matches!(queued.deliver(packet(&pool, 4)), Delivery::Closed));
     }
@@ -329,7 +510,10 @@ mod tests {
         let weak = Arc::downgrade(&queue);
         route.set_queue(Some(queue));
         assert!(weak.upgrade().is_none());
-        assert!(matches!(route.deliver(packet(&pool, 7)), Delivery::Callback(_)));
+        assert!(matches!(
+            route.deliver(packet(&pool, 7)),
+            Delivery::Callback(_)
+        ));
         assert_eq!(pool.outstanding(), 0);
     }
 
@@ -339,10 +523,34 @@ mod tests {
             let route = AudioRoute::new(16_000, true);
             let sample = u32::MAX - 255;
             assert_eq!(route.observe(sample, origin), None);
-            assert_eq!(route.observe(sample.wrapping_add(15_999), origin.wrapping_add(999_999_999)), None);
-            assert_eq!(route.observe(sample.wrapping_add(16_000), origin.wrapping_add(1_000_000_000)), None);
-            assert_eq!(route.observe(sample.wrapping_add(63_999), origin.wrapping_add(3_999_999_999)), None);
-            assert_eq!(route.observe(sample.wrapping_add(64_000), origin.wrapping_add(4_000_000_000)), Some(16_000));
+            assert_eq!(
+                route.observe(
+                    sample.wrapping_add(15_999),
+                    origin.wrapping_add(999_999_999)
+                ),
+                None
+            );
+            assert_eq!(
+                route.observe(
+                    sample.wrapping_add(16_000),
+                    origin.wrapping_add(1_000_000_000)
+                ),
+                None
+            );
+            assert_eq!(
+                route.observe(
+                    sample.wrapping_add(63_999),
+                    origin.wrapping_add(3_999_999_999)
+                ),
+                None
+            );
+            assert_eq!(
+                route.observe(
+                    sample.wrapping_add(64_000),
+                    origin.wrapping_add(4_000_000_000)
+                ),
+                Some(16_000)
+            );
             assert_eq!(route.observe(0, origin.wrapping_add(5_000_000_000)), None);
         }
     }
@@ -356,7 +564,10 @@ mod tests {
         assert_eq!(route.sample_time(0, 0), Some(0xffff_ffff - 999));
         assert_eq!(route.sample_time(1_000_000_000, 0), Some(47_000));
         // The playout latency never pushes the position before the stream's start.
-        assert_eq!(route.sample_time(500_000_000, 2_000), Some(0xffff_ffff - 999));
+        assert_eq!(
+            route.sample_time(500_000_000, 2_000),
+            Some(0xffff_ffff - 999)
+        );
         // A late anchor commit replaces the retained origin like the old engine's fields.
         route.anchor(0, 1_000_000_000);
         assert_eq!(route.sample_time(1_000_000_000, 0), Some(0));
@@ -382,10 +593,16 @@ mod tests {
         route.observe(u32::MAX - 15, 2); // late packet must not move the received frontier back
         assert_eq!(route.feedback(16, 1_000), Some([16, 0, 0, 0, 0, 0, 0]));
         assert_eq!(route.feedback(4816, 2_000), None); // exactly 100 ms is not an overrun
-        assert_eq!(route.feedback(4817, 3_000), Some([16, 100, 1, 100, 1, 0, 0]));
+        assert_eq!(
+            route.feedback(4817, 3_000),
+            Some([16, 100, 1, 100, 1, 0, 0])
+        );
         assert_eq!(route.feedback(4817, 2_999), None); // clock rollback preserves rate limiting
         assert_eq!(route.feedback(4817, 10_000_002_999), None);
-        assert_eq!(route.feedback(4817, 10_000_003_000), Some([16, 100, 1, 100, 4, 10_000, 10_000]));
+        assert_eq!(
+            route.feedback(4817, 10_000_003_000),
+            Some([16, 100, 1, 100, 4, 10_000, 10_000])
+        );
         route.close();
         assert_eq!(route.feedback(4817, 20_000_003_000), None);
     }
@@ -397,22 +614,34 @@ mod tests {
             let newest = u32::MAX - 479;
             let at = |ms: i64| origin.wrapping_add(ms * 1_000_000);
             route.observe(newest, origin);
-            assert_eq!(route.feedback(newest, origin), Some([newest as i64, 0, 0, 0, 0, 0, 0]));
-            assert_eq!(route.feedback(newest.wrapping_add(4801), at(100)),
-                Some([newest as i64, 100, 1, 100, 1, 0, 100]));
+            assert_eq!(
+                route.feedback(newest, origin),
+                Some([newest as i64, 0, 0, 0, 0, 0, 0])
+            );
+            assert_eq!(
+                route.feedback(newest.wrapping_add(4801), at(100)),
+                Some([newest as i64, 100, 1, 100, 1, 0, 100])
+            );
             assert_eq!(route.feedback(newest.wrapping_add(24_000), at(1100)), None);
             // Late/duplicate RTP does not refresh the receive frontier, even during quiet feedback.
             route.observe(newest.wrapping_sub(1), at(2000));
             route.observe(newest, at(3000));
-            assert_eq!(route.feedback(newest.wrapping_add(9601), at(10_100)),
-                Some([newest as i64, 200, 1, 500, 3, 10_000, 10_100]));
+            assert_eq!(
+                route.feedback(newest.wrapping_add(9601), at(10_100)),
+                Some([newest as i64, 200, 1, 500, 3, 10_000, 10_100])
+            );
             let recovered = newest.wrapping_add(9601);
             route.observe(recovered, at(10_200));
             assert_eq!(route.feedback(recovered, at(10_200)), None);
             // Recovery adds no log and leaves the original ten-second anomaly limit in force.
-            assert_eq!(route.feedback(recovered.wrapping_add(4801), at(11_200)), None);
-            assert_eq!(route.feedback(recovered.wrapping_add(4801), at(20_100)),
-                Some([recovered as i64, 100, 1, 500, 5, 8900, 9900]));
+            assert_eq!(
+                route.feedback(recovered.wrapping_add(4801), at(11_200)),
+                None
+            );
+            assert_eq!(
+                route.feedback(recovered.wrapping_add(4801), at(20_100)),
+                Some([recovered as i64, 100, 1, 500, 5, 8900, 9900])
+            );
         }
     }
 

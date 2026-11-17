@@ -18,14 +18,24 @@ pub struct Control {
 impl Control {
     pub fn new(socket: c_int) -> Arc<Control> {
         let wake = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
-        Arc::new(Control { closed: AtomicBool::new(false), socket: Mutex::new(Some(socket)), wake })
+        Arc::new(Control {
+            closed: AtomicBool::new(false),
+            socket: Mutex::new(Some(socket)),
+            wake,
+        })
     }
 
-    pub fn closed(&self) -> bool { self.closed.load(Ordering::Acquire) }
+    pub fn closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
 
-    pub fn wake_fd(&self) -> c_int { self.wake }
+    pub fn wake_fd(&self) -> c_int {
+        self.wake
+    }
 
-    pub fn socket(&self) -> Option<c_int> { *self.socket.lock().unwrap() }
+    pub fn socket(&self) -> Option<c_int> {
+        *self.socket.lock().unwrap()
+    }
 
     /// Stops the receiver: wakes it in poll and ends a blocking TCP read.
     pub fn stop(&self) {
@@ -50,7 +60,9 @@ impl Control {
 impl Drop for Control {
     fn drop(&mut self) {
         self.close_socket();
-        if self.wake >= 0 { unsafe { libc::close(self.wake) }; }
+        if self.wake >= 0 {
+            unsafe { libc::close(self.wake) };
+        }
     }
 }
 
@@ -75,7 +87,9 @@ unsafe impl Send for Callbacks {}
 impl Callbacks {
     pub fn new(env: Env, object: jobject) -> Option<Callbacks> {
         let class = env.object_class(object);
-        if class.is_null() { return None; }
+        if class.is_null() {
+            return None;
+        }
         let callbacks = Callbacks {
             object: env.new_global(object),
             on_packet: env.method(class, "onPacket", "(JIIJJ)V"),
@@ -90,16 +104,35 @@ impl Callbacks {
             on_ended: env.method(class, "onEnded", "(Ljava/lang/String;)V"),
         };
         env.delete_local(class);
-        let complete = !callbacks.object.is_null() && !callbacks.on_packet.is_null() && !callbacks.on_config.is_null() &&
-            !callbacks.on_receiving.is_null() && !callbacks.on_log.is_null() && !callbacks.on_report.is_null() && !callbacks.on_ended.is_null();
-        let complete = complete && !callbacks.on_audio_started.is_null() && !callbacks.on_audio_wire.is_null()
-            && !callbacks.on_audio_clock.is_null() && !callbacks.on_audio_queue.is_null();
-        if complete { Some(callbacks) } else { env.delete_global(callbacks.object); None }
+        let complete = !callbacks.object.is_null()
+            && !callbacks.on_packet.is_null()
+            && !callbacks.on_config.is_null()
+            && !callbacks.on_receiving.is_null()
+            && !callbacks.on_log.is_null()
+            && !callbacks.on_report.is_null()
+            && !callbacks.on_ended.is_null();
+        let complete = complete
+            && !callbacks.on_audio_started.is_null()
+            && !callbacks.on_audio_wire.is_null()
+            && !callbacks.on_audio_clock.is_null()
+            && !callbacks.on_audio_queue.is_null();
+        if complete {
+            Some(callbacks)
+        } else {
+            env.delete_global(callbacks.object);
+            None
+        }
     }
 
     /// Hands a packet's handle to Kotlin, which owns it from here on.
     pub fn packet(&self, env: Env, handle: jlong, size: usize, flags: i32, a: i64, b: i64) {
-        let args = [jvalue { j: handle }, jvalue { i: size as i32 }, jvalue { i: flags }, jvalue { j: a }, jvalue { j: b }];
+        let args = [
+            jvalue { j: handle },
+            jvalue { i: size as i32 },
+            jvalue { i: flags },
+            jvalue { j: a },
+            jvalue { j: b },
+        ];
         env.call_void(self.object, self.on_packet, &args);
     }
 
@@ -112,16 +145,40 @@ impl Callbacks {
     }
 
     pub fn audio_queue_event(&self, env: Env, event: [i64; 3]) {
-        env.call_void(self.object, self.on_audio_queue, &[
-            jvalue { i: event[0] as i32 }, jvalue { j: event[1] }, jvalue { j: event[2] }]);
+        env.call_void(
+            self.object,
+            self.on_audio_queue,
+            &[
+                jvalue { i: event[0] as i32 },
+                jvalue { j: event[1] },
+                jvalue { j: event[2] },
+            ],
+        );
     }
 
     /// Debug capture only: preserve the original datagram and opened RTP, including rejected wire.
-    pub fn audio_wire(&self, env: Env, wire: &[u8], opened: Option<&[u8]>, sample: u32, error: i32) {
+    pub fn audio_wire(
+        &self,
+        env: Env,
+        wire: &[u8],
+        opened: Option<&[u8]>,
+        sample: u32,
+        error: i32,
+    ) {
         let wire = env.byte_array(wire);
-        let opened = opened.map(|bytes| env.byte_array(bytes)).unwrap_or(std::ptr::null_mut());
-        env.call_void(self.object, self.on_audio_wire, &[
-            jvalue { l: wire }, jvalue { l: opened }, jvalue { j: sample as i64 }, jvalue { i: error }]);
+        let opened = opened
+            .map(|bytes| env.byte_array(bytes))
+            .unwrap_or(std::ptr::null_mut());
+        env.call_void(
+            self.object,
+            self.on_audio_wire,
+            &[
+                jvalue { l: wire },
+                jvalue { l: opened },
+                jvalue { j: sample as i64 },
+                jvalue { i: error },
+            ],
+        );
         env.delete_local(opened);
         env.delete_local(wire);
     }
@@ -132,12 +189,18 @@ impl Callbacks {
         env.delete_local(array);
     }
 
-    pub fn receiving(&self, env: Env) { env.call_void(self.object, self.on_receiving, &[]); }
+    pub fn receiving(&self, env: Env) {
+        env.call_void(self.object, self.on_receiving, &[]);
+    }
 
     /// Logcat: 0 info, 1 warning.
     pub fn log(&self, env: Env, level: i32, line: &str) {
         let text = env.string(line);
-        env.call_void(self.object, self.on_log, &[jvalue { i: level }, jvalue { l: text }]);
+        env.call_void(
+            self.object,
+            self.on_log,
+            &[jvalue { i: level }, jvalue { l: text }],
+        );
         env.delete_local(text);
     }
 
@@ -154,7 +217,9 @@ impl Callbacks {
         env.delete_local(text);
     }
 
-    pub fn dispose(self, env: Env) { env.delete_global(self.object); }
+    pub fn dispose(self, env: Env) {
+        env.delete_global(self.object);
+    }
 }
 
 /// Starts only after the receiver has attached to the JVM. A zero return leaves the socket
@@ -163,13 +228,30 @@ pub fn spawn<F>(env: Env, name: &str, control: Arc<Control>, callbacks: Callback
 where
     F: FnOnce(Env, &Control, &Callbacks) + Send + 'static,
 {
-    spawn_with(env, name, control, callbacks, body, Attached::current, |name, work| {
-        std::thread::Builder::new().name(name.to_string()).spawn(work)
-    })
+    spawn_with(
+        env,
+        name,
+        control,
+        callbacks,
+        body,
+        Attached::current,
+        |name, work| {
+            std::thread::Builder::new()
+                .name(name.to_string())
+                .spawn(work)
+        },
+    )
 }
 
-fn spawn_with<F, A, S>(env: Env, name: &str, control: Arc<Control>, callbacks: Callbacks, body: F,
-    attach: A, start: S) -> jlong
+fn spawn_with<F, A, S>(
+    env: Env,
+    name: &str,
+    control: Arc<Control>,
+    callbacks: Callbacks,
+    body: F,
+    attach: A,
+    start: S,
+) -> jlong
 where
     F: FnOnce(Env, &Control, &Callbacks) + Send + 'static,
     A: FnOnce(&str) -> Option<Attached> + Send + 'static,
@@ -179,15 +261,27 @@ where
     let thread_name = name.to_string();
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
     let (work_tx, work_rx) = std::sync::mpsc::sync_channel::<(Callbacks, F)>(1);
-    let started = start(name, Box::new(move || {
-        let Some(attached) = attach(&thread_name) else { return; };
-        if ready_tx.send(()).is_err() { return; }
-        let Ok((callbacks, body)) = work_rx.recv() else { return; };
-        // Drop before Attached, including when body unwinds.
-        let callbacks = RunningCallbacks { callbacks, env: attached.env };
-        let socket = RunningSocket(&thread_control);
-        body(attached.env, socket.0, &callbacks.callbacks);
-    }));
+    let started = start(
+        name,
+        Box::new(move || {
+            let Some(attached) = attach(&thread_name) else {
+                return;
+            };
+            if ready_tx.send(()).is_err() {
+                return;
+            }
+            let Ok((callbacks, body)) = work_rx.recv() else {
+                return;
+            };
+            // Drop before Attached, including when body unwinds.
+            let callbacks = RunningCallbacks {
+                callbacks,
+                env: attached.env,
+            };
+            let socket = RunningSocket(&thread_control);
+            body(attached.env, socket.0, &callbacks.callbacks);
+        }),
+    );
     if started.is_err() || ready_rx.recv().is_err() {
         // Do not close a descriptor which Kotlin still owns after a zero result.
         control.socket.lock().unwrap().take();
@@ -196,7 +290,7 @@ where
     }
     if let Err(error) = work_tx.send((callbacks, body)) {
         control.socket.lock().unwrap().take();
-        error.0.0.dispose(env);
+        error.0 .0.dispose(env);
         return 0;
     }
     Box::into_raw(Box::new(control)) as jlong
@@ -204,22 +298,33 @@ where
 
 struct RunningSocket<'a>(&'a Control);
 impl Drop for RunningSocket<'_> {
-    fn drop(&mut self) { self.0.close_socket(); }
+    fn drop(&mut self) {
+        self.0.close_socket();
+    }
 }
 
-struct RunningCallbacks { callbacks: Callbacks, env: Env }
+struct RunningCallbacks {
+    callbacks: Callbacks,
+    env: Env,
+}
 impl Drop for RunningCallbacks {
-    fn drop(&mut self) { self.env.delete_global(self.callbacks.object); }
+    fn drop(&mut self) {
+        self.env.delete_global(self.callbacks.object);
+    }
 }
 
 /// Gives up a handle from [spawn] without stopping its thread, for an owner that keeps the control.
 pub unsafe fn release_handle(handle: jlong) {
-    if handle != 0 { drop(Box::from_raw(handle as *mut Arc<Control>)); }
+    if handle != 0 {
+        drop(Box::from_raw(handle as *mut Arc<Control>));
+    }
 }
 
 /// Stops the stream and gives up Kotlin's handle; safe to call from the receiver's own callbacks.
 pub unsafe fn stop(handle: jlong) {
-    if handle == 0 { return; }
+    if handle == 0 {
+        return;
+    }
     let control = Box::from_raw(handle as *mut Arc<Control>);
     control.stop();
 }
@@ -235,7 +340,9 @@ pub fn recv_exact(fd: c_int, out: *mut u8, len: usize) -> Result<bool, std::io::
             return Ok(false);
         } else {
             let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted { continue; }
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
             return Err(error);
         }
     }
@@ -247,7 +354,9 @@ pub fn recv_exact(fd: c_int, out: *mut u8, len: usize) -> Result<bool, std::io::
 #[cfg(any(target_os = "android", target_os = "linux"))]
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_stop(
-    _env: *mut jni_sys::JNIEnv, _class: jni_sys::jclass, handle: jni_sys::jlong,
+    _env: *mut jni_sys::JNIEnv,
+    _class: jni_sys::jclass,
+    handle: jni_sys::jlong,
 ) {
     stop(handle)
 }
@@ -279,26 +388,51 @@ mod startup_tests {
         let caller_fd = unsafe { OwnedFd::from_raw_fd(fd) };
         let captured_fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
         assert!(captured_fd >= 0);
-        struct Captured { fd: OwnedFd, dropped: Arc<AtomicUsize> }
+        struct Captured {
+            fd: OwnedFd,
+            dropped: Arc<AtomicUsize>,
+        }
         impl Drop for Captured {
-            fn drop(&mut self) { self.dropped.fetch_add(1, Ordering::SeqCst); }
+            fn drop(&mut self) {
+                self.dropped.fetch_add(1, Ordering::SeqCst);
+            }
         }
         let dropped = Arc::new(AtomicUsize::new(0));
-        let captured = Captured { fd: unsafe { OwnedFd::from_raw_fd(captured_fd) }, dropped: dropped.clone() };
+        let captured = Captured {
+            fd: unsafe { OwnedFd::from_raw_fd(captured_fd) },
+            dropped: dropped.clone(),
+        };
         let control = Control::new(fd);
-        let handle = spawn_with(env, "fault-injected", control.clone(), callbacks,
-            move |_, _, _| { let _ = captured.fd.as_raw_fd(); drop(captured); panic!("body must not run"); },
+        let handle = spawn_with(
+            env,
+            "fault-injected",
+            control.clone(),
+            callbacks,
+            move |_, _, _| {
+                let _ = captured.fd.as_raw_fd();
+                drop(captured);
+                panic!("body must not run");
+            },
             |_| None,
             move |name, work| {
-                if attach_fails { std::thread::Builder::new().name(name.into()).spawn(work) }
-                else { Err(std::io::Error::from_raw_os_error(libc::EAGAIN)) }
-            });
+                if attach_fails {
+                    std::thread::Builder::new().name(name.into()).spawn(work)
+                } else {
+                    Err(std::io::Error::from_raw_os_error(libc::EAGAIN))
+                }
+            },
+        );
         assert_eq!(handle, 0);
         assert_eq!(deleted.load(Ordering::SeqCst), 1);
-        assert!(unsafe { libc::fcntl(caller_fd.as_raw_fd(), libc::F_GETFD) } >= 0,
-            "zero return must retain caller FD ownership");
-        assert_eq!(dropped.load(Ordering::SeqCst), 1,
-            "captured TUN resources must be dropped even without running body");
+        assert!(
+            unsafe { libc::fcntl(caller_fd.as_raw_fd(), libc::F_GETFD) } >= 0,
+            "zero return must retain caller FD ownership"
+        );
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "captured TUN resources must be dropped even without running body"
+        );
         // Replace the caller's FD atomically before retiring the last Control: its destructor
         // must not close an unrelated descriptor that has acquired the old integer.
         let fd = caller_fd.into_raw_fd();
@@ -306,7 +440,9 @@ mod startup_tests {
         assert!(replacement >= 0);
         if replacement != fd {
             assert_eq!(unsafe { libc::dup2(replacement, fd) }, fd);
-            unsafe { libc::close(replacement); }
+            unsafe {
+                libc::close(replacement);
+            }
         }
         let replacement = unsafe { OwnedFd::from_raw_fd(fd) };
         drop(control);
@@ -314,8 +450,12 @@ mod startup_tests {
     }
 
     #[test]
-    fn thread_spawn_failure_returns_socket_and_deletes_callbacks() { failed_start(false); }
+    fn thread_spawn_failure_returns_socket_and_deletes_callbacks() {
+        failed_start(false);
+    }
 
     #[test]
-    fn jvm_attach_failure_returns_socket_and_deletes_callbacks() { failed_start(true); }
+    fn jvm_attach_failure_returns_socket_and_deletes_callbacks() {
+        failed_start(true);
+    }
 }

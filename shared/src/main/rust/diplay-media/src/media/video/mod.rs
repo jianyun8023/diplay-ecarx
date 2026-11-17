@@ -4,8 +4,8 @@ pub mod annexb;
 mod codec;
 #[cfg(any(target_os = "android", test))]
 mod codec_actions;
-pub mod pacing;
 pub mod flow;
+pub mod pacing;
 pub mod selection;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]

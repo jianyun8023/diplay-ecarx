@@ -7,8 +7,8 @@
 
 use crate::platform::jvm::Env;
 use jni_sys::{jclass, jfloat, jint, jlong, jobject, JNIEnv};
-use std::ffi::c_void;
 use std::collections::VecDeque;
+use std::ffi::c_void;
 use std::sync::OnceLock;
 
 type Stream = c_void;
@@ -46,11 +46,15 @@ fn api() -> Option<&'static Api> {
     static API: OnceLock<Option<Api>> = OnceLock::new();
     API.get_or_init(|| unsafe {
         let library = libc::dlopen(c"libaaudio.so".as_ptr(), libc::RTLD_NOW);
-        if library.is_null() { return None; }
+        if library.is_null() {
+            return None;
+        }
         macro_rules! load {
             ($name:literal) => {{
                 let symbol = libc::dlsym(library, concat!($name, "\0").as_ptr() as *const _);
-                if symbol.is_null() { return None; }
+                if symbol.is_null() {
+                    return None;
+                }
                 std::mem::transmute::<*mut c_void, _>(symbol)
             }};
         }
@@ -62,7 +66,9 @@ fn api() -> Option<&'static Api> {
             builder_setDirection: load!("AAudioStreamBuilder_setDirection"),
             builder_setSharingMode: load!("AAudioStreamBuilder_setSharingMode"),
             builder_setPerformanceMode: load!("AAudioStreamBuilder_setPerformanceMode"),
-            builder_setBufferCapacityInFrames: load!("AAudioStreamBuilder_setBufferCapacityInFrames"),
+            builder_setBufferCapacityInFrames: load!(
+                "AAudioStreamBuilder_setBufferCapacityInFrames"
+            ),
             builder_setUsage: load!("AAudioStreamBuilder_setUsage"),
             builder_setContentType: load!("AAudioStreamBuilder_setContentType"),
             builder_openStream: load!("AAudioStreamBuilder_openStream"),
@@ -80,7 +86,8 @@ fn api() -> Option<&'static Api> {
             stream_getSampleRate: load!("AAudioStream_getSampleRate"),
             stream_getDeviceId: load!("AAudioStream_getDeviceId"),
         })
-    }).as_ref()
+    })
+    .as_ref()
 }
 
 const DIRECTION_OUTPUT: i32 = 0;
@@ -101,26 +108,44 @@ pub struct Resampler {
 
 impl Resampler {
     pub fn new(channels: usize) -> Resampler {
-        Resampler { channels, step: 1.0, position: 0.0, last: vec![0; channels] }
+        Resampler {
+            channels,
+            step: 1.0,
+            position: 0.0,
+            last: vec![0; channels],
+        }
     }
 
-    pub fn set_step(&mut self, step: f64) { self.step = step.clamp(0.9, 1.1); }
+    pub fn set_step(&mut self, step: f64) {
+        self.step = step.clamp(0.9, 1.1);
+    }
 
-    pub fn is_identity(&self) -> bool { self.step == 1.0 && self.position == 0.0 }
+    pub fn is_identity(&self) -> bool {
+        self.step == 1.0 && self.position == 0.0
+    }
 
     /// Keeps the block's last frame while unresampled, so a later rate change starts without a click.
     pub fn remember(&mut self, input: &[i16]) {
         let frames = input.len() / self.channels;
-        if frames > 0 { self.last.copy_from_slice(&input[(frames - 1) * self.channels..frames * self.channels]); }
+        if frames > 0 {
+            self.last
+                .copy_from_slice(&input[(frames - 1) * self.channels..frames * self.channels]);
+        }
     }
 
     /// Appends the resampled frames of `input` (interleaved) to `out`.
     pub fn process(&mut self, input: &[i16], out: &mut Vec<i16>) {
         let frames = input.len() / self.channels;
-        if frames == 0 { return; }
+        if frames == 0 {
+            return;
+        }
         // Position 0 is the last frame of the previous block; 1 is the first frame of this one.
         let sample = |frame: isize, channel: usize, last: &[i16]| -> f32 {
-            if frame < 0 { last[channel] as f32 } else { input[frame as usize * self.channels + channel] as f32 }
+            if frame < 0 {
+                last[channel] as f32
+            } else {
+                input[frame as usize * self.channels + channel] as f32
+            }
         };
         while self.position < frames as f64 {
             let base = self.position.floor();
@@ -129,12 +154,17 @@ impl Resampler {
             for channel in 0..self.channels {
                 let a = sample(index, channel, &self.last);
                 let b = sample(index + 1, channel, &self.last);
-                out.push((a + (b - a) * fraction).round().clamp(i16::MIN as f32, i16::MAX as f32) as i16);
+                out.push(
+                    (a + (b - a) * fraction)
+                        .round()
+                        .clamp(i16::MIN as f32, i16::MAX as f32) as i16,
+                );
             }
             self.position += self.step;
         }
         self.position -= frames as f64;
-        self.last.copy_from_slice(&input[(frames - 1) * self.channels..frames * self.channels]);
+        self.last
+            .copy_from_slice(&input[(frames - 1) * self.channels..frames * self.channels]);
     }
 }
 
@@ -157,7 +187,8 @@ impl PlaybackHead {
     fn accept(&mut self, input: i64, output: i64) {
         let input_end = self.input_frames + input;
         let output_end = self.output_frames + output;
-        self.spans.push_back((self.output_frames, output_end, self.input_frames, input_end));
+        self.spans
+            .push_back((self.output_frames, output_end, self.input_frames, input_end));
         self.input_frames = input_end;
         self.output_frames = output_end;
         // Coalesce the newest adjacent spans into their combined range. A merged range never
@@ -165,7 +196,9 @@ impl PlaybackHead {
         // stays exact while the merged segments are collinear; a rate change between them only
         // smooths the played-position estimate inside this already-stalled region.
         while self.spans.len() > Self::SPAN_LIMIT {
-            let Some(second) = self.spans.pop_back() else { break };
+            let Some(second) = self.spans.pop_back() else {
+                break;
+            };
             let Some(first) = self.spans.pop_back() else {
                 self.spans.push_back(second);
                 break;
@@ -179,16 +212,21 @@ impl PlaybackHead {
         // AAudio can advance through silence on underrun. Pending software PCM is not played.
         let read = hardware.max(0).min(self.submitted_frames);
         while let Some(&(start, end, input_start, input_end)) = self.spans.front() {
-            if read < start { break; }
+            if read < start {
+                break;
+            }
             let mapped = if read >= end {
                 input_end
             } else {
                 // Widen before multiplying: 48 kHz sessions can overflow i64 in under 18 hours.
-                input_start + (((read - start) as i128 * (input_end - input_start) as i128)
-                    / (end - start) as i128) as i64
+                input_start
+                    + (((read - start) as i128 * (input_end - input_start) as i128)
+                        / (end - start) as i128) as i64
             };
             self.played = self.played.max(mapped);
-            if read < end { break; }
+            if read < end {
+                break;
+            }
             self.spans.pop_front();
         }
         self.played
@@ -221,9 +259,16 @@ impl Output {
     fn drain(&mut self, write: &mut impl FnMut(*const c_void, i32) -> i32) -> Result<bool, i32> {
         while self.pending_offset < self.resampled.len() {
             let remaining = (self.resampled.len() - self.pending_offset) / self.channels;
-            let result = write(unsafe { self.resampled.as_ptr().add(self.pending_offset) } as *const c_void, remaining as i32);
-            if result < 0 { return Err(result); }
-            if result == 0 { return Ok(false); }
+            let result = write(
+                unsafe { self.resampled.as_ptr().add(self.pending_offset) } as *const c_void,
+                remaining as i32,
+            );
+            if result < 0 {
+                return Err(result);
+            }
+            if result == 0 {
+                return Ok(false);
+            }
             self.pending_offset += result as usize * self.channels;
             self.head.submitted_frames += result as i64;
         }
@@ -232,16 +277,29 @@ impl Output {
         Ok(true)
     }
 
-    fn write(&mut self, bytes: &[u8], mut write: impl FnMut(*const c_void, i32) -> i32) -> Result<usize, i32> {
-        if !self.drain(&mut write)? || bytes.is_empty() { return Ok(0); }
+    fn write(
+        &mut self,
+        bytes: &[u8],
+        mut write: impl FnMut(*const c_void, i32) -> i32,
+    ) -> Result<usize, i32> {
+        if !self.drain(&mut write)? || bytes.is_empty() {
+            return Ok(0);
+        }
         let frame_bytes = 2 * self.channels;
         let frames = bytes.len() / frame_bytes;
         if self.gain >= 1.0 && self.resampler.is_identity() {
             let mut written = 0;
             while written < frames {
-                let result = write(unsafe { bytes.as_ptr().add(written * frame_bytes) } as *const c_void, (frames - written) as i32);
-                if result < 0 { return Err(result); }
-                if result == 0 { break; }
+                let result = write(
+                    unsafe { bytes.as_ptr().add(written * frame_bytes) } as *const c_void,
+                    (frames - written) as i32,
+                );
+                if result < 0 {
+                    return Err(result);
+                }
+                if result == 0 {
+                    break;
+                }
                 written += result as usize;
                 self.head.accept(result as i64, result as i64);
                 self.head.submitted_frames += result as i64;
@@ -257,9 +315,15 @@ impl Output {
             return Ok(written * frame_bytes);
         }
         self.scratch.clear();
-        self.scratch.extend(bytes.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])));
+        self.scratch.extend(
+            bytes
+                .chunks_exact(2)
+                .map(|s| i16::from_le_bytes([s[0], s[1]])),
+        );
         if self.gain < 1.0 {
-            for sample in &mut self.scratch { *sample = (*sample as f32 * self.gain) as i16; }
+            for sample in &mut self.scratch {
+                *sample = (*sample as f32 * self.gain) as i16;
+            }
         }
         if self.resampler.is_identity() {
             self.resampler.remember(&self.scratch);
@@ -267,7 +331,8 @@ impl Output {
         } else {
             self.resampler.process(&self.scratch, &mut self.resampled);
         }
-        self.head.accept(frames as i64, (self.resampled.len() / self.channels) as i64);
+        self.head
+            .accept(frames as i64, (self.resampled.len() / self.channels) as i64);
         // Consume the input once; a partial write retains output, never reprocesses input.
         self.drain(&mut write)?;
         Ok(bytes.len())
@@ -284,18 +349,29 @@ impl Output {
 }
 
 // NativeAudioOut's worker is the sole caller; focus callbacks only publish a Kotlin volatile gain.
-unsafe fn output<'a>(handle: jlong) -> &'a mut Output { &mut *(handle as *mut Output) }
+unsafe fn output<'a>(handle: jlong) -> &'a mut Output {
+    &mut *(handle as *mut Output)
+}
 
 /// An output stream for 16-bit PCM, or 0 when AAudio cannot open it (the renderer then uses AudioTrack).
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outOpen(
-    _env: *mut JNIEnv, _class: jclass, sample_rate: jint, channels: jint, usage: jint, content_type: jint,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    sample_rate: jint,
+    channels: jint,
+    usage: jint,
+    content_type: jint,
     capacity_frames: jint,
 ) -> jlong {
     let Some(api) = api() else { return 0 };
-    if !(1..=2).contains(&channels) { return 0; }
+    if !(1..=2).contains(&channels) {
+        return 0;
+    }
     let mut builder: *mut Builder = std::ptr::null_mut();
-    if (api.createStreamBuilder)(&mut builder) != 0 || builder.is_null() { return 0; }
+    if (api.createStreamBuilder)(&mut builder) != 0 || builder.is_null() {
+        return 0;
+    }
     (api.builder_setDirection)(builder, DIRECTION_OUTPUT);
     (api.builder_setSampleRate)(builder, sample_rate);
     (api.builder_setChannelCount)(builder, channels);
@@ -308,15 +384,24 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outOpen
     let mut stream: *mut Stream = std::ptr::null_mut();
     let opened = (api.builder_openStream)(builder, &mut stream);
     (api.builder_delete)(builder);
-    if opened != 0 || stream.is_null() { return 0; }
+    if opened != 0 || stream.is_null() {
+        return 0;
+    }
     if (api.stream_getSampleRate)(stream) != sample_rate {
         (api.stream_close)(stream);
         return 0;
     }
     (api.stream_setBufferSizeInFrames)(stream, capacity_frames);
     Box::into_raw(Box::new(Output {
-        stream, channels: channels as usize, sample_rate, gain: 1.0, resampler: Resampler::new(channels as usize),
-        scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, head: PlaybackHead::default(),
+        stream,
+        channels: channels as usize,
+        sample_rate,
+        gain: 1.0,
+        resampler: Resampler::new(channels as usize),
+        scratch: Vec::new(),
+        resampled: Vec::new(),
+        pending_offset: 0,
+        head: PlaybackHead::default(),
     })) as jlong
 }
 
@@ -324,24 +409,38 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outOpen
 /// write. Returns input bytes consumed (possibly buffered), or a terminal AAudio error.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outWrite(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, buffer: jobject, offset: jint, length: jint,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    buffer: jobject,
+    offset: jint,
+    length: jint,
 ) -> jint {
     let Some(api) = api() else { return -1 };
     let out = output(handle);
-    let Some((address, capacity)) = Env(env).direct_buffer(buffer) else { return -1 };
+    let Some((address, capacity)) = Env(env).direct_buffer(buffer) else {
+        return -1;
+    };
     let frame_bytes = 2 * out.channels;
     let length = (length.max(0) as usize / frame_bytes) * frame_bytes;
-    if offset < 0 || offset as usize + length > capacity { return -1; }
+    if offset < 0 || offset as usize + length > capacity {
+        return -1;
+    }
     let bytes = std::slice::from_raw_parts(address.add(offset as usize), length);
     let stream = out.stream;
-    out.write(bytes, |data, frames| (api.stream_write)(stream, data, frames, WRITE_TIMEOUT_NS))
-        .map(|count| count as jint).unwrap_or_else(|error| error)
+    out.write(bytes, |data, frames| {
+        (api.stream_write)(stream, data, frames, WRITE_TIMEOUT_NS)
+    })
+    .map(|count| count as jint)
+    .unwrap_or_else(|error| error)
 }
 
 /// Frames played, in the renderer's input frames (AudioTrack.getPlaybackHeadPosition), as an int.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outFramesRead(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
 ) -> jint {
     let Some(api) = api() else { return 0 };
     let out = output(handle);
@@ -352,7 +451,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outFram
 /// Underruns, buffer size in frames, state: the AudioTrack figures the renderer reports.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outQuery(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, what: jint,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    what: jint,
 ) -> jint {
     let Some(api) = api() else { return -1 };
     let out = output(handle);
@@ -369,7 +471,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outQuer
 /// 0 start, 1 pause, 2 flush. Returns the AAudio result.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outControl(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, what: jint,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    what: jint,
 ) -> jint {
     let Some(api) = api() else { return -1 };
     let out = output(handle);
@@ -378,9 +483,11 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outCont
         1 => (api.stream_requestPause)(out.stream),
         2 => {
             let result = (api.stream_requestFlush)(out.stream);
-            if result == 0 { out.discard_pending(); }
+            if result == 0 {
+                out.discard_pending();
+            }
             result
-        },
+        }
         _ => -1,
     }
 }
@@ -388,7 +495,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outCont
 /// The focus ducking volume, applied to the PCM.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outSetGain(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, gain: jfloat,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    gain: jfloat,
 ) {
     output(handle).gain = gain.clamp(0.0, 1.0);
 }
@@ -396,21 +506,32 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outSetG
 /// AudioTrack.setPlaybackRate: plays at `rate` Hz worth of input per second by resampling.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outSetRate(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, rate: jint,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    rate: jint,
 ) -> jint {
     let out = output(handle);
-    if rate <= 0 { return -1; }
+    if rate <= 0 {
+        return -1;
+    }
     out.resampler.set_step(rate as f64 / out.sample_rate as f64);
     0
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outClose(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
 ) {
-    if handle == 0 { return; }
+    if handle == 0 {
+        return;
+    }
     let out = Box::from_raw(handle as *mut Output);
-    if let Some(api) = api() { (api.stream_close)(out.stream); }
+    if let Some(api) = api() {
+        (api.stream_close)(out.stream);
+    }
 }
 
 #[cfg(test)]
@@ -421,8 +542,15 @@ mod tests {
         let mut resampler = Resampler::new(channels);
         resampler.set_step(step);
         Output {
-            stream: std::ptr::null_mut(), channels, sample_rate: 48000, gain, resampler,
-            scratch: Vec::new(), resampled: Vec::new(), pending_offset: 0, head: PlaybackHead::default(),
+            stream: std::ptr::null_mut(),
+            channels,
+            sample_rate: 48000,
+            gain,
+            resampler,
+            scratch: Vec::new(),
+            resampled: Vec::new(),
+            pending_offset: 0,
+            head: PlaybackHead::default(),
         }
     }
 
@@ -447,15 +575,27 @@ mod tests {
             scheduler.written(out.write(&next, |_, frames| frames).unwrap() as i32);
             assert_eq!(out.head.read(10000), 10000);
         }
-        assert_eq!(scheduler.queued_bytes(out.head.read(10000) as i32), 23296 + 3 * 4096);
-        assert_eq!(scheduler.queued_bytes(out.head.read(out.head.submitted_frames) as i32), 0);
+        assert_eq!(
+            scheduler.queued_bytes(out.head.read(10000) as i32),
+            23296 + 3 * 4096
+        );
+        assert_eq!(
+            scheduler.queued_bytes(out.head.read(out.head.submitted_frames) as i32),
+            0
+        );
         let hardware_epoch = out.head.submitted_frames;
         out.discard_pending();
         scheduler.reset();
         assert_eq!(out.head.read(hardware_epoch), 0);
         scheduler.written(out.write(&next, |_, frames| frames).unwrap() as i32);
-        assert_eq!(scheduler.queued_bytes(out.head.read(hardware_epoch) as i32), 4096);
-        assert_eq!(scheduler.queued_bytes(out.head.read(out.head.submitted_frames) as i32), 0);
+        assert_eq!(
+            scheduler.queued_bytes(out.head.read(hardware_epoch) as i32),
+            4096
+        );
+        assert_eq!(
+            scheduler.queued_bytes(out.head.read(out.head.submitted_frames) as i32),
+            0
+        );
     }
 
     #[test]
@@ -482,15 +622,24 @@ mod tests {
     fn stalled_head_with_continued_writes_stays_bounded_and_never_fakes_played() {
         let mut out = renderer(2, 1.0, 1.0);
         let block = vec![0u8; 4096]; // 1024 stereo frames, the issue's probe block
-        for _ in 0..16 { out.write(&block, |_, frames| frames).unwrap(); }
+        for _ in 0..16 {
+            out.write(&block, |_, frames| frames).unwrap();
+        }
         assert_eq!(out.head.read(0), 0);
         for _ in 0..100_000 {
             out.write(&block, |_, frames| frames).unwrap();
             out.head.read(0);
         }
-        assert!(out.head.spans.len() <= PlaybackHead::SPAN_LIMIT, "spans={}", out.head.spans.len());
+        assert!(
+            out.head.spans.len() <= PlaybackHead::SPAN_LIMIT,
+            "spans={}",
+            out.head.spans.len()
+        );
         assert_eq!(out.head.played, 0);
-        assert_eq!(out.head.read(out.head.submitted_frames), out.head.input_frames);
+        assert_eq!(
+            out.head.read(out.head.submitted_frames),
+            out.head.input_frames
+        );
         assert!(out.head.spans.is_empty());
     }
 
@@ -505,9 +654,16 @@ mod tests {
             out.write(&block, |_, frames| frames).unwrap();
             out.head.read(0);
         }
-        assert!(out.head.spans.len() <= PlaybackHead::SPAN_LIMIT, "spans={}", out.head.spans.len());
+        assert!(
+            out.head.spans.len() <= PlaybackHead::SPAN_LIMIT,
+            "spans={}",
+            out.head.spans.len()
+        );
         assert_eq!(out.head.played, 0);
-        assert_eq!(out.head.read(out.head.submitted_frames), out.head.input_frames);
+        assert_eq!(
+            out.head.read(out.head.submitted_frames),
+            out.head.input_frames
+        );
     }
 
     #[test]
@@ -526,7 +682,17 @@ mod tests {
         let mut out = renderer(1, 0.2, 0.99);
         let bytes = vec![0; 200];
         let mut calls = 0;
-        assert_eq!(out.write(&bytes, |_, _| { calls += 1; if calls == 1 { 50 } else { 0 } }), Ok(200));
+        assert_eq!(
+            out.write(&bytes, |_, _| {
+                calls += 1;
+                if calls == 1 {
+                    50
+                } else {
+                    0
+                }
+            }),
+            Ok(200)
+        );
         assert_eq!(out.head.read(50), 49);
         assert_eq!(out.head.read(1000), 49); // pending tail has not reached AAudio
         assert_eq!(out.write(&[], |_, frames| frames), Ok(0));
@@ -546,33 +712,52 @@ mod tests {
     fn partial_and_zero_writes_keep_pcm_and_advance_input_only_once() {
         for channels in [1, 2] {
             for step in [1.0, 0.99, 1.01] {
-                let bytes: Vec<u8> = (0..100 * channels).flat_map(|n| (n as i16 * 50).to_le_bytes()).collect();
+                let bytes: Vec<u8> = (0..100 * channels)
+                    .flat_map(|n| (n as i16 * 50).to_le_bytes())
+                    .collect();
                 let mut reference = renderer(channels, 0.2, step);
                 let mut expected = Vec::new();
                 let all = |data: *const c_void, frames: i32| {
-                    expected.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, frames as usize * channels) });
+                    expected.extend_from_slice(unsafe {
+                        std::slice::from_raw_parts(data as *const i16, frames as usize * channels)
+                    });
                     frames
                 };
                 assert_eq!(reference.write(&bytes, all), Ok(bytes.len()));
                 let mut out = renderer(channels, 0.2, step);
                 let mut actual = Vec::new();
                 let mut calls = 0;
-                assert_eq!(out.write(&bytes, |data, _frames| {
-                    calls += 1;
-                    if calls > 1 { return 0; }
-                    actual.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, 50 * channels) });
-                    50
-                }), Ok(bytes.len()));
+                assert_eq!(
+                    out.write(&bytes, |data, _frames| {
+                        calls += 1;
+                        if calls > 1 {
+                            return 0;
+                        }
+                        actual.extend_from_slice(unsafe {
+                            std::slice::from_raw_parts(data as *const i16, 50 * channels)
+                        });
+                        50
+                    }),
+                    Ok(bytes.len())
+                );
                 assert_eq!(out.head.input_frames, 100);
                 assert_eq!(out.head.output_frames, reference.head.output_frames);
                 let position = out.resampler.position;
                 assert_eq!(out.write(&bytes, |_, _| 0), Ok(0));
                 assert_eq!(out.head.input_frames, 100);
                 assert_eq!(out.resampler.position, position);
-                assert_eq!(out.write(&[], |data, frames| {
-                    actual.extend_from_slice(unsafe { std::slice::from_raw_parts(data as *const i16, frames as usize * channels) });
-                    frames
-                }), Ok(0));
+                assert_eq!(
+                    out.write(&[], |data, frames| {
+                        actual.extend_from_slice(unsafe {
+                            std::slice::from_raw_parts(
+                                data as *const i16,
+                                frames as usize * channels,
+                            )
+                        });
+                        frames
+                    }),
+                    Ok(0)
+                );
                 assert_eq!(actual, expected);
                 assert_eq!(out.head.input_frames, 100);
                 assert!(out.resampled.is_empty());
@@ -584,9 +769,22 @@ mod tests {
     #[test]
     fn fast_path_remembers_only_written_input_and_propagates_errors() {
         let mut out = renderer(1, 1.0, 1.0);
-        let bytes: Vec<u8> = [10i16, 20, 30, 40].into_iter().flat_map(i16::to_le_bytes).collect();
+        let bytes: Vec<u8> = [10i16, 20, 30, 40]
+            .into_iter()
+            .flat_map(i16::to_le_bytes)
+            .collect();
         let mut calls = 0;
-        assert_eq!(out.write(&bytes, |_, _| { calls += 1; if calls == 1 { 2 } else { 0 } }), Ok(4));
+        assert_eq!(
+            out.write(&bytes, |_, _| {
+                calls += 1;
+                if calls == 1 {
+                    2
+                } else {
+                    0
+                }
+            }),
+            Ok(4)
+        );
         assert_eq!(out.resampler.last, [20]);
         assert_eq!((out.head.input_frames, out.head.output_frames), (2, 2));
         assert_eq!(out.write(&bytes[4..], |_, _| -899), Err(-899));
@@ -603,14 +801,20 @@ mod tests {
         assert_eq!(out.write(&bytes, |_, _| 0), Ok(bytes.len()));
         let generated = out.head.output_frames;
         assert_eq!(out.write(&bytes, |_, _| -899), Err(-899));
-        assert_eq!((out.head.input_frames, out.head.output_frames), (4, generated));
+        assert_eq!(
+            (out.head.input_frames, out.head.output_frames),
+            (4, generated)
+        );
         out.discard_pending();
         assert!(out.resampled.is_empty());
         assert_eq!(out.pending_offset, 0);
         assert_eq!(out.resampler.position, 0.0);
         assert_eq!(out.resampler.last, [0]);
         assert_eq!(out.resampler.step, 0.99);
-        assert_eq!(out.write(&[], |_, _| panic!("flushed PCM must not be written")), Ok(0));
+        assert_eq!(
+            out.write(&[], |_, _| panic!("flushed PCM must not be written")),
+            Ok(0)
+        );
     }
 
     #[test]
@@ -621,7 +825,9 @@ mod tests {
         faster.set_step(1.01);
         let input: Vec<i16> = (0..1000).map(|n| n as i16).collect();
         let mut out = Vec::new();
-        for chunk in input.chunks(100) { faster.process(chunk, &mut out); }
+        for chunk in input.chunks(100) {
+            faster.process(chunk, &mut out);
+        }
         // 1000 input frames at 1.01x play as about 990 output frames.
         assert!((985..=995).contains(&out.len()), "{}", out.len());
         // Monotone ramp stays monotone and within the input's range.

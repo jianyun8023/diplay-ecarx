@@ -4,25 +4,38 @@ const STABLE_SESSION_MILLIS: i64 = 60_000;
 
 // ConnectionRecovery ordinals; preserve the host's existing precedence, including Wi-Fi reset.
 fn action(facts: i32, startup: i32) -> i32 {
-    if facts & 1 != 0 { return 5; } // USB trust outcomes
-    if facts & 2 != 0 { return 4; } // explicit Wi-Fi reset
-    if facts & (4 | 8) != 0 { return 3; } // prerequisite or protocol rejection
+    if facts & 1 != 0 {
+        return 5;
+    } // USB trust outcomes
+    if facts & 2 != 0 {
+        return 4;
+    } // explicit Wi-Fi reset
+    if facts & (4 | 8) != 0 {
+        return 3;
+    } // prerequisite or protocol rejection
     match startup {
         0 | 1 => 1, // hotspot readiness / first TCP: consume the host's five-retry budget
         2..=4 => 2, // configuration / unusable Bluetooth / rejected P2P prompt
-        _ => 0,    // ordinary transport loss: capped delay, no attempt limit
+        _ => 0,     // ordinary transport loss: capped delay, no attempt limit
     }
 }
 
 fn retry_delay(attempts: i32, tunnel: bool) -> i64 {
-    if tunnel { return 15_000; }
+    if tunnel {
+        return 15_000;
+    }
     // Keep the JVM shift/wrapping semantics of the former host expression.
-    2_000i64.wrapping_mul(1i64.wrapping_shl(attempts.min(4) as u32)).min(30_000)
+    2_000i64
+        .wrapping_mul(1i64.wrapping_shl(attempts.min(4) as u32))
+        .min(30_000)
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_action(
-    _env: *mut JNIEnv, _class: jclass, facts: jint, startup: jint,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    facts: jint,
+    startup: jint,
 ) -> jint {
     // Menu deferral retains terminal failures even when the immediate action is a Wi-Fi reset.
     action(facts, startup) | if facts & (1 | 4 | 8) != 0 { 8 } else { 0 }
@@ -68,18 +81,33 @@ fn retry_query(token: i64, field: i32) -> i64 {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_retryTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
-) -> jlong { retry_transition(token, event) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+) -> jlong {
+    retry_transition(token, event)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_retryQuery(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
-) -> jlong { retry_query(token, field) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    field: jint,
+) -> jlong {
+    retry_query(token, field)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_stable(
-    _env: *mut JNIEnv, _class: jclass, first: jlong, now: jlong,
-) -> jboolean { (now.wrapping_sub(first) >= STABLE_SESSION_MILLIS) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    first: jlong,
+    now: jlong,
+) -> jboolean {
+    (now.wrapping_sub(first) >= STABLE_SESSION_MILLIS) as jboolean
+}
 
 // The low 32 bits are the wrapping JVM count; bit 32 marks a later loss.
 fn control_transition(token: i64, event: i32) -> i64 {
@@ -96,13 +124,23 @@ fn control_recovered(token: i64, snapshot: i64) -> bool {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_controlTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
-) -> jlong { control_transition(token, event) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+) -> jlong {
+    control_transition(token, event)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_controlRecovered(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, snapshot: jlong,
-) -> jboolean { control_recovered(token, snapshot) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    snapshot: jlong,
+) -> jboolean {
+    control_recovered(token, snapshot) as jboolean
+}
 
 fn menu_failure(existing_manual: bool, incoming_manual: bool) -> i32 {
     i32::from(!existing_manual) | (i32::from(incoming_manual) << 1)
@@ -114,7 +152,9 @@ fn menu_exit(facts: i32) -> i32 {
     let wifi_reset = facts & 8 != 0;
     let reconnect = facts & 16 != 0;
     let wireless = facts & 32 != 0;
-    if has_failure && ((startup_or_manual && !reconnect) || (wifi_reset && (!reconnect || wireless))) {
+    if has_failure
+        && ((startup_or_manual && !reconnect) || (wifi_reset && (!reconnect || wireless)))
+    {
         0
     } else if facts & 64 != 0 {
         1
@@ -127,33 +167,57 @@ fn menu_exit(facts: i32) -> i32 {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_menuFailure(
-    _env: *mut JNIEnv, _class: jclass, existing_manual: jboolean, incoming_manual: jboolean,
-) -> jint { menu_failure(existing_manual != 0, incoming_manual != 0) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    existing_manual: jboolean,
+    incoming_manual: jboolean,
+) -> jint {
+    menu_failure(existing_manual != 0, incoming_manual != 0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_menuExit(
-    _env: *mut JNIEnv, _class: jclass, facts: jint,
-) -> jint { menu_exit(facts) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    facts: jint,
+) -> jint {
+    menu_exit(facts)
+}
 
 // 0 = visible/no retained attempt, 1 = retained, 2 = just consumed by failure.
 fn background_transition(token: i64, event: i32) -> i64 {
     match event {
         0 => 1,
         1 => 0,
-        2 => if token == 1 { 2 } else { 0 },
+        2 => {
+            if token == 1 {
+                2
+            } else {
+                0
+            }
+        }
         _ => token,
     }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_backgroundTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
-) -> jlong { background_transition(token, event) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+) -> jlong {
+    background_transition(token, event)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_backgroundConsumed(
-    _env: *mut JNIEnv, _class: jclass, token: jlong,
-) -> jboolean { (token == 2) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+) -> jboolean {
+    (token == 2) as jboolean
+}
 
 // Startup generation is XOR encoded so the all-zero initial token represents -1.
 // Bit 32 is the global stop, bit 33 the most recent startup-duplicate result.
@@ -173,7 +237,11 @@ fn failure_transition(token: i64, event: i32, generation: i32) -> i64 {
 }
 
 fn failure_query(token: i64, field: i32) -> bool {
-    match field { 0 => token & (1 << 32) != 0, 1 => token & (1 << 33) != 0, _ => false }
+    match field {
+        0 => token & (1 << 32) != 0,
+        1 => token & (1 << 33) != 0,
+        _ => false,
+    }
 }
 
 // USB's presence bit is separate, so every Int value including -1 is a valid generation.
@@ -191,30 +259,56 @@ fn usb_stop_matches(token: i64, generation: i32) -> bool {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_failureTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint, generation: jint,
-) -> jlong { failure_transition(token, event, generation) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+    generation: jint,
+) -> jlong {
+    failure_transition(token, event, generation)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_failureQuery(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint,
-) -> jboolean { failure_query(token, field) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    field: jint,
+) -> jboolean {
+    failure_query(token, field) as jboolean
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbStopTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint, generation: jint,
-) -> jlong { usb_stop_transition(token, event, generation) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+    generation: jint,
+) -> jlong {
+    usb_stop_transition(token, event, generation)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbStopMatches(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, generation: jint,
-) -> jboolean { usb_stop_matches(token, generation) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    generation: jint,
+) -> jboolean {
+    usb_stop_matches(token, generation) as jboolean
+}
 
 fn usb_takeover(facts: i32) -> bool {
     facts & (4 | 8) != 0 || facts & 1 == 0 || facts & 2 == 0
 }
 
 fn usb_transition(token: i64, event: i32) -> i64 {
-    match event { 0 => 1, 1..=3 => 0, _ => token }
+    match event {
+        0 => 1,
+        1..=3 => 0,
+        _ => token,
+    }
 }
 
 fn usb_query(token: i64, field: i32, takeover: bool) -> i64 {
@@ -228,28 +322,57 @@ fn usb_query(token: i64, field: i32, takeover: bool) -> i64 {
 }
 
 fn usb_fallback_action(menu: bool, saved_wireless: bool, has_controller: bool) -> i32 {
-    if menu { 0 } else if !saved_wireless { 1 } else if has_controller { 3 } else { 2 }
+    if menu {
+        0
+    } else if !saved_wireless {
+        1
+    } else if has_controller {
+        3
+    } else {
+        2
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbTakeover(
-    _env: *mut JNIEnv, _class: jclass, facts: jint,
-) -> jboolean { usb_takeover(facts) as jboolean }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    facts: jint,
+) -> jboolean {
+    usb_takeover(facts) as jboolean
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbTransition(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, event: jint,
-) -> jlong { usb_transition(token, event) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    event: jint,
+) -> jlong {
+    usb_transition(token, event)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbQuery(
-    _env: *mut JNIEnv, _class: jclass, token: jlong, field: jint, takeover: jboolean,
-) -> jlong { usb_query(token, field, takeover != 0) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    token: jlong,
+    field: jint,
+    takeover: jboolean,
+) -> jlong {
+    usb_query(token, field, takeover != 0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeConnectionRecovery_usbFallbackAction(
-    _env: *mut JNIEnv, _class: jclass, menu: jboolean, saved_wireless: jboolean, has_controller: jboolean,
-) -> jint { usb_fallback_action(menu != 0, saved_wireless != 0, has_controller != 0) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    menu: jboolean,
+    saved_wireless: jboolean,
+    has_controller: jboolean,
+) -> jint {
+    usb_fallback_action(menu != 0, saved_wireless != 0, has_controller != 0)
+}
 
 #[cfg(test)]
 mod tests {
@@ -258,8 +381,17 @@ mod tests {
     #[test]
     fn recovery_precedence_keeps_trust_reset_and_prerequisite_behavior() {
         for (facts, startup, expected) in [
-            (0, -1, 0), (0, 0, 1), (0, 1, 1), (0, 2, 2), (0, 3, 2), (0, 4, 2),
-            (4, 0, 3), (8, 1, 3), (2, 0, 4), (14, 0, 4), (15, 0, 5),
+            (0, -1, 0),
+            (0, 0, 1),
+            (0, 1, 1),
+            (0, 2, 2),
+            (0, 3, 2),
+            (0, 4, 2),
+            (4, 0, 3),
+            (8, 1, 3),
+            (2, 0, 4),
+            (14, 0, 4),
+            (15, 0, 5),
         ] {
             assert_eq!(action(facts, startup), expected);
         }
@@ -267,10 +399,14 @@ mod tests {
 
     #[test]
     fn ordinary_retries_keep_backoff_without_an_attempt_limit() {
-        assert_eq!((0..7).map(|n| retry_delay(n, false)).collect::<Vec<_>>(),
-            vec![2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]);
+        assert_eq!(
+            (0..7).map(|n| retry_delay(n, false)).collect::<Vec<_>>(),
+            vec![2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]
+        );
         assert_eq!(retry_delay(i32::MAX, false), 30_000);
-        for n in [0, 1, 4, 100] { assert_eq!(retry_delay(n, true), 15_000); }
+        for n in [0, 1, 4, 100] {
+            assert_eq!(retry_delay(n, true), 15_000);
+        }
     }
 
     #[test]
@@ -355,7 +491,10 @@ mod tests {
             assert!(failure_query(failure_transition(failure, 2, generation), 1));
             let usb = usb_stop_transition(0, 0, generation);
             assert!(usb_stop_matches(usb, generation));
-            assert!(!usb_stop_matches(usb_stop_transition(usb, 1, 0), generation));
+            assert!(!usb_stop_matches(
+                usb_stop_transition(usb, 1, 0),
+                generation
+            ));
             assert_eq!(usb_stop_transition(usb, -1, 0), usb);
         }
         assert_eq!(failure_transition(failure, -1, 0), failure & !(1 << 33));
@@ -365,11 +504,15 @@ mod tests {
     #[test]
     fn usb_reenumeration_delay_and_fallback_actions_are_independent() {
         assert!(!usb_takeover(3));
-        for facts in [0, 1, 2, 7, 11, 15] { assert!(usb_takeover(facts)); }
+        for facts in [0, 1, 2, 7, 11, 15] {
+            assert!(usb_takeover(facts));
+        }
         let waiting = usb_transition(0, 0);
         assert_eq!(usb_query(waiting, 1, true), 10_000);
         assert_eq!(usb_query(waiting, 1, false), -1);
-        for event in [1, 2, 3] { assert_eq!(usb_query(usb_transition(waiting, event), 1, true), 2_000); }
+        for event in [1, 2, 3] {
+            assert_eq!(usb_query(usb_transition(waiting, event), 1, true), 2_000);
+        }
         assert_eq!(usb_transition(waiting, -1), waiting);
         assert_eq!(usb_query(waiting, -1, true), -1);
         assert_eq!(usb_fallback_action(true, true, true), 0);

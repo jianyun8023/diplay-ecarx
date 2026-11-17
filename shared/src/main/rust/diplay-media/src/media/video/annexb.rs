@@ -13,20 +13,36 @@ pub fn starts_with_start_code(bytes: &[u8]) -> bool {
 /// Rewrites each NAL length as a start code in place. False, with the bytes untouched, when the
 /// unit is neither Annex B already nor a complete chain of non-empty length-prefixed NAL units.
 pub fn to_annex_b_in_place(bytes: &mut [u8]) -> bool {
-    if starts_with_start_code(bytes) { return true; }
+    if starts_with_start_code(bytes) {
+        return true;
+    }
     let mut offset = 0usize;
     let mut units = 0;
     while offset + 4 <= bytes.len() {
-        let length = u32::from_be_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]]) as usize;
+        let length = u32::from_be_bytes([
+            bytes[offset],
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+        ]) as usize;
         offset += 4;
-        if length == 0 || length > i32::MAX as usize || length > bytes.len() - offset { return false; }
+        if length == 0 || length > i32::MAX as usize || length > bytes.len() - offset {
+            return false;
+        }
         offset += length;
         units += 1;
     }
-    if units == 0 || offset != bytes.len() { return false; }
+    if units == 0 || offset != bytes.len() {
+        return false;
+    }
     offset = 0;
     while offset + 4 <= bytes.len() {
-        let length = u32::from_be_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]]) as usize;
+        let length = u32::from_be_bytes([
+            bytes[offset],
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+        ]) as usize;
         bytes[offset..offset + 4].copy_from_slice(&[0, 0, 0, 1]);
         offset += 4 + length;
     }
@@ -49,11 +65,15 @@ pub fn random_access_flags(annex_b: &[u8]) -> i32 {
         };
         if prefix > 0 && cursor + prefix < annex_b.len() {
             let header = annex_b[cursor + prefix];
-            if header & 31 == 5 { flags |= FLAG_RANDOM_ACCESS_H264; }
+            if header & 31 == 5 {
+                flags |= FLAG_RANDOM_ACCESS_H264;
+            }
             if cursor + prefix + 1 < annex_b.len() && (16..=21).contains(&((header >> 1) & 63)) {
                 flags |= FLAG_RANDOM_ACCESS_H265;
             }
-            if flags == FLAG_RANDOM_ACCESS_H264 | FLAG_RANDOM_ACCESS_H265 { break; }
+            if flags == FLAG_RANDOM_ACCESS_H264 | FLAG_RANDOM_ACCESS_H265 {
+                break;
+            }
             cursor += prefix;
         } else {
             cursor += 1;
@@ -64,9 +84,12 @@ pub fn random_access_flags(annex_b: &[u8]) -> i32 {
 
 /// The frame time in a screen header: bytes 8..15, a little-endian NTP 32.32 value, in nanoseconds.
 pub fn sender_nanos(header: &[u8]) -> i64 {
-    if header.len() < 16 { return 0; }
+    if header.len() < 16 {
+        return 0;
+    }
     let raw = u64::from_le_bytes(header[8..16].try_into().unwrap());
-    ((raw >> 32) as i64).wrapping_mul(1_000_000_000) + (((raw & 0xffff_ffff) * 1_000_000_000) >> 32) as i64
+    ((raw >> 32) as i64).wrapping_mul(1_000_000_000)
+        + (((raw & 0xffff_ffff) * 1_000_000_000) >> 32) as i64
 }
 
 #[cfg(test)]
@@ -78,7 +101,10 @@ mod tests {
         let mut unit = vec![0, 0, 0, 2, 0x65, 0xaa, 0, 0, 0, 1, 0x41];
         assert!(to_annex_b_in_place(&mut unit));
         assert_eq!(unit, vec![0, 0, 0, 1, 0x65, 0xaa, 0, 0, 0, 1, 0x41]);
-        assert_eq!(random_access_flags(&unit) & FLAG_RANDOM_ACCESS_H264, FLAG_RANDOM_ACCESS_H264);
+        assert_eq!(
+            random_access_flags(&unit) & FLAG_RANDOM_ACCESS_H264,
+            FLAG_RANDOM_ACCESS_H264
+        );
     }
 
     #[test]
@@ -94,8 +120,14 @@ mod tests {
     #[test]
     fn hevc_irap_and_avc_non_idr() {
         // HEVC IDR_W_RADL: type 19 -> header byte 0x26.
-        assert_eq!(random_access_flags(&[0, 0, 0, 1, 0x26, 0x01, 0xaf]) & FLAG_RANDOM_ACCESS_H265, FLAG_RANDOM_ACCESS_H265);
-        assert_eq!(random_access_flags(&[0, 0, 0, 1, 0x41, 0x9a]) & FLAG_RANDOM_ACCESS_H264, 0);
+        assert_eq!(
+            random_access_flags(&[0, 0, 0, 1, 0x26, 0x01, 0xaf]) & FLAG_RANDOM_ACCESS_H265,
+            FLAG_RANDOM_ACCESS_H265
+        );
+        assert_eq!(
+            random_access_flags(&[0, 0, 0, 1, 0x41, 0x9a]) & FLAG_RANDOM_ACCESS_H264,
+            0
+        );
     }
 
     #[test]

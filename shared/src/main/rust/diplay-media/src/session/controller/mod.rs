@@ -1,7 +1,7 @@
 //! Controller generations, permission/re-enumeration budgets, transport adoption and teardown plans.
 //! The JVM retains SDK objects; this value contains the only active lifecycle/decision state.
-mod jni;
 mod dashboard;
+mod jni;
 
 /// Number of leading words in the opaque token that carry scalar state.
 const HEADER: usize = 14;
@@ -194,7 +194,9 @@ impl DecisionCode {
     }
 
     fn from_code(code: i64) -> Option<Self> {
-        Self::ALL.into_iter().find(|&decision| decision.code() == code)
+        Self::ALL
+            .into_iter()
+            .find(|&decision| decision.code() == code)
     }
 }
 
@@ -617,8 +619,8 @@ impl ControllerState {
                     && other == i64::from(self.permission_generation)) as i64
             }
             DecisionCode::FailureCurrent => {
-                (!self.closed
-                    && (facts & 1 == 0 || value == i64::from(self.wireless_generation))) as i64
+                (!self.closed && (facts & 1 == 0 || value == i64::from(self.wireless_generation)))
+                    as i64
             }
             DecisionCode::StatusCurrent => {
                 // Failure may still post after retirement; progress may only post for the live run.
@@ -1075,7 +1077,10 @@ mod tests {
         assert!(decoded.prerequisite_failed);
         assert!(decoded.vpn_bound);
         assert_eq!(decoded.phase, Phase::DataPaths);
-        assert_eq!(decoded.grant_attempts, vec!["grant".encode_utf16().collect::<Vec<_>>()]);
+        assert_eq!(
+            decoded.grant_attempts,
+            vec!["grant".encode_utf16().collect::<Vec<_>>()]
+        );
         assert_eq!(
             decoded.pending_grants,
             vec!["pending".encode_utf16().collect::<Vec<_>>()]
@@ -1148,7 +1153,10 @@ mod tests {
         assert_eq!(proof.encode(), [5, 0]);
         assert!(proof.event(ProofEvent::Clear, 0, false));
         assert_eq!(proof.encode(), [-1, 0]);
-        assert_eq!(Proof::decode(&proof.encode()).unwrap().encode(), proof.encode());
+        assert_eq!(
+            Proof::decode(&proof.encode()).unwrap().encode(),
+            proof.encode()
+        );
     }
 
     #[test]

@@ -1,18 +1,39 @@
 //! Compressed audio ownership, sustained RTP backlog recovery and arrival-weighted clock input.
-use crate::{platform::jvm::Env, media::packet};
+use crate::{media::packet, platform::jvm::Env};
 use jni_sys::{jboolean, jclass, jint, jlong, jlongArray, JNIEnv};
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-pub struct AudioPacket { pub handle: i64, pub sample: u32, pub arrived_ns: i64 }
-
-impl AudioPacket {
-    pub fn size(&self) -> usize { unsafe { packet::size(self.handle) } }
-    pub fn share(&self) -> i64 { unsafe { packet::retain(self.handle); } self.handle }
-    pub fn into_handle(self) -> i64 { let handle = self.handle; std::mem::forget(self); handle }
+pub struct AudioPacket {
+    pub handle: i64,
+    pub sample: u32,
+    pub arrived_ns: i64,
 }
 
-impl Drop for AudioPacket { fn drop(&mut self) { unsafe { packet::release(self.handle); } } }
+impl AudioPacket {
+    pub fn size(&self) -> usize {
+        unsafe { packet::size(self.handle) }
+    }
+    pub fn share(&self) -> i64 {
+        unsafe {
+            packet::retain(self.handle);
+        }
+        self.handle
+    }
+    pub fn into_handle(self) -> i64 {
+        let handle = self.handle;
+        std::mem::forget(self);
+        handle
+    }
+}
+
+impl Drop for AudioPacket {
+    fn drop(&mut self) {
+        unsafe {
+            packet::release(self.handle);
+        }
+    }
+}
 
 pub struct AudioQueue {
     pub packets: VecDeque<AudioPacket>,
@@ -25,27 +46,52 @@ pub struct AudioQueue {
 
 impl AudioQueue {
     pub fn new(clock_rate: i64, media: bool) -> Self {
-        Self { packets: Default::default(), clock_rate, media, newest: 0,
-            congestion_since: None, recovering: false }
+        Self {
+            packets: Default::default(),
+            clock_rate,
+            media,
+            newest: 0,
+            congestion_since: None,
+            recovering: false,
+        }
     }
 
     pub fn pending_frames(&self) -> i64 {
-        if !self.media { return 0; }
-        self.packets.front().map(|p| self.newest.wrapping_sub(p.sample) as i64)
-            .filter(|&frames| frames <= self.clock_rate * 16).unwrap_or(0)
+        if !self.media {
+            return 0;
+        }
+        self.packets
+            .front()
+            .map(|p| self.newest.wrapping_sub(p.sample) as i64)
+            .filter(|&frames| frames <= self.clock_rate * 16)
+            .unwrap_or(0)
     }
 
     fn recover(&mut self, now_ns: i64) -> usize {
         let delay_ns = self.pending_frames() * 1_000_000_000 / self.clock_rate;
         if !self.recovering {
-            if delay_ns <= 1_500_000_000 { self.congestion_since = None; return 0; }
-            let Some(since) = self.congestion_since else { self.congestion_since = Some(now_ns); return 0 };
-            if now_ns - since < 1_500_000_000 { return 0; }
+            if delay_ns <= 1_500_000_000 {
+                self.congestion_since = None;
+                return 0;
+            }
+            let Some(since) = self.congestion_since else {
+                self.congestion_since = Some(now_ns);
+                return 0;
+            };
+            if now_ns - since < 1_500_000_000 {
+                return 0;
+            }
             self.recovering = true;
         }
-        if delay_ns <= 200_000_000 { self.recovering = false; self.congestion_since = None; return 0; }
+        if delay_ns <= 200_000_000 {
+            self.recovering = false;
+            self.congestion_since = None;
+            return 0;
+        }
         let mut removed = 0;
-        while !self.packets.is_empty() && self.pending_frames() * 1_000_000_000 / self.clock_rate > 500_000_000 {
+        while !self.packets.is_empty()
+            && self.pending_frames() * 1_000_000_000 / self.clock_rate > 500_000_000
+        {
             self.packets.pop_front();
             removed += 1;
         }
@@ -55,8 +101,14 @@ impl AudioQueue {
     /// Consumes the packet on every path. Returns (accepted, recovered stale packets).
     pub fn push(&mut self, packet: AudioPacket) -> (bool, usize) {
         self.newest = packet.sample;
-        let removed = if self.media { self.recover(packet.arrived_ns) } else { 0 };
-        if self.packets.len() >= 192 { return (false, removed); }
+        let removed = if self.media {
+            self.recover(packet.arrived_ns)
+        } else {
+            0
+        };
+        if self.packets.len() >= 192 {
+            return (false, removed);
+        }
         self.packets.push_back(packet);
         (true, removed)
     }
@@ -68,7 +120,8 @@ impl AudioQueue {
             if let Some(previous) = previous {
                 let frames = packet.sample.wrapping_sub(previous) as i64;
                 if packet.arrived_ns > since_ns && frames <= self.clock_rate {
-                    frame_ns += frames as f64 * sample_rate as f64 / self.clock_rate as f64 * (now_ns - packet.arrived_ns) as f64;
+                    frame_ns += frames as f64 * sample_rate as f64 / self.clock_rate as f64
+                        * (now_ns - packet.arrived_ns) as f64;
                 }
             }
             previous = Some(packet.sample);
@@ -101,9 +154,19 @@ struct QueueState {
 impl QueueOwner {
     pub fn new(clock_rate: i64, media: bool) -> std::sync::Arc<Self> {
         std::sync::Arc::new(Self {
-            state: Mutex::new(QueueState { queue: AudioQueue::new(clock_rate, media), closed: false,
-                received: 0, dropped: 0, dropped_total: 0, last_arrival: 0, max_gap_ms: 0,
-                recovery_reports: 0, full_reports: 0, full_logged: false, events: VecDeque::new() }),
+            state: Mutex::new(QueueState {
+                queue: AudioQueue::new(clock_rate, media),
+                closed: false,
+                received: 0,
+                dropped: 0,
+                dropped_total: 0,
+                last_arrival: 0,
+                max_gap_ms: 0,
+                recovery_reports: 0,
+                full_reports: 0,
+                full_logged: false,
+                events: VecDeque::new(),
+            }),
             ready: std::sync::Condvar::new(),
         })
     }
@@ -111,10 +174,14 @@ impl QueueOwner {
     /// Consumes the packet, including after close and when the bounded queue is full.
     pub fn push(&self, packet: AudioPacket) -> (bool, usize) {
         let mut state = self.state.lock().unwrap();
-        if state.closed { return (false, 0); }
+        if state.closed {
+            return (false, 0);
+        }
         state.received = state.received.wrapping_add(1);
         if state.last_arrival != 0 {
-            state.max_gap_ms = state.max_gap_ms.max(packet.arrived_ns.wrapping_sub(state.last_arrival) / 1_000_000);
+            state.max_gap_ms = state
+                .max_gap_ms
+                .max(packet.arrived_ns.wrapping_sub(state.last_arrival) / 1_000_000);
         }
         state.last_arrival = packet.arrived_ns;
         let result = state.queue.push(packet);
@@ -129,32 +196,58 @@ impl QueueOwner {
         if !result.0 {
             let warn = !state.full_logged;
             state.full_logged = true;
-            let count = if state.full_reports < 5 { state.full_reports += 1; state.full_reports } else { 0 };
-            if warn || count != 0 { state.events.push_back([2, count as i64, warn as i64]); }
+            let count = if state.full_reports < 5 {
+                state.full_reports += 1;
+                state.full_reports
+            } else {
+                0
+            };
+            if warn || count != 0 {
+                state.events.push_back([2, count as i64, warn as i64]);
+            }
         }
         drop(state);
-        if result.0 { self.ready.notify_one(); }
+        if result.0 {
+            self.ready.notify_one();
+        }
         result
     }
 
-    pub fn event(&self) -> Option<[i64; 3]> { self.state.lock().unwrap().events.pop_front() }
+    pub fn event(&self) -> Option<[i64; 3]> {
+        self.state.lock().unwrap().events.pop_front()
+    }
 
     fn poll(&self, timeout_ms: i64) -> Option<AudioPacket> {
         let state = self.state.lock().unwrap();
         let mut state = if timeout_ms > 0 && !state.closed && state.queue.packets.is_empty() {
-            self.ready.wait_timeout_while(state, std::time::Duration::from_millis(timeout_ms as u64),
-                |state| !state.closed && state.queue.packets.is_empty()).unwrap().0
-        } else { state };
+            self.ready
+                .wait_timeout_while(
+                    state,
+                    std::time::Duration::from_millis(timeout_ms as u64),
+                    |state| !state.closed && state.queue.packets.is_empty(),
+                )
+                .unwrap()
+                .0
+        } else {
+            state
+        };
         let packet = state.queue.packets.pop_front();
-        if packet.is_some() && state.queue.packets.is_empty() { state.full_logged = false; }
+        if packet.is_some() && state.queue.packets.is_empty() {
+            state.full_logged = false;
+        }
         packet
     }
 
     pub fn close(&self) -> [i64; 5] {
         let mut state = self.state.lock().unwrap();
         state.closed = true;
-        let snapshot = [state.received as i64, state.dropped as i64, state.dropped_total as i64,
-            state.last_arrival, state.max_gap_ms];
+        let snapshot = [
+            state.received as i64,
+            state.dropped as i64,
+            state.dropped_total as i64,
+            state.last_arrival,
+            state.max_gap_ms,
+        ];
         state.queue.packets.clear();
         drop(state);
         self.ready.notify_all();
@@ -174,31 +267,55 @@ pub unsafe fn consume_reference(handle: jlong) -> Option<std::sync::Arc<QueueOwn
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueCreate(
-    _env: *mut JNIEnv, _class: jclass, clock_rate: jint, media: jboolean,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    clock_rate: jint,
+    media: jboolean,
 ) -> jlong {
-    if clock_rate <= 0 { return 0; }
+    if clock_rate <= 0 {
+        return 0;
+    }
     std::sync::Arc::into_raw(QueueOwner::new(clock_rate as i64, media != 0)) as jlong
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueRetain(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
 ) -> jlong {
-    if handle != 0 { std::sync::Arc::increment_strong_count(handle as *const QueueOwner); }
+    if handle != 0 {
+        std::sync::Arc::increment_strong_count(handle as *const QueueOwner);
+    }
     handle
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueRelease(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) { drop(consume_reference(handle)); }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+) {
+    drop(consume_reference(handle));
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueuePush(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, packet: jlong, sample: jint, arrived_ns: jlong,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    packet: jlong,
+    sample: jint,
+    arrived_ns: jlong,
 ) -> jint {
-    if packet == 0 { return 0; }
-    let packet = AudioPacket { handle: packet, sample: sample as u32, arrived_ns };
+    if packet == 0 {
+        return 0;
+    }
+    let packet = AudioPacket {
+        handle: packet,
+        sample: sample as u32,
+        arrived_ns,
+    };
     let Some(owner) = owner(handle) else { return 0 };
     let (accepted, removed) = owner.push(packet);
     ((removed as i32) << 1) | accepted as i32
@@ -206,73 +323,132 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQu
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueuePoll(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, timeout_ms: jlong,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    out: jlongArray,
+    timeout_ms: jlong,
 ) -> jlong {
     let len = Env(env).array_len(out);
-    if len < 2 { return 0; }
+    if len < 2 {
+        return 0;
+    }
     let Some(owner) = owner(handle) else { return 0 };
-    let Some(packet) = owner.poll(timeout_ms) else { return 0 };
-    let values = [packet.sample as i64, packet.arrived_ns, packet.size() as i64];
+    let Some(packet) = owner.poll(timeout_ms) else {
+        return 0;
+    };
+    let values = [
+        packet.sample as i64,
+        packet.arrived_ns,
+        packet.size() as i64,
+    ];
     ((**env).SetLongArrayRegion.unwrap())(env, out, 0, len.min(3) as i32, values.as_ptr());
-    if ((**env).ExceptionCheck.unwrap())(env) != 0 { return 0; }
+    if ((**env).ExceptionCheck.unwrap())(env) != 0 {
+        return 0;
+    }
     packet.into_handle()
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueEvent(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    out: jlongArray,
 ) -> jboolean {
-    if Env(env).array_len(out) < 3 { return 0; }
-    let Some(event) = owner(handle).and_then(QueueOwner::event) else { return 0 };
+    if Env(env).array_len(out) < 3 {
+        return 0;
+    }
+    let Some(event) = owner(handle).and_then(QueueOwner::event) else {
+        return 0;
+    };
     ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 3, event.as_ptr());
     (((**env).ExceptionCheck.unwrap())(env) == 0) as jboolean
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueStats(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, out: jlongArray, reset: jboolean,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    out: jlongArray,
+    reset: jboolean,
 ) {
-    if Env(env).array_len(out) < 5 { return; }
+    if Env(env).array_len(out) < 5 {
+        return;
+    }
     let Some(owner) = owner(handle) else { return };
     let mut state = owner.state.lock().unwrap();
-    let values = [state.received as i64, state.dropped as i64, state.dropped_total as i64,
-        state.last_arrival, state.max_gap_ms];
+    let values = [
+        state.received as i64,
+        state.dropped as i64,
+        state.dropped_total as i64,
+        state.last_arrival,
+        state.max_gap_ms,
+    ];
     ((**env).SetLongArrayRegion.unwrap())(env, out, 0, 5, values.as_ptr());
     if ((**env).ExceptionCheck.unwrap())(env) == 0 && reset != 0 {
-        state.received = 0; state.dropped = 0; state.max_gap_ms = 0;
+        state.received = 0;
+        state.dropped = 0;
+        state.max_gap_ms = 0;
     }
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueSize(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong,
-) -> jint { owner(handle).map_or(0, |o| o.state.lock().unwrap().queue.packets.len() as jint) }
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+) -> jint {
+    owner(handle).map_or(0, |o| o.state.lock().unwrap().queue.packets.len() as jint)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueuePending(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, dropped: jlongArray,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    dropped: jlongArray,
 ) -> jlong {
     let Some(owner) = owner(handle) else { return 0 };
     let state = owner.state.lock().unwrap();
     if !dropped.is_null() && Env(env).array_len(dropped) >= 1 {
         let value = state.dropped_total as i64;
         ((**env).SetLongArrayRegion.unwrap())(env, dropped, 0, 1, &value);
-        if ((**env).ExceptionCheck.unwrap())(env) != 0 { return 0; }
+        if ((**env).ExceptionCheck.unwrap())(env) != 0 {
+            return 0;
+        }
     }
     state.queue.pending_frames()
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueArrivals(
-    _env: *mut JNIEnv, _class: jclass, handle: jlong, since_ns: jlong, now_ns: jlong, sample_rate: jint,
+    _env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    since_ns: jlong,
+    now_ns: jlong,
+    sample_rate: jint,
 ) -> f64 {
-    if sample_rate <= 0 { return 0.0; }
-    owner(handle).map_or(0.0, |o| o.state.lock().unwrap().queue.arrived_frame_ns(since_ns, now_ns, sample_rate as i64))
+    if sample_rate <= 0 {
+        return 0.0;
+    }
+    owner(handle).map_or(0.0, |o| {
+        o.state
+            .lock()
+            .unwrap()
+            .queue
+            .arrived_frame_ns(since_ns, now_ns, sample_rate as i64)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioQueueDestroy(
-    env: *mut JNIEnv, _class: jclass, handle: jlong, stats: jlongArray,
+    env: *mut JNIEnv,
+    _class: jclass,
+    handle: jlong,
+    stats: jlongArray,
 ) {
     if let Some(owner) = consume_reference(handle) {
         let row = owner.close();
@@ -288,8 +464,15 @@ mod tests {
 
     fn frame(pool: &std::sync::Arc<packet::Pool>, sample: u32, arrived_ns: i64) -> AudioPacket {
         let mut packet = pool.take(13);
-        unsafe { std::ptr::write_bytes(packet.spare(), 0, 13); packet.set_len(13); }
-        AudioPacket { handle: packet.into_handle(), sample, arrived_ns }
+        unsafe {
+            std::ptr::write_bytes(packet.spare(), 0, 13);
+            packet.set_len(13);
+        }
+        AudioPacket {
+            handle: packet.into_handle(),
+            sample,
+            arrived_ns,
+        }
     }
 
     #[test]
@@ -303,10 +486,14 @@ mod tests {
             ready_tx.send(()).unwrap();
             done_tx.send(reader.poll(60_000).is_none()).unwrap();
         });
-        ready_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        ready_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
         assert_eq!(owner.close(), [0; 5]);
         drop(owner);
-        assert!(done_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        assert!(done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap());
         worker.join().unwrap();
         assert!(weak.upgrade().is_none());
     }
@@ -329,8 +516,13 @@ mod tests {
     fn a_short_wifi_burst_stays_intact_but_sustained_decoder_backpressure_recovers() {
         let pool = packet::Pool::new();
         let mut queue = AudioQueue::new(48_000, true);
-        for i in 0..151 { assert_eq!(queue.push(frame(&pool, i * 1024, 100_000_000)), (true, 0)); }
-        assert_eq!(queue.push(frame(&pool, 151 * 1024, 1_600_000_000)), (true, 128));
+        for i in 0..151 {
+            assert_eq!(queue.push(frame(&pool, i * 1024, 100_000_000)), (true, 0));
+        }
+        assert_eq!(
+            queue.push(frame(&pool, 151 * 1024, 1_600_000_000)),
+            (true, 128)
+        );
         assert_eq!(queue.packets.len(), 24);
         assert!(queue.pending_frames() <= 24_000);
         // Stay in recovery until the live edge is reached, without another grace period.
@@ -343,8 +535,17 @@ mod tests {
     fn the_packet_budget_drops_newest_without_leaking_and_navigation_never_skips_old_audio() {
         let pool = packet::Pool::new();
         let mut queue = AudioQueue::new(48_000, false);
-        for i in 0..192 { assert!(queue.push(frame(&pool, i * 48_000, i as i64 * 1_000_000_000)).0); }
-        assert_eq!(queue.push(frame(&pool, 192 * 48_000, 200_000_000_000)), (false, 0));
+        for i in 0..192 {
+            assert!(
+                queue
+                    .push(frame(&pool, i * 48_000, i as i64 * 1_000_000_000))
+                    .0
+            );
+        }
+        assert_eq!(
+            queue.push(frame(&pool, 192 * 48_000, 200_000_000_000)),
+            (false, 0)
+        );
         assert_eq!(queue.packets.front().unwrap().sample, 0);
         assert_eq!(pool.outstanding(), 192);
         drop(queue);

@@ -1,6 +1,9 @@
 use super::{bonjour, control, info, setup, video, Value};
 use crate::protocols::bplist::jni::{read_value, replace_map_value, write_value};
-use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jobjectArray, jstring, jvalue, JNIEnv};
+use jni_sys::{
+    jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jobjectArray, jstring, jvalue,
+    JNIEnv,
+};
 use std::ffi::{CStr, CString};
 use std::ptr::null_mut;
 
@@ -513,8 +516,12 @@ unsafe fn string(env: *mut JNIEnv, value: jstring) -> Option<String> {
 unsafe fn map_get(env: *mut JNIEnv, map: jobject, key: &str) -> Option<jobject> {
     let f = &**env;
     let class = (f.GetObjectClass.unwrap())(env, map);
-    let get = (f.GetMethodID.unwrap())(env, class, c"get".as_ptr(),
-        c"(Ljava/lang/Object;)Ljava/lang/Object;".as_ptr());
+    let get = (f.GetMethodID.unwrap())(
+        env,
+        class,
+        c"get".as_ptr(),
+        c"(Ljava/lang/Object;)Ljava/lang/Object;".as_ptr(),
+    );
     if get.is_null() {
         return None;
     }
@@ -533,14 +540,20 @@ unsafe fn map_get(env: *mut JNIEnv, map: jobject, key: &str) -> Option<jobject> 
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_setupStreams(
-    env: *mut JNIEnv, _: jclass, body: jobject,
+    env: *mut JNIEnv,
+    _: jclass,
+    body: jobject,
 ) -> jobject {
     let f = &**env;
-    if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
+    if (f.PushLocalFrame.unwrap())(env, 16) < 0 {
+        return null_mut();
+    }
     let result = (|| {
         let streams = map_get(env, body, "streams")?;
         let list = (f.FindClass.unwrap())(env, c"java/util/List".as_ptr());
-        if list.is_null() { return None; }
+        if list.is_null() {
+            return None;
+        }
         let is_list = !streams.is_null() && (f.IsInstanceOf.unwrap())(env, streams, list) != 0;
         match setup::envelope(is_list) {
             setup::Envelope::Streams => Some(streams),
@@ -552,39 +565,68 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
 
 // Long.parseLong retains the platform's Unicode digits; only malformed numbers become missing.
 unsafe fn stream_header(env: *mut JNIEnv, header: jstring) -> Option<i64> {
-    if header.is_null() { return None; }
+    if header.is_null() {
+        return None;
+    }
     let f = &**env;
     let class = (f.FindClass.unwrap())(env, c"java/lang/Long".as_ptr());
     let malformed = (f.FindClass.unwrap())(env, c"java/lang/NumberFormatException".as_ptr());
-    if class.is_null() || malformed.is_null() { return None; }
-    let parse = (f.GetStaticMethodID.unwrap())(env, class, c"parseLong".as_ptr(), c"(Ljava/lang/String;)J".as_ptr());
-    if parse.is_null() { return None; }
-    let value = (f.CallStaticLongMethodA.unwrap())(env, class, parse, [jvalue { l: header }].as_ptr());
-    if (f.ExceptionCheck.unwrap())(env) == 0 { return Some(value); }
+    if class.is_null() || malformed.is_null() {
+        return None;
+    }
+    let parse = (f.GetStaticMethodID.unwrap())(
+        env,
+        class,
+        c"parseLong".as_ptr(),
+        c"(Ljava/lang/String;)J".as_ptr(),
+    );
+    if parse.is_null() {
+        return None;
+    }
+    let value =
+        (f.CallStaticLongMethodA.unwrap())(env, class, parse, [jvalue { l: header }].as_ptr());
+    if (f.ExceptionCheck.unwrap())(env) == 0 {
+        return Some(value);
+    }
     let error = (f.ExceptionOccurred.unwrap())(env);
     (f.ExceptionClear.unwrap())(env);
-    if (f.IsInstanceOf.unwrap())(env, error, malformed) == 0 { (f.Throw.unwrap())(env, error); }
+    if (f.IsInstanceOf.unwrap())(env, error, malformed) == 0 {
+        (f.Throw.unwrap())(env, error);
+    }
     None
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_commandEnvelope(
-    env: *mut JNIEnv, _: jclass, header: jstring, params: jobject,
+    env: *mut JNIEnv,
+    _: jclass,
+    header: jstring,
+    params: jobject,
 ) -> jobjectArray {
     let f = &**env;
-    if (f.PushLocalFrame.unwrap())(env, 16) < 0 { return null_mut(); }
+    if (f.PushLocalFrame.unwrap())(env, 16) < 0 {
+        return null_mut();
+    }
     let result = (|| {
         let stream_id = stream_header(env, header);
-        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        if (f.ExceptionCheck.unwrap())(env) != 0 {
+            return None;
+        }
         let data = map_get(env, params, "data")?;
         let bytes = (f.FindClass.unwrap())(env, c"[B".as_ptr());
-        if bytes.is_null() { return None; }
+        if bytes.is_null() {
+            return None;
+        }
         let is_bytes = !data.is_null() && (f.IsInstanceOf.unwrap())(env, data, bytes) != 0;
         let stream_id = control::remote_stream(stream_id, is_bytes)?;
         let class = (f.FindClass.unwrap())(env, c"java/lang/Object".as_ptr());
-        if class.is_null() { return None; }
+        if class.is_null() {
+            return None;
+        }
         let values = (f.NewObjectArray.unwrap())(env, 2, class, null_mut());
-        if values.is_null() { return None; }
+        if values.is_null() {
+            return None;
+        }
         let id = write_value(env, &Value::Int(stream_id as u64))?;
         (f.SetObjectArrayElement.unwrap())(env, values, 0, id);
         (f.SetObjectArrayElement.unwrap())(env, values, 1, data);
@@ -637,12 +679,17 @@ unsafe fn input_flag(env: *mut JNIEnv, value: jobject) -> Option<bool> {
     }
     let boolean = (f.FindClass.unwrap())(env, c"java/lang/Boolean".as_ptr());
     if !boolean.is_null() && (f.IsInstanceOf.unwrap())(env, value, boolean) != 0 {
-        let method = (f.GetMethodID.unwrap())(env, boolean, c"booleanValue".as_ptr(), c"()Z".as_ptr());
+        let method =
+            (f.GetMethodID.unwrap())(env, boolean, c"booleanValue".as_ptr(), c"()Z".as_ptr());
         if method.is_null() {
             return None;
         }
         let result = (f.CallBooleanMethodA.unwrap())(env, value, method, std::ptr::null());
-        return if (f.ExceptionCheck.unwrap())(env) != 0 { None } else { Some(result != 0) };
+        return if (f.ExceptionCheck.unwrap())(env) != 0 {
+            None
+        } else {
+            Some(result != 0)
+        };
     }
     number_int(env, value).map(|value| value != 0)
 }
@@ -662,8 +709,12 @@ unsafe fn unsigned_decimal(env: *mut JNIEnv, value: jobject) -> Option<String> {
     if class(c"java/math/BigInteger").is_some_and(|class| is(value, class)) {
         let big = (f.FindClass.unwrap())(env, c"java/math/BigInteger".as_ptr());
         let signum = (f.GetMethodID.unwrap())(env, big, c"signum".as_ptr(), c"()I".as_ptr());
-        let to_string = (f.GetMethodID.unwrap())(env, big, c"toString".as_ptr(),
-            c"()Ljava/lang/String;".as_ptr());
+        let to_string = (f.GetMethodID.unwrap())(
+            env,
+            big,
+            c"toString".as_ptr(),
+            c"()Ljava/lang/String;".as_ptr(),
+        );
         if signum.is_null() || to_string.is_null() {
             return None;
         }
@@ -729,8 +780,13 @@ unsafe fn connection_field(
     }
     Some(match connection_slot(env, raw)? {
         setup::ConnectionSlot::Inline(value) => (Some(value), None),
-        setup::ConnectionSlot::UnsignedDecimal(decimal) => (Some(Value::Null), Some(ExternalConnection::BigInteger(decimal))),
-        setup::ConnectionSlot::Original => (Some(Value::Null), Some(ExternalConnection::Object(raw))),
+        setup::ConnectionSlot::UnsignedDecimal(decimal) => (
+            Some(Value::Null),
+            Some(ExternalConnection::BigInteger(decimal)),
+        ),
+        setup::ConnectionSlot::Original => {
+            (Some(Value::Null), Some(ExternalConnection::Object(raw)))
+        }
     })
 }
 
@@ -740,7 +796,12 @@ unsafe fn big_integer(env: *mut JNIEnv, decimal: &str) -> Option<jobject> {
     if class.is_null() {
         return None;
     }
-    let ctor = (f.GetMethodID.unwrap())(env, class, c"<init>".as_ptr(), c"(Ljava/lang/String;)V".as_ptr());
+    let ctor = (f.GetMethodID.unwrap())(
+        env,
+        class,
+        c"<init>".as_ptr(),
+        c"(Ljava/lang/String;)V".as_ptr(),
+    );
     if ctor.is_null() {
         return None;
     }
@@ -763,7 +824,13 @@ unsafe fn secret(env: *mut JNIEnv, shared: jbyteArray) -> Option<Vec<u8>> {
     let size = (f.GetArrayLength.unwrap())(env, shared) as usize;
     let mut bytes = vec![0u8; size];
     if size != 0 {
-        (f.GetByteArrayRegion.unwrap())(env, shared, 0, size as jint, bytes.as_mut_ptr() as *mut i8);
+        (f.GetByteArrayRegion.unwrap())(
+            env,
+            shared,
+            0,
+            size as jint,
+            bytes.as_mut_ptr() as *mut i8,
+        );
     }
     if (f.ExceptionCheck.unwrap())(env) != 0 {
         return None;
@@ -805,7 +872,9 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
         let secret = secret(env, shared_secret);
 
         let derive = |label: &str| {
-            secret.as_ref().zip(connection_decimal.as_ref())
+            secret
+                .as_ref()
+                .zip(connection_decimal.as_ref())
                 .map(|(secret, decimal)| setup::data_stream_key(secret, decimal, label).to_vec())
         };
         let plan = setup::microphone_plan(
@@ -817,18 +886,33 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
             data_port,
             input,
         );
-        let mic = plan.map(|plan| {
-            super::dict([
-                ("port", Value::Int32(plan.port)),
-                ("frameMillis", Value::Int32(plan.frame_millis)),
-                ("bitrate", plan.bitrate.map(Value::Int32).unwrap_or(Value::Null)),
-                ("opusClockRate", Value::Int32(plan.opus_clock_rate)),
-                ("waitDownlink", Value::Bool(plan.wait_downlink)),
-                ("inputKey", derive(setup::INPUT_KEY_LABEL).map(Value::Data).unwrap_or(Value::Null)),
-            ])
-        }).unwrap_or(Value::Null);
+        let mic = plan
+            .map(|plan| {
+                super::dict([
+                    ("port", Value::Int32(plan.port)),
+                    ("frameMillis", Value::Int32(plan.frame_millis)),
+                    (
+                        "bitrate",
+                        plan.bitrate.map(Value::Int32).unwrap_or(Value::Null),
+                    ),
+                    ("opusClockRate", Value::Int32(plan.opus_clock_rate)),
+                    ("waitDownlink", Value::Bool(plan.wait_downlink)),
+                    (
+                        "inputKey",
+                        derive(setup::INPUT_KEY_LABEL)
+                            .map(Value::Data)
+                            .unwrap_or(Value::Null),
+                    ),
+                ])
+            })
+            .unwrap_or(Value::Null);
         let plan = super::dict([
-            ("outputKey", derive(setup::OUTPUT_KEY_LABEL).map(Value::Data).unwrap_or(Value::Null)),
+            (
+                "outputKey",
+                derive(setup::OUTPUT_KEY_LABEL)
+                    .map(Value::Data)
+                    .unwrap_or(Value::Null),
+            ),
             ("formatBits", Value::Int(format_bits_value as u64)),
             ("micPort", Value::Int32(data_port.unwrap_or(0))),
             ("latencyMs", Value::Int32(latency_ms)),
@@ -842,30 +926,42 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
 /// Buffered SETUP reads only the fields reached by the original host validation order.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtocol_bufferedSetup(
-    env: *mut JNIEnv, _class: jclass, stream: jobject,
+    env: *mut JNIEnv,
+    _class: jclass,
+    stream: jobject,
 ) -> jobject {
     let f = &**env;
-    if (f.PushLocalFrame.unwrap())(env, 32) < 0 { return null_mut(); }
+    if (f.PushLocalFrame.unwrap())(env, 32) < 0 {
+        return null_mut();
+    }
     let result = (|| -> Option<jobject> {
         let key = map_get(env, stream, "shk")?;
         let bytes = (f.FindClass.unwrap())(env, c"[B".as_ptr());
-        if bytes.is_null() { return None; }
+        if bytes.is_null() {
+            return None;
+        }
         let mut reason = 0;
         let mut bits = 0i64;
-        if key.is_null() || (f.IsInstanceOf.unwrap())(env, key, bytes) == 0 ||
-            (f.GetArrayLength.unwrap())(env, key as jbyteArray) != 32 {
+        if key.is_null()
+            || (f.IsInstanceOf.unwrap())(env, key, bytes) == 0
+            || (f.GetArrayLength.unwrap())(env, key as jbyteArray) != 32
+        {
             reason = 1;
         } else {
             let value = map_get(env, stream, "audioFormat")?;
             bits = number_long(env, value).unwrap_or(0);
-            if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+            if (f.ExceptionCheck.unwrap())(env) != 0 {
+                return None;
+            }
             if !setup::buffered_format_supported(bits) {
                 reason = 2;
             } else {
                 for (name, expected) in [("ct", 4), ("spf", 1024)] {
                     let value = map_get(env, stream, name)?;
                     let number = number_int(env, value);
-                    if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+                    if (f.ExceptionCheck.unwrap())(env) != 0 {
+                        return None;
+                    }
                     if !setup::buffered_optional_int_valid(!value.is_null(), number, expected) {
                         reason = 3;
                         break;
@@ -879,8 +975,12 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
             ("key", Value::Null),
         ]);
         let map = write_value(env, &plan)?;
-        if reason == 0 { replace_map_value(env, map, "key", key); }
-        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+        if reason == 0 {
+            replace_map_value(env, map, "key", key);
+        }
+        if (f.ExceptionCheck.unwrap())(env) != 0 {
+            return None;
+        }
         Some(map)
     })();
     (f.PopLocalFrame.unwrap())(env, result.unwrap_or(null_mut()))
@@ -905,9 +1005,11 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
         let seed = map_get(env, stream, "seed").and_then(|value| unsigned_decimal(env, value));
         let connection = map_get(env, stream, "streamConnectionID")
             .and_then(|value| unsigned_decimal(env, value));
-        let text = |value: Option<String>| value
-            .map(|value| Value::String(value.encode_utf16().collect()))
-            .unwrap_or(Value::Null);
+        let text = |value: Option<String>| {
+            value
+                .map(|value| Value::String(value.encode_utf16().collect()))
+                .unwrap_or(Value::Null)
+        };
         let parsed = super::dict([
             ("controlType", Value::Int32(control_type)),
             ("seed", text(seed)),
@@ -939,7 +1041,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
         let key = setup::data_stream_key(&secret, &seed, &label);
         let array = (f.NewByteArray.unwrap())(env, key.len() as jint);
         if !array.is_null() {
-            (f.SetByteArrayRegion.unwrap())(env, array, 0, key.len() as jint, key.as_ptr() as *mut i8);
+            (f.SetByteArrayRegion.unwrap())(
+                env,
+                array,
+                0,
+                key.len() as jint,
+                key.as_ptr() as *mut i8,
+            );
         }
         if (f.ExceptionCheck.unwrap())(env) != 0 {
             return None;
@@ -973,8 +1081,12 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeAirPlayProtoc
         }
         let (slot, external) = connection_field(env, connection, operation == setup::REPLY_AUDIO)?;
         let value = match operation {
-            setup::REPLY_AUDIO => setup::audio_reply(stream_type, data_port, control_port,
-                slot.unwrap_or(Value::Int(0))),
+            setup::REPLY_AUDIO => setup::audio_reply(
+                stream_type,
+                data_port,
+                control_port,
+                slot.unwrap_or(Value::Int(0)),
+            ),
             setup::REPLY_REMOTE_CONTROL => setup::data_reply(stream_type, stream_id, None, slot),
             setup::REPLY_DATA => setup::data_reply(stream_type, stream_id, Some(data_port), slot),
             _ => return None,

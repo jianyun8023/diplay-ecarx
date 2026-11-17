@@ -256,7 +256,11 @@ mod command_interpretation_tests {
 
         // requestUI with a videoplayback url → ui=2
         let a = array_of(
-            command(15, &args("requestUI", dict([("url", text("videoplayback:"))]))).unwrap(),
+            command(
+                15,
+                &args("requestUI", dict([("url", text("videoplayback:"))])),
+            )
+            .unwrap(),
         );
         assert_eq!(a[2], int(2));
 
@@ -273,7 +277,8 @@ mod command_interpretation_tests {
     }
 
     #[test]
-    fn command_extracts_the_navigation_entity_from_app_states() {        let params = dict([(
+    fn command_extracts_the_navigation_entity_from_app_states() {
+        let params = dict([(
             "appStates",
             array([
                 dict([("appStateID", int(1)), ("entity", int(7))]),

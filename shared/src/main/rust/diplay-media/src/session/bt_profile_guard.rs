@@ -91,7 +91,11 @@ pub fn should_attempt_recovery(applied: bool, has_session: bool, recovery_pendin
 }
 
 /// A radio that is not ON/TURNING_ON and not being passively observed must be rejected at once.
-pub fn reject_adapter_ready(owned_pause: bool, initial_state: i32, observe_boot_radio: bool) -> bool {
+pub fn reject_adapter_ready(
+    owned_pause: bool,
+    initial_state: i32,
+    observe_boot_radio: bool,
+) -> bool {
     !owned_pause
         && initial_state != STATE_ON
         && initial_state != STATE_TURNING_ON
@@ -106,7 +110,11 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_bluetooth_NativeBtProfileGu
     adapter_enabled: jboolean,
     media_audio_allowed: jboolean,
 ) -> jint {
-    yield_mode(media_only != 0, adapter_enabled != 0, media_audio_allowed != 0) as jint
+    yield_mode(
+        media_only != 0,
+        adapter_enabled != 0,
+        media_audio_allowed != 0,
+    ) as jint
 }
 
 #[no_mangle]
@@ -154,7 +162,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_bluetooth_NativeBtProfileGu
     initial_state: jint,
     owned_pause: jboolean,
 ) -> jboolean {
-    should_passively_observe_boot_radio(early_boot != 0, initial_state, owned_pause != 0) as jboolean
+    should_passively_observe_boot_radio(early_boot != 0, initial_state, owned_pause != 0)
+        as jboolean
 }
 
 #[no_mangle]
@@ -186,7 +195,10 @@ mod tests {
     #[test]
     fn yield_mode_prefers_media_audio_skip_then_adapter_off_then_arm() {
         // Media-only but CarPlay uses car Bluetooth audio: skip even if adapter-off were also on.
-        assert_eq!(yield_mode(true, true, false), YieldMode::SkipMediaUsesCarAudio);
+        assert_eq!(
+            yield_mode(true, true, false),
+            YieldMode::SkipMediaUsesCarAudio
+        );
         // Neither mode enabled (media-only off, adapter-off off): nothing to do.
         assert_eq!(yield_mode(false, false, true), YieldMode::SkipAdapterOff);
         // Media-only, CarPlay audio not on car BT: arm media-only.
@@ -227,10 +239,16 @@ mod tests {
     #[test]
     fn boot_radio_observation_needs_early_boot_off_radio_and_not_our_pause() {
         assert!(should_passively_observe_boot_radio(true, STATE_OFF, false));
-        assert!(!should_passively_observe_boot_radio(false, STATE_OFF, false));
+        assert!(!should_passively_observe_boot_radio(
+            false, STATE_OFF, false
+        ));
         assert!(!should_passively_observe_boot_radio(true, STATE_OFF, true));
         assert!(!should_passively_observe_boot_radio(true, STATE_ON, false));
-        assert!(!should_passively_observe_boot_radio(true, STATE_TURNING_ON, false));
+        assert!(!should_passively_observe_boot_radio(
+            true,
+            STATE_TURNING_ON,
+            false
+        ));
     }
 
     #[test]

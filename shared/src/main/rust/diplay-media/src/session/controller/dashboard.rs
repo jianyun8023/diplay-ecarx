@@ -39,7 +39,9 @@ impl DashboardTransition {
     }
 
     pub(super) fn from_code(code: i64) -> Option<Self> {
-        Self::ALL.into_iter().find(|&operation| operation.code() == code)
+        Self::ALL
+            .into_iter()
+            .find(|&operation| operation.code() == code)
     }
 }
 
@@ -70,7 +72,9 @@ impl DashboardQuery {
     }
 
     pub(super) fn from_code(code: i64) -> Option<Self> {
-        Self::ALL.into_iter().find(|&operation| operation.code() == code)
+        Self::ALL
+            .into_iter()
+            .find(|&operation| operation.code() == code)
     }
 }
 
@@ -217,13 +221,31 @@ mod tests {
     fn accepted_selection_survives_failed_replacement_and_utf16_roundtrip() {
         let url = vec![0, 0xd800, 0xffff, 0xdc00];
         let mut state = Dashboard::new(Some(url.clone()));
-        state.transition(DashboardTransition::CommitSelection, Some(vec![42]), false, true, 1);
-        state.transition(DashboardTransition::CommitSelection, Some(vec![43]), true, false, 1);
+        state.transition(
+            DashboardTransition::CommitSelection,
+            Some(vec![42]),
+            false,
+            true,
+            1,
+        );
+        state.transition(
+            DashboardTransition::CommitSelection,
+            Some(vec![43]),
+            true,
+            false,
+            1,
+        );
         assert_eq!(
             Dashboard::decode(&state.encode()).unwrap().accepted_url(),
             Some(url.as_slice())
         );
-        state.transition(DashboardTransition::CommitSelection, Some(vec![]), true, true, 1);
+        state.transition(
+            DashboardTransition::CommitSelection,
+            Some(vec![]),
+            true,
+            true,
+            1,
+        );
         assert_eq!(state.accepted_url(), Some([].as_slice()));
         assert_eq!(state.epoch, 1);
     }
@@ -234,7 +256,13 @@ mod tests {
         state.transition(DashboardTransition::CommitVisibility, None, false, false, 1);
         assert_eq!(state.query(DashboardQuery::Selection, true, false), 0);
         assert_eq!(state.query(DashboardQuery::Selection, false, false), 1);
-        state.transition(DashboardTransition::CommitSelection, Some(vec![42]), true, true, 1);
+        state.transition(
+            DashboardTransition::CommitSelection,
+            Some(vec![42]),
+            true,
+            true,
+            1,
+        );
         assert!(!state.shown);
         state.transition(DashboardTransition::CommitRestore, None, true, true, 0);
         assert_eq!(state.epoch, 2);
@@ -245,9 +273,21 @@ mod tests {
         assert_eq!(state.query(DashboardQuery::Visibility, true, true), 0);
         assert_eq!(state.query(DashboardQuery::Visibility, true, false), 1);
         state.epoch = i32::MAX;
-        state.transition(DashboardTransition::SetPhysicalVisible, None, true, false, 1);
+        state.transition(
+            DashboardTransition::SetPhysicalVisible,
+            None,
+            true,
+            false,
+            1,
+        );
         assert_eq!(state.epoch, i32::MIN);
-        state.transition(DashboardTransition::SetPhysicalVisible, None, true, false, 1);
+        state.transition(
+            DashboardTransition::SetPhysicalVisible,
+            None,
+            true,
+            false,
+            1,
+        );
         assert_eq!(state.epoch, i32::MIN);
     }
 

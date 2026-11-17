@@ -1,7 +1,7 @@
 //! Incremental NowPlaying metadata and renderer activity/route deadlines. JVM owns clocks and text decoding.
-mod jni;
-mod artwork_recovery;
 mod artwork_queue;
+mod artwork_recovery;
+mod jni;
 mod publication;
 use crate::protocols::iap2_body::parse_parameter_list;
 
@@ -52,7 +52,10 @@ mod auto_play_tests {
         assert_eq!(auto_play_query(auto_play_transition(token, 2), 1), 1);
         token = auto_play_transition(token, 1);
         assert_eq!(auto_play_query(token, 1), 2);
-        assert_eq!(auto_play_query(auto_play_transition(i32::MAX as i64, 1), 0), i32::MIN as i64);
+        assert_eq!(
+            auto_play_query(auto_play_transition(i32::MAX as i64, 1), 0),
+            i32::MIN as i64
+        );
         assert_eq!(auto_play_query(auto_play_transition(token, -1), 1), 2);
         assert_eq!(auto_play_transition(token, 0), 0);
     }
@@ -450,23 +453,27 @@ mod tests {
             encode_parameter_list(&[(0, encode_parameter_list(&fields).unwrap())]).unwrap()
         };
         let playback = |status: u8| {
-            encode_parameter_list(&[(
-                1,
-                encode_parameter_list(&[(0, vec![status])]).unwrap(),
-            )])
-            .unwrap()
+            encode_parameter_list(&[(1, encode_parameter_list(&[(0, vec![status])]).unwrap())])
+                .unwrap()
         };
         let decode = |bytes: &[u8]| Some(String::from_utf8_lossy(bytes).encode_utf16().collect());
         // Title and artist arrive together; the composed card is the Glance consumer's business.
         assert!(state.accept(
             0x5001,
-            &body(vec![(1, b"Numb\0".to_vec()), (12, b"Linkin Park\0".to_vec())]),
+            &body(vec![
+                (1, b"Numb\0".to_vec()),
+                (12, b"Linkin Park\0".to_vec())
+            ]),
             decode
         ));
         assert_eq!(state.title.as_deref(), Some(&[78, 117, 109, 98][..]));
         assert!(state.artist.is_some());
         // Kotlin treats NEL as a non-blank title, so an absent artist must stay retained.
-        assert!(state.accept(0x5001, &body(vec![(1, "\u{0085}\0".as_bytes().to_vec())]), decode));
+        assert!(state.accept(
+            0x5001,
+            &body(vec![(1, "\u{0085}\0".as_bytes().to_vec())]),
+            decode
+        ));
         assert_eq!(state.title, Some(vec![0x0085]));
         assert!(state.artist.is_some());
         // The Glance counts playing and seeking as playback; only flag changes report an update.
@@ -507,11 +514,12 @@ mod tests {
         // Other messages, malformed bodies and malformed groups preserve everything.
         assert!(!state.accept(0x5002, &body(vec![(1, b"X\0".to_vec())]), decode));
         assert!(!state.accept(0x5001, &[9, 9, 9], decode));
-        assert!(!state.accept(0x5001, &encode_parameter_list(&[(0, vec![1])]).unwrap(), decode));
-        assert_eq!(
-            GlanceSong::decode(&state.encode()).as_ref(),
-            Some(&state)
-        );
+        assert!(!state.accept(
+            0x5001,
+            &encode_parameter_list(&[(0, vec![1])]).unwrap(),
+            decode
+        ));
+        assert_eq!(GlanceSong::decode(&state.encode()).as_ref(), Some(&state));
         assert!(state.clear());
         assert_eq!(state, GlanceSong::default());
         assert!(!state.clear());

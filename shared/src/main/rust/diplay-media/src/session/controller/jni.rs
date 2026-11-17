@@ -1,6 +1,7 @@
 use super::{
     configuration, expected_control_close, handoff_in_progress, timing_policy, wireless_close_plan,
-    ControllerState, DecisionCode, EventCode, KeyEventCode, Proof, ProofEvent, Vpn, VpnEvent, HEADER,
+    ControllerState, DecisionCode, EventCode, KeyEventCode, Proof, ProofEvent, Vpn, VpnEvent,
+    HEADER,
 };
 use jni_sys::{
     jboolean, jclass, jint, jintArray, jlong, jlongArray, jobjectArray, jstring, JNIEnv,
@@ -115,7 +116,10 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlay
     wireless: jboolean,
     location: jboolean,
 ) -> jlongArray {
-    long_array(env, &ControllerState::new(wireless != 0, location != 0).encode())
+    long_array(
+        env,
+        &ControllerState::new(wireless != 0, location != 0).encode(),
+    )
 }
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_orchestration_NativeCarPlayController_query(

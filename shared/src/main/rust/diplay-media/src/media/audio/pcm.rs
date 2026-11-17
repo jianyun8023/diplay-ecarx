@@ -9,7 +9,13 @@ const BUTTERWORTH_Q: [f64; 2] = [0.5411961, 1.3065630];
 pub const DEFAULT_CUTOFF_HZ: f64 = 200.0;
 
 #[derive(Clone, Copy)]
-struct Biquad { b0: f64, b1: f64, b2: f64, a1: f64, a2: f64 }
+struct Biquad {
+    b0: f64,
+    b1: f64,
+    b2: f64,
+    a1: f64,
+    a2: f64,
+}
 
 impl Biquad {
     fn high_pass(rate: i32, cutoff: f64, q: f64) -> Biquad {
@@ -38,7 +44,11 @@ pub struct VoiceFilter {
 impl VoiceFilter {
     pub fn new(sample_rate: i32, channels: usize, cutoff_hz: f64) -> VoiceFilter {
         let stages = BUTTERWORTH_Q.map(|q| Biquad::high_pass(sample_rate, cutoff_hz, q));
-        VoiceFilter { stages, channels, state: vec![[0.0; 4]; 2 * channels] }
+        VoiceFilter {
+            stages,
+            channels,
+            state: vec![[0.0; 4]; 2 * channels],
+        }
     }
 
     pub fn process(&mut self, pcm: &mut [u8]) {
@@ -49,7 +59,9 @@ impl VoiceFilter {
                 let mut x = i16::from_le_bytes([pcm[at], pcm[at + 1]]) as f64;
                 for (index, stage) in self.stages.iter().enumerate() {
                     let h = &mut self.state[index * self.channels + channel];
-                    let y = stage.b0 * x + stage.b1 * h[0] + stage.b2 * h[1] - stage.a1 * h[2] - stage.a2 * h[3];
+                    let y = stage.b0 * x + stage.b1 * h[0] + stage.b2 * h[1]
+                        - stage.a1 * h[2]
+                        - stage.a2 * h[3];
                     h[1] = h[0];
                     h[0] = x;
                     h[3] = h[2];
@@ -79,7 +91,9 @@ pub fn linear_gain(db: i32) -> f32 {
 /// Scales in place by `db`; 0 dB leaves the samples untouched.
 pub fn attenuate(pcm: &mut [u8], db: i32) {
     let gain = linear_gain(db);
-    if gain >= 1.0 { return; }
+    if gain >= 1.0 {
+        return;
+    }
     for s in pcm.chunks_exact_mut(2) {
         let sample = i16::from_le_bytes([s[0], s[1]]) as f32;
         // Kotlin's roundToInt rounds half up.
@@ -103,7 +117,10 @@ pub fn fade_in(pcm: &mut [u8], sample_rate: i32) {
 /// Wired LPCM arrives big-endian: copies `source` into `out` with each sample's bytes swapped.
 pub fn copy_swapped(source: &[u8], out: &mut [u8]) -> usize {
     let length = source.len().min(out.len()) & !1;
-    for (dst, src) in out[..length].chunks_exact_mut(2).zip(source[..length].chunks_exact(2)) {
+    for (dst, src) in out[..length]
+        .chunks_exact_mut(2)
+        .zip(source[..length].chunks_exact(2))
+    {
         dst[0] = src[1];
         dst[1] = src[0];
     }
@@ -114,8 +131,14 @@ pub fn copy_swapped(source: &[u8], out: &mut [u8]) -> usize {
 mod tests {
     use super::*;
 
-    fn pcm(samples: &[i16]) -> Vec<u8> { samples.iter().flat_map(|s| s.to_le_bytes()).collect() }
-    fn samples(pcm: &[u8]) -> Vec<i16> { pcm.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]])).collect() }
+    fn pcm(samples: &[i16]) -> Vec<u8> {
+        samples.iter().flat_map(|s| s.to_le_bytes()).collect()
+    }
+    fn samples(pcm: &[u8]) -> Vec<i16> {
+        pcm.chunks_exact(2)
+            .map(|s| i16::from_le_bytes([s[0], s[1]]))
+            .collect()
+    }
 
     #[test]
     fn attenuation_rounds_like_kotlin() {
@@ -141,18 +164,33 @@ mod tests {
         let mut dc = pcm(&[8000; 4000]);
         filter.process(&mut dc);
         assert!(samples(&dc)[3000..].iter().all(|s| s.abs() < 50));
-        let tone: Vec<i16> = (0..4000).map(|n| ((n as f64 * 2.0 * PI * 1000.0 / 16000.0).sin() * 8000.0) as i16).collect();
+        let tone: Vec<i16> = (0..4000)
+            .map(|n| ((n as f64 * 2.0 * PI * 1000.0 / 16000.0).sin() * 8000.0) as i16)
+            .collect();
         let mut voice = pcm(&tone);
         VoiceFilter::new(16_000, 1, DEFAULT_CUTOFF_HZ).process(&mut voice);
-        let peak = samples(&voice)[3000..].iter().map(|s| s.abs()).max().unwrap();
+        let peak = samples(&voice)[3000..]
+            .iter()
+            .map(|s| s.abs())
+            .max()
+            .unwrap();
         assert!(peak > 7500, "{peak}");
     }
 
     /// The same vector as Kotlin's VoiceFilterGoldenTest, so both filters are held to one output.
     #[test]
     fn the_high_pass_matches_the_golden_vector() {
-        let input: [i16; 40] = [-3000, -942, 1101, 3115, 5085, 7000, 8845, 3608, 5281, 6852, 8314, 9662, 10889, 11993, 5972, 6827, 7559, 8173, 8673, 9067, 9363, 2571, 2702, 2767, 2781, 2755, 2706, 2646, -4407, -4442, -4444, -4397, -4290, -4109, -3843, -10483, -10019, -9443, -8751, -7937];
-        let expected: [i16; 40] = [-2707, -294, 1665, 3207, 4361, 5164, 5647, -475, 763, 1644, 2209, 2498, 2547, 2395, -4240, -3395, -2786, -2374, -2124, -2001, -1976, -8336, -7126, -6073, -5145, -4321, -3575, -2892, -8568, -6664, -4917, -3308, -1826, -458, 802, -4353, -1990, 146, 2064, 3775];
+        let input: [i16; 40] = [
+            -3000, -942, 1101, 3115, 5085, 7000, 8845, 3608, 5281, 6852, 8314, 9662, 10889, 11993,
+            5972, 6827, 7559, 8173, 8673, 9067, 9363, 2571, 2702, 2767, 2781, 2755, 2706, 2646,
+            -4407, -4442, -4444, -4397, -4290, -4109, -3843, -10483, -10019, -9443, -8751, -7937,
+        ];
+        let expected: [i16; 40] = [
+            -2707, -294, 1665, 3207, 4361, 5164, 5647, -475, 763, 1644, 2209, 2498, 2547, 2395,
+            -4240, -3395, -2786, -2374, -2124, -2001, -1976, -8336, -7126, -6073, -5145, -4321,
+            -3575, -2892, -8568, -6664, -4917, -3308, -1826, -458, 802, -4353, -1990, 146, 2064,
+            3775,
+        ];
         let mut data = pcm(&input);
         VoiceFilter::new(16_000, 1, DEFAULT_CUTOFF_HZ).process(&mut data);
         assert_eq!(samples(&data), expected.to_vec());

@@ -3,14 +3,25 @@ use super::*;
 pub(super) const FEATURE_BITS: [i32; 2] = [0, 64];
 
 fn playable_url(url: &[u16], iphone_loads_app_schemes: bool) -> bool {
-    let Some(end) = url.iter().position(|&unit| unit == b':' as u16) else { return false; };
+    let Some(end) = url.iter().position(|&unit| unit == b':' as u16) else {
+        return false;
+    };
     let scheme = String::from_utf16_lossy(&url[..end]).to_lowercase();
     match scheme.as_str() {
         "http" | "https" => true,
         "file" | "content" | "asset" | "rawresource" | "android.resource" | "skd" => false,
-        _ => iphone_loads_app_schemes
-            && scheme.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-            && scheme.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'+' | b'.' | b'-')),
+        _ => {
+            iphone_loads_app_schemes
+                && scheme
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_lowercase)
+                && scheme.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'+' | b'.' | b'-')
+                })
+        }
     }
 }
 
@@ -139,7 +150,9 @@ pub(super) fn message(
             let Some(url @ Value::String(units)) = get(item, "Content-Location") else {
                 return Ok(Value::Null);
             };
-            if !playable_url(units, app_schemes) { return Ok(Value::Null); }
+            if !playable_url(units, app_schemes) {
+                return Ok(Value::Null);
+            }
             let start = get(item, "Start-Position-Seconds")
                 .and_then(number)
                 .or_else(|| get(item, "Start-Position").and_then(seconds));
@@ -314,9 +327,25 @@ mod tests {
             assert!(!playable_url(&url, false));
             assert!(playable_url(&url, true));
         }
-        for url in ["", "https", "://host", "1app:", "app_name:", " file:", "FILE://host", "content:",
-            "asset:", "rawresource:", "android.resource:", "SKD:", "\u{130}:"] {
-            assert!(!playable_url(&url.encode_utf16().collect::<Vec<_>>(), true), "{url}");
+        for url in [
+            "",
+            "https",
+            "://host",
+            "1app:",
+            "app_name:",
+            " file:",
+            "FILE://host",
+            "content:",
+            "asset:",
+            "rawresource:",
+            "android.resource:",
+            "SKD:",
+            "\u{130}:",
+        ] {
+            assert!(
+                !playable_url(&url.encode_utf16().collect::<Vec<_>>(), true),
+                "{url}"
+            );
         }
         assert!(!playable_url(&[0xd800, b':' as u16], true));
     }

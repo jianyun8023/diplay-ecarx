@@ -30,13 +30,21 @@ const NEIGHBOR_ADVERTISEMENT: u8 = 136;
 const NA_BYTES: usize = 24;
 const TARGET_LINK_LAYER_OPTION: u8 = 2;
 
-fn u16_le(b: &[u8], at: usize) -> usize { b[at] as usize | (b[at + 1] as usize) << 8 }
-fn u32_le(b: &[u8], at: usize) -> u32 { u32::from_le_bytes(b[at..at + 4].try_into().unwrap()) }
-fn u16_be(b: &[u8], at: usize) -> usize { (b[at] as usize) << 8 | b[at + 1] as usize }
+fn u16_le(b: &[u8], at: usize) -> usize {
+    b[at] as usize | (b[at + 1] as usize) << 8
+}
+fn u32_le(b: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+}
+fn u16_be(b: &[u8], at: usize) -> usize {
+    (b[at] as usize) << 8 | b[at + 1] as usize
+}
 
 /// One Ethernet frame in one NTB16 block, with the pad byte when it ends on a `packet_size` boundary.
 pub fn ntb16_build(frame: &[u8], sequence: u16, packet_size: usize) -> Option<Vec<u8>> {
-    if frame.is_empty() || frame.len() > MAX_DATAGRAM_BYTES { return None; }
+    if frame.is_empty() || frame.len() > MAX_DATAGRAM_BYTES {
+        return None;
+    }
     let block_length = DATAGRAM_INDEX + frame.len();
     let mut block = Vec::with_capacity(block_length + 1);
     block.extend_from_slice(&NTH16_SIG.to_le_bytes());
@@ -51,17 +59,23 @@ pub fn ntb16_build(frame: &[u8], sequence: u16, packet_size: usize) -> Option<Ve
     block.extend_from_slice(&(frame.len() as u16).to_le_bytes());
     block.extend_from_slice(&[0, 0, 0, 0]);
     block.extend_from_slice(frame);
-    if block.len() % packet_size == 0 { block.push(0); }
+    if block.len() % packet_size == 0 {
+        block.push(0);
+    }
     Some(block)
 }
 
 /// The frames of one NTB16 block (`Ntb16Codec.parse`): garbage yields none, bad entries are skipped,
 /// and a block with a repeated NDP, too many entries or overlapping entries is dropped whole.
-pub fn ntb16_parse(block: &[u8]) -> Vec<&[u8]> { ntb16_parse_origin(block, false) }
+pub fn ntb16_parse(block: &[u8]) -> Vec<&[u8]> {
+    ntb16_parse_origin(block, false)
+}
 
 fn ntb16_parse_origin(block: &[u8], nonzero_origin: bool) -> Vec<&[u8]> {
     let end = block.len();
-    if end < NTH_LENGTH || u32_le(block, 0) != NTH16_SIG { return Vec::new(); }
+    if end < NTH_LENGTH || u32_le(block, 0) != NTH16_SIG {
+        return Vec::new();
+    }
     let mut frames = Vec::with_capacity(1);
     let mut ndp = u16_le(block, 10);
     let mut visited = Vec::new();
@@ -70,22 +84,34 @@ fn ntb16_parse_origin(block: &[u8], nonzero_origin: bool) -> Vec<&[u8]> {
     let mut first = true;
     while ndp != 0 || (first && nonzero_origin) {
         first = false;
-        if ndp + 12 > end { break; }
-        if visited.contains(&ndp) { return Vec::new(); }
+        if ndp + 12 > end {
+            break;
+        }
+        if visited.contains(&ndp) {
+            return Vec::new();
+        }
         visited.push(ndp);
-        if u32_le(block, ndp) & 0x00ff_ffff != NDP16_SIG & 0x00ff_ffff { break; }
+        if u32_le(block, ndp) & 0x00ff_ffff != NDP16_SIG & 0x00ff_ffff {
+            break;
+        }
         let ndp_length = u16_le(block, ndp + 4);
         let next = u16_le(block, ndp + 6);
         let ndp_end = (ndp + ndp_length).min(end);
         let mut entry = ndp + 8;
         while entry + 4 <= ndp_end {
             let (index, length) = (u16_le(block, entry), u16_le(block, entry + 2));
-            if index == 0 || length == 0 { break; }
+            if index == 0 || length == 0 {
+                break;
+            }
             entries += 1;
-            if entries > MAX_ENTRIES_PER_BLOCK { return Vec::new(); }
+            if entries > MAX_ENTRIES_PER_BLOCK {
+                return Vec::new();
+            }
             if index <= end && index + length <= end {
                 total += length;
-                if total > end { return Vec::new(); }
+                if total > end {
+                    return Vec::new();
+                }
                 frames.push(&block[index..index + length]);
             }
             entry += 4;
@@ -114,16 +140,33 @@ const MAX_RESYNCS_PER_WINDOW: usize = 16;
 const RESYNC_WINDOW_NS: i64 = 10_000_000_000;
 const LOGGED_RESYNCS: i32 = 5;
 
-pub enum Drained { Frames(Vec<Vec<u8>>), Failed(String) }
+pub enum Drained {
+    Frames(Vec<Vec<u8>>),
+    Failed(String),
+}
 
 // One boundary at a time lets the platform sample its clock and emit diagnostics in original order.
-enum ReassemblyStep { NeedTime, Progress, Block(Vec<Vec<u8>>), Report(String), Idle, Failed(String) }
+enum ReassemblyStep {
+    NeedTime,
+    Progress,
+    Block(Vec<Vec<u8>>),
+    Report(String),
+    Idle,
+    Failed(String),
+}
 
 impl Reassembler {
     pub fn new(packet_size: usize) -> Reassembler {
         Reassembler {
-            buffered: Vec::new(), packet_size: packet_size.max(1), optional_pad: false, resync_times: VecDeque::new(),
-            resync_reason: None, resync_count: 0, resync_skipped: 0, needs_time_reason: None, pending_report: None,
+            buffered: Vec::new(),
+            packet_size: packet_size.max(1),
+            optional_pad: false,
+            resync_times: VecDeque::new(),
+            resync_reason: None,
+            resync_count: 0,
+            resync_skipped: 0,
+            needs_time_reason: None,
+            pending_report: None,
         }
     }
 
@@ -131,43 +174,66 @@ impl Reassembler {
     pub fn push(&mut self, chunk: &[u8], now_ns: i64, reports: &mut Vec<String>) -> Drained {
         self.buffered.extend_from_slice(chunk);
         let mut frames = Vec::new();
-        loop { match self.step(Some(now_ns)) {
-            ReassemblyStep::Block(block) => frames.extend(block),
-            ReassemblyStep::Report(line) => reports.push(line),
-            ReassemblyStep::Progress => {},
-            ReassemblyStep::Idle => return Drained::Frames(frames),
-            ReassemblyStep::Failed(error) => return Drained::Failed(error),
-            ReassemblyStep::NeedTime => unreachable!(),
-        } }
+        loop {
+            match self.step(Some(now_ns)) {
+                ReassemblyStep::Block(block) => frames.extend(block),
+                ReassemblyStep::Report(line) => reports.push(line),
+                ReassemblyStep::Progress => {}
+                ReassemblyStep::Idle => return Drained::Frames(frames),
+                ReassemblyStep::Failed(error) => return Drained::Failed(error),
+                ReassemblyStep::NeedTime => unreachable!(),
+            }
+        }
     }
 
     fn step(&mut self, now_ns: Option<i64>) -> ReassemblyStep {
-        if let Some(line) = self.pending_report.take() { return ReassemblyStep::Report(line); }
-        if let Some(reason) = self.needs_time_reason.take() { return self.resync_step(&reason, now_ns); }
+        if let Some(line) = self.pending_report.take() {
+            return ReassemblyStep::Report(line);
+        }
+        if let Some(reason) = self.needs_time_reason.take() {
+            return self.resync_step(&reason, now_ns);
+        }
         if self.optional_pad && !self.buffered.is_empty() {
             self.optional_pad = false;
             match self.buffered[0] {
-                0 => { self.buffered.drain(..1); }
-                b if b == (NTH16_SIG & 0xff) as u8 => {},
+                0 => {
+                    self.buffered.drain(..1);
+                }
+                b if b == (NTH16_SIG & 0xff) as u8 => {}
                 _ => return self.resync_step("Invalid NTB16 short-packet pad", now_ns),
             }
         }
-        if self.buffered.len() < NTH_LENGTH { return ReassemblyStep::Idle; }
+        if self.buffered.len() < NTH_LENGTH {
+            return ReassemblyStep::Idle;
+        }
         let block_length = u16_le(&self.buffered, 8);
         if u32_le(&self.buffered, 0) != NTH16_SIG {
-            return self.resync_step("NCM read buffer does not begin with an NTB16 header", now_ns);
+            return self.resync_step(
+                "NCM read buffer does not begin with an NTB16 header",
+                now_ns,
+            );
         }
         if block_length < 28 {
-            return self.resync_step(&format!("Invalid NTB16 block length {block_length}"), now_ns);
+            return self.resync_step(
+                &format!("Invalid NTB16 block length {block_length}"),
+                now_ns,
+            );
         }
-        if self.buffered.len() < block_length { return ReassemblyStep::Idle; }
-        let frames = ntb16_parse(&self.buffered[..block_length]).into_iter().map(<[u8]>::to_vec).collect();
+        if self.buffered.len() < block_length {
+            return ReassemblyStep::Idle;
+        }
+        let frames = ntb16_parse(&self.buffered[..block_length])
+            .into_iter()
+            .map(<[u8]>::to_vec)
+            .collect();
         self.buffered.drain(..block_length);
         self.optional_pad = block_length % self.packet_size == 0;
         if let Some(reason) = self.resync_reason.take() {
             if self.resync_count <= LOGGED_RESYNCS || self.resync_count % 50 == 0 {
-                self.pending_report = Some(format!("NCM resynchronized after {reason}; skipped={} resyncs={}",
-                    self.resync_skipped, self.resync_count));
+                self.pending_report = Some(format!(
+                    "NCM resynchronized after {reason}; skipped={} resyncs={}",
+                    self.resync_skipped, self.resync_count
+                ));
             }
         }
         ReassemblyStep::Block(frames)
@@ -187,7 +253,9 @@ impl Reassembler {
 
     fn plausible_header_at(&self, at: usize) -> bool {
         let b = &self.buffered;
-        if u32_le(b, at) != NTH16_SIG { return false; }
+        if u32_le(b, at) != NTH16_SIG {
+            return false;
+        }
         let (header, block, ndp) = (u16_le(b, at + 4), u16_le(b, at + 8), u16_le(b, at + 10));
         header == NTH_LENGTH && block >= 28 && ndp >= NTH_LENGTH && ndp % 4 == 0 && ndp + 8 <= block
     }
@@ -195,8 +263,16 @@ impl Reassembler {
     /// Ok(true) when a header is next, Ok(false) while none is buffered yet, Err when damage recurs.
     fn resynchronize(&mut self, reason: &str, now_ns: i64) -> Result<bool, String> {
         if self.resync_reason.is_none() {
-            while self.resync_times.front().is_some_and(|t| now_ns.wrapping_sub(*t) > RESYNC_WINDOW_NS) { self.resync_times.pop_front(); }
-            if self.resync_times.len() >= MAX_RESYNCS_PER_WINDOW { return Err(format!("{reason} (repeated)")); }
+            while self
+                .resync_times
+                .front()
+                .is_some_and(|t| now_ns.wrapping_sub(*t) > RESYNC_WINDOW_NS)
+            {
+                self.resync_times.pop_front();
+            }
+            if self.resync_times.len() >= MAX_RESYNCS_PER_WINDOW {
+                return Err(format!("{reason} (repeated)"));
+            }
             self.resync_times.push_back(now_ns);
             self.resync_count = self.resync_count.wrapping_add(1);
             self.resync_reason = Some(reason.to_string());
@@ -217,14 +293,20 @@ pub fn ipv6_payload(frame: &[u8]) -> Option<([u8; 6], &[u8])> {
 }
 
 fn ipv6_payload_with_empty(frame: &[u8], allow_empty: bool) -> Option<([u8; 6], &[u8])> {
-    if frame.len() < ETHERNET_HEADER || (!allow_empty && frame.len() == ETHERNET_HEADER) ||
-        u16_be(frame, 12) != ETHERTYPE_IPV6 as usize { return None; }
+    if frame.len() < ETHERNET_HEADER
+        || (!allow_empty && frame.len() == ETHERNET_HEADER)
+        || u16_be(frame, 12) != ETHERTYPE_IPV6 as usize
+    {
+        return None;
+    }
     Some((frame[6..12].try_into().unwrap(), &frame[ETHERNET_HEADER..]))
 }
 
 /// Ethernet's 33:33 group address for an IPv6 multicast destination.
 pub fn multicast_mac(ipv6: &[u8]) -> Option<[u8; 6]> {
-    if ipv6.len() < IPV6_HEADER || ipv6[0] >> 4 != 6 || ipv6[24] != 0xff { return None; }
+    if ipv6.len() < IPV6_HEADER || ipv6[0] >> 4 != 6 || ipv6[24] != 0xff {
+        return None;
+    }
     Some([0x33, 0x33, ipv6[36], ipv6[37], ipv6[38], ipv6[39]])
 }
 
@@ -241,15 +323,23 @@ pub fn ethernet_frame(source: &[u8; 6], destination: &[u8; 6], ipv6: &[u8]) -> V
 /// option the Ethernet peer needs: set it to `host_mac` (adding it when absent) and repair the IPv6
 /// payload length and the ICMPv6 checksum. Other packets pass through unchanged.
 pub fn fix_neighbor_advertisement(ipv6: &[u8], host_mac: &[u8; 6]) -> Option<Vec<u8>> {
-    if ipv6.len() < IPV6_HEADER + NA_BYTES || ipv6[0] >> 4 != 6 { return None; }
-    if ipv6[6] != ICMPV6 || ipv6[IPV6_HEADER] != NEIGHBOR_ADVERTISEMENT { return None; }
+    if ipv6.len() < IPV6_HEADER + NA_BYTES || ipv6[0] >> 4 != 6 {
+        return None;
+    }
+    if ipv6[6] != ICMPV6 || ipv6[IPV6_HEADER] != NEIGHBOR_ADVERTISEMENT {
+        return None;
+    }
     let payload = u16_be(ipv6, 4);
-    if payload < NA_BYTES || IPV6_HEADER + payload > ipv6.len() { return None; }
+    if payload < NA_BYTES || IPV6_HEADER + payload > ipv6.len() {
+        return None;
+    }
     let end = IPV6_HEADER + payload;
     let mut option = IPV6_HEADER + NA_BYTES;
     while option + 2 <= end {
         let bytes = ipv6[option + 1] as usize * 8;
-        if bytes == 0 || option + bytes > end { break; }
+        if bytes == 0 || option + bytes > end {
+            break;
+        }
         if ipv6[option] == TARGET_LINK_LAYER_OPTION && bytes >= 8 {
             let mut result = ipv6.to_vec();
             result[option + 2..option + 8].copy_from_slice(host_mac);
@@ -275,13 +365,22 @@ fn icmpv6_checksum(ipv6: &mut [u8]) {
     let words = |b: &[u8]| -> u64 {
         let mut sum = 0u64;
         let mut chunks = b.chunks_exact(2);
-        for w in &mut chunks { sum += u16::from_be_bytes([w[0], w[1]]) as u64; }
-        if let [last] = chunks.remainder() { sum += (*last as u64) << 8; }
+        for w in &mut chunks {
+            sum += u16::from_be_bytes([w[0], w[1]]) as u64;
+        }
+        if let [last] = chunks.remainder() {
+            sum += (*last as u64) << 8;
+        }
         sum
     };
-    let mut sum = words(&ipv6[8..40]) + (payload as u64 >> 16) + (payload as u64 & 0xffff) + ICMPV6 as u64 +
-        words(&ipv6[IPV6_HEADER..IPV6_HEADER + payload]);
-    while sum >> 16 != 0 { sum = (sum & 0xffff) + (sum >> 16); }
+    let mut sum = words(&ipv6[8..40])
+        + (payload as u64 >> 16)
+        + (payload as u64 & 0xffff)
+        + ICMPV6 as u64
+        + words(&ipv6[IPV6_HEADER..IPV6_HEADER + payload]);
+    while sum >> 16 != 0 {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
     let checksum = !(sum as u16);
     ipv6[IPV6_HEADER + 2..IPV6_HEADER + 4].copy_from_slice(&checksum.to_be_bytes());
 }
@@ -301,26 +400,44 @@ const MAX_PORTS: usize = 8;
 
 impl Traffic {
     pub fn received(&mut self, frame: &[u8], now_ns: i64) {
-        if let Some(port) = self.receive_header(frame) { self.record_time(port, now_ns); }
+        if let Some(port) = self.receive_header(frame) {
+            self.record_time(port, now_ns);
+        }
     }
 
     fn receive_header(&mut self, frame: &[u8]) -> Option<u16> {
         self.from_iphone = self.from_iphone.wrapping_add(1);
-        if frame.len() < 14 { return None; }
+        if frame.len() < 14 {
+            return None;
+        }
         let tcp = match u16_be(frame, 12) as u16 {
             ETHERTYPE_IPV6 => {
                 self.ipv6 = self.ipv6.wrapping_add(1);
-                if frame.get(ETHERNET_HEADER + 6) == Some(&6) { ETHERNET_HEADER + IPV6_HEADER } else { return None }
+                if frame.get(ETHERNET_HEADER + 6) == Some(&6) {
+                    ETHERNET_HEADER + IPV6_HEADER
+                } else {
+                    return None;
+                }
             }
             ETHERTYPE_IPV4 => {
                 self.ipv4 = self.ipv4.wrapping_add(1);
-                let Some(&first) = frame.get(ETHERNET_HEADER) else { return None };
-                if frame.get(ETHERNET_HEADER + 9) == Some(&6) { ETHERNET_HEADER + (first as usize & 0x0f) * 4 } else { return None }
+                let Some(&first) = frame.get(ETHERNET_HEADER) else {
+                    return None;
+                };
+                if frame.get(ETHERNET_HEADER + 9) == Some(&6) {
+                    ETHERNET_HEADER + (first as usize & 0x0f) * 4
+                } else {
+                    return None;
+                }
             }
             _ => return None,
         };
-        let Some(&flags) = frame.get(tcp + 13) else { return None };
-        if flags & 0x02 == 0 || flags & 0x10 != 0 || frame.len() < tcp + 4 { return None; }
+        let Some(&flags) = frame.get(tcp + 13) else {
+            return None;
+        };
+        if flags & 0x02 == 0 || flags & 0x10 != 0 || frame.len() < tcp + 4 {
+            return None;
+        }
         let port = u16_be(frame, tcp + 2) as u16;
         if let Some(entry) = self.syns_by_port.iter_mut().find(|(p, _)| *p == port) {
             entry.1 = entry.1.wrapping_add(1);
@@ -332,18 +449,31 @@ impl Traffic {
         Some(port)
     }
 
-    fn record_time(&mut self, port: u16, now_ns: i64) { self.last_syn_ns.insert(port, now_ns); }
+    fn record_time(&mut self, port: u16, now_ns: i64) {
+        self.last_syn_ns.insert(port, now_ns);
+    }
 
-    pub fn sent(&mut self) { self.to_iphone = self.to_iphone.wrapping_add(1); }
+    pub fn sent(&mut self) {
+        self.to_iphone = self.to_iphone.wrapping_add(1);
+    }
 
     pub fn attempt_since(&self, port: u16, since_ns: i64) -> bool {
-        self.last_syn_ns.get(&port).is_some_and(|t| t.wrapping_sub(since_ns) >= 0)
+        self.last_syn_ns
+            .get(&port)
+            .is_some_and(|t| t.wrapping_sub(since_ns) >= 0)
     }
 
     pub fn summary(&self, airplay_port: Option<u16>) -> String {
-        let to_airplay = airplay_port.and_then(|p| self.syns_by_port.iter().find(|(q, _)| *q == p)).map(|e| e.1 as i32).unwrap_or(0);
-        let others: Vec<String> = self.syns_by_port.iter().filter(|(p, _)| Some(*p) != airplay_port)
-            .map(|(p, n)| format!("{p}:{}", *n as i32)).collect();
+        let to_airplay = airplay_port
+            .and_then(|p| self.syns_by_port.iter().find(|(q, _)| *q == p))
+            .map(|e| e.1 as i32)
+            .unwrap_or(0);
+        let others: Vec<String> = self
+            .syns_by_port
+            .iter()
+            .filter(|(p, _)| Some(*p) != airplay_port)
+            .map(|(p, n)| format!("{p}:{}", *n as i32))
+            .collect();
         format!("fromIphone={} ipv6={} ipv4={} tcpConnectToAirPlay={to_airplay} tcpConnectOther={} toIphone={}",
             self.from_iphone as i64, self.ipv6 as i64, self.ipv4 as i64, if others.is_empty() { "none".into() } else { others.join(",") }, self.to_iphone as i64)
     }
@@ -353,7 +483,9 @@ impl Traffic {
 mod tests {
     use super::*;
 
-    fn hex(b: &[u8]) -> String { b.iter().map(|x| format!("{x:02x}")).collect() }
+    fn hex(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
 
     /// The same block as Kotlin's `NcmNativeCodecGoldenTest`.
     #[test]
@@ -371,7 +503,8 @@ mod tests {
     /// The same advertisement as Kotlin's `NcmNativeCodecGoldenTest`.
     #[test]
     fn a_neighbor_advertisement_gains_the_target_option_and_a_valid_checksum() {
-        let fixed = fix_neighbor_advertisement(&neighbor_advertisement(), &[2, 0, 0, 0, 0, 1]).unwrap();
+        let fixed =
+            fix_neighbor_advertisement(&neighbor_advertisement(), &[2, 0, 0, 0, 0, 1]).unwrap();
         assert_eq!(fixed.len(), 40 + 24 + 8);
         assert_eq!(&fixed[64..72], &[2, 1, 2, 0, 0, 0, 0, 1]);
         assert_eq!(hex(&fixed[42..44]), NA_CHECKSUM_GOLDEN);
@@ -386,11 +519,17 @@ mod tests {
         p[4..6].copy_from_slice(&24u16.to_be_bytes());
         p[6] = 58;
         p[7] = 255;
-        p[8] = 0xfe; p[9] = 0x80; p[23] = 1;
-        p[24] = 0xff; p[25] = 0x02; p[39] = 1;
+        p[8] = 0xfe;
+        p[9] = 0x80;
+        p[23] = 1;
+        p[24] = 0xff;
+        p[25] = 0x02;
+        p[39] = 1;
         p[40] = 136;
         p[44] = 0x20;
-        p[48] = 0xfe; p[49] = 0x80; p[63] = 1;
+        p[48] = 0xfe;
+        p[49] = 0x80;
+        p[63] = 1;
         p
     }
 
@@ -404,12 +543,16 @@ mod tests {
         let mut reports = Vec::new();
         let mut frames = Vec::new();
         for chunk in stream.chunks(17) {
-            if let Drained::Frames(f) = r.push(chunk, 0, &mut reports) { frames.extend(f); }
+            if let Drained::Frames(f) = r.push(chunk, 0, &mut reports) {
+                frames.extend(f);
+            }
         }
         assert_eq!(frames, vec![vec![0xaa; 40], vec![0xbb; 60]]);
         let mut damaged = vec![9u8; 5];
         damaged.extend_from_slice(&a);
-        let Drained::Frames(f) = r.push(&damaged, 1, &mut reports) else { panic!() };
+        let Drained::Frames(f) = r.push(&damaged, 1, &mut reports) else {
+            panic!()
+        };
         assert_eq!(f, vec![vec![0xaa; 40]]);
         assert_eq!(reports.len(), 1);
     }
@@ -425,6 +568,9 @@ mod tests {
         traffic.received(&frame, 50);
         traffic.sent();
         assert!(traffic.attempt_since(7000, 50) && !traffic.attempt_since(7000, 51));
-        assert_eq!(traffic.summary(Some(7000)), "fromIphone=1 ipv6=1 ipv4=0 tcpConnectToAirPlay=1 tcpConnectOther=none toIphone=1");
+        assert_eq!(
+            traffic.summary(Some(7000)),
+            "fromIphone=1 ipv6=1 ipv4=0 tcpConnectToAirPlay=1 tcpConnectOther=none toIphone=1"
+        );
     }
 }

@@ -30,10 +30,12 @@ pub fn group21(name_payload: &[u8]) -> Vec<u8> {
 }
 
 use crate::platform::jvm::Env;
-use jni_sys::{jbyteArray, jclass, jintArray, jint, JNIEnv};
+use jni_sys::{jbyteArray, jclass, jint, jintArray, JNIEnv};
 
 unsafe fn read_name(env: *mut JNIEnv, value: jbyteArray) -> Option<Vec<u8>> {
-    if value.is_null() { return None; }
+    if value.is_null() {
+        return None;
+    }
     let e = Env(env);
     let mut bytes = vec![0u8; e.array_len(value)];
     e.read_array(value, 0, &mut bytes).then_some(bytes)
@@ -41,10 +43,17 @@ unsafe fn read_name(env: *mut JNIEnv, value: jbyteArray) -> Option<Vec<u8>> {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleIdentification_group20(
-    env: *mut JNIEnv, _class: jclass, name_payload: jbyteArray, connectors: jintArray,
+    env: *mut JNIEnv,
+    _class: jclass,
+    name_payload: jbyteArray,
+    connectors: jintArray,
 ) -> jbyteArray {
-    let Some(name) = read_name(env, name_payload) else { return std::ptr::null_mut() };
-    if connectors.is_null() { return std::ptr::null_mut(); }
+    let Some(name) = read_name(env, name_payload) else {
+        return std::ptr::null_mut();
+    };
+    if connectors.is_null() {
+        return std::ptr::null_mut();
+    }
     let f = &**env;
     let count = (f.GetArrayLength.unwrap())(env, connectors) as usize;
     let mut values = vec![0i32; count];
@@ -57,9 +66,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleIden
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeVehicleIdentification_group21(
-    env: *mut JNIEnv, _class: jclass, name_payload: jbyteArray,
+    env: *mut JNIEnv,
+    _class: jclass,
+    name_payload: jbyteArray,
 ) -> jbyteArray {
-    let Some(name) = read_name(env, name_payload) else { return std::ptr::null_mut() };
+    let Some(name) = read_name(env, name_payload) else {
+        return std::ptr::null_mut();
+    };
     Env(env).byte_array(&group21(&name))
 }
 
@@ -69,19 +82,23 @@ mod tests {
 
     #[test]
     fn group20_preserves_complete_pinned_bytes_and_repeated_connectors() {
-        assert_eq!(group20(b"T\0", &[1, 4]), vec![
-            0, 6, 0, 0, 0, 3, 0, 6, 0, 1, b'T', 0, 0, 5, 0, 2, 2,
-            0, 6, 0, 6, b'T', 0, 0, 6, 0, 8, b'T', 0,
-            0, 5, 0, 11, 1, 0, 5, 0, 11, 4,
-        ]);
+        assert_eq!(
+            group20(b"T\0", &[1, 4]),
+            vec![
+                0, 6, 0, 0, 0, 3, 0, 6, 0, 1, b'T', 0, 0, 5, 0, 2, 2, 0, 6, 0, 6, b'T', 0, 0, 6, 0,
+                8, b'T', 0, 0, 5, 0, 11, 1, 0, 5, 0, 11, 4,
+            ]
+        );
     }
 
     #[test]
     fn group21_preserves_complete_pinned_bytes() {
-        assert_eq!(group21(b"T\0"), vec![
-            0, 6, 0, 0, 0, 4, 0, 6, 0, 1, b'T', 0,
-            0, 4, 0, 3, 0, 4, 0, 6, 0, 4, 0, 11,
-            0, 4, 0, 15, 0, 4, 0, 21, 0, 4, 0, 30,
-        ]);
+        assert_eq!(
+            group21(b"T\0"),
+            vec![
+                0, 6, 0, 0, 0, 4, 0, 6, 0, 1, b'T', 0, 0, 4, 0, 3, 0, 4, 0, 6, 0, 4, 0, 11, 0, 4,
+                0, 15, 0, 4, 0, 21, 0, 4, 0, 30,
+            ]
+        );
     }
 }

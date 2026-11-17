@@ -13,7 +13,10 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 static VM: AtomicPtr<JavaVM> = AtomicPtr::new(null_mut());
 
 #[no_mangle]
-pub unsafe extern "system" fn JNI_OnLoad(vm: *mut JavaVM, _reserved: *mut std::ffi::c_void) -> jint {
+pub unsafe extern "system" fn JNI_OnLoad(
+    vm: *mut JavaVM,
+    _reserved: *mut std::ffi::c_void,
+) -> jint {
     VM.store(vm, Ordering::Release);
     JNI_VERSION_1_6
 }
@@ -23,7 +26,9 @@ pub struct Env(pub *mut JNIEnv);
 
 impl Env {
     #[inline]
-    unsafe fn f(&self) -> &jni_sys::JNINativeInterface_ { &**self.0 }
+    unsafe fn f(&self) -> &jni_sys::JNINativeInterface_ {
+        &**self.0
+    }
 
     /// True (and cleared, after printing it to logcat) when the last call threw.
     pub fn clear_exception(&self) -> bool {
@@ -80,7 +85,13 @@ impl Env {
         unsafe {
             let array = (self.f().NewByteArray.unwrap())(self.0, bytes.len() as jsize);
             if !array.is_null() {
-                (self.f().SetByteArrayRegion.unwrap())(self.0, array, 0, bytes.len() as jsize, bytes.as_ptr() as *const i8);
+                (self.f().SetByteArrayRegion.unwrap())(
+                    self.0,
+                    array,
+                    0,
+                    bytes.len() as jsize,
+                    bytes.as_ptr() as *const i8,
+                );
             }
             self.clear_exception();
             array
@@ -93,14 +104,26 @@ impl Env {
 
     pub fn read_array(&self, array: jbyteArray, offset: usize, out: &mut [u8]) -> bool {
         unsafe {
-            (self.f().GetByteArrayRegion.unwrap())(self.0, array, offset as jsize, out.len() as jsize, out.as_mut_ptr() as *mut i8);
+            (self.f().GetByteArrayRegion.unwrap())(
+                self.0,
+                array,
+                offset as jsize,
+                out.len() as jsize,
+                out.as_mut_ptr() as *mut i8,
+            );
         }
         !self.clear_exception()
     }
 
     pub fn write_array(&self, array: jbyteArray, offset: usize, bytes: &[u8]) -> bool {
         unsafe {
-            (self.f().SetByteArrayRegion.unwrap())(self.0, array, offset as jsize, bytes.len() as jsize, bytes.as_ptr() as *const i8);
+            (self.f().SetByteArrayRegion.unwrap())(
+                self.0,
+                array,
+                offset as jsize,
+                bytes.len() as jsize,
+                bytes.as_ptr() as *const i8,
+            );
         }
         !self.clear_exception()
     }
@@ -110,7 +133,11 @@ impl Env {
         unsafe {
             let address = (self.f().GetDirectBufferAddress.unwrap())(self.0, buffer) as *mut u8;
             let capacity = (self.f().GetDirectBufferCapacity.unwrap())(self.0, buffer);
-            if address.is_null() || capacity < 0 { None } else { Some((address, capacity as usize)) }
+            if address.is_null() || capacity < 0 {
+                None
+            } else {
+                Some((address, capacity as usize))
+            }
         }
     }
 
@@ -119,9 +146,15 @@ impl Env {
         unsafe {
             let name = CString::new("android/os/Process").unwrap();
             let class = (self.f().FindClass.unwrap())(self.0, name.as_ptr());
-            if self.clear_exception() || class.is_null() { return; }
-            let (m, s) = (CString::new("setThreadPriority").unwrap(), CString::new("(I)V").unwrap());
-            let method = (self.f().GetStaticMethodID.unwrap())(self.0, class, m.as_ptr(), s.as_ptr());
+            if self.clear_exception() || class.is_null() {
+                return;
+            }
+            let (m, s) = (
+                CString::new("setThreadPriority").unwrap(),
+                CString::new("(I)V").unwrap(),
+            );
+            let method =
+                (self.f().GetStaticMethodID.unwrap())(self.0, class, m.as_ptr(), s.as_ptr());
             if !self.clear_exception() && !method.is_null() {
                 let args = [jvalue { i: priority }];
                 (self.f().CallStaticVoidMethodA.unwrap())(self.0, class, method, args.as_ptr());
@@ -140,14 +173,28 @@ pub struct Attached {
 impl Attached {
     pub fn current(name: &str) -> Option<Attached> {
         let vm = VM.load(Ordering::Acquire);
-        if vm.is_null() { return None; }
+        if vm.is_null() {
+            return None;
+        }
         let name = CString::new(name).ok()?;
-        let mut args = JavaVMAttachArgs { version: JNI_VERSION_1_6, name: name.as_ptr() as *mut _, group: null_mut() };
+        let mut args = JavaVMAttachArgs {
+            version: JNI_VERSION_1_6,
+            name: name.as_ptr() as *mut _,
+            group: null_mut(),
+        };
         let mut env: *mut JNIEnv = null_mut();
         let result = unsafe {
-            ((**vm).AttachCurrentThreadAsDaemon.unwrap())(vm, &mut env as *mut _ as *mut _, &mut args as *mut _ as *mut _)
+            ((**vm).AttachCurrentThreadAsDaemon.unwrap())(
+                vm,
+                &mut env as *mut _ as *mut _,
+                &mut args as *mut _ as *mut _,
+            )
         };
-        if result != JNI_OK || env.is_null() { None } else { Some(Attached { env: Env(env) }) }
+        if result != JNI_OK || env.is_null() {
+            None
+        } else {
+            Some(Attached { env: Env(env) })
+        }
     }
 }
 
@@ -159,4 +206,3 @@ impl Drop for Attached {
         }
     }
 }
-

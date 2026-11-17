@@ -2,12 +2,12 @@
 //! clear VideoConfig or a sealed VideoFrame. Frames are opened and turned into Annex B in their
 //! pooled buffer, then sent directly to native decoder queues (or to Kotlin's packet fallback).
 
-use crate::media::video::annexb;
-use crate::protocols::crypto::{counter_nonce, StreamKey, TAG_LEN};
-use crate::platform::jvm::Env;
 use crate::media::packet::Pool;
 use crate::media::stats::{clock, ReceiveStats, SystemClock, SESSION_REPORT_INTERVAL_NS};
+use crate::media::video::annexb;
+use crate::platform::jvm::Env;
 use crate::platform::stream::{self, recv_exact, Callbacks, Control};
+use crate::protocols::crypto::{counter_nonce, StreamKey, TAG_LEN};
 use jni_sys::{jbyteArray, jclass, jint, jlong, jobject, JNIEnv};
 
 const HEADER_LEN: usize = 128;
@@ -18,24 +18,52 @@ const MAX_BODY: usize = 8 * 1024 * 1024;
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_startVideo(
-    env: *mut JNIEnv, _class: jclass, fd: jint, key: jbyteArray, callbacks: jobject, route: jlong,
+    env: *mut JNIEnv,
+    _class: jclass,
+    fd: jint,
+    key: jbyteArray,
+    callbacks: jobject,
+    route: jlong,
 ) -> jlong {
     let e = Env(env);
     let mut key_bytes = [0u8; 32];
-    if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) { return 0; }
-    let Some(stream_key) = StreamKey::new(&key_bytes) else { return 0 };
-    let Some(callbacks) = Callbacks::new(e, callbacks) else { return 0 };
+    if fd < 0 || e.array_len(key) != 32 || !e.read_array(key, 0, &mut key_bytes) {
+        return 0;
+    }
+    let Some(stream_key) = StreamKey::new(&key_bytes) else {
+        return 0;
+    };
+    let Some(callbacks) = Callbacks::new(e, callbacks) else {
+        return 0;
+    };
     let control = Control::new(fd);
     #[cfg(target_os = "android")]
     let route = crate::media::video::vpipe::retain_route(route);
     #[cfg(not(target_os = "android"))]
     let _ = route;
-    stream::spawn(e, "airplay-screen", control, callbacks, move |env, control, callbacks| {
-        receive(env, control, callbacks, stream_key, #[cfg(target_os = "android")] route)
-    })
+    stream::spawn(
+        e,
+        "airplay-screen",
+        control,
+        callbacks,
+        move |env, control, callbacks| {
+            receive(
+                env,
+                control,
+                callbacks,
+                stream_key,
+                #[cfg(target_os = "android")]
+                route,
+            )
+        },
+    )
 }
 
-fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
+fn receive(
+    env: Env,
+    control: &Control,
+    callbacks: &Callbacks,
+    key: StreamKey,
     #[cfg(target_os = "android")] route: Option<std::sync::Arc<crate::media::video::vpipe::Route>>,
 ) {
     let Some(fd) = control.socket() else { return };
@@ -46,7 +74,9 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
     let mut counter: u64 = 0;
     let mut first_frame = true;
     let failure: Option<String> = loop {
-        if control.closed() { break None; }
+        if control.closed() {
+            break None;
+        }
         stats.reading();
         match recv_exact(fd, header.as_mut_ptr(), HEADER_LEN) {
             Ok(true) => {}
@@ -54,12 +84,20 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
             Err(error) => break Some(format!("IOException: {error}")),
         }
         let body_size = u32::from_le_bytes(header[0..4].try_into().unwrap()) as usize;
-        if body_size > MAX_BODY { break None; }
+        if body_size > MAX_BODY {
+            break None;
+        }
         let mut packet = pool.take(body_size.max(1));
         match recv_exact(fd, packet.spare(), body_size) {
             Ok(true) => unsafe { packet.set_len(body_size) },
-            Ok(false) => { packet.recycle(); break None; }
-            Err(error) => { packet.recycle(); break Some(format!("IOException: {error}")); }
+            Ok(false) => {
+                packet.recycle();
+                break None;
+            }
+            Err(error) => {
+                packet.recycle();
+                break Some(format!("IOException: {error}"));
+            }
         }
         let arrival = clock(libc::CLOCK_MONOTONIC);
         stats.received(HEADER_LEN + body_size, None, None);
@@ -81,7 +119,12 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
                 if first_frame {
                     first_frame = false;
                     callbacks.receiving(env);
-                    let head: String = packet.bytes().iter().take(16).map(|b| format!("{b:02x}")).collect();
+                    let head: String = packet
+                        .bytes()
+                        .iter()
+                        .take(16)
+                        .map(|b| format!("{b:02x}"))
+                        .collect();
                     callbacks.log(env, 0, &format!(
                         "video first decrypted frame sealed={body_size} plain={plain} head={head} chacha=ring impl=rust"));
                 }
@@ -89,10 +132,14 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
                 let handle = packet.into_handle();
                 let sender = annexb::sender_nanos(&header);
                 #[cfg(target_os = "android")]
-                let delivered = route.as_ref().is_some_and(|route| unsafe { route.deliver(handle, size, flags, sender, arrival) });
+                let delivered = route.as_ref().is_some_and(|route| unsafe {
+                    route.deliver(handle, size, flags, sender, arrival)
+                });
                 #[cfg(not(target_os = "android"))]
                 let delivered = false;
-                if !delivered { callbacks.packet(env, handle, size, flags, sender, arrival); }
+                if !delivered {
+                    callbacks.packet(env, handle, size, flags, sender, arrival);
+                }
             }
             OP_VIDEO_CONFIG => {
                 callbacks.config(env, packet.bytes());
@@ -100,8 +147,14 @@ fn receive(env: Env, control: &Control, callbacks: &Callbacks, key: StreamKey,
             }
             _ => packet.recycle(),
         }
-        if let Some(line) = stats.processed(&|| extra(&pool)) { callbacks.report(env, &line); }
+        if let Some(line) = stats.processed(&|| extra(&pool)) {
+            callbacks.report(env, &line);
+        }
     };
-    if let Some(line) = stats.flush(true, &|| extra(&pool)) { callbacks.report(env, &line); }
-    if !control.closed() { callbacks.ended(env, failure.as_deref()); }
+    if let Some(line) = stats.flush(true, &|| extra(&pool)) {
+        callbacks.report(env, &line);
+    }
+    if !control.closed() {
+        callbacks.ended(env, failure.as_deref());
+    }
 }

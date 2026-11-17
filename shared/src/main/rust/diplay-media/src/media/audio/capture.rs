@@ -8,22 +8,54 @@ use super::{echo, uplink::Uplink};
 use std::ffi::c_void;
 
 extern "C" {
-    fn diplay_speex_create(frame: i32, filter: i32, rate: i32, suppress: i32, active: i32) -> *mut c_void;
-    fn diplay_speex_process(owner: *mut c_void, frame: *mut u8, length: usize, reference: *const i16, samples: usize) -> i32;
+    fn diplay_speex_create(
+        frame: i32,
+        filter: i32,
+        rate: i32,
+        suppress: i32,
+        active: i32,
+    ) -> *mut c_void;
+    fn diplay_speex_process(
+        owner: *mut c_void,
+        frame: *mut u8,
+        length: usize,
+        reference: *const i16,
+        samples: usize,
+    ) -> i32;
     fn diplay_speex_destroy(owner: *mut c_void);
 }
 
 struct Speex(*mut c_void);
 impl Speex {
     fn new(samples: usize, rate: i32) -> Option<Self> {
-        let handle = unsafe { diplay_speex_create(samples as i32, (rate / 4).max(samples as i32), rate, -40, -15) };
+        let handle = unsafe {
+            diplay_speex_create(
+                samples as i32,
+                (rate / 4).max(samples as i32),
+                rate,
+                -40,
+                -15,
+            )
+        };
         (!handle.is_null()).then_some(Self(handle))
     }
     fn process(&mut self, frame: &mut [u8], reference: &[i16]) -> bool {
-        unsafe { diplay_speex_process(self.0, frame.as_mut_ptr(), frame.len(), reference.as_ptr(), reference.len()) != 0 }
+        unsafe {
+            diplay_speex_process(
+                self.0,
+                frame.as_mut_ptr(),
+                frame.len(),
+                reference.as_ptr(),
+                reference.len(),
+            ) != 0
+        }
     }
 }
-impl Drop for Speex { fn drop(&mut self) { unsafe { diplay_speex_destroy(self.0) }; } }
+impl Drop for Speex {
+    fn drop(&mut self) {
+        unsafe { diplay_speex_destroy(self.0) };
+    }
+}
 
 struct Capture {
     sender: Box<Uplink>,
@@ -51,9 +83,13 @@ impl Capture {
         self.reference.fill(0);
         if let Some(reference) = &self.echo {
             let mut reference = reference.lock().unwrap();
-            if reference.rate != self.rate as i64 { return false; }
+            if reference.rate != self.rate as i64 {
+                return false;
+            }
             reference.read(&mut self.reference, end_ns.wrapping_add(30_000_000));
         }
-        self.speex.as_mut().is_none_or(|speex| speex.process(&mut self.frame, &self.reference))
+        self.speex
+            .as_mut()
+            .is_none_or(|speex| speex.process(&mut self.frame, &self.reference))
     }
 }

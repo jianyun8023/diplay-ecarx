@@ -233,7 +233,10 @@ impl Pair {
     }
 }
 
-pub(super) fn service_response(response: &Value, session: bool) -> Result<(i64, bool), (i64, Text)> {
+pub(super) fn service_response(
+    response: &Value,
+    session: bool,
+) -> Result<(i64, bool), (i64, Text)> {
     let request = if session {
         "StartSession"
     } else {

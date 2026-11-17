@@ -23,9 +23,11 @@ pub struct AMediaCodecBufferInfo {
 }
 
 pub type InputAvailable = unsafe extern "C" fn(*mut AMediaCodec, *mut c_void, i32);
-pub type OutputAvailable = unsafe extern "C" fn(*mut AMediaCodec, *mut c_void, i32, *mut AMediaCodecBufferInfo);
+pub type OutputAvailable =
+    unsafe extern "C" fn(*mut AMediaCodec, *mut c_void, i32, *mut AMediaCodecBufferInfo);
 pub type FormatChanged = unsafe extern "C" fn(*mut AMediaCodec, *mut c_void, *mut AMediaFormat);
-pub type Error = unsafe extern "C" fn(*mut AMediaCodec, *mut c_void, media_status_t, i32, *const c_char);
+pub type Error =
+    unsafe extern "C" fn(*mut AMediaCodec, *mut c_void, media_status_t, i32, *const c_char);
 
 #[repr(C)]
 pub struct AMediaCodecOnAsyncNotifyCallback {
@@ -45,44 +47,97 @@ pub const BUFFER_FLAG_END_OF_STREAM: u32 = 4;
 extern "C" {
     pub fn AMediaCodec_createCodecByName(name: *const c_char) -> *mut AMediaCodec;
     pub fn AMediaCodec_createDecoderByType(mime: *const c_char) -> *mut AMediaCodec;
-    pub fn AMediaCodec_configure(codec: *mut AMediaCodec, format: *const AMediaFormat, surface: *mut ANativeWindow,
-        crypto: *mut c_void, flags: u32) -> media_status_t;
+    pub fn AMediaCodec_configure(
+        codec: *mut AMediaCodec,
+        format: *const AMediaFormat,
+        surface: *mut ANativeWindow,
+        crypto: *mut c_void,
+        flags: u32,
+    ) -> media_status_t;
     pub fn AMediaCodec_start(codec: *mut AMediaCodec) -> media_status_t;
     pub fn AMediaCodec_stop(codec: *mut AMediaCodec) -> media_status_t;
     pub fn AMediaCodec_delete(codec: *mut AMediaCodec) -> media_status_t;
-    pub fn AMediaCodec_getInputBuffer(codec: *mut AMediaCodec, index: usize, size: *mut usize) -> *mut u8;
+    pub fn AMediaCodec_getInputBuffer(
+        codec: *mut AMediaCodec,
+        index: usize,
+        size: *mut usize,
+    ) -> *mut u8;
     // NdkMediaCodec.h's _off_t_compat is C long-sized, including 32-bit ARM.
-    pub fn AMediaCodec_queueInputBuffer(codec: *mut AMediaCodec, index: usize, offset: libc::c_long, size: usize, time_us: u64,
-        flags: u32) -> media_status_t;
-    pub fn AMediaCodec_releaseOutputBuffer(codec: *mut AMediaCodec, index: usize, render: bool) -> media_status_t;
-    pub fn AMediaCodec_releaseOutputBufferAtTime(codec: *mut AMediaCodec, index: usize, timestamp_ns: i64) -> media_status_t;
-    pub fn AMediaCodec_setOutputSurface(codec: *mut AMediaCodec, surface: *mut ANativeWindow) -> media_status_t;
-    pub fn AMediaCodec_getName(codec: *mut AMediaCodec, out_name: *mut *mut c_char) -> media_status_t;
+    pub fn AMediaCodec_queueInputBuffer(
+        codec: *mut AMediaCodec,
+        index: usize,
+        offset: libc::c_long,
+        size: usize,
+        time_us: u64,
+        flags: u32,
+    ) -> media_status_t;
+    pub fn AMediaCodec_releaseOutputBuffer(
+        codec: *mut AMediaCodec,
+        index: usize,
+        render: bool,
+    ) -> media_status_t;
+    pub fn AMediaCodec_releaseOutputBufferAtTime(
+        codec: *mut AMediaCodec,
+        index: usize,
+        timestamp_ns: i64,
+    ) -> media_status_t;
+    pub fn AMediaCodec_setOutputSurface(
+        codec: *mut AMediaCodec,
+        surface: *mut ANativeWindow,
+    ) -> media_status_t;
+    pub fn AMediaCodec_getName(
+        codec: *mut AMediaCodec,
+        out_name: *mut *mut c_char,
+    ) -> media_status_t;
     pub fn AMediaCodec_releaseName(codec: *mut AMediaCodec, name: *mut c_char);
     pub fn AMediaFormat_new() -> *mut AMediaFormat;
     pub fn AMediaFormat_delete(format: *mut AMediaFormat) -> media_status_t;
-    pub fn AMediaFormat_setString(format: *mut AMediaFormat, name: *const c_char, value: *const c_char);
+    pub fn AMediaFormat_setString(
+        format: *mut AMediaFormat,
+        name: *const c_char,
+        value: *const c_char,
+    );
     pub fn AMediaFormat_setInt32(format: *mut AMediaFormat, name: *const c_char, value: i32);
-    pub fn AMediaFormat_setBuffer(format: *mut AMediaFormat, name: *const c_char, data: *const c_void, size: usize);
-    pub fn AMediaFormat_getInt32(format: *mut AMediaFormat, name: *const c_char, out: *mut i32) -> bool;
+    pub fn AMediaFormat_setBuffer(
+        format: *mut AMediaFormat,
+        name: *const c_char,
+        data: *const c_void,
+        size: usize,
+    );
+    pub fn AMediaFormat_getInt32(
+        format: *mut AMediaFormat,
+        name: *const c_char,
+        out: *mut i32,
+    ) -> bool;
     pub fn AMediaFormat_toString(format: *mut AMediaFormat) -> *const c_char;
 }
 
 #[cfg(target_os = "android")]
 #[link(name = "android")]
 extern "C" {
-    pub fn ANativeWindow_fromSurface(env: *mut jni_sys::JNIEnv, surface: jni_sys::jobject) -> *mut ANativeWindow;
+    pub fn ANativeWindow_fromSurface(
+        env: *mut jni_sys::JNIEnv,
+        surface: jni_sys::jobject,
+    ) -> *mut ANativeWindow;
     pub fn ANativeWindow_release(window: *mut ANativeWindow);
 }
 
-type SetAsync = unsafe extern "C" fn(*mut AMediaCodec, AMediaCodecOnAsyncNotifyCallback, *mut c_void) -> media_status_t;
+type SetAsync = unsafe extern "C" fn(
+    *mut AMediaCodec,
+    AMediaCodecOnAsyncNotifyCallback,
+    *mut c_void,
+) -> media_status_t;
 
 /// `AMediaCodec_setAsyncNotifyCallback` (API 28), or None before it.
 pub fn set_async_notify_callback() -> Option<SetAsync> {
     static FUNCTION: OnceLock<usize> = OnceLock::new();
     let address = *FUNCTION.get_or_init(|| unsafe {
         let library = libc::dlopen(c"libmediandk.so".as_ptr(), libc::RTLD_NOW);
-        if library.is_null() { 0 } else { libc::dlsym(library, c"AMediaCodec_setAsyncNotifyCallback".as_ptr()) as usize }
+        if library.is_null() {
+            0
+        } else {
+            libc::dlsym(library, c"AMediaCodec_setAsyncNotifyCallback".as_ptr()) as usize
+        }
     });
     (address != 0).then(|| unsafe { std::mem::transmute::<usize, SetAsync>(address) })
 }

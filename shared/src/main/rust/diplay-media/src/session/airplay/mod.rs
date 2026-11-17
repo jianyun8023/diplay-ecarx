@@ -4,7 +4,9 @@ mod cluster_content;
 mod jni;
 
 /// Whether an incoming event-channel request is a control command the session must answer.
-pub fn event_command(path: &str) -> bool { path == "/command" }
+pub fn event_command(path: &str) -> bool {
+    path == "/command"
+}
 
 #[cfg(test)]
 mod event_command_tests {
@@ -471,7 +473,12 @@ mod tests {
         for _ in 0..9 {
             later.remote_control_stream();
         }
-        assert_eq!(Session::from_token(later.token()).unwrap().remote_control_stream(), 12);
+        assert_eq!(
+            Session::from_token(later.token())
+                .unwrap()
+                .remote_control_stream(),
+            12
+        );
     }
 
     #[test]

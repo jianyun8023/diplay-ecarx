@@ -52,17 +52,41 @@ fn registry() -> &'static Mutex<Registry> {
 
 /// Add `holder`'s lease on an output identity. Acquiring is idempotent for one holder.
 pub fn acquire(epoch: i64, holder: i64, kind: OutputKind, stream_type: i32, audio_type: String) {
-    let key = OutputKey { epoch, kind: kind.code(), stream_type, audio_type };
-    registry().lock().unwrap().outputs.entry(key).or_default().insert(holder);
+    let key = OutputKey {
+        epoch,
+        kind: kind.code(),
+        stream_type,
+        audio_type,
+    };
+    registry()
+        .lock()
+        .unwrap()
+        .outputs
+        .entry(key)
+        .or_default()
+        .insert(holder);
 }
 
 /// Release `holder`'s lease on an output identity. Returns true when no holder remains, i.e. the
 /// platform may stop the shared output. Releasing an identity that was never acquired is treated as
 /// the last release so a caller that guards on the return value never leaves a stale output running.
-pub fn release(epoch: i64, holder: i64, kind: OutputKind, stream_type: i32, audio_type: String) -> bool {
-    let key = OutputKey { epoch, kind: kind.code(), stream_type, audio_type };
+pub fn release(
+    epoch: i64,
+    holder: i64,
+    kind: OutputKind,
+    stream_type: i32,
+    audio_type: String,
+) -> bool {
+    let key = OutputKey {
+        epoch,
+        kind: kind.code(),
+        stream_type,
+        audio_type,
+    };
     let mut registry = registry().lock().unwrap();
-    let Some(holders) = registry.outputs.get_mut(&key) else { return true };
+    let Some(holders) = registry.outputs.get_mut(&key) else {
+        return true;
+    };
     holders.remove(&holder);
     let empty = holders.is_empty();
     if empty {
@@ -92,21 +116,39 @@ unsafe fn read_utf16(env: *mut JNIEnv, string: jstring) -> Option<String> {
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outputLeaseAcquire(
-    env: *mut JNIEnv, _class: jclass, epoch: jlong, holder: jlong, kind: jint,
-    stream_type: jint, audio_type: jstring,
+    env: *mut JNIEnv,
+    _class: jclass,
+    epoch: jlong,
+    holder: jlong,
+    kind: jint,
+    stream_type: jint,
+    audio_type: jstring,
 ) {
-    let Some(kind) = OutputKind::from_code(kind) else { return };
-    let Some(audio_type) = read_utf16(env, audio_type) else { return };
+    let Some(kind) = OutputKind::from_code(kind) else {
+        return;
+    };
+    let Some(audio_type) = read_utf16(env, audio_type) else {
+        return;
+    };
     acquire(epoch, holder, kind, stream_type, audio_type);
 }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_outputLeaseRelease(
-    env: *mut JNIEnv, _class: jclass, epoch: jlong, holder: jlong, kind: jint,
-    stream_type: jint, audio_type: jstring,
+    env: *mut JNIEnv,
+    _class: jclass,
+    epoch: jlong,
+    holder: jlong,
+    kind: jint,
+    stream_type: jint,
+    audio_type: jstring,
 ) -> jboolean {
-    let Some(kind) = OutputKind::from_code(kind) else { return 0 };
-    let Some(audio_type) = read_utf16(env, audio_type) else { return 0 };
+    let Some(kind) = OutputKind::from_code(kind) else {
+        return 0;
+    };
+    let Some(audio_type) = read_utf16(env, audio_type) else {
+        return 0;
+    };
     release(epoch, holder, kind, stream_type, audio_type) as jboolean
 }
 

@@ -25,11 +25,21 @@ impl TimingClock {
         let fraction = ((seconds - whole as f64) * TWO32).floor() as i64;
         let ntp = (((whole as i128) << 32) | fraction as i128) as u64;
         let wall_ns = ((ntp as u128 * 1_000_000_000) >> 32) as i64;
-        Self { offset_ns: wall_ns.wrapping_sub(mono), delays: [f64::INFINITY; 8], delay_index: 0,
-            pick_left: 2, pick_rtt: f64::INFINITY, pick_offset: 0.0, pending: None, synced: false }
+        Self {
+            offset_ns: wall_ns.wrapping_sub(mono),
+            delays: [f64::INFINITY; 8],
+            delay_index: 0,
+            pick_left: 2,
+            pick_rtt: f64::INFINITY,
+            pick_offset: 0.0,
+            pending: None,
+            synced: false,
+        }
     }
 
-    fn synced_ntp(&self, mono: i64) -> i128 { ntp_from_nanos(mono.wrapping_add(self.offset_ns)) }
+    fn synced_ntp(&self, mono: i64) -> i128 {
+        ntp_from_nanos(mono.wrapping_add(self.offset_ns))
+    }
 
     fn request(&mut self, mono: i64) -> [u8; PACKET_BYTES] {
         let mut packet = header(210);
@@ -39,7 +49,12 @@ impl TimingClock {
         packet
     }
 
-    fn reply(&self, request: &[u8; PACKET_BYTES], receive_ns: i64, send_ns: i64) -> [u8; PACKET_BYTES] {
+    fn reply(
+        &self,
+        request: &[u8; PACKET_BYTES],
+        receive_ns: i64,
+        send_ns: i64,
+    ) -> [u8; PACKET_BYTES] {
         let mut packet = header(211);
         packet[8..16].copy_from_slice(&request[24..32]);
         packet[16..24].copy_from_slice(&(self.synced_ntp(receive_ns) as u64).to_be_bytes());
@@ -51,15 +66,24 @@ impl TimingClock {
         let t4 = self.synced_ntp(mono);
         let read = |at| u64::from_be_bytes(response[at..at + 8].try_into().unwrap()) as i128;
         let (t1, t2, t3) = (read(8), read(16), read(24));
-        if self.pending != Some(t1) { return; }
+        if self.pending != Some(t1) {
+            return;
+        }
         self.pending = None;
         // Kotlin combines exact BigInteger differences before converting once to Double.
         let offset = ((t2 - t1) + (t3 - t4)) as f64 * 0.5 / TWO32;
         let rtt = ((t4 - t1) - (t3 - t2)) as f64 / TWO32;
-        if rtt < 0.0 { return; }
-        if rtt < self.pick_rtt { self.pick_rtt = rtt; self.pick_offset = offset; }
+        if rtt < 0.0 {
+            return;
+        }
+        if rtt < self.pick_rtt {
+            self.pick_rtt = rtt;
+            self.pick_offset = offset;
+        }
         self.pick_left -= 1;
-        if self.pick_left > 0 { return; }
+        if self.pick_left > 0 {
+            return;
+        }
         let (rtt, offset) = (self.pick_rtt, self.pick_offset);
         self.pick_left = 2;
         self.pick_rtt = f64::INFINITY;
@@ -82,7 +106,9 @@ impl TimingClock {
     fn token(&self) -> [i64; WORDS] {
         let mut words = [0; WORDS];
         words[0] = self.offset_ns;
-        for (word, delay) in words[1..9].iter_mut().zip(self.delays) { *word = delay.to_bits() as i64; }
+        for (word, delay) in words[1..9].iter_mut().zip(self.delays) {
+            *word = delay.to_bits() as i64;
+        }
         words[9] = self.delay_index as i64;
         words[10] = self.pick_left as i64;
         words[11] = self.pick_rtt.to_bits() as i64;
@@ -97,20 +123,40 @@ impl TimingClock {
     }
 
     fn from_token(words: [i64; WORDS]) -> Option<Self> {
-        if !(0..8).contains(&words[9]) || !(1..=2).contains(&words[10]) ||
-            !(0..=1).contains(&words[15]) || !(0..=1).contains(&words[16]) { return None; }
+        if !(0..8).contains(&words[9])
+            || !(1..=2).contains(&words[10])
+            || !(0..=1).contains(&words[15])
+            || !(0..=1).contains(&words[16])
+        {
+            return None;
+        }
         let mut delays = [0.0; 8];
-        for (delay, word) in delays.iter_mut().zip(&words[1..9]) { *delay = f64::from_bits(*word as u64); }
-        Some(Self { offset_ns: words[0], delays, delay_index: words[9] as usize, pick_left: words[10] as u32,
-            pick_rtt: f64::from_bits(words[11] as u64), pick_offset: f64::from_bits(words[12] as u64),
-            pending: (words[15] != 0).then_some(((words[13] as i128) << 64) | words[14] as u64 as i128),
-            synced: words[16] != 0 })
+        for (delay, word) in delays.iter_mut().zip(&words[1..9]) {
+            *delay = f64::from_bits(*word as u64);
+        }
+        Some(Self {
+            offset_ns: words[0],
+            delays,
+            delay_index: words[9] as usize,
+            pick_left: words[10] as u32,
+            pick_rtt: f64::from_bits(words[11] as u64),
+            pick_offset: f64::from_bits(words[12] as u64),
+            pending: (words[15] != 0)
+                .then_some(((words[13] as i128) << 64) | words[14] as u64 as i128),
+            synced: words[16] != 0,
+        })
     }
 }
 
 fn action(message: &[u8], from_peer: bool) -> i32 {
-    if message.len() < PACKET_BYTES { return 0; }
-    match message[1] { 210 => 1, 211 if from_peer => 2, _ => 0 }
+    if message.len() < PACKET_BYTES {
+        return 0;
+    }
+    match message[1] {
+        210 => 1,
+        211 if from_peer => 2,
+        _ => 0,
+    }
 }
 
 fn header(kind: u8) -> [u8; PACKET_BYTES] {
@@ -120,13 +166,17 @@ fn header(kind: u8) -> [u8; PACKET_BYTES] {
 }
 
 fn ntp_from_nanos(ns: i64) -> i128 {
-    ((ns.div_euclid(1_000_000_000) as i128) << 32) |
-        ((ns.rem_euclid(1_000_000_000) as i128) << 32) / 1_000_000_000
+    ((ns.div_euclid(1_000_000_000) as i128) << 32)
+        | ((ns.rem_euclid(1_000_000_000) as i128) << 32) / 1_000_000_000
 }
 
 fn java_round(value: f64) -> i64 {
     let floor = value.floor();
-    (if value - floor >= 0.5 { floor + 1.0 } else { floor }) as i64
+    (if value - floor >= 0.5 {
+        floor + 1.0
+    } else {
+        floor
+    }) as i64
 }
 
 #[cfg(test)]
@@ -143,7 +193,8 @@ mod tests {
         packet
     }
 
-    #[test] fn golden_packets_and_peer_policy() {
+    #[test]
+    fn golden_packets_and_peer_policy() {
         let mut clock = TimingClock::new(0, 0);
         let request = clock.request(0);
         assert_eq!(&request[0..4], &[0x80, 210, 0, 7]);
@@ -157,7 +208,8 @@ mod tests {
         assert_eq!(action(&reply[..31], true), 0);
     }
 
-    #[test] fn matching_two_sample_step_then_slew_and_delay_rejection() {
+    #[test]
+    fn matching_two_sample_step_then_slew_and_delay_rejection() {
         let mut clock = TimingClock::new(0, 0);
         for now in [0, 10_000_000_000] {
             let request = clock.request(now);
@@ -178,7 +230,8 @@ mod tests {
         assert_eq!(clock.offset_ns, before);
     }
 
-    #[test] fn stale_negative_and_duplicate_samples_do_not_count() {
+    #[test]
+    fn stale_negative_and_duplicate_samples_do_not_count() {
         let mut clock = TimingClock::new(0, 0);
         let old = clock.request(0);
         let current = clock.request(1_000_000_000);
@@ -194,7 +247,8 @@ mod tests {
         assert!(clock.pending.is_none());
     }
 
-    #[test] fn signed_time_wrapping_and_java_rounding_survive_the_value_token() {
+    #[test]
+    fn signed_time_wrapping_and_java_rounding_survive_the_value_token() {
         for wall in [i64::MIN, -1, 0, 1, 1_700_000_000_123, i64::MAX] {
             for mono in [i64::MIN, -1, 0, i64::MAX] {
                 let mut clock = TimingClock::new(mono, wall);

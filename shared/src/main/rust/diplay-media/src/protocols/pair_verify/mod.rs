@@ -2,7 +2,10 @@
 //! ported from our Kotlin contract, including its partial M1 updates and truncated-TLV handling.
 mod jni;
 
-use crate::protocols::{crypto::{controller_public_key, hkdf32, x25519_pair, x25519_shared, StreamKey}, tlv8::{decode, encode}};
+use crate::protocols::{
+    crypto::{controller_public_key, hkdf32, x25519_pair, x25519_shared, StreamKey},
+    tlv8::{decode, encode},
+};
 use ring::{
     agreement,
     rand::SystemRandom,
@@ -89,9 +92,11 @@ impl PairVerify {
                 self.m2_reply(public.to_vec(), client.clone(), shared)
             }
             None => {
-                let private =
-                    agreement::EphemeralPrivateKey::generate(&agreement::X25519, &SystemRandom::new())
-                        .ok()?;
+                let private = agreement::EphemeralPrivateKey::generate(
+                    &agreement::X25519,
+                    &SystemRandom::new(),
+                )
+                .ok()?;
                 let public = private.compute_public_key().ok()?.as_ref().to_vec();
                 self.own_public = Some(public.clone());
                 self.client_public = Some(client.clone());
@@ -172,11 +177,9 @@ impl PairVerify {
     }
 }
 
-
 fn error(state: u8) -> Vec<u8> {
     encode(&[(STATE, &[state]), (7, &[2])])
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -543,14 +546,13 @@ mod tests {
         let accessory_id = fixture["accessory_id"].clone();
         let controller_id = fixture["controller_id"].clone();
         let controller_public = fixture["controller_public"].clone();
-        let mut owner = PairVerify::new(
-            fixture["accessory_seed"].clone(),
-            accessory_id,
-        )
-        .use_ephemeral_seed(arr32(&fixture["ephemeral_scalar"]));
+        let mut owner = PairVerify::new(fixture["accessory_seed"].clone(), accessory_id)
+            .use_ephemeral_seed(arr32(&fixture["ephemeral_scalar"]));
 
         // M1 -> M2: no stored key is consulted, and control keys do not exist yet.
-        let m2 = owner.handle(&fixture["m1_request"], |_| panic!("M1 must not consult storage"));
+        let m2 = owner.handle(&fixture["m1_request"], |_| {
+            panic!("M1 must not consult storage")
+        });
         assert_eq!(m2, fixture["expected_m2"]);
         assert!(owner.keys.is_none());
 
@@ -560,10 +562,16 @@ mod tests {
             Some(controller_public.clone())
         });
         assert_eq!(m4, fixture["expected_m4"]);
-        assert_eq!(owner.controller_id.as_deref(), Some(controller_id.as_slice()));
+        assert_eq!(
+            owner.controller_id.as_deref(),
+            Some(controller_id.as_slice())
+        );
         assert_eq!(
             owner.keys,
-            Some((arr32(&fixture["control_read_key"]), arr32(&fixture["control_write_key"])))
+            Some((
+                arr32(&fixture["control_read_key"]),
+                arr32(&fixture["control_write_key"])
+            ))
         );
     }
 }

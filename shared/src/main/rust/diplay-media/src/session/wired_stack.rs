@@ -18,7 +18,10 @@ pub const TERMINAL_TIMED_OUT: i32 = 1;
 /// rejected as invalid (pair record or host id) is retried; a fresh pairing or any other failure is
 /// not, so a rejected saved record never loops.
 pub fn carkit_error_action(has_saved: bool, rejection: i32) -> i32 {
-    let rejected = matches!(rejection, REJECTION_INVALID_PAIR_RECORD | REJECTION_INVALID_HOST_ID);
+    let rejected = matches!(
+        rejection,
+        REJECTION_INVALID_PAIR_RECORD | REJECTION_INVALID_HOST_ID
+    );
     (has_saved && rejected) as i32
 }
 
@@ -53,13 +56,37 @@ pub const BRING_UP_ABORT_DETACH_VPN: i32 = 12;
 pub fn advance(action: i32, approved: i32) -> i32 {
     let ok = approved != 0;
     match action {
-        BRING_UP_BEGIN => if ok { BRING_UP_OPEN_MUX } else { BRING_UP_DONE },
+        BRING_UP_BEGIN => {
+            if ok {
+                BRING_UP_OPEN_MUX
+            } else {
+                BRING_UP_DONE
+            }
+        }
         BRING_UP_OPEN_MUX => BRING_UP_ADOPT_MUX,
-        BRING_UP_ADOPT_MUX => if ok { BRING_UP_LOAD_PAIR } else { BRING_UP_ABORT_CLOSE_MUX },
+        BRING_UP_ADOPT_MUX => {
+            if ok {
+                BRING_UP_LOAD_PAIR
+            } else {
+                BRING_UP_ABORT_CLOSE_MUX
+            }
+        }
         BRING_UP_LOAD_PAIR => BRING_UP_OPEN_CARKIT,
         BRING_UP_OPEN_CARKIT => BRING_UP_OPEN_CSM,
-        BRING_UP_OPEN_CSM => if ok { BRING_UP_ATTACH_VPN } else { BRING_UP_ABORT_CLOSE_CSM },
-        BRING_UP_ATTACH_VPN => if ok { BRING_UP_BUILD_ENDPOINT } else { BRING_UP_ABORT_DETACH_VPN },
+        BRING_UP_OPEN_CSM => {
+            if ok {
+                BRING_UP_ATTACH_VPN
+            } else {
+                BRING_UP_ABORT_CLOSE_CSM
+            }
+        }
+        BRING_UP_ATTACH_VPN => {
+            if ok {
+                BRING_UP_BUILD_ENDPOINT
+            } else {
+                BRING_UP_ABORT_DETACH_VPN
+            }
+        }
         BRING_UP_BUILD_ENDPOINT => BRING_UP_RUN_CONTROL,
         BRING_UP_RUN_CONTROL => BRING_UP_DONE,
         _ => BRING_UP_DONE,
@@ -91,7 +118,11 @@ pub fn teardown_plan(phase: i32, facts: i32) -> Vec<i32> {
     match phase {
         TEARDOWN_CATCH => {
             let mut plan = vec![TD_CLOSE_CSM, TD_CLOSE_MUX];
-            plan.push(if ncm_owned { TD_CLOSE_NCM_CATCH } else { TD_DETACH_VPN });
+            plan.push(if ncm_owned {
+                TD_CLOSE_NCM_CATCH
+            } else {
+                TD_DETACH_VPN
+            });
             plan
         }
         TEARDOWN_FINALLY => {
@@ -122,28 +153,39 @@ pub fn teardown_plan_packed(phase: i32, facts: i32) -> i64 {
 
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_carkitErrorAction(
-    _: *mut JNIEnv, _: jclass, has_saved: jboolean, rejection: jint,
+    _: *mut JNIEnv,
+    _: jclass,
+    has_saved: jboolean,
+    rejection: jint,
 ) -> jint {
     carkit_error_action(has_saved != 0, rejection)
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_terminalOutcome(
-    _: *mut JNIEnv, _: jclass, terminal: jint,
+    _: *mut JNIEnv,
+    _: jclass,
+    terminal: jint,
 ) -> jint {
     terminal_outcome(terminal)
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_advance(
-    _: *mut JNIEnv, _: jclass, action: jint, approved: jint,
+    _: *mut JNIEnv,
+    _: jclass,
+    action: jint,
+    approved: jint,
 ) -> jint {
     advance(action, approved)
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_shihab_diplay_orchestration_NativeWiredStack_teardownPlan(
-    _: *mut JNIEnv, _: jclass, phase: jint, facts: jint,
+    _: *mut JNIEnv,
+    _: jclass,
+    phase: jint,
+    facts: jint,
 ) -> jlong {
     teardown_plan_packed(phase, facts)
 }
@@ -206,7 +248,10 @@ mod tests {
             vec![TD_CLOSE_CSM, TD_CLOSE_MUX, TD_DETACH_VPN]
         );
         // finally with nothing owned and a current run: only terminate the watchdog.
-        assert_eq!(teardown_plan(TEARDOWN_FINALLY, 0), vec![TD_TERMINATE_WATCHDOG]);
+        assert_eq!(
+            teardown_plan(TEARDOWN_FINALLY, 0),
+            vec![TD_TERMINATE_WATCHDOG]
+        );
         // finally stale + USB + NCM owned: ordered plan in the documented order.
         assert_eq!(
             teardown_plan(TEARDOWN_FINALLY, 1 | 4 | 2),
