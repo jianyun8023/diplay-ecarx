@@ -225,3 +225,62 @@ mod remote_stream_tests {
         assert_eq!(remote_stream(None, true), None);
     }
 }
+
+#[cfg(test)]
+mod command_interpretation_tests {
+    use super::*;
+
+    fn args(kind: &str, params: Value) -> Value {
+        array([text(kind), params])
+    }
+
+    fn array_of(value: Value) -> Vec<Value> {
+        match value {
+            Value::Array(values) => values.into_iter().collect(),
+            other => panic!("expected an array, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn command_interprets_noise_duck_and_ui() {
+        // duckAudio → noisy=true, duck=true, ui=0
+        let a = array_of(command(15, &args("duckAudio", dict([]))).unwrap());
+        assert_eq!(a[0], Value::Bool(true));
+        assert_eq!(a[1], Value::Bool(true));
+        assert_eq!(a[2], int(0));
+
+        // unduckAudio → noisy=true, duck=false
+        let a = array_of(command(15, &args("unduckAudio", dict([]))).unwrap());
+        assert_eq!(a[1], Value::Bool(false));
+
+        // requestUI with a videoplayback url → ui=2
+        let a = array_of(
+            command(15, &args("requestUI", dict([("url", text("videoplayback:"))]))).unwrap(),
+        );
+        assert_eq!(a[2], int(2));
+
+        // requestUI with another url → ui=1
+        let a =
+            array_of(command(15, &args("requestUI", dict([("url", text("http://x"))]))).unwrap());
+        assert_eq!(a[2], int(1));
+
+        // a benign command → not noisy, no duck, no ui
+        let a = array_of(command(15, &args("volume", dict([]))).unwrap());
+        assert_eq!(a[0], Value::Bool(false));
+        assert_eq!(a[1], Value::Null);
+        assert_eq!(a[2], int(0));
+    }
+
+    #[test]
+    fn command_extracts_the_navigation_entity_from_app_states() {
+        let params = dict([(
+            "appStates",
+            array([
+                dict([("appStateID", int(1)), ("entity", int(7))]),
+                dict([("appStateID", int(3)), ("entity", int(42))]),
+            ]),
+        )]);
+        let a = array_of(command(15, &args("modesChanged", params)).unwrap());
+        assert_eq!(a[3], int(42));
+    }
+}
