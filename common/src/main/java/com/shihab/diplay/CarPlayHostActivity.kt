@@ -509,7 +509,8 @@ open class CarPlayHostActivity : ComponentActivity() {
     private var displayScaleTenths = CarPlayDisplayScale.DEFAULT_TENTHS
     private var uiScalePercent = CarPlayUiScale.DEFAULT
     private var displayDiagnosticAttempt: String? = null
-    private var hevcEnabled = true
+    // Default off for the widest head-unit compatibility; overridden by persisted settings in loadSettings().
+    private var hevcEnabled = false
     private var hevcSoftwareDecoderEnabled = false
     private val hevcDecoders by lazy { HevcSupport.decoders() }
     /** The codec a session asks for: the HEVC setting falls back to H.264 without a decoder for it (#727). */
