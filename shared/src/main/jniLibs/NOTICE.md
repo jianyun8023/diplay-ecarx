@@ -102,16 +102,12 @@ rg --files --hidden shared/src/main/rust/diplay-media \
   LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256
 ```
 
-The source manifest was unchanged before and after rebuilding. The hashes below identify that build;
-each ABI exports the same 494 Java JNI methods plus JNI_OnLoad. ELF headers identify AArch64/ARM respectively,
-and both Android identification notes record API 28 (`0x1c`) and NDK r28c build `13676358`.
-A required-core load failure is explicit. Real SDK capability fallback, such as AudioTrack when AAudio cannot open,
-remains platform behavior; there is no production Kotlin protocol/DSP substitute.
-
-| ABI | Library | Bytes | SHA-256 |
-|---|---|---:|---|
-| arm64-v8a | libdiplay_media.so | 1696096 | `283b0ea9efc16f3eed378d7deeaef2e328c656506078f52ce85214fd3fdb524f` |
-| armeabi-v7a | libdiplay_media.so | 1181188 | `66c3316a366d968ca203c54885284cf784ae9099c5a87faf0c79fb7cea05a13c` |
+The historical prebuilt `libdiplay_media.so` copies that used to sit in `jniLibs/<abi>/` were removed on
+2026-11-17: they were never packaged (Gradle stages Rust libraries from verified source builds) and only
+duplicated an old binary. Rust libraries are built and verified from current source with
+`scripts/check_rust_android_native.sh`; a required-core load failure stays explicit, and real SDK capability
+fallback (for example AudioTrack when AAudio cannot open) remains platform behavior, with no production
+Kotlin protocol/DSP substitute.
 
 The crate's own code is covered by this repository's GPL license. The licenses of the linked crates are in
 [the Rust crate licenses](../../../../docs/licenses/dependencies/Rust-crates-LICENSES.txt).
