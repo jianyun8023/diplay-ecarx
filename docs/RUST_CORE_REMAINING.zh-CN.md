@@ -1,5 +1,7 @@
 # Rust 核心验收状态与历史审计
 
+- **输入小批迁移（HID/Siri/事件分派）**：`vehicle::hid::index_press_release` 提供媒体/电话键"按下(index)/释放(0)"字节对；`protocols::airplay` 操作 18 返回 Siri 请求/释放动作序列 (2,3)；`session::airplay::event_command` 判断事件通道请求是否为 `/command`。Kotlin 仅执行发送。Rust 单测 + Kotlin native 契约测试；cargo 323、shared 2117、三 ABI 原生 631、设备 androidTest 190/190。
+
 ## 当前状态与验收矩阵（2026-11-15）
 
 **源码层面的完整 Rust 核心迁移已由 [PR #97](https://github.com/jianyun8023/diplay-ecarx/pull/97) 合入 `dev`。** 当前工作是具体缺陷修复与按版本补验，不再沿用旧迁移分支。本文是当前剩余项的仓库入口；已关闭的 [#96](https://github.com/jianyun8023/diplay-ecarx/issues/96)、[#98](https://github.com/jianyun8023/diplay-ecarx/issues/98)、[#99](https://github.com/jianyun8023/diplay-ecarx/issues/99) 保留历史证据，其正文中的旧清单和关闭状态都不能单独作为当前验收结论。
