@@ -2,6 +2,18 @@ use super::*;
 
 pub(super) const FEATURE_BITS: [i32; 2] = [0, 64];
 
+fn playable_url(url: &[u16], iphone_loads_app_schemes: bool) -> bool {
+    let Some(end) = url.iter().position(|&unit| unit == b':' as u16) else { return false; };
+    let scheme = String::from_utf16_lossy(&url[..end]).to_lowercase();
+    match scheme.as_str() {
+        "http" | "https" => true,
+        "file" | "content" | "asset" | "rawresource" | "android.resource" | "skd" => false,
+        _ => iphone_loads_app_schemes
+            && scheme.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+            && scheme.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'+' | b'.' | b'-')),
+    }
+}
+
 pub(super) fn features_ex(big_endian: &[u8]) -> Value {
     let mut bytes: Vec<u8> = big_endian.iter().rev().copied().collect();
     while bytes.last() == Some(&0) {
@@ -119,16 +131,15 @@ pub(super) fn message(
             })?,
             boolean(allowed)?,
         ),
-        (1, [message, playable]) => {
-            if !boolean(playable)? {
-                return Ok(Value::Null);
-            }
+        (1, [message, app_schemes]) => {
+            let app_schemes = boolean(app_schemes)?;
             let Some(item) = get(message, "item") else {
                 return Ok(Value::Null);
             };
-            let Some(url @ Value::String(_)) = get(item, "Content-Location") else {
+            let Some(url @ Value::String(units)) = get(item, "Content-Location") else {
                 return Ok(Value::Null);
             };
+            if !playable_url(units, app_schemes) { return Ok(Value::Null); }
             let start = get(item, "Start-Position-Seconds")
                 .and_then(number)
                 .or_else(|| get(item, "Start-Position").and_then(seconds));
@@ -250,6 +261,7 @@ pub(super) fn message(
             Value::Int(n) => *n as i64,
             _ => return Err("Invalid AirPlay feature bits"),
         })?,
+        (10, [url, app_schemes]) => Value::Bool(playable_url(&string(url)?, boolean(app_schemes)?)),
         _ => return Err("Invalid AirPlay video operation"),
     })
 }
@@ -290,6 +302,25 @@ pub(super) fn availability(token: &mut [i64; 4], event: i32, value: bool) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn url_policy_keeps_remote_app_and_local_schemes_separate() {
+        for url in ["http:", "HTTPS://host/path", "https://host/\u{fffd}"] {
+            let url: Vec<u16> = url.encode_utf16().collect();
+            assert!(playable_url(&url, false));
+        }
+        for url in ["a:", "APP+2.-://host", "\u{212a}://host"] {
+            let url: Vec<u16> = url.encode_utf16().collect();
+            assert!(!playable_url(&url, false));
+            assert!(playable_url(&url, true));
+        }
+        for url in ["", "https", "://host", "1app:", "app_name:", " file:", "FILE://host", "content:",
+            "asset:", "rawresource:", "android.resource:", "SKD:", "\u{130}:"] {
+            assert!(!playable_url(&url.encode_utf16().collect::<Vec<_>>(), true), "{url}");
+        }
+        assert!(!playable_url(&[0xd800, b':' as u16], true));
+    }
+
     #[test]
     fn capability_and_availability_contracts() {
         assert_eq!(

@@ -59,18 +59,9 @@ object VideoInCar {
     /** Whether video may play now; the host sets it from the car's gear (P only). */
     @Volatile var allowed = false
 
-    /** A URL scheme an app could serve through its resource loader. */
-    private val APP_SCHEME = Regex("[a-z][a-z0-9+.-]*")
-
-    /** Android local resources and FairPlay keys must never be opened as remote video. */
-    private val NOT_APP_SCHEMES = setOf("file", "content", "asset", "rawresource", "android.resource", "skd")
-
     /** Shared policy for queue items, playlist children and iPhone loader redirects. */
-    fun isPlayableUrl(url: String, iphoneLoadsAppSchemes: Boolean = false): Boolean {
-        val scheme = url.substringBefore(':', missingDelimiterValue = "").lowercase()
-        return scheme == "http" || scheme == "https" ||
-            (iphoneLoadsAppSchemes && APP_SCHEME.matches(scheme) && scheme !in NOT_APP_SCHEMES)
-    }
+    fun isPlayableUrl(url: String, iphoneLoadsAppSchemes: Boolean = false): Boolean =
+        NativeAirPlayProtocol.video(10, listOf(url, iphoneLoadsAppSchemes)) as Boolean
 
     fun featuresEx(legacyFeatures: Long): String = NativeAirPlayProtocol.video(9, listOf(legacyFeatures)) as String
 
@@ -85,8 +76,9 @@ object VideoInCar {
      * player that asks the iPhone for such URLs (unhandledURL).
      */
     fun parseItem(message: Map<String, Any?>, iphoneLoadsAppSchemes: Boolean = false): Item? {
-        val url = ((message["item"] as? Map<*, *>)?.get("Content-Location") as? String) ?: return null
-        val values = NativeAirPlayProtocol.video(1, listOf(message, isPlayableUrl(url, iphoneLoadsAppSchemes))) as? List<*> ?: return null
+        // Keep malformed items out of the generic DTO conversion, as before.
+        ((message["item"] as? Map<*, *>)?.get("Content-Location") as? String) ?: return null
+        val values = NativeAirPlayProtocol.video(1, listOf(message, iphoneLoadsAppSchemes)) as? List<*> ?: return null
         return Item(values[0], values[1] as String, values[2] as Int)
     }
 
