@@ -18,7 +18,7 @@ The main app uses them; the other applications do not package the Rust core.
 
 If the installed app is **DiPlay map host**, you selected `:maphost` or its APK.
 Build `:mobile` and select its `arm64-v8a` APK for the production target.
-ARMv7 is the fallback; x86_64 is for emulator testing. Each main-app APK contains one ABI.
+The default build ships only ARM64 (`arm64-v8a`); ARMv7 and x86_64 are opt-in with `-PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64`. Each main-app APK contains one ABI.
 A command such as `./gradlew assembleDebug` can build more than one application.
 Use the module name in each build command to select the required application.
 
@@ -71,17 +71,19 @@ then select their directory with `DIPLAY_JNI_LIBS_DIR` as described below.
 
 ### Prepare Rust Android inputs
 
-Before building an APK or AAR, build and verify the current Rust sources for all three packaged ABIs:
+Before building an APK or AAR, build and verify the current Rust sources for the default ARM64 ABI:
 
 ```sh
-rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+rustup target add aarch64-linux-android
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 scripts/check_rust_android_native.sh
 ```
 
-The script retains `libdiplay_media.so` and a `provenance.json` receipt for each ABI in
-`.native/rust-android/`. It checks ELF architecture and shared-library type, the 494 Java JNI
-exports, `JNI_OnLoad`, and identical JNI export sets across ARM64, ARMv7 and x86_64.
+The script retains `libdiplay_media.so` and a `provenance.json` receipt for each built ABI in
+`.native/rust-android/`. It checks ELF architecture and shared-library type, the Java JNI
+exports and `JNI_OnLoad`. To also build ARMv7/x86_64 (opt-in), add their rustup targets and pass
+them explicitly: `scripts/check_rust_android_native.sh armeabi-v7a x86_64`; with more than one
+ABI it also requires identical JNI export sets across them.
 Gradle verifies these receipts before staging its generated JNI directory. It copies the existing
 C prebuilts from `shared/src/main/jniLibs/`, but never packages the historical Rust libraries there.
 
@@ -157,7 +159,7 @@ can also run without an Android SDK, NDK or Git checkout:
 python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'
 ```
 
-The Android checks, release, and source-only workflows all build and verify three ABI artifacts
+The Android checks, release, and source-only workflows build and verify the ARM64 ABI artifact
 and use the same Gradle staging path. The Android checks workflow retains the freshly built
 libraries and receipts as an Actions artifact; it and the release workflow select their artifact
 directory through `DIPLAY_JNI_LIBS_DIR`. The source-only workflow uses `.native/rust-android/`.
@@ -194,8 +196,8 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 ```
 
 The task stops if either required file is absent or empty.
-Its ARM64 APK output is `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk`;
-the same task also produces ARMv7 and x86_64 splits.
+Its ARM64 APK output is `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk`.
+ARMv7 and x86_64 splits are built only when requested with `-PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64`.
 Check both files in the APK against your selected local inputs:
 
 - `assets/offline-mfi/identity.pk8`.
@@ -224,10 +226,9 @@ Run the release checks and build:
 ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintRelease :mobile:assembleRelease
 ```
 
-The output is one APK per shipped ABI under `mobile/build/outputs/apk/release/`:
-`DiPlay-v<versionCode>-arm64-v8a-release.apk` (default production package),
-`DiPlay-v<versionCode>-armeabi-v7a-release.apk` (fallback) and
-`DiPlay-v<versionCode>-x86_64-release.apk` (emulator testing only). Each APK carries exactly one ABI.
+The default output is a single ARM64 APK under `mobile/build/outputs/apk/release/`:
+`DiPlay-v<versionCode>-arm64-v8a-release.apk`. ARMv7 and x86_64 release APKs appear only when built
+with `-PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64`. Each APK carries exactly one ABI.
 Release builds enable R8 code and resource optimization. The main app disables name obfuscation and
 retains `SourceFile`/`LineNumberTable` metadata because its diagnostics identify app frames by package
 and report exception class names. Inlining, class merging and line-number remapping still require the
@@ -242,17 +243,16 @@ That opt-in embeds the runtime identity in the APK, where recipients can extract
 ### GitHub Release automation
 
 The [Android checks workflow](../.github/workflows/android.yml) runs locked Rust core and JVM tests,
-cross-compiles all three Rust Android ABIs, validates their ELF/JNI contracts, builds Debug APKs,
-and checks Release R8 optimization on `dev`/`main` pushes and pull requests. It verifies that each
-split Debug APK contains only its own Rust ABI. Documentation-only changes skip the heavy jobs
+cross-compiles and verifies the ARM64 Rust Android ABI, builds Debug APKs,
+and checks Release R8 optimization on `dev`/`main` pushes and pull requests. It verifies that the
+debug APK contains only its own Rust ABI. Documentation-only changes skip the heavy jobs
 and still report the aggregate `check` result.
 
 The separate [Release workflow](../.github/workflows/release.yml) runs on a published GitHub Release
-or manual dispatch. It rebuilds and verifies the native libraries, runs main-app Release lint,
-then signs one Release APK per ABI. It does not rerun Rust/JVM tests or wait for the separate
+or manual dispatch. It rebuilds and verifies the native library, runs main-app Release lint,
+then signs the ARM64 Release APK. It does not rerun Rust/JVM tests or wait for the separate
 Android checks workflow. A published Release receives
-`DiPlay-v<versionCode>-arm64-v8a-release.apk`, `DiPlay-v<versionCode>-armeabi-v7a-release.apk`,
-`DiPlay-v<versionCode>-x86_64-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt`.
+`DiPlay-v<versionCode>-arm64-v8a-release.apk`, `DiPlay-v<versionCode>-mapping.txt` and `SHA256SUMS.txt`.
 `update.json` carries an `apks` map so each device downloads the package built for its own ABI; the
 top-level `apk` remains the ARM64 default.
 The mapping is included in the checksums and retained as a Release asset beyond the Actions artifact retention period.

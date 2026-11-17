@@ -6,6 +6,10 @@ plugins {
 val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
     .orNull?.let { file(it).canonicalFile }
 
+// Default ships ARM64 only; request others with -PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64.
+val diplayAbis: List<String> = (providers.gradleProperty("diplayAbis").orNull ?: "arm64-v8a")
+    .split(",").map { it.trim() }.filter { it.isNotEmpty() }
+
 android {
     namespace = "com.shihab.diplay"
     compileSdk {
@@ -26,16 +30,16 @@ android {
 
     localAuthenticationAssets?.let { sourceSets.getByName("main").assets.srcDir(it) }
 
-    // One standalone APK per shipped ABI. ARM64 is the default production package; ARMv7 is the
-    // fallback; x86_64 is test-only (emulator). Each APK carries exactly one native ABI, so the
-    // in-app updater selects the package that matches the device's own ABI.
+    // Default ships a single ARM64 APK. ARMv7 (fallback) and x86_64 (emulator) are opt-in via
+    // -PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64; each split APK carries exactly one native
+    // ABI, so the in-app updater selects the package that matches the device's own ABI.
     // splits.abi owns the ABI selection here, so the inherited ndk.abiFilters must be cleared first.
     defaultConfig.ndk.abiFilters.clear()
     splits {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            include(*diplayAbis.toTypedArray())
             isUniversalApk = false
         }
     }

@@ -59,9 +59,8 @@ jobs:
       - name: Rust core unit tests
         run: cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
 
-  # One matrix leg per shipped ABI; they run concurrently and upload their own
-  # library + JNI export list for the build job to cross-check.
-  # ARM64 is the default production package, ARMv7 the fallback, x86_64 is test-only (emulator).
+  # Default builds a single ARM64 leg and uploads its library + JNI export list.
+  # ARMv7 and x86_64 are opt-in: run scripts/check_rust_android_native.sh <abi> locally.
   native:
     needs: changes
     if: needs.changes.outputs.core == 'true'
@@ -71,10 +70,6 @@ jobs:
         include:
           - abi: arm64-v8a
             target: aarch64-linux-android
-          - abi: armeabi-v7a
-            target: armv7-linux-androideabi
-          - abi: x86_64
-            target: x86_64-linux-android
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -187,14 +182,12 @@ jobs:
           pattern: rust-lib-*
           path: ${{ runner.temp }}/rust-android-libs
           merge-multiple: true
-      - name: Verify every ABI exposes the same JNI contract
+      - name: Verify the ARM64 JNI contract artifact
         run: |
           set -euo pipefail
           d="$RUNNER_TEMP/rust-android-libs"
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            test -s "$d/$abi/libdiplay_media.so"
-            diff -u "$d/arm64-v8a-jni-symbols.txt" "$d/$abi-jni-symbols.txt"
-          done
+          test -s "$d/arm64-v8a/libdiplay_media.so"
+          test -s "$d/arm64-v8a-jni-symbols.txt"
       - name: Select verified Rust Android inputs for Gradle
         run: echo "DIPLAY_JNI_LIBS_DIR=$RUNNER_TEMP/rust-android-libs" >> "$GITHUB_ENV"
       - uses: android-actions/setup-android@v3
@@ -215,11 +208,9 @@ jobs:
           from zipfile import ZipFile
 
           apk_dir = Path("mobile/build/outputs/apk/debug")
-          # EM values per shipped ABI; each split APK must contain only its own library.
+          # Default ships ARM64 only; each split APK must contain only its own library.
           expected_machine = {
               "arm64-v8a": 183,   # EM_AARCH64
-              "armeabi-v7a": 40,  # EM_ARM
-              "x86_64": 62,       # EM_X86_64
           }
           for abi, machine_code in expected_machine.items():
               apks = sorted(apk_dir.glob(f"*-{abi}-debug.apk"))

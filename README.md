@@ -1,6 +1,6 @@
 # DiPlay · 领克 01 CarPlay
 
-正式环境：Android 9（API 28）／753／820A，使用现有平台签名。应用内不使用 ADB。发布包按 ABI 分为独立的 ARM64、ARMv7 和 x86_64 APK；当前适配的 820A 车机选 ARM64，ARMv7 为兼容兜底，x86_64 仅供模拟器测试。其他 Android 版本仅用于调试。见 [权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
+正式环境：Android 9（API 28）／753／820A，使用现有平台签名。应用内不使用 ADB。默认只发布 ARM64 APK（当前适配的 820A 车机）；ARMv7 与 x86_64 改为按需显式构建（`-PdiplayAbis=...`），默认不构建、不测试。其他 Android 版本仅用于调试。见 [权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
 
 [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
 
@@ -50,7 +50,7 @@ CarPlay 及相关标识属于 Apple；本项目与 Apple、领克、亿咖通无
 
 DiPlay brings iPhone navigation, music, Siri and calls to the Lynk & Co head unit. Built for **ECARX system version 753** (Lynk Qualcomm 820A platform), validated on the **2021 Lynk & Co 01**; other 753 units on the same platform should work.
 
-Releases contain separate ARM64, ARMv7 and x86_64 APKs. Choose ARM64 for the currently adapted 820A head unit; ARMv7 is a fallback and x86_64 is for emulator testing only.
+Releases ship the ARM64 APK by default for the adapted 820A head unit; ARMv7 and x86_64 are opt-in builds (`-PdiplayAbis=...`) and are not built or tested by default.
 
 For connection, everyday settings and troubleshooting, see the [owner's guide with settings screenshots](docs/USER-GUIDE.zh-CN.md). Behavior and validation limits are in the [detailed feature guide](docs/FEATURES.zh-CN.md). Both guides are in Simplified Chinese.
 

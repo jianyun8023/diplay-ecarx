@@ -44,7 +44,7 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 
 ## 1. 目标平台
 
-- 量产目标：Android 9 / API 28，ECARX 753（高通 820A），车机平台签名。当前适配的 820A 使用 `arm64-v8a`，作为默认生产包；另提供 `armeabi-v7a` 回退包和仅供模拟器测试的 `x86_64` 包。三个 ABI 分别打包，构建覆盖不等于全部运行时验收。
+- 量产目标：Android 9 / API 28，ECARX 753（高通 820A），车机平台签名。当前适配的 820A 使用 `arm64-v8a`，作为默认（也是默认构建）的生产包；`armeabi-v7a` 回退包和模拟器 `x86_64` 包改为按需显式构建（`-PdiplayAbis=...` / `scripts/check_rust_android_native.sh <abi>`），默认不构建、不测试。构建覆盖不等于全部运行时验收。
 - 其他 Android 版本（小米 8 台架、模拟器）只用于调试与对照，不作为性能结论的唯一依据。
 - 运行、权限与恢复不能依赖 ADB。
 
@@ -152,7 +152,7 @@ Rust 已持有 codec 选型／probe／重试和输出门限／路由策略；Kot
 全部 owner 继续编入同一库，无额外应用运行时；必要密码依赖由 Cargo.lock 锁定，许可证保存在 docs/licenses。bplist 保留 32 层解码与工作／载荷预算，生产与测试参考编码统一限制为 128 层；Java 类型／畸形 UTF-16 替换留在 JNI 平台边界。导航两个进程级输出各持独立 owner，Kotlin 仅提供时钟、当前会话存活和 SDK 输出。
 - Opus 由 [libopus](https://github.com/xiph/opus)（经 [libopus_sys 0.3.3](https://crates.io/crates/libopus_sys/0.3.3) 的 bundled 源码静态链接）编解码，编进同一 `.so`；不再携带单独的 `libopus.so` 与 JNI 桥。现有测试覆盖本项目的编码回解与 PCM 黄金向量，没有在这里重新验证上游的全部一致性声明。SpeexDSP 及 PCM 字节桥通过 Cargo 静态链接到同一库，不再发布独立 `libspeex_echo.so`；其源文件和头文件纳入来源校验，许可继续随 APK 打包。
   麦克风上行按 20 ms／1275 字节的单帧预算验证 Opus 缓冲，保留码率与 VoIP 校准。历史失败、修正过程与设备对照见[实验记录](benchmarks/native-media-2026-11-12.md)，当前台架／实车覆盖见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
-- 构建：Rust 1.97.1、NDK 28.2.13676358、CMake、Python 3，目标为 `aarch64-linux-android`、`armv7-linux-androideabi` 与 `x86_64-linux-android`，最低 API 28。ARM64 是当前车机默认目标，ARMv7 为回退包，x86_64 仅用于模拟器测试。APK／AAR 打包前运行 `scripts/check_rust_android_native.sh`：通过 `build.sh` 从 `CARGO_TARGET_DIR`（缺省 `target`）提取三 ABI 产物，校验 ELF 架构与 ET_DYN 类型、Java JNI 导出、`JNI_OnLoad` 及三 ABI 符号一致性，默认保留在 `.native/rust-android/`，并写入每 ABI 的 `provenance.json`。具体导出数随验证批次记录。
+- 构建：Rust 1.97.1、NDK 28.2.13676358、CMake、Python 3，默认目标为 `aarch64-linux-android`，最低 API 28；`armv7-linux-androideabi` 与 `x86_64-linux-android` 为按需显式目标，默认不构建、不测试。APK／AAR 打包前运行 `scripts/check_rust_android_native.sh`：通过 `build.sh` 从 `CARGO_TARGET_DIR`（缺省 `target`）提取所选 ABI 产物，校验 ELF 架构与 ET_DYN 类型、Java JNI 导出与 `JNI_OnLoad`（多 ABI 时另校验符号一致），默认保留在 `.native/rust-android/`，并写入每 ABI 的 `provenance.json`。具体导出数随验证批次记录。
 - 产物来源：receipt 绑定 crate 输入（含 Cargo.lock／工具链配置）、构建／验证脚本、Gradle staging 脚本与实际库字节的 SHA-256，保存逐文件指纹以定位第一个新增／删除／变更路径。指纹不依赖 Git 提交号，未提交源码与无 `.git` 源码包使用同一契约；忽略 Cargo 输出及常见 OS／编辑器／Python 缓存，但不忽略 `.cargo/config.toml` 等实际构建输入。Gradle 的所有 variant 只打包验证后生成的 JNI 目录：保留检入的 C 预编译库，排除历史检入的 Rust `.so`。缺 ABI／receipt、旧 receipt 格式、源码变化或库字节不符都会在打包前失败并提示重跑验证构建脚本；单独运行 `build.sh` 不会产生有效 receipt。该机制防止意外陈旧／混用，不是抗恶意篡改签名。
 - 构建入口：本地、Android checks、release 和 source-only workflow 均使用同一验证／staging 入口，不再覆盖检入的 Rust 库。自定义输出时，构建脚本与 Gradle 必须使用同一个 `DIPLAY_JNI_LIBS_DIR`；默认目录由 `gradlew clean` 保留以便下次验证复用。Android checks 保留本次库与 receipt artifact，不要求其与历史检入库跨主机字节相等。JVM-only 测试不需要 Android 产物，另构建并加载真实 host JNI；CI 也执行 `cargo test --locked --lib`。发布配置 `lto`、`panic = "abort"`、`strip`，并去掉构建机路径。完整命令见[构建文档](BUILD.md#prepare-rust-android-inputs)。
 - 第三方许可写进 `shared/src/main/jniLibs/NOTICE.md` 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

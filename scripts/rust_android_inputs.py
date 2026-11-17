@@ -14,7 +14,7 @@ import sys
 ABIS = {"arm64-v8a": (2, 183), "armeabi-v7a": (1, 40), "x86_64": (2, 62)}
 CRATE = "shared/src/main/rust/diplay-media"
 LIB = "libdiplay_media.so"
-REBUILD = "Run scripts/check_rust_android_native.sh for all three ABIs, then retry Gradle."
+REBUILD = "Run scripts/check_rust_android_native.sh for the affected ABI(s), then retry Gradle."
 # Keep this list independent of Git so source archives follow the same contract.
 # Do not broadly ignore hidden files: .cargo/config.toml is a real build input.
 IGNORED_PARTS = {'target', '.git', '__pycache__', '.DS_Store', 'Thumbs.db'}
@@ -78,10 +78,15 @@ def stamp(root, inputs, abi, expected_source):
     (inputs / abi / 'provenance.json').write_text(json.dumps(receipt, sort_keys=True) + '\n')
 
 
-def verify(root, inputs):
+def verify(root, inputs, abis=None):
+    # None keeps the historical contract (every shipped ABI). Gradle passes the configured
+    # subset so a default ARM64-only build does not require receipts for unbuilt ABIs.
+    abis = list(ABIS) if abis is None else abis
+    if not abis:
+        raise ValueError('no Rust Android ABIs selected')
     files = source_fingerprints(root)
     source = fingerprint_digest(files)
-    for abi in ABIS:
+    for abi in abis:
         library = inputs / abi / LIB
         receipt = json.loads((inputs / abi / 'provenance.json').read_text())
         if (not isinstance(receipt, dict) or receipt.get('schema') != 2
@@ -100,13 +105,14 @@ def verify(root, inputs):
         check_elf(library, abi)
 
 
-def stage(root, inputs, output):
-    # Validate the entire set before replacing any previously staged output.
-    verify(root, inputs)
+def stage(root, inputs, output, abis=None):
+    # Validate the entire selected set before replacing any previously staged output.
+    verify(root, inputs, abis)
+    abis = list(ABIS) if abis is None else abis
     if output.exists():
         shutil.rmtree(output)
     output.mkdir(parents=True)
-    for abi in ABIS:
+    for abi in abis:
         dest = output / abi
         dest.mkdir()
         # Retain existing C prebuilts, but never the obsolete checked-in Rust binary.
@@ -116,6 +122,12 @@ def stage(root, inputs, output):
         shutil.copy2(inputs / abi / LIB, dest / LIB)
 
 
+def parse_abis(value):
+    if not value:
+        return None
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['fingerprint', 'stamp', 'verify', 'stage'])
@@ -123,6 +135,7 @@ def main():
     parser.add_argument('--inputs', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--abi', choices=ABIS)
+    parser.add_argument('--abis', help='comma-separated ABI subset for verify/stage')
     parser.add_argument('--source')
     args = parser.parse_args()
     inputs = args.inputs or args.root / '.native/rust-android'
@@ -134,11 +147,11 @@ def main():
                 parser.error('stamp requires --abi and --source')
             stamp(args.root, inputs, args.abi, args.source)
         elif args.command == 'verify':
-            verify(args.root, inputs)
+            verify(args.root, inputs, parse_abis(args.abis))
         else:
             if not args.output:
                 parser.error('stage requires --output')
-            stage(args.root, inputs, args.output)
+            stage(args.root, inputs, args.output, parse_abis(args.abis))
     except (OSError, ValueError) as error:
         print(f'Invalid Rust Android inputs: {error}. {REBUILD}', file=sys.stderr)
         return 1

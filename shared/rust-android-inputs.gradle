@@ -7,6 +7,7 @@ abstract class StageRustAndroidInputs extends DefaultTask {
     @Internal
     abstract DirectoryProperty getRepositoryDirectory()
     @Input abstract Property<String> getNativeInputsPath()
+    @Input abstract Property<String> getAbis()
     @OutputDirectory abstract DirectoryProperty getOutputDirectory()
     @Inject abstract ExecOperations getExecOperations()
 
@@ -15,10 +16,14 @@ abstract class StageRustAndroidInputs extends DefaultTask {
         execOperations.exec {
             commandLine 'python3', new File(repositoryDirectory.get().asFile, 'scripts/rust_android_inputs.py'),
                 'stage', '--root', repositoryDirectory.get().asFile,
-                '--inputs', nativeInputsPath.get(), '--output', outputDirectory.get().asFile
+                '--inputs', nativeInputsPath.get(), '--output', outputDirectory.get().asFile,
+                '--abis', abis.get()
         }
     }
 }
+
+def configuredAbis = (providers.gradleProperty('diplayAbis').orNull ?: 'arm64-v8a')
+    .split(',').collect { it.trim() }.findAll { it }
 
 def stagedRustInputs = tasks.register('stageRustAndroidInputs', StageRustAndroidInputs) {
     repositoryDirectory.set(rootProject.layout.projectDirectory)
@@ -26,6 +31,7 @@ def stagedRustInputs = tasks.register('stageRustAndroidInputs', StageRustAndroid
     nativeInputsPath.set(providers.environmentVariable('DIPLAY_JNI_LIBS_DIR')
         .map { new File(it).isAbsolute() ? it : new File(repoPath, it).absolutePath }
         .orElse(rootProject.file('.native/rust-android').absolutePath))
+    abis.set(configuredAbis.join(','))
     outputDirectory.set(layout.buildDirectory.dir('generated/verifiedJniLibs'))
     // Always recheck external artifact bytes and current source, even on incremental builds.
     outputs.upToDateWhen { false }

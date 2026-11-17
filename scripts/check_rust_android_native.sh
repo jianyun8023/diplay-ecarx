@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Builds and verifies the Rust Android libraries.
 # Usage: scripts/check_rust_android_native.sh [abi ...]
-#   no abi  -> build + verify every shipped ABI and require identical JNI exports
-#   one abi -> build + verify just that ABI (arm64-v8a / armeabi-v7a / x86_64)
-#   ARM64 is the default production package; ARMv7 is the fallback; x86_64 is test-only (emulator).
+#   no abi  -> build + verify the default ABI only (arm64-v8a)
+#   abi...  -> build + verify exactly the listed ABIs (arm64-v8a / armeabi-v7a / x86_64),
+#              requiring identical JNI exports across them
+#   ARM64 is the default production package; ARMv7 and x86_64 are opt-in.
 # Needs ANDROID_NDK_HOME (NDK 28.2.13676358), Rust 1.97.1 and the Android rust targets.
 set -euo pipefail
 
@@ -63,7 +64,7 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 if [[ "${#ARGS[@]}" -eq 0 ]]; then
-  SELECTED_ABIS=(arm64-v8a armeabi-v7a x86_64)
+  SELECTED_ABIS=(arm64-v8a)
 else
   SELECTED_ABIS=("${ARGS[@]}")
 fi
