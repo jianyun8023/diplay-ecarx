@@ -2,6 +2,7 @@
 
 - **输入小批迁移（HID/Siri/事件分派）**：`vehicle::hid::index_press_release` 提供媒体/电话键"按下(index)/释放(0)"字节对；`protocols::airplay` 操作 18 返回 Siri 请求/释放动作序列 (2,3)；`session::airplay::event_command` 判断事件通道请求是否为 `/command`。Kotlin 仅执行发送。Rust 单测 + Kotlin native 契约测试；cargo 323、shared 2117、三 ABI 原生 631、设备 androidTest 190/190。
 - **PairVerify/PairSetup 完整 transcript（2026-11-17）**：为关闭「外部认证向量缺完整 transcript」缺口，用独立参考实现（[`scripts/gen_pair_transcripts.py`](../scripts/gen_pair_transcripts.py)，Python `cryptography` + 已独立复算的 SRP 数学）生成固定 M1–M4／M1–M6 原始字节，固化为 `pair-verify-transcript.properties`／`pair-setup-transcript.properties`。Rust 只增加 `#[cfg(test)]` 的确定性 seam（`PairVerify::use_ephemeral_seed`、`PairSetup::use_srp_secret`，生产仍 `SystemRandom`），对 M2／M4／M6 与派生 control key 逐字节断言。cargo 325 通过；三 ABI 原生 631 JNI／来源校验通过。**来源为独立参考实现，非第三方抓包**（见[向量清单](PROTOCOL_VECTORS.zh-CN.md)）。
+- **蓝牙守卫决策下沉（2026-11-17）**：新增 Rust `session::bt_profile_guard`，承接 yield 模式/延迟/skip、pausedByUs、restore 阶段、启动恢复门槛、boot-radio 观察与 adapter-ready 拒绝等纯策略；`CarBluetoothProfileGuard` 保留 `BluetoothAdapter`/profile-proxy 执行、广播、重试线程与持久化 journal，`testCoreShadows` 提供独立 Kotlin 参考供 Robolectric。Rust 7 项单测 + Kotlin 独立 JVM 决策测试；cargo 332、shared JVM 2122 全通过，三 ABI 638 JNI 校验，小米 8 真机无线会话复验（`BT guard armed mode=media delayMs=0`，连接/首帧/音频正常）。**审计结论**：更新管理属应用层（`protocols/session/media/vehicle` 之外，且不影响 CarPlay 正确性）、热点决策已在 `session::hotspot_recovery`／`p2p_startup`／`network_address`——二者不再下沉。
 
 ## 当前状态与验收矩阵（2026-11-15）
 

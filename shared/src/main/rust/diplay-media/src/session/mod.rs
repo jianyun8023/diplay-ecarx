@@ -1,6 +1,7 @@
 //! Session negotiation, lifecycle/recovery tokens and control deadlines.
 
 pub mod airplay;
+pub mod bt_profile_guard;
 pub mod control_deadline;
 pub mod controller;
 mod connection_recovery;

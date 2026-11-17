@@ -61,6 +61,14 @@ public object CarBluetoothProfileGuard {
     private const val MODE_ADAPTER = "adapter"
     private const val MODE_MEDIA = "media"
 
+    // NativeBtProfileGuard.yieldMode results.
+    private const val YIELD_SKIP_MEDIA = 0
+    private const val YIELD_SKIP_ADAPTER = 1
+    private const val YIELD_ARM_ADAPTER = 3
+    // NativeBtProfileGuard.restorePhase results.
+    private const val RESTORE_SETTLED = 0
+    private const val RESTORE_INTERRUPTED = 1
+
     // Only legacy link recovery uses both phone-side profiles.
     private const val REASSERT_PERIOD_MILLIS = 30_000L
     private const val REDROP_THROTTLE_MILLIS = 3_000L
@@ -147,10 +155,13 @@ public object CarBluetoothProfileGuard {
      * reported to the driver as "Bluetooth is off in the head unit's settings".
      */
     fun pausedByUs(context: Context): Boolean {
-        if (!applied(context) || appliedMode(context) != MODE_ADAPTER) return false
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             ?: BluetoothAdapter.getDefaultAdapter()
-        return adapter?.isEnabled == false
+        return NativeBtProfileGuard.pausedByUs(
+            applied(context),
+            appliedMode(context) == MODE_ADAPTER,
+            adapter?.isEnabled == false,
+        )
     }
 
     /** Called when a CarPlay session is live. Returns at once; the drop runs on the guard's thread. */
@@ -158,17 +169,18 @@ public object CarBluetoothProfileGuard {
         log: (String) -> Unit = logcat) {
         val app = context.applicationContext
         val mediaOnly = mediaOnlyEnabled(app)
-        val adapterMode = !mediaOnly && adapterEnabled(app)
-        if (mediaOnly && !mediaAudioAllowed) {
+        val mode = NativeBtProfileGuard.yieldMode(mediaOnly, adapterEnabled(app), mediaAudioAllowed)
+        if (mode == YIELD_SKIP_MEDIA) {
             log("BT guard media: skipped; CarPlay audio is configured to use car Bluetooth")
             return
         }
-        if (!adapterMode && !mediaOnly) {
+        if (mode == YIELD_SKIP_ADAPTER) {
             log("BT guard: the adapter switch is off; the head unit keeps its Bluetooth to itself")
             return
         }
+        val adapterMode = mode == YIELD_ARM_ADAPTER
         val state = Session(app, adapterMode, peerAddress, log, mediaOnly)
-        val delay = if (mediaOnly) 0L else adapterDelaySeconds(app) * 1_000L
+        val delay = NativeBtProfileGuard.armDelayMs(mode, adapterDelaySeconds(app))
         synchronized(lock) {
             pending?.cancel(false)
             reassert?.cancel(false)
@@ -239,10 +251,10 @@ public object CarBluetoothProfileGuard {
                 synchronized(lock) {
                     if (ownershipRevision == revision) recoveryPending = false
                     if (store.getLong(KEY_RESTORE_REVISION, -1L) == revision) {
-                        val phase = when {
-                            ownershipRevision != revision -> "superseded"
-                            returned -> "settled"
-                            else -> "interrupted"
+                        val phase = when (NativeBtProfileGuard.restorePhase(ownershipRevision == revision, returned)) {
+                            RESTORE_SETTLED -> "settled"
+                            RESTORE_INTERRUPTED -> "interrupted"
+                            else -> "superseded"
                         }
                         val radioState = runCatching { adapter(app)?.state }.getOrNull()
                         val diagnostic = "operationId=$operationId phase=$phase mode=$mode " +
@@ -277,8 +289,7 @@ public object CarBluetoothProfileGuard {
         val app = context.applicationContext
         if (!applied(app)) return
         synchronized(lock) {
-            if (session != null) return
-            if (recoveryPending) return
+            if (!NativeBtProfileGuard.shouldAttemptRecovery(true, session != null, recoveryPending)) return
             recoveryPending = true
         }
         log("BT guard: a previous run left Bluetooth recovery pending; restoring")
@@ -325,7 +336,7 @@ public object CarBluetoothProfileGuard {
         // On a real cold boot, or while the car powers its radios back up after turning them off,
         // the OEM keeps the radio OFF until its service starts. Observe it without calling
         // enable(); otherwise an OFF radio still means the driver must enable Bluetooth manually.
-        val observeBootRadio = BluetoothAdapterRestore.shouldPassivelyObserveBootRadio(
+        val observeBootRadio = NativeBtProfileGuard.shouldPassivelyObserveBootRadio(
             passiveWaitMillis > 0, initialState, ownedPause,
         )
         if (observeBootRadio) {
@@ -333,8 +344,7 @@ public object CarBluetoothProfileGuard {
         }
         val waitStarted = System.nanoTime()
         val outcome = try {
-            if (!ownedPause && initialState != BluetoothAdapter.STATE_ON &&
-                initialState != BluetoothAdapter.STATE_TURNING_ON && !observeBootRadio) {
+            if (NativeBtProfileGuard.rejectAdapterReady(ownedPause, initialState, observeBootRadio)) {
                 BluetoothAdapterRestore.Outcome.REJECTED
             } else {
                 BluetoothAdapterRestore.awaitOn(
