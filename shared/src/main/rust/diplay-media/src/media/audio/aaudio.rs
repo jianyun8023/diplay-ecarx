@@ -42,6 +42,10 @@ struct Api {
     stream_getDeviceId: unsafe extern "C" fn(*mut Stream) -> i32,
 }
 
+// The `load!` macro transmutes each symbol into its `Api` field's `unsafe extern "C" fn`
+// type, so the destination type is carried by the struct field rather than written inline
+// at every call site. That inference is deliberate; keep the lint off for this block only.
+#[allow(clippy::missing_transmute_annotations)]
 fn api() -> Option<&'static Api> {
     static API: OnceLock<Option<Api>> = OnceLock::new();
     API.get_or_init(|| unsafe {
