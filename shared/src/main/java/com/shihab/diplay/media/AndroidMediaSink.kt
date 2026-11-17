@@ -193,6 +193,8 @@ class AndroidMediaSink(
         audioRenderers.values.forEach { it.setNavigationAttenuationDb(navigationAttenuationFor(it.navigationRoute)) }
     }
     private val microphoneUplinks = ConcurrentHashMap<AudioStreamId, MicrophoneUplink>()
+    /** One Rust-owned effective-configuration handoff per microphone id; survives sender replacement. */
+    private val microphoneConfigHandoffs = ConcurrentHashMap<AudioStreamId, Long>()
     private val audioModeLock = Any()
     private var communicationModeStream: AudioStreamId? = null // includes a request waiting for its grant
     private var communicationModeActive = false // guarded by audioModeLock
@@ -554,19 +556,34 @@ class AndroidMediaSink(
     private fun startMicrophoneCapture(id: AudioStreamId, config: MicrophoneConfig) {
         try {
             if (config.audioType == "telephony") enterCommunicationMode(id)
-            val uplink = microphoneUplinks.computeIfAbsent(id) {
-                MicrophoneUplink(config, onAudioDiagnostic,
-                    speakerphoneCall = false,
-                    // Capture follows a recovered output without reopening AudioRecord or its effects.
-                    // This lookup must stay lock-free: the capture owns its own reference monitor.
-                    echoReferenceSource = { if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null },
-                    audioManager = audioManager,
-                    onCaptureState = { reportMicrophoneState(id, "capture") })
+            // Rust owns the reuse/replace decision: an identical committed configuration reuses the
+            // running sender; any change (port, key or format) replaces it instead of keeping the
+            // sender that captured the earlier configuration.
+            val fingerprint = microphoneFingerprint(config)
+            val handoff = microphoneConfigHandoffs.getOrPut(id) { NativeMicrophone.uplinkConfigCreate() }
+            val existing = microphoneUplinks[id]
+            if (existing != null) {
+                if (NativeMicrophone.uplinkConfigDecide(handoff, fingerprint) == 0) {
+                    existing.start()
+                    return
+                }
+                microphoneUplinks.remove(id, existing)
+                existing.close()
             }
+            val uplink = MicrophoneUplink(config, onAudioDiagnostic,
+                speakerphoneCall = false,
+                // Capture follows a recovered output without reopening AudioRecord or its effects.
+                // This lookup must stay lock-free: the capture owns its own reference monitor.
+                echoReferenceSource = { if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null },
+                audioManager = audioManager,
+                onCaptureState = { reportMicrophoneState(id, "capture") })
             if (!uplink.start()) {
-                microphoneUplinks.remove(id, uplink)
                 restoreAudioMode(id)
+                return
             }
+            microphoneUplinks[id] = uplink
+            // Confirm the new effective configuration only after the sender actually started.
+            NativeMicrophone.uplinkConfigCommit(handoff, fingerprint)
         } catch (error: Exception) {
             Log.e("diplay-usb", "microphone start failed stream=$id", error)
             MicrophoneCaptureStats.reportStartFailure(config, error, onAudioDiagnostic)
@@ -574,10 +591,20 @@ class AndroidMediaSink(
         }
     }
 
+    /** Canonical identity of a microphone configuration (facts only); Rust decides reuse vs replace. */
+    private fun microphoneFingerprint(config: MicrophoneConfig): String = buildString {
+        append(config.audioType).append('|').append(config.sampleRate).append('|').append(config.channels)
+        append('|').append(config.payloadType).append('|').append(config.frameMillis)
+        append('|').append(config.host.hostAddress ?: "").append('|').append(config.port)
+        append('|').append(config.codec).append('|').append(config.bitrate ?: -1)
+        append('|').append(config.key.joinToString("") { "%02x".format(it.toInt() and 0xff) })
+    }
+
     override fun onMicrophoneStopped(id: AudioStreamId) {
         synchronized(audioModeLock) {
             try {
                 microphoneUplinks.remove(id)?.close()
+                microphoneConfigHandoffs.remove(id)?.let { NativeMicrophone.uplinkConfigDestroy(it) }
             } finally {
                 restoreAudioMode(id)
                 reportMicrophoneState(id, "stopped")
@@ -783,6 +810,8 @@ class AndroidMediaSink(
                 microphoneUplinks.values.forEach(MicrophoneUplink::close)
             } finally {
                 microphoneUplinks.clear()
+                microphoneConfigHandoffs.values.forEach(NativeMicrophone::uplinkConfigDestroy)
+                microphoneConfigHandoffs.clear()
                 restoreAudioMode(null)
             }
         }

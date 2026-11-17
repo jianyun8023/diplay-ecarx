@@ -46,4 +46,8 @@ internal object NativeMicrophone {
     @JvmStatic external fun feed(handle: Long, input: ByteArray, count: Int, now: Long, stamped: Boolean,
         timestamp: Long, position: Long, host: Any, stats: LongArray): Int
     @JvmStatic external fun close(handle: Long)
+    @JvmStatic external fun uplinkConfigCreate(): Long
+    @JvmStatic external fun uplinkConfigDecide(handle: Long, fingerprint: String): Int
+    @JvmStatic external fun uplinkConfigCommit(handle: Long, fingerprint: String)
+    @JvmStatic external fun uplinkConfigDestroy(handle: Long)
 }

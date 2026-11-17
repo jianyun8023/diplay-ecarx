@@ -1,6 +1,6 @@
 use super::{echo, stats, Capture, Speex, Uplink};
 use crate::platform::jvm::Env;
-use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, JNIEnv, JNI_ABORT};
+use jni_sys::{jboolean, jbyteArray, jclass, jint, jlong, jlongArray, jobject, jstring, JNIEnv, JNI_ABORT};
 use std::ptr::null_mut;
 
 unsafe fn state<'a>(handle: jlong) -> &'a mut Capture { &mut *(handle as *mut Capture) }
@@ -157,6 +157,76 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeMicrophone_clos
         let capture = Box::from_raw(handle as *mut Capture);
         Env(env).delete_global(capture.source);
         drop(capture);
+    }
+}
+
+/// One microphone id's committed effective sender configuration, so a newer configuration for the
+/// same id is replaced instead of silently reusing the earlier sender. The platform supplies the
+/// identity facts; this owner decides reuse vs replace and records when a new sender actually ran.
+pub struct UplinkConfigHandoff { effective: Option<String> }
+
+/// 0 when [new] equals the committed effective configuration (reuse), 1 when it differs (replace).
+fn config_decision(effective: &Option<String>, new: &str) -> jint {
+    if effective.as_deref() == Some(new) { 0 } else { 1 }
+}
+
+unsafe fn read_utf16(env: *mut JNIEnv, s: jstring) -> Option<String> {
+    if s.is_null() { return Some(String::new()); }
+    let f = &**env;
+    let length = (f.GetStringLength.unwrap())(env, s);
+    if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+    let mut units = vec![0u16; length.max(0) as usize];
+    if length > 0 {
+        (f.GetStringRegion.unwrap())(env, s, 0, length, units.as_mut_ptr());
+        if (f.ExceptionCheck.unwrap())(env) != 0 { return None; }
+    }
+    Some(String::from_utf16_lossy(&units))
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeMicrophone_uplinkConfigCreate(
+    _env: *mut JNIEnv, _: jclass,
+) -> jlong {
+    Box::into_raw(Box::new(UplinkConfigHandoff { effective: None })) as jlong
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeMicrophone_uplinkConfigDecide(
+    env: *mut JNIEnv, _: jclass, handle: jlong, fingerprint: jstring,
+) -> jint {
+    if handle == 0 { return 1; }
+    let Some(fp) = read_utf16(env, fingerprint) else { return 1; };
+    config_decision(&(*(handle as *const UplinkConfigHandoff)).effective, &fp)
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeMicrophone_uplinkConfigCommit(
+    env: *mut JNIEnv, _: jclass, handle: jlong, fingerprint: jstring,
+) {
+    if handle == 0 { return; }
+    if let Some(fp) = read_utf16(env, fingerprint) {
+        (*(handle as *mut UplinkConfigHandoff)).effective = Some(fp);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeMicrophone_uplinkConfigDestroy(
+    _env: *mut JNIEnv, _: jclass, handle: jlong,
+) {
+    if handle != 0 { drop(Box::from_raw(handle as *mut UplinkConfigHandoff)); }
+}
+
+#[cfg(test)]
+mod uplink_cfg_tests {
+    use super::config_decision;
+
+    #[test]
+    fn reuse_only_for_the_committed_effective_configuration() {
+        // No committed configuration yet, or a different one, always replaces.
+        assert_eq!(config_decision(&None, "a"), 1);
+        assert_eq!(config_decision(&Some("a".into()), "b"), 1);
+        // Only an exact match to the committed effective configuration reuses the sender.
+        assert_eq!(config_decision(&Some("a".into()), "a"), 0);
     }
 }
 

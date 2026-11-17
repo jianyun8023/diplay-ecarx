@@ -17,6 +17,16 @@ class ShadowNativeMicrophone {
             timestamp: Long, position: Long, host: Any, stats: LongArray): Int =
             HostNative.call("media.NativeMicrophone", "feed", handle, input, count, now, stamped, timestamp, position, host, stats) as Int
         @JvmStatic @Implementation fun close(handle: Long) { HostNative.call("media.NativeMicrophone", "close", handle) }
+        @JvmStatic @Implementation fun uplinkConfigCreate(): Long =
+            HostNative.call("media.NativeMicrophone", "uplinkConfigCreate") as Long
+        @JvmStatic @Implementation fun uplinkConfigDecide(handle: Long, fingerprint: String): Int =
+            HostNative.call("media.NativeMicrophone", "uplinkConfigDecide", handle, fingerprint) as Int
+        @JvmStatic @Implementation fun uplinkConfigCommit(handle: Long, fingerprint: String) {
+            HostNative.call("media.NativeMicrophone", "uplinkConfigCommit", handle, fingerprint)
+        }
+        @JvmStatic @Implementation fun uplinkConfigDestroy(handle: Long) {
+            HostNative.call("media.NativeMicrophone", "uplinkConfigDestroy", handle)
+        }
     }
 }
 
