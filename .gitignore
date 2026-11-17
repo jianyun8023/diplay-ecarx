@@ -45,3 +45,9 @@ ${user.home}/
 
 # Verified local Rust Android artifacts (rebuilt from source)
 .native/
+
+# Governance audit raw logs (keep the SUMMARY .md reports, ignore transient logs)
+reports/baseline/
+
+# Local agent working notes
+.workbuddy/
