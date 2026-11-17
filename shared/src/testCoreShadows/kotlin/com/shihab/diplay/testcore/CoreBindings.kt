@@ -221,6 +221,10 @@ open class ShadowNativeMedia {
             HostNative.call("airplay.NativeMedia", "audioRouteSetQueue", handle, retainedQueue)
         }
 
+        @JvmStatic @Implementation fun audioRouteRetire(handle: Long) {
+            HostNative.call("airplay.NativeMedia", "audioRouteRetire", handle)
+        }
+
         @JvmStatic @Implementation fun audioRouteFeedback(handle: Long, reported: Long, nowNs: Long): LongArray? =
             HostNative.call("airplay.NativeMedia", "audioRouteFeedback", handle, reported, nowNs) as LongArray?
 

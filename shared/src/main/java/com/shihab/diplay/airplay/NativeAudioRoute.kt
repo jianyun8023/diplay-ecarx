@@ -14,6 +14,12 @@ class NativeAudioRoute internal constructor(clockRate: Int, direct: Boolean) : j
         if (handle != 0L) NativeMedia.audioRouteSetQueue(handle, 0L)
     }
 
+    /** Permanently retires a replaced route. Later packets are dropped in Rust, never handed back to
+     * the Kotlin sink, so a replaced session's still-open stream cannot feed the new output. */
+    @Synchronized internal fun retire() {
+        if (handle != 0L) NativeMedia.audioRouteRetire(handle)
+    }
+
     @Synchronized internal fun start(fd: Int, key: ByteArray, streamType: Int,
         callbacks: NativeStreamCallbacks): Long =
         if (handle == 0L) 0L else NativeMedia.startAudio(fd, key, streamType, callbacks, handle)

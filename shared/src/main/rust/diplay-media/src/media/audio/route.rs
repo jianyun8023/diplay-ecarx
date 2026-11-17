@@ -8,6 +8,7 @@ pub struct AudioRoute { state: Mutex<State>, clock_rate: i64, direct: bool }
 struct State {
     target: Option<Arc<QueueOwner>>,
     closed: bool,
+    retired: bool,
     newest: Option<u32>,
     newest_rx_ns: i64,
     baseline_logged: bool,
@@ -51,7 +52,7 @@ pub(crate) fn math_round(value: f64) -> i64 {
 pub enum Delivery { Callback(AudioPacket), Queued(Arc<QueueOwner>), Closed }
 impl AudioRoute {
     pub fn new(clock_rate: i64, direct: bool) -> Arc<Self> {
-        Arc::new(Self { state: Mutex::new(State { target: None, closed: false, newest: None, newest_rx_ns: 0,
+        Arc::new(Self { state: Mutex::new(State { target: None, closed: false, retired: false, newest: None, newest_rx_ns: 0,
             baseline_logged: false, last_overrun_ns: None, max_ahead: i64::MIN, overrun_samples: 0,
             first_overrun_sample_ns: None, anchor: None, probe: ClockProbe::default() }),
             clock_rate, direct })
@@ -92,7 +93,7 @@ impl AudioRoute {
 
     pub fn deliver(&self, packet: AudioPacket) -> Delivery {
         let state = self.state.lock().unwrap();
-        if state.closed { return Delivery::Closed; }
+        if state.closed || state.retired { return Delivery::Closed; }
         let target = self.direct.then(|| state.target.clone()).flatten();
         drop(state);
         if let Some(target) = target {
@@ -109,6 +110,15 @@ impl AudioRoute {
     fn close(&self) {
         let mut state = self.state.lock().unwrap();
         state.closed = true;
+        state.target = None;
+    }
+
+    /// Permanently retires a replaced route. Unlike `set_queue(None)` (a recoverable detach whose
+    /// packets still fall back to the Kotlin sink for a renderer recovery), a retired receiver drops
+    /// every later packet, so an old session's still-open stream cannot deliver into a new output.
+    fn retire(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.retired = true;
         state.target = None;
     }
 
@@ -161,6 +171,11 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRo
     let target = queue::consume_reference(queue);
     if handle != 0 { (&*(handle as *const AudioRoute)).set_queue(target); }
 }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteRetire(
+    _env: *mut JNIEnv, _class: jclass, handle: jlong,
+) { if handle != 0 { (&*(handle as *const AudioRoute)).retire(); } }
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_audioRouteFeedback(
@@ -287,6 +302,23 @@ mod tests {
         route.close();
         assert!(matches!(route.deliver(packet(&pool, 5)), Delivery::Closed));
         assert_eq!(pool.outstanding(), 0);
+    }
+
+    #[test]
+    fn a_retired_route_drops_packets_instead_of_falling_back_to_the_callback() {
+        let pool = Pool::new();
+        let route = AudioRoute::new(48_000, true);
+        // A queue-less detach is recoverable: the packet still goes to the Kotlin callback.
+        assert!(matches!(route.deliver(packet(&pool, 1)), Delivery::Callback(_)));
+        // Retirement (this stream was replaced by another session) drops instead of calling back.
+        route.retire();
+        assert!(matches!(route.deliver(packet(&pool, 2)), Delivery::Closed));
+        // A queue present before retirement is ignored after retirement as well.
+        let queued = AudioRoute::new(48_000, true);
+        queued.set_queue(Some(QueueOwner::new(48_000, false)));
+        assert!(matches!(queued.deliver(packet(&pool, 3)), Delivery::Queued(_)));
+        queued.retire();
+        assert!(matches!(queued.deliver(packet(&pool, 4)), Delivery::Closed));
     }
 
     #[test]

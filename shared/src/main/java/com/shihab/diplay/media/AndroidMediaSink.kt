@@ -486,7 +486,9 @@ class AndroidMediaSink(
     @Synchronized
     override fun onNativeAudioRoute(id: AudioStreamId, format: AudioFormat, route: NativeAudioRoute) {
         if (audioClosed) { route.disconnect(); return }
-        audioRoutes.put(id, route)?.takeIf { it !== route }?.disconnect()
+        // A different route for the same id means this stream replaced the previous one: retire it so
+        // the old session's still-open stream can no longer deliver into the new output.
+        audioRoutes.put(id, route)?.takeIf { it !== route }?.retire()
         route.setQueue { audioRenderers[id]?.retainNativeQueue() ?: 0L }
     }
 

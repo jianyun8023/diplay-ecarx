@@ -104,6 +104,7 @@ internal object NativeMedia {
     @JvmStatic external fun outputLeaseAcquire(epoch: Long, holder: Long, kind: Int, type: Int, audioType: String)
     @JvmStatic external fun outputLeaseRelease(epoch: Long, holder: Long, kind: Int, type: Int, audioType: String): Boolean
     @JvmStatic external fun audioRouteSetQueue(handle: Long, retainedQueue: Long)
+    @JvmStatic external fun audioRouteRetire(handle: Long)
     @JvmStatic external fun audioRouteFeedback(handle: Long, reported: Long, nowNs: Long): LongArray?
     /** The route owner computes sampleTime and the reply entry; times arrive sampled once. */
     @JvmStatic external fun audioRouteFeedbackEntry(
