@@ -1,6 +1,6 @@
 # DiPlay 技术架构
 
-本文说明 DiPlay 领克 01 / ECARX 753 移植版的模块划分、会话组成和当前 Rust 核心／Kotlin 薄宿主边界。代码归属的细则以根目录 [AGENTS.md](../AGENTS.md) 为准；厂商接口与实车结论见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。
+本文说明 DiPlay 领克 01 / ECARX 753 移植版的模块划分、会话组成和当前 Rust 核心／Kotlin 薄宿主边界。代码归属的全局规则以根目录 [AGENTS.md](../AGENTS.md) 为准，详细契约按其[任务索引](../AGENTS.md#task-guides)读取对应指南；厂商接口与实车结论见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。
 
 原生媒体阶段 1 由 PR #94 合入 `dev`，阶段 2–6 及 AAudio 正确性修复经 PR #97 合入，Rust 核心主体迁移已完成。后续修复与验收按批记录；实现完成不等于所有实车场景通过。历史台架结果见[原生媒体实验记录](benchmarks/native-media-2026-11-12.md)，当前状态见[验收矩阵](RUST_CORE_REMAINING.zh-CN.md)。
 
