@@ -59,6 +59,7 @@ interface MediaSink {
     fun onIapMessage(bytes: ByteArray) {}
     /** The iPhone asked the car to duck its other audio for a navigation prompt (true), or to restore it. */
     fun onAudioDuck(ducked: Boolean) {}
+    fun onAudioDuck(ducked: Boolean, volumeDb: Float?) = onAudioDuck(ducked)
 }
 
 /**
@@ -673,10 +674,13 @@ class CarPlayMediaEngine(
         }
     }
 
-    override fun onAudioDuck(session: AirPlaySession, ducked: Boolean) {
+    override fun onAudioDuck(session: AirPlaySession, ducked: Boolean) =
+        onAudioDuck(session, ducked, null)
+
+    override fun onAudioDuck(session: AirPlaySession, ducked: Boolean, volumeDb: Float?) {
         val released = if (ducked) { duckingSession.set(session); false } else duckingSession.compareAndSet(session, null)
         if (NativeAudioScheduler.duckOutputMayNotify(ducked, sessionClosing = false, released, duckingSession.get() != null)) {
-            sink.onAudioDuck(ducked)
+            sink.onAudioDuck(ducked, volumeDb)
         }
     }
 
@@ -684,7 +688,7 @@ class CarPlayMediaEngine(
         // A phone that disconnects during a prompt never sends unduckAudio.
         val released = duckingSession.compareAndSet(session, null)
         if (NativeAudioScheduler.duckOutputMayNotify(ducked = false, sessionClosing = true, released, duckingSession.get() != null)) {
-            sink.onAudioDuck(false)
+            sink.onAudioDuck(false, null)
         }
         clearPendingIapTunnel(session)
         retireBuffered(session)

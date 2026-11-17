@@ -4400,6 +4400,10 @@ open class CarPlayHostActivity : ComponentActivity() {
             vendorLowLatencyDecoder = AirPlayPersistence.loadLowLatencyDecoder(this),
             mtkDecoderTuningEnabled = AirPlayPersistence.loadMtkDecoderTuning(this),
             navigationPromptAudioFocus = AirPlayPersistence.loadNavigationPromptAudioFocus(this),
+            ecarxNavigationWheelHandshake = {
+                NavigationWheelSettings.enabled(this) &&
+                    com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified
+            },
         )
     }
 

@@ -81,6 +81,10 @@ interface AirPlayMediaHandler {
     fun onDuckAudio(session: AirPlaySession, ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {}
     /** duckAudio (true) and unduckAudio (false): the iPhone marks the start and end of a navigation prompt. */
     fun onAudioDuck(session: AirPlaySession, ducked: Boolean) {}
+
+    /** The same prompt mark with the command's own volume in dB, when the phone sent one. */
+    fun onAudioDuck(session: AirPlaySession, ducked: Boolean, volumeDb: Float?) =
+        onAudioDuck(session, ducked)
 }
 
 /**
@@ -826,7 +830,7 @@ class AirPlaySession(
                 if (action and 2 != 0) releaseNavigationExit("accessory-granted")
             }
         }
-        commandPlan.duck?.let { media.onAudioDuck(this, it) }
+        commandPlan.duck?.let { media.onAudioDuck(this, it, (params["volume"] as? Number)?.toFloat()) }
         when (commandPlan.ui) {
             2 -> listener.onVideoPlaybackUiRequested(this)
             1 -> listener.onHostUiRequested(this)

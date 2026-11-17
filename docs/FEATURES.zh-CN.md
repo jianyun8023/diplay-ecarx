@@ -479,7 +479,7 @@ v106 曾通过 MQTT 距离主题纠偏，一轮实车压力 Mock 仅确认当时
 
 **在哪开**：**设置 → 高级 → 「CarPlay 导航播报期间，音量键调节…」**
 
-**作用**：只在 CarPlay 导航播报期间，把音量键指向导航音频流；其他时候按车机原有方式处理。
+**作用**：只在 CarPlay 导航播报期间，把音量键指向导航音频流；其他时候按车机原有方式处理。ECARX 跟随车机模式下，通过复刻车机的 CarPlay duck 广播和 alternate audio 焦点请求，让车机自己把音量键指向导航组；普通 Android 或关闭该开关时不发送这些厂商信号。
 
 **边界**：需要方向盘按键无障碍权限；通话、地图缩放、摇杆保持优先。详见 [docs/NAVIGATION_WHEEL_VOLUME.md](NAVIGATION_WHEEL_VOLUME.md)。
 

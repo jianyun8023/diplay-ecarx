@@ -73,6 +73,7 @@
 | 桌面启动批次 | 桌面首次 resume 后发 `com.ecarx.intent.action.EAS_LAUNCH_BAT_0ST`，之后批次陆续启动（含 `ecarx.xsf.inputservice`） | 接收广播后再打开 CarPlay | `EcarxLauncherStartup` | 实车 2026-11-06 / 11-07 |
 | 启动采样开机标识 | `Settings.Global.BOOT_COUNT`（只读）+ 进程 PID + controller owner + generation | 区分跨开机、进程重启及连接代次；读不到开机标识时仅保留原始事件 | `CarPlayStartupTimeline` | Robolectric；待实车 |
 | 音量 | `dumpsys car_service`：组 0 媒体、组 1 导航，每级 150 mB，-4800（0 级）到 +1050（39 级） | 读 `Settings.Global` | `CarNavigationVolume` | 实车 2026-11-07 |
+| CarPlay 导航音量键 | 广播 `com.lge.ivi.cp.action.CAR_PLAY_DUCK_COMMAND`（`command=duckAudio/unduckAudio`，`volume=0..100` 的压低百分比）设置 `CarAudioImplDCY11.mCPDuckingState`；另以 usage=MEDIA、contentType=33 的一次性焦点请求打开车机 alternate audio（`AudioControlMode=01123101`，不进入焦点栈）。两者同时成立时音量键返回 `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE`（12）→ group 1；否则按 active playback 优先级退回媒体 | 广播 + 焦点请求；仅实验性方向盘导航音量开关开启且识别 ECARX 时；sink 建立后打开，关闭时释放 | `EcarxCarPlayAudioHandshake` | car service 反编译 `CarAudioImplDCY11` / `MediaFocusControl`（2026-10-31、11-02）；实车待验证 |
 
 ## 4. 固件与第三方行为（已确认的坑）
 
@@ -135,6 +136,7 @@ stateDiagram-v2
 
 - ECARX 会静默吞掉 `USAGE_ASSISTANT`，Siri 走媒体输出。
 - 导航 usage 在音频控制器子通道播放，车机把音乐压到几乎听不见且 Android 无法设定幅度；混进音乐流则按导航/媒体音量差缩放。iPhone 的 `duckAudio` 比播报音频流早 80 / 210 ms 到达（实车 2026-11-07），据此在流打开时选通路。
+- 车机音量键的目标不是音频焦点：Geely `CarAudioImplDCY11.getSuggestedAudioUsage()` 先看 `mCPDuckingState && isAlternateAudioOn()`，成立才返回导航 usage 12；`mCPDuckingState` 只由 CarPlay duck 广播建立，alternate 模式由 content type 33 的焦点请求打开。DiPlay 在实验性方向盘导航音量开关下复刻这两步，实车待验证；普通 Android 或未开开关时不发送广播、不请求 alternate。
 - 冷启动后车机功放在没有任何焦点时不选源；导航播报需要持有可压低的临时焦点。
 - Geely/Lynk 车机只为 `VOICE_COMMUNICATION` 源打开麦克风，`VOICE_RECOGNITION` 录到静音。
 - GKUI 麦克风仲裁服务端未实现，申请必然失败；原厂助手与 CarPlay 的硬件麦克风争用没有解。
