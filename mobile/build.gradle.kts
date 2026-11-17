@@ -2,9 +2,27 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-// Optional local-only input. CI and ordinary source builds contain no accessory identity.
-val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSETS_DIR")
-    .orNull?.let { file(it).canonicalFile }
+// Optional local-only inputs. An environment variable wins; otherwise a git-ignored `.env` at the
+// repository root supplies the same names for local signing and MFi identity builds. CI has neither,
+// so ordinary source builds still contain no keys and no accessory identity.
+val dotEnv: Map<String, String> = rootProject.file(".env").takeIf { it.isFile }?.let { env ->
+    env.readLines().mapNotNull { raw ->
+        val line = raw.trim()
+        if (line.isEmpty() || line.startsWith("#")) return@mapNotNull null
+        val split = line.indexOf('=')
+        if (split <= 0) return@mapNotNull null
+        val value = line.substring(split + 1).trim()
+            .removeSurrounding("\"").removeSurrounding("'")
+            .replace("\${HOME}", System.getProperty("user.home"))
+        line.substring(0, split).trim() to value
+    }.toMap()
+} ?: emptyMap()
+
+fun localInput(name: String): String? =
+    providers.environmentVariable(name).orNull ?: dotEnv[name]?.takeIf { it.isNotEmpty() }
+
+val localAuthenticationAssets = localInput("DIPLAY_AUTH_ASSETS_DIR")
+    ?.let { file(it.replaceFirst("~", System.getProperty("user.home"))).canonicalFile }
 
 // Default ships ARM64 only; request others with -PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64.
 val diplayAbis: List<String> = (providers.gradleProperty("diplayAbis").orNull ?: "arm64-v8a")
@@ -47,12 +65,12 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file(
-                providers.environmentVariable("ANDROID_KEYSTORE_PATH")
-                    .getOrElse("missing-release-keystore.jks"),
+                localInput("ANDROID_KEYSTORE_PATH")
+                    .orEmpty().ifEmpty { "missing-release-keystore.jks" },
             )
-            storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").getOrElse("")
-            keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").getOrElse("")
-            keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").getOrElse("")
+            storePassword = localInput("ANDROID_KEYSTORE_PASSWORD").orEmpty()
+            keyAlias = localInput("ANDROID_KEY_ALIAS").orEmpty()
+            keyPassword = localInput("ANDROID_KEY_PASSWORD").orEmpty()
         }
     }
 

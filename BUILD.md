@@ -167,6 +167,18 @@ runtime-assets/
 
 普通源码构建不需要绕过这些检查；保持身份环境变量未设置即可。
 
+### 用 `.env` 保存本地输入
+
+签名与 MFi 身份也可以写进仓库根目录的 `.env`，省去每次 `export`。`.env` 已被 `.gitignore` 忽略，提交的模板是 [`.env.example`](.env.example)：
+
+```sh
+cp .env.example .env
+# 填好绝对路径后直接构建，不用再设环境变量
+./gradlew :mobile:assembleStandaloneRelease
+```
+
+同名环境变量优先于 `.env`；两者都没有时构建保持无身份、未签名，与 CI 和公开 Release 一致。
+
 ---
 
 ## 4. 第三步：构建
