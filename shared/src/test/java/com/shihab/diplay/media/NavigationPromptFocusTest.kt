@@ -281,28 +281,61 @@ class NavigationPromptFocusTest {
         audioFocus: Boolean = true,
         channel: Int = 0,
         skipRequest: () -> Boolean = { false },
+        promptSignal: ((Boolean) -> Boolean)? = null,
     ) = NavigationPromptFocus(
-        context, enabled, audioFocus, { navigationRouteAttributes(channel) }, reports::add, skipRequest = skipRequest,
+        context, enabled, audioFocus, { navigationRouteAttributes(channel) }, reports::add,
+        skipRequest = skipRequest, promptSignal = promptSignal,
     ).also(helpers::add)
 
-    @Test fun aCarOwnedDuckSkipsTheSecondPromptFocus() {
-        // The car's CarPlay duck broadcast lowers the music group itself; asking again would duck twice.
-        var carOwnsDuck = false
-        val focus = focus(skipRequest = { carOwnsDuck })
+    @Test fun aVendorMarkerKeepsTheNavigationFocusAndReleasesAfterTheAudibleTail() {
+        val markers = mutableListOf<Boolean>()
+        val focus = focus(promptSignal = { active -> markers += active; active })
+        focus.onDuck()
+        val sent = shadowOf(manager).lastAudioFocusRequest
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, sent.durationHint)
+        focus.onNavigationAudio(true)
+        focus.onUnduck()
+        idle(RELEASE_DELAY_MILLIS)
+        assertEquals(listOf(true), markers)
+        focus.onNavigationAudio(false)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS)
+        assertEquals(listOf(true, false), markers)
+        assertTrue(abandoned(sent))
+    }
+
+    @Test fun wheelMarkersFollowAudiblePromptsEvenWhenNavigationFocusIsOff() {
+        val markers = mutableListOf<Boolean>()
+        val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
+        focus.onNavigationAudio(true)
+        assertNull(shadowOf(manager).lastAudioFocusRequest)
+        assertEquals(listOf(true), markers)
+        assertEquals("off", focus.state())
+        focus.onNavigationAudio(false)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS)
+        assertEquals(listOf(true, false), markers)
+    }
+
+    @Test fun aFailedMarkerDoesNotPreventNavigationFocus() {
+        val focus = focus(promptSignal = { false })
         focus.onDuck()
         assertNotNull(shadowOf(manager).lastAudioFocusRequest)
-        focus.onUnduck()
+        assertEquals("held", focus.state())
+        assertTrue(focus.diagnosticReport().contains("promptSignalled=false"))
+    }
 
-        carOwnsDuck = true
+    @Test fun markerOnlyPromptsHaveATimeoutAndCannotRestartAfterClose() {
+        val markers = mutableListOf<Boolean>()
+        val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
         focus.onDuck()
-        // The previously granted request is still held; the skip only prevents a new one and reports via state().
-        assertTrue(focus.diagnosticReport().contains("trackedRequest=true"))
+        focus.onDuck()
+        idle(TIMEOUT_MILLIS)
+        assertEquals(listOf(true, false), markers)
+        focus.onNavigationAudio(true)
         focus.close()
-        carOwnsDuck = true
-        val fresh = focus(skipRequest = { carOwnsDuck })
-        fresh.onDuck()
-        assertTrue(reports.toString(), reports.any { it.contains("skipped trigger=duck music holds focus") })
-        assertTrue(fresh.diagnosticReport().contains("trackedRequest=false"))
+        focus.onDuck()
+        focus.onNavigationAudio(true)
+        idle(STREAM_TIMEOUT_MILLIS)
+        assertEquals(listOf(true, false, true, false), markers)
     }
 
     private fun idle(millis: Long) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis))

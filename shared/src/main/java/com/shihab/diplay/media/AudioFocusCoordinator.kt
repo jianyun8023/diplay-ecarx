@@ -26,6 +26,7 @@ internal class AudioFocusCoordinator(
     private val enabled: Boolean,
     private val muteMediaOnTransientLoss: Boolean = true,
     private val report: (String) -> Unit = {},
+    private val platformHandlesDucking: () -> Boolean = { false },
 ) {
     private data class Entry(
         val channel: AudioChannel,
@@ -62,7 +63,8 @@ internal class AudioFocusCoordinator(
             }
             runCatching { report("Audio: focus change=$change activeTracks=${active.size}") }
             val event = when (change) {
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> EVENT_DUCKED_LOSS
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->
+                    if (platformHandlesDucking()) EVENT_PLATFORM_DUCKED_LOSS else EVENT_DUCKED_LOSS
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> EVENT_TRANSIENT_LOSS
                 AudioManager.AUDIOFOCUS_GAIN -> EVENT_GAIN
                 // Preserve the existing permanent-loss workaround for ROMs that never send gain again.
@@ -220,6 +222,7 @@ internal class AudioFocusCoordinator(
         const val EVENT_REQUEST_GRANTED = 6
         const val EVENT_REQUEST_FAILED = 7
         const val EVENT_CLOSE = 8
+        const val EVENT_PLATFORM_DUCKED_LOSS = 9
 
         // Decision slots in the returned IntArray.
         const val ABANDON = 0

@@ -82,6 +82,25 @@ class AudioFocusSettingsTest {
         assertFalse(AirPlayPersistence.loadAudioFocusEnabled(activity))
     }
 
+    @Test fun carAudioControlIsOptInAndPreservesTheLegacyFocusSettings() {
+        val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
+        activity.getSharedPreferences("diplay_airplay", 0).edit().clear().commit()
+        assertFalse(AirPlayPersistence.loadNavigationCarAudioControl(activity))
+        AirPlayPersistence.saveNavigationFollowsIphone(activity, false)
+        AirPlayPersistence.saveAudioFocusEnabled(activity, false)
+        AirPlayPersistence.saveNavigationPromptAudioFocus(activity, false)
+        AirPlayPersistence.saveNavigationCarAudioControl(activity, true)
+        assertTrue(AirPlayPersistence.loadNavigationCarAudioControl(activity))
+        assertFalse(AirPlayPersistence.loadAudioFocusEnabled(activity))
+        assertFalse(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+        AirPlayPersistence.saveNavigationCarAudioControl(activity, false)
+        assertFalse(AirPlayPersistence.loadAudioFocusEnabled(activity))
+        assertFalse(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+        AirPlayPersistence.saveNavigationFollowsIphone(activity, true)
+        // The pre-PR follow-iPhone policy still supplies focus, independently of the new opt-in.
+        assertTrue(AirPlayPersistence.loadNavigationPromptAudioFocus(activity))
+    }
+
     private fun views(view: View): Sequence<View> = sequence {
         yield(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(views(view.getChildAt(index)))

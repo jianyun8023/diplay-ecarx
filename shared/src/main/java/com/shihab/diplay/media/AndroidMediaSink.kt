@@ -78,12 +78,7 @@ class AndroidMediaSink(
      */
     private val navigationFollowsIphone: Boolean = false,
     /** ECARX only: replay the car's CarPlay duck broadcast and alternate-audio mode (experimental wheel volume). */
-    private val ecarxNavigationWheelHandshake: () -> Boolean = { false },
-    /**
-     * True when the handshake owns the duck: the car lowers its own focus group from the duck
-     * broadcast, so DiPlay must not also duck the music for the same prompt.
-     */
-    private val carOwnsNavigationDuck: () -> Boolean = { false },
+    private val ecarxNavigationWheelHandshake: Boolean = false,
     private val debugLogsEnabled: () -> Boolean = { false },
 ) : MediaSink {
     // Each downlink publishes its own reference; a mic must match that stream and sample rate.
@@ -98,11 +93,15 @@ class AndroidMediaSink(
         videoDecoders[MAIN_SCREEN_TYPE]?.sampleNextFrame() ?: false
     }
     private val audioManager = appContext?.getSystemService(AudioManager::class.java)
+    private val ecarxAudioHandshake = if (ecarxNavigationWheelHandshake && appContext != null) {
+        EcarxCarPlayAudioHandshake(appContext, report = onAudioDiagnostic)
+    } else null
     private val audioFocusCoordinator = AudioFocusCoordinator(
         appContext,
         audioFocusEnabled,
         audioFocusAutoYield,
         onAudioDiagnostic,
+        platformHandlesDucking = { ecarxAudioHandshake?.isSignalling() == true },
     )
 
     private val navigationPromptFocus = NavigationPromptFocus(
@@ -115,24 +114,12 @@ class AndroidMediaSink(
         // in the music (car test 2026-11-07). Without music it still asks: after a cold boot the
         // amplifier has no source until something holds focus, and a first prompt was silent.
         skipRequest = {
-            // The car's duck broadcast lowers the music group itself on the car-owned route; asking
-            // for a second duck there would lower it twice (the car restores its own level on unduck).
-            carOwnsNavigationHandshake() ||
-                (navigationFollowsIphone && promptRoute() == NavigationAudioRoute.MUSIC_STREAM &&
-                    audioFocusCoordinator.mediaHoldsFocus())
+            navigationFollowsIphone && promptRoute() == NavigationAudioRoute.MUSIC_STREAM &&
+                audioFocusCoordinator.mediaHoldsFocus()
         },
         report = onAudioDiagnostic,
+        promptSignal = ecarxAudioHandshake?.let { handshake -> handshake::onPrompt },
     )
-
-    /** Replays the head unit's own CarPlay duck/alternate-audio handshake on ECARX. */
-    private val ecarxAudioHandshake: EcarxCarPlayAudioHandshake? =
-        if (appContext != null) {
-            EcarxCarPlayAudioHandshake(
-                appContext,
-                enabled = ecarxNavigationWheelHandshake,
-                report = onAudioDiagnostic,
-            ).also { it.start() }
-        } else null
 
     /** The iPhone's latest duckAudio/unduckAudio, for the per-prompt log line. */
     @Volatile private var iphoneDucking = false
@@ -141,7 +128,9 @@ class AndroidMediaSink(
      * The route of the current or next prompt. Following the iPhone, each navigation renderer moves
      * to it between prompts; a duckAudio arrives before the prompt's sound, in time for the move.
      */
-    private fun navigationRoute(): Int = NavigationAudioRoute.choose(navigationFollowsIphone, navigationChannel, iphoneDucking)
+    private fun navigationRoute(): Int = NavigationAudioRoute.choose(
+        navigationFollowsIphone, navigationChannel, iphoneDucking, ecarxNavigationWheelHandshake,
+    )
 
     /** The open navigation renderer that follows the iPhone, if any. */
     @Volatile private var followingNavigationRenderer: AudioRenderer? = null
@@ -154,17 +143,9 @@ class AndroidMediaSink(
     private fun promptRoute(): Int = if (iphoneDucking) navigationRoute()
         else followingNavigationRenderer?.navigationRoute ?: navigationRoute()
 
-    /** The car lowers the music itself only for a prompt on its own navigation channel (route 0). */
-    private fun carOwnsNavigationHandshake(): Boolean =
-        carOwnsNavigationDuck() && ecarxNavigationWheelHandshake() &&
-            navigationFollowsIphone && promptRoute() == NavigationAudioRoute.CAR_CHANNEL
-
-    override fun onAudioDuck(ducked: Boolean) = onAudioDuck(ducked, null)
-
-    override fun onAudioDuck(ducked: Boolean, volumeDb: Float?) {
+    override fun onAudioDuck(ducked: Boolean) {
         iphoneDucking = ducked
         if (ducked) navigationPromptFocus.onDuck() else navigationPromptFocus.onUnduck()
-        ecarxAudioHandshake?.onDuck(ducked, volumeDb)
     }
 
     /** dB for a navigation stream on [route]: the car's navigation volume on the music stream. */
@@ -826,9 +807,9 @@ class AndroidMediaSink(
         videoDiagnosticHandlers.clear()
         recoveryExecutor.shutdownNow()
         // Audio workers close asynchronously; none may reacquire focus after their sink closes.
-        ecarxAudioHandshake?.close()
         audioFocusCoordinator.close()
         navigationPromptFocus.close()
+        ecarxAudioHandshake?.close()
         synchronized(this) {
             audioClosed = true
             startedAudioStreams.clear()
@@ -929,7 +910,7 @@ class AndroidMediaSink(
             callEchoReferences.remove(id)
             null
         }
-        val followRoute = navigationFollowsIphone && isNavigationStream(format)
+        val followRoute = (navigationFollowsIphone || ecarxNavigationWheelHandshake) && isNavigationStream(format)
         val route = if (followRoute) navigationRoute() else navigationChannel
         if (followRoute) runCatching {
             onAudioDiagnostic("Audio: navigation route=${NavigationAudioRoute.label(route)} iphoneDuck=$iphoneDucking")

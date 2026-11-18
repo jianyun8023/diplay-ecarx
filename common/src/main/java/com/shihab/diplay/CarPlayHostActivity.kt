@@ -4354,6 +4354,9 @@ open class CarPlayHostActivity : ComponentActivity() {
         // Fully qualified on purpose: nothing else in this file needs the hud package.
         com.shihab.diplay.hud.NavigationOutputs.attachReport(HudReportSink(diagnosticLog))
         val debugContext = applicationContext
+        val carAudioControl = NavigationWheelSettings.enabled(this) &&
+            AirPlayPersistence.loadNavigationCarAudioControl(this) &&
+            com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified
         return AndroidMediaSink(
             debugLogsEnabled = { AirPlayPersistence.loadDebugLogsEnabled(debugContext) },
             surface = null,
@@ -4363,7 +4366,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             clusterVideoHeight = cluster?.heightPixels ?: 0,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
-            audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
+            audioFocusEnabled = carAudioControl || AirPlayPersistence.loadAudioFocusEnabled(this),
             audioFocusAutoYield = AirPlayPersistence.loadAudioFocusAutoYield(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
@@ -4399,16 +4402,8 @@ open class CarPlayHostActivity : ComponentActivity() {
             mainVideoFrameRate = fps,
             vendorLowLatencyDecoder = AirPlayPersistence.loadLowLatencyDecoder(this),
             mtkDecoderTuningEnabled = AirPlayPersistence.loadMtkDecoderTuning(this),
-            navigationPromptAudioFocus = AirPlayPersistence.loadNavigationPromptAudioFocus(this),
-            ecarxNavigationWheelHandshake = {
-                NavigationWheelSettings.enabled(this) &&
-                    com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified
-            },
-            // With the handshake on, the car's duck broadcast owns the music level on its route.
-            carOwnsNavigationDuck = {
-                NavigationWheelSettings.enabled(this) &&
-                    com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified
-            },
+            navigationPromptAudioFocus = carAudioControl || AirPlayPersistence.loadNavigationPromptAudioFocus(this),
+            ecarxNavigationWheelHandshake = carAudioControl,
         )
     }
 

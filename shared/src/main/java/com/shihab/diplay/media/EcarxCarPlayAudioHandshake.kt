@@ -8,30 +8,23 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import kotlin.math.pow
-import kotlin.math.roundToInt
 
 /**
- * Replays the head unit's own CarPlay audio handshake.
- *
- * ECARX's `CarAudioImplDCY11` keeps two extra states beside Android's audio focus:
- * `mCPDuckingState`, set only by [ACTION_CAR_PLAY_DUCK_COMMAND], and the alternate-audio mode opened
- * by an out-of-stack audio-focus request whose content type is 33. A volume key then selects the
- * navigation usage (12) instead of falling back to the last active playback (music). DiPlay does not
- * need to write the navigation volume group: the car changes its own group.
- *
- * The alternate request never enters the focus stack, so it does not own focus or change
- * `getCurrentAudioPeekInfo()`. The vendor mode still changes the head unit's `AudioControlMode`; this
- * is why the handshake is enabled only by the experimental wheel-volume setting and is closed with
- * the sink.
+ * Marks navigation playback for the ECARX volume keys. Music attenuation belongs to the head unit's
+ * focus policy: every broadcast uses volume=0, never the iPhone's requested duck depth. The marker
+ * follows NavigationPromptFocus's audible/duck lifetime, independently of its optional focus request.
  */
 internal class EcarxCarPlayAudioHandshake(
     context: Context?,
-    private val enabled: () -> Boolean,
     private val report: (String) -> Unit = {},
     private val audioManager: AudioManager? = context?.applicationContext
         ?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager,
     private val broadcast: (Intent) -> Unit = { context?.applicationContext?.sendBroadcast(it) },
+    private val alternateAudioOn: () -> Boolean? = {
+        runCatching {
+            audioManager?.javaClass?.getMethod("isAlternateAudioOn")?.invoke(audioManager) as? Boolean
+        }.getOrNull()
+    },
 ) {
     private val main = Handler(Looper.getMainLooper())
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -39,40 +32,35 @@ internal class EcarxCarPlayAudioHandshake(
     }
     private var alternateRequest: AudioFocusRequest? = null
     private var alternateAlreadyOn = false
-    private var ducked = false
+    @Volatile private var signalled = false
+    private var closed = false
 
-    /** Opens the vendor alternate-audio mode when the setting is on and this is an ECARX unit. */
-    fun start() {
-        if (!enabled()) return
-        openAlternate()
-    }
-
-    /** Called for each iPhone duckAudio (true) / unduckAudio (false), with its dB volume when sent. */
-    fun onDuck(ducked: Boolean, volumeDb: Float?) {
-        if (!enabled()) {
-            close()
-            return
-        }
-        if (ducked) {
-            openAlternate()
-            if (!canSignal()) {
-                report("CarPlay duck signal skipped: vendor audio mode is not open")
-                return
+    /** Returns a send fact, not a claim that the receiver applied the marker or granted focus. */
+    @Synchronized
+    fun onPrompt(active: Boolean): Boolean {
+        if (closed) return false
+        if (!active) {
+            if (signalled) {
+                // The receiver saves the current focus group's volume even for a zero-depth marker.
+                // Focus may now be navigation, and wheel keys may have changed its volume. Refresh
+                // that snapshot at zero depth before unduck, so it cannot restore an old nav level.
+                if (send("duckAudio")) signalled = !send("unduckAudio")
             }
-            this.ducked = true
-            sendDuck("duckAudio", duckPercent(volumeDb), volumeDb)
-        } else if (this.ducked) {
-            this.ducked = false
-            sendDuck("unduckAudio", 0, volumeDb)
+            return signalled
         }
+        if (!openAlternate()) return false
+        if (!signalled) signalled = send("duckAudio")
+        return signalled
     }
 
-    /** Clears a prompt the phone left open and releases the alternate mode this sink opened. */
+    /** Read without taking the marker lock from the primary-focus callback. */
+    fun isSignalling(): Boolean = signalled
+
+    @Synchronized
     fun close() {
-        if (ducked) {
-            ducked = false
-            sendDuck("unduckAudio", 0, null)
-        }
+        if (closed) return
+        onPrompt(false)
+        closed = true
         alternateRequest?.let { request ->
             runCatching { audioManager?.abandonAudioFocusRequest(request) }
                 .onFailure { report("CarPlay audio mode close failed: ${it.javaClass.simpleName}") }
@@ -81,73 +69,52 @@ internal class EcarxCarPlayAudioHandshake(
         alternateAlreadyOn = false
     }
 
-    fun state(): String = "ecarxAudioMode=${when {
-        alternateRequest != null -> "opened"
-        alternateAlreadyOn -> "already-on"
-        else -> "off"
-    }} ducked=$ducked enabled=${enabled()}"
+    @Synchronized
+    fun state(): String = "ecarxAudioMode=${when (alternateAudioOn()) {
+        true -> if (alternateAlreadyOn) "already-on" else "on"
+        false -> "off"
+        null -> "unknown"
+    }} promptSignalSent=$signalled closed=$closed"
 
-    private fun openAlternate() {
-        if (!enabled() || alternateRequest != null || alternateAlreadyOn) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            report("CarPlay audio mode unavailable api=${Build.VERSION.SDK_INT}")
-            return
+    private fun openAlternate(): Boolean {
+        val before = alternateAudioOn()
+        if (before == true) {
+            if (alternateRequest == null) alternateAlreadyOn = true
+            return true
         }
-        val manager = audioManager ?: return
-        val attributes = alternateAttributes()
-        if (attributes == null) {
-            report("CarPlay audio mode attributes unavailable")
-            return
+        // GRANTED is not a mode-state read: contentType 33 toggles rather than sets the mode.
+        if (before == null || alternateRequest != null || alternateAlreadyOn) {
+            report("CarPlay audio mode unavailable state=$before")
+            return false
         }
-        val request = runCatching {
-            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attributes)
-                .setOnAudioFocusChangeListener(listener, main)
-                .build()
-        }.getOrElse {
-            report("CarPlay audio mode request unavailable: ${it.javaClass.simpleName}")
-            return
-        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = audioManager ?: return false
+        val attributes = alternateAttributes() ?: return false
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(attributes)
+            .setOnAudioFocusChangeListener(listener, main)
+            .build()
         val result = runCatching { manager.requestAudioFocus(request) }.getOrElse {
             report("CarPlay audio mode request failed: ${it.javaClass.simpleName}")
-            return
+            return false
         }
-        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            alternateRequest = request
-            report("CarPlay audio mode opened result=$result")
-        } else if (alternateAudioOn(manager)) {
-            // A previous process opened the mode and did not close it. Reuse it, but never close it.
-            alternateAlreadyOn = true
-            report("CarPlay audio mode already on result=$result")
-        } else {
-            report("CarPlay audio mode rejected result=$result")
-        }
+        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) alternateRequest = request
+        val on = alternateAudioOn() == true
+        report("CarPlay audio mode request result=$result alternate=$on")
+        return on
     }
 
-    private fun canSignal(): Boolean {
-        if (alternateRequest != null || alternateAlreadyOn) return true
-        val manager = audioManager ?: return false
-        return alternateAudioOn(manager)
-    }
-
-    /**
-     * Stock Android 9 rewrites an unknown content type to 0, so build a normal media request and
-     * move the field afterwards; a vendor build that accepts 33 directly is used as-is.
-     */
+    /** Android 9 may rewrite unknown content types; preserve the vendor's out-of-stack type 33. */
     private fun alternateAttributes(): AudioAttributes? {
-        val requested = runCatching {
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(CONTENT_TYPE_ALTERNATE)
-                .build()
-        }.getOrNull()
-        if (requested?.contentType == CONTENT_TYPE_ALTERNATE) return requested
-        val base = runCatching {
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-        }.getOrNull() ?: return null
+        val requested = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(CONTENT_TYPE_ALTERNATE)
+            .build()
+        if (requested.contentType == CONTENT_TYPE_ALTERNATE) return requested
+        val base = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
         return runCatching {
             AudioAttributes::class.java.getDeclaredField("mContentType")
                 .apply { isAccessible = true }
@@ -156,36 +123,26 @@ internal class EcarxCarPlayAudioHandshake(
         }.getOrNull()
     }
 
-    /** The vendor framework's hidden read-only check; absent on ordinary Android builds. */
-    private fun alternateAudioOn(manager: AudioManager): Boolean = runCatching {
-        manager.javaClass.getMethod("isAlternateAudioOn").invoke(manager) as? Boolean
-    }.getOrNull() == true
-
-    private fun sendDuck(command: String, percent: Int, volumeDb: Float?) {
+    private fun send(command: String): Boolean {
         val intent = Intent(ACTION_CAR_PLAY_DUCK_COMMAND)
             .putExtra(EXTRA_COMMAND, command)
-            .putExtra(EXTRA_VOLUME, percent)
-        runCatching { broadcast(intent) }
-            .onFailure { report("CarPlay duck broadcast failed: ${it.javaClass.simpleName}") }
-        report("CarPlay duck=$command percent=$percent db=${volumeDb ?: "none"} alternate=${canSignal()}")
+            .putExtra(EXTRA_VOLUME, 0)
+        return runCatching { broadcast(intent) }.fold(
+            onSuccess = {
+                report("CarPlay prompt signal sent command=$command percent=0")
+                true
+            },
+            onFailure = {
+                report("CarPlay prompt signal failed command=$command detail=${it.javaClass.simpleName}")
+                false
+            },
+        )
     }
 
     companion object {
         const val ACTION_CAR_PLAY_DUCK_COMMAND = "com.lge.ivi.cp.action.CAR_PLAY_DUCK_COMMAND"
         const val EXTRA_COMMAND = "command"
         const val EXTRA_VOLUME = "volume"
-
-        /** The vendor content type that opens `AudioControlMode=01123101` without joining the focus stack. */
         private const val CONTENT_TYPE_ALTERNATE = 33
-
-        /**
-         * The vendor receiver lowers the current group by `(100 - volume)%`: a -13.98 dB prompt
-         * becomes 80, while an omitted volume leaves the level alone and only marks the prompt.
-         */
-        internal fun duckPercent(volumeDb: Float?): Int {
-            if (volumeDb == null || volumeDb.isNaN() || volumeDb.isInfinite()) return 0
-            val gain = 10.0.pow(volumeDb / 20.0)
-            return ((1.0 - gain) * 100.0).roundToInt().coerceIn(0, 100)
-        }
     }
 }

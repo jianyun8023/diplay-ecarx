@@ -27,6 +27,7 @@ object SettingsBackupCodec {
         "display_scale_percent",
         "advanced_audio_channel_mapping", "audio_focus_enabled", "audio_focus_auto_yield",
         "navigation_prompt_audio_focus", "disable_media_key_audio_focus", "media_audio_channel", "navigation_audio_channel",
+        "navigation_car_audio_control",
         "navigation_stream_type", "wireless_enabled", "wireless_hotspot_mode", "wifi_p2p_preferred_channel", "wifi_direct_scan_pause",
         "navigation_audio_attenuation_db",
         "navigation_usage_route_migrated",
