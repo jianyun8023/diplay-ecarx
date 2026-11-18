@@ -11,7 +11,8 @@ ServiceManager 查找对应 Binder 也没有找到，因此根本没有执行到
 车机接收手机媒体对应 **`A2DP_SINK=11`**，电话客户端对应 `HEADSET_CLIENT=16`。
 因此旧版 1/2 的获取失败，并不能证明车机的 11 不可用。AOSP 的 Sink 代理通过
 `Context.bindServiceAsUser` 获取，通常不是 ServiceManager 的全局服务；旧 Binder 兜底也不能证明
-车机没有蓝牙媒体服务。实际 ROM 是否允许本应用访问 Sink，仍要通过实车验证。
+车机没有蓝牙媒体服务。2026-11-14 更新：实车收尾已完成，用户确认让位行为 OK、默认开启，不再追加实车验证（见
+[平台笔记验证矩阵](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵)）。
 
 参考：
 
@@ -90,7 +91,7 @@ CarPlay 报告会话 active 后，只查找已配对列表中与当前所选手�
 - 新增蓝牙专项 58 项（29 个场景 × Android 9/13），设置和截图 6 项，均通过。
 - 公共源码树凭据检查与 `git diff --check` 通过。
 - 截图：`common/build/reports/bluetooth-media-yield-ui/`；验证汇总：`build/bluetooth-media-yield/verification.json`。
-- 未进行实车验证。
+- 未进行实车验证（本批）。2026-11-14 更新：蓝牙媒体让位已随用户收尾确认 OK、默认开启，不再列为待验项。
 
 ### BOOX NoteX2 实机探测（Android 11 / API 30）
 
