@@ -18,6 +18,8 @@ import com.shihab.diplay.airplay.MediaPacket
 import com.shihab.diplay.airplay.toHexString
 import java.io.Closeable
 import java.nio.ByteBuffer
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
 internal class AudioRenderer(
@@ -136,6 +138,7 @@ internal class AudioRenderer(
     private var lastDecoderOutputMetadata: String? = null
     private var decoderOutputReports = 0
     private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
+    private val callOutputReleased = if (format.audioType == "telephony") CountDownLatch(1) else null
 
     /** Called after the output worker has released all of its platform resources. */
     internal var onExit: (AudioRenderer) -> Unit = {}
@@ -186,6 +189,18 @@ internal class AudioRenderer(
         NavigationPlayback.close(navigationPlaybackToken)
         reportNavigationAudio(false, ended = true)
         thread.interrupt()
+    }
+
+    /** Wait off the sink monitor, keeping teardown bounded if the Android output is stalled. */
+    internal fun awaitCallOutputRelease(): Boolean {
+        val released = callOutputReleased ?: return true
+        if (!started) return true
+        return try {
+            released.await(CALL_OUTPUT_RELEASE_MILLIS, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
     }
 
     /**
@@ -239,6 +254,10 @@ internal class AudioRenderer(
                 applyNavigationAttenuation()
                 diagnosticStage = "packet"
                 val packet = reader.poll(nativePacketInfo, AUDIO_POLL_MILLIS)
+                if (!running) {
+                    packet?.release()
+                    break
+                }
                 if (packet != null) handle(AudioPacket(packet, nativePacketInfo[0].toInt(), nativePacketInfo[1]))
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
@@ -271,6 +290,7 @@ internal class AudioRenderer(
             reportNavigationAudio(false, ended = true)
             runCatching { logStatsIfDue(force = true) }
             try { release() } finally {
+                callOutputReleased?.countDown()
                 try {
                     try { consumer?.close() } finally { echoReference?.close() }
                 } finally { runCatching { onExit(this) } }
@@ -743,7 +763,7 @@ internal class AudioRenderer(
             val startWanted = bufferProgress.completedWrite(count, System.nanoTime())
             if (playbackStarted) reportNavigationPlayback(track)
             if (playbackStarted) trimClock(track)
-            if (startWanted) {
+            if (startWanted && running) {
                 startPlayback(track)
                 Log.i(TAG, "audio playback started type=${format.payloadType}")
             }
@@ -924,12 +944,20 @@ internal class AudioRenderer(
 
     @Synchronized
     private fun release() {
+        // A phone track left active after its network source closes drains to an underrun while
+        // microphone cleanup runs. Pause/flush the platform track before focus or codec cleanup.
+        callOutputReleased?.let { released ->
+            val focusOwner = output?.let(::focusOwner)
+            releaseTrack()
+            released.countDown()
+            focusOwner?.let(audioFocusCoordinator::release)
+        }
         releaseQueued()
         bufferProgress.close()
         nativePcm?.close()
         nativePcm = null
         NavigationPlayback.close(navigationPlaybackToken)
-        abandonAudioFocus()
+        if (callOutputReleased == null) abandonAudioFocus()
         val codec = codec
         this.codec = null
         if (codec != null) {
@@ -944,7 +972,7 @@ internal class AudioRenderer(
                 // Best effort.
             }
         }
-        releaseTrack()
+        if (callOutputReleased == null) releaseTrack()
     }
 
     @Synchronized
@@ -982,6 +1010,7 @@ internal class AudioRenderer(
     private companion object {
         const val TAG = "diplay-usb"
         const val AUDIO_POLL_MILLIS = 10L
+        const val CALL_OUTPUT_RELEASE_MILLIS = 250L
         /** About -54 dBFS: above dither, below any spoken prompt. */
         const val NAVIGATION_AUDIBLE_PEAK = 64
         /** Covers the track's playout delay so the prompt's tail is not cut by the release. */

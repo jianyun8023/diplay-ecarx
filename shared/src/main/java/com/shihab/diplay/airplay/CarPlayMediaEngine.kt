@@ -253,14 +253,7 @@ class CarPlayMediaEngine(
         // shared-output stop is admitted only when this release is the last holder, so a re-SETUP by
         // one session never stops an output another live session still shares.
         streams.remove(streamKey)?.close()
-        val audioMayStop = releaseLease(session, NativeMedia.LEASE_AUDIO, type, audioType)
-        audioMeta.remove(streamKey)
-        audioCaptures.remove(streamKey)?.close()
-        if (pendingMicrophone.remove(streamKey) != null &&
-            releaseLease(session, NativeMedia.LEASE_MICROPHONE, type, audioType)) {
-            sink.onMicrophoneStopped(streamId)
-        }
-        if (audioMayStop) sink.onAudioStopped(streamId)
+        stopAudioOutputs(streamKey)
 
         // protocols::airplay interprets the request, derives the DataStream keys and plans the
         // microphone; the platform binds the sockets and constructs its own MicrophoneConfig.
@@ -656,16 +649,7 @@ class CarPlayMediaEngine(
         // and data teardowns never emit a spurious audio stop; and only the last holder may stop it.
         tornDown.forEach { key ->
             if (!isScreenStreamType(key.type) && key.type != STREAM_TYPE_DATA) {
-                val streamId = AudioStreamId(key.type, key.audioType)
-                if (pendingMicrophone.remove(key) != null &&
-                    releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)) {
-                    sink.onMicrophoneStopped(streamId)
-                }
-                audioMeta.remove(key)
-                audioCaptures.remove(key)?.close()
-                if (releaseLease(session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)) {
-                    sink.onAudioStopped(streamId)
-                }
+                stopAudioOutputs(key)
             }
         }
         if (isScreenStreamType(type) && releaseLease(session, NativeMedia.LEASE_SCREEN, type, "")) {
@@ -711,22 +695,33 @@ class CarPlayMediaEngine(
         // id only, so one a newer session already uses stays.
         sessionStreams
             .filter { !isScreenStreamType(it.type) && it.type != STREAM_TYPE_DATA }
-            .forEach { key ->
-                val streamId = AudioStreamId(key.type, key.audioType)
-                if (pendingMicrophone.remove(key) != null &&
-                    releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)) {
-                    sink.onMicrophoneStopped(streamId)
-                }
-                if (releaseLease(session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)) {
-                    sink.onAudioStopped(streamId)
-                }
-            }
+            .forEach(::stopAudioOutputs)
         audioMeta.keys.filter { it.session === session }.forEach { audioMeta.remove(it) }
         pendingMicrophone.keys.filter { it.session === session }.forEach { key ->
             if (pendingMicrophone.remove(key) != null) releaseLease(session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)
         }
         audioCaptures.entries.filter { it.key.session === session }.forEach { (key, capture) ->
             if (audioCaptures.remove(key, capture)) capture.close()
+        }
+    }
+
+    /** The packet source has stopped. Retire an unshared phone track before capture can block. */
+    private fun stopAudioOutputs(key: StreamKey) {
+        val id = AudioStreamId(key.type, key.audioType)
+        val stopMicrophone = pendingMicrophone.remove(key) != null &&
+            releaseLease(key.session, NativeMedia.LEASE_MICROPHONE, key.type, key.audioType)
+        val stopAudio = releaseLease(key.session, NativeMedia.LEASE_AUDIO, key.type, key.audioType)
+        audioMeta.remove(key)
+        audioCaptures.remove(key)?.close()
+        if (key.audioType == "telephony") {
+            try {
+                if (stopAudio) sink.onAudioStopped(id)
+            } finally {
+                if (stopMicrophone) sink.onMicrophoneStopped(id)
+            }
+        } else {
+            if (stopMicrophone) sink.onMicrophoneStopped(id)
+            if (stopAudio) sink.onAudioStopped(id)
         }
     }
 
