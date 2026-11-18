@@ -538,12 +538,18 @@ class AndroidMediaSink(
     }
 
     override fun onAudioStopped(id: AudioStreamId) {
-        synchronized(this) {
+        val retired = synchronized(this) {
             startedAudioStreams -= id
             audioRoutes.remove(id)?.disconnect()
-            audioRenderers.remove(id)?.also { if (followingNavigationRenderer === it) followingNavigationRenderer = null }?.close()
+            val renderer = audioRenderers.remove(id)
+            if (followingNavigationRenderer === renderer) followingNavigationRenderer = null
+            renderer?.close()
             callEchoReferences.remove(id)
             updateMediaAudio(id, false)
+            renderer
+        }
+        if (retired?.awaitCallOutputRelease() == false) {
+            Log.w("diplay-usb", "audio phone output release wait expired stream=$id")
         }
     }
 
