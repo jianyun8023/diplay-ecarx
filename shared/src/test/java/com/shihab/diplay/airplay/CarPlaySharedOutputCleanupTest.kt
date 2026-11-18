@@ -148,14 +148,24 @@ class CarPlaySharedOutputCleanupTest {
         } finally { oldStream.close(); currentStream.close() }
     }
 
-    @Test fun singleSessionTeardownStillClosesAudioAndMicrophoneExactlyOnce() = Rig().use { rig ->
-        val key = rig.register(rig.old, 100, "telephony", microphone = true)
-        rig.engine.onTeardown(rig.old, 100)
-        assertEquals(listOf(key), rig.closed)
-        assertEquals(listOf(AudioStreamId(100, "telephony")), rig.audioStops)
-        assertEquals(listOf(AudioStreamId(100, "telephony")), rig.micStops)
-        assertTrue(rig.streams.isEmpty())
-        assertTrue(rig.microphones.isEmpty())
+    @Test fun phoneCleanupClosesTheSourceThenPlaybackThenMicrophone() {
+        val stopPaths: List<(Rig) -> Unit> = listOf(
+            { it.engine.onTeardown(it.old, 100) },
+            { it.engine.onSessionClosed(it.old) },
+            { it.engine.onAudio(it.old, 100, mapOf("audioType" to "telephony")) },
+        )
+        stopPaths.forEach { stop ->
+            Rig().use { rig ->
+                val key = rig.register(rig.old, 100, "telephony", microphone = true)
+                stop(rig)
+                assertEquals(listOf("close", "stop", "mic-stop"), rig.events)
+                assertEquals(listOf(key), rig.closed)
+                assertEquals(listOf(AudioStreamId(100, "telephony")), rig.audioStops)
+                assertEquals(listOf(AudioStreamId(100, "telephony")), rig.micStops)
+                assertTrue(rig.streams.isEmpty())
+                assertTrue(rig.microphones.isEmpty())
+            }
+        }
     }
 
     @Test fun lastScreenStillPublishesInactiveOnTeardownAndSessionClose() {
