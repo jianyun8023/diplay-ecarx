@@ -73,7 +73,8 @@
 | 桌面启动批次 | 桌面首次 resume 后发 `com.ecarx.intent.action.EAS_LAUNCH_BAT_0ST`，之后批次陆续启动（含 `ecarx.xsf.inputservice`） | 接收广播后再打开 CarPlay | `EcarxLauncherStartup` | 实车 2026-11-06 / 11-07 |
 | 启动采样开机标识 | `Settings.Global.BOOT_COUNT`（只读）+ 进程 PID + controller owner + generation | 区分跨开机、进程重启及连接代次；读不到开机标识时仅保留原始事件 | `CarPlayStartupTimeline` | Robolectric；待实车 |
 | 音量 | `dumpsys car_service`：组 0 媒体、组 1 导航，每级 150 mB，-4800（0 级）到 +1050（39 级） | 读 `Settings.Global` | `CarNavigationVolume` | 实车 2026-11-07 |
-| CarPlay 导航音量键 | 广播 `com.lge.ivi.cp.action.CAR_PLAY_DUCK_COMMAND`（`command=duckAudio/unduckAudio`，固定 `volume=0`）设置 `mCPDuckingState`；`AudioManager.isAlternateAudioOn()` 先读 alternate，已开复用，否则 contentType=33 请求取反后再次实读（`AudioControlMode=01123101`，不入焦点栈）。两状态同时成立时音量键返回 usage 12 → group 1，通话／语音优先 | 导航音量键、独立的「由车机控制导航音频」开关同时开启且识别 ECARX 才启用；车机模式强制 route 0 与导航焦点，由车机压低，DiPlay 不叠加 PCM duck；新开关默认关，关闭沿用原 DiPlay 策略 | `EcarxCarPlayAudioHandshake` / `NavigationPromptFocus` | 厂商反编译；自动化覆盖；本批实车待验证 |
+| 厂商导航标记的音量保护 | `android.car.Car.getCarManager("audio")` → `CarAudioManager.getGroupVolume(int)` / `setGroupVolume(int,int,int)`；广播可能写组 0 媒体、1 导航、2 语音、4 通话 | 已声明的 `android.car.permission.CAR_CONTROL_AUDIO_VOLUME`；标记前要求这些组可读且为正，结束时仅在确认 unduck 把音量恢复成旧值后写回播报结束时的设定 | `EcarxCarAudioVolume` | 2026-11-18 登记：接口和写入语义来自目标固件反编译；组映射来自 11-07 实车 dump；权限和实际收发待实车 |
+| CarPlay 导航音量键 | 广播 `com.lge.ivi.cp.action.CAR_PLAY_DUCK_COMMAND`（`command=duckAudio/unduckAudio`，固定 `volume=0`）设置 `mCPDuckingState`；contentType=33 切换 alternate（`AudioControlMode=01123101`，不入焦点栈），用 `AudioManager.isAlternateAudioOn()` 核实开关。两状态同时成立时音量键返回 usage 12 → group 1，通话／语音优先 | 两开关开启、识别 ECARX 且能开启和释放 alternate 才采用车机路由和焦点；alternate 只在单次播报中持有。停车辅助警报期间接收端可忽略两种广播 | `EcarxCarPlayAudioHandshake` / `NavigationPromptFocus` | 厂商反编译；自动化覆盖；本批实车待验证 |
 
 ## 4. 固件与第三方行为（已确认的坑）
 
@@ -136,7 +137,7 @@ stateDiagram-v2
 
 - ECARX 会静默吞掉 `USAGE_ASSISTANT`，Siri 走媒体输出。
 - 导航 usage 在音频控制器子通道播放，车机把音乐压到几乎听不见且 Android 无法设定幅度；混进音乐流则按导航/媒体音量差缩放。iPhone 的 `duckAudio` 比播报音频流早 80 / 210 ms 到达（实车 2026-11-07），据此在流打开时选通路。
-- 车机音量键在通话／优先语音之后检查 `mCPDuckingState && isAlternateAudioOn()`，成立返回导航 usage 12。新车机音频模式以零压低广播标记 route 0 播报，申请导航焦点并由车机压低音乐，DiPlay 不叠加 PCM duck。厂商连零压低广播也会保存／恢复音量，因此 unduck 前先用零压低刷新当前组快照，保留播报中通过音量键调整的导航音量。车机压低过多时关闭新模式并重连，使用 PR 前的 DiPlay 路径；原有配置不改写。新模式实车待验证，默认关闭。
+- 零压低广播也会保存焦点组音量并把 0 钳到 1。DiPlay 在可写音量组有 0 或无法读取时跳过标记；结束时只发 unduck，检测到固件回写旧音量后才恢复用户设定。停车辅助警报吞掉 unduck 时，结束播报仍释放 DiPlay 持有的 alternate，切断厂商导航选组条件。实车清单见[导航音量键](NAVIGATION_WHEEL_VOLUME.md#real-car-acceptance)。
 - 冷启动后车机功放在没有任何焦点时不选源；导航播报需要持有可压低的临时焦点。
 - Geely/Lynk 车机只为 `VOICE_COMMUNICATION` 源打开麦克风，`VOICE_RECOGNITION` 录到静音。
 - GKUI 麦克风仲裁服务端未实现，申请必然失败；原厂助手与 CarPlay 的硬件麦克风争用没有解。

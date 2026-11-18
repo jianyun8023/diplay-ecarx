@@ -35,6 +35,19 @@ class SettingsBackupCodecTest {
     }
 
     @Test
+    fun firstImportRejectsNonBooleanCarAudioControl() {
+        val document = """
+            {"format": "diplay-settings", "version": 1, "settings": {
+              "diplay_airplay": {"navigation_car_audio_control": "true"}
+            }}
+        """.trimIndent()
+        val outcome = SettingsBackupCodec.import(context, document.toByteArray())
+        assertEquals(SettingsImportOutcome(0, 1, false), outcome)
+        assertFalse(prefs("diplay_airplay").contains("navigation_car_audio_control"))
+        assertFalse(AirPlayPersistence.loadNavigationCarAudioControl(context))
+    }
+
+    @Test
     fun exportOmitsSensitiveAndNavigationKeys() {
         prefs("diplay_airplay").edit()
             .putInt("display_fps", 60)

@@ -1,5 +1,6 @@
 package com.shihab.diplay.media
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
@@ -9,121 +10,118 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 
-/**
- * Marks navigation playback for the ECARX volume keys. Music attenuation belongs to the head unit's
- * focus policy: every broadcast uses volume=0, never the iPhone's requested duck depth. The marker
- * follows NavigationPromptFocus's audible/duck lifetime, independently of its optional focus request.
- *
- * The vendor mode is a probed capability, not an assumption: the first prompt verifies that the
- * out-of-stack request really turned `isAlternateAudioOn` on (GRANTED alone proves nothing, since
- * contentType 33 toggles rather than sets the mode). A head unit that fails the probe never signals
- * for the rest of the session — prompts still play and the MCU still ducks through the ordinary
- * prompt focus, only the volume-key grouping is not marked. A crashed earlier session can leave the
- * receiver's duck flag set with no firmware timeout to clear it, so this session's first marker is
- * preceded by one unduck; the duck that immediately follows bounds any misbehaving restore.
- */
+/** Marks eligible navigation prompts for ECARX volume-key grouping. Prompt focus drives the MCU duck. */
 internal class EcarxCarPlayAudioHandshake(
-    context: Context?,
+    context: Context,
     private val report: (String) -> Unit = {},
-    private val audioManager: AudioManager? = context?.applicationContext
-        ?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager,
-    private val broadcast: (Intent) -> Unit = { context?.applicationContext?.sendBroadcast(it) },
+    private val audioManager: AudioManager? = context.getSystemService(AudioManager::class.java),
+    private val broadcast: (Intent, (() -> Unit)?) -> Unit = { intent, delivered ->
+        val receiver = delivered?.let {
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) = it()
+            }
+        }
+        context.sendOrderedBroadcast(intent, null, receiver, null, 0, null, null)
+    },
     private val alternateAudioOn: () -> Boolean? = {
         runCatching {
             audioManager?.javaClass?.getMethod("isAlternateAudioOn")?.invoke(audioManager) as? Boolean
         }.getOrNull()
     },
+    private val connectVolume: (Handler) -> EcarxCarAudioGroups = { EcarxCarAudioVolume(context, it, report) },
 ) {
+    private enum class Probe { PENDING, VERIFIED, UNSUPPORTED }
+
     private val main = Handler(Looper.getMainLooper())
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
         report("CarPlay audio mode focus change=$change")
     }
     private var alternateRequest: AudioFocusRequest? = null
-    private var alternateAlreadyOn = false
-    /** Latched once a prompt verified the mode applies; an unverified firmware never signals afterwards. */
-    private var modeVerified = false
-    private var modeUnsupported = false
-    @Volatile private var signalled = false
-    private var sweptResidue = false
+    private var modeProbe = Probe.PENDING
+    private var volume: EcarxCarAudioGroups? = null
+    private var markedNavigationVolume: Int? = null
+    private var awaitingUnduck = false
     private var closed = false
 
-    /** Returns a send fact, not a claim that the receiver applied the marker or granted focus. */
+    /** Resolve the capability before choosing any renderer route or focus policy for this sink. */
     @Synchronized
-    fun onPrompt(active: Boolean): Boolean {
-        if (closed || modeUnsupported) return false
-        if (!active) {
-            if (signalled) {
-                // The receiver saves the current focus group's volume even for a zero-depth marker.
-                // Focus may now be navigation, and wheel keys may have changed its volume. Refresh
-                // that snapshot at zero depth before unduck, so it cannot restore an old nav level.
-                if (send("duckAudio")) signalled = !send("unduckAudio")
+    fun probe(): Boolean {
+        if (closed) return false
+        if (modeProbe == Probe.PENDING) {
+            val whileOwned = openAlternate()
+            val released = releaseAlternate()
+            modeProbe = if (whileOwned && released) Probe.VERIFIED else Probe.UNSUPPORTED
+            if (modeProbe == Probe.VERIFIED) {
+                volume = connectVolume(main)
+            } else {
+                report("CarPlay audio modeProbe=unsupported; using DiPlay routing and focus")
             }
-            return signalled
         }
-        if (!openAlternate()) return false
-        if (!sweptResidue) sweptResidue = send("unduckAudio")
-        if (!signalled) signalled = send("duckAudio")
-        return signalled
+        return modeProbe == Probe.VERIFIED
     }
 
-    /** Read without taking the marker lock from the primary-focus callback. */
-    fun isSignalling(): Boolean = signalled
+    /** True while a marker was sent for the current prompt. */
+    @Synchronized
+    fun onPrompt(active: Boolean): Boolean {
+        if (closed || modeProbe != Probe.VERIFIED) return false
+        if (!active) {
+            endPrompt()
+            return false
+        }
+        if (markedNavigationVolume != null) return true
+        if (awaitingUnduck || alternateRequest != null) return false
+        val navigationVolume = volume?.markableNavigationVolume()
+        if (navigationVolume == null) {
+            report("CarPlay prompt signal skipped: volume group at zero or unavailable")
+            return false
+        }
+        if (!openAlternate() || !send("duckAudio")) {
+            releaseAlternate()
+            return false
+        }
+        markedNavigationVolume = navigationVolume
+        return true
+    }
 
     @Synchronized
     fun close() {
         if (closed) return
-        onPrompt(false)
+        endPrompt()
         closed = true
-        alternateRequest?.let { request ->
-            runCatching { audioManager?.abandonAudioFocusRequest(request) }
-                .onFailure { report("CarPlay audio mode close failed: ${it.javaClass.simpleName}") }
-        }
-        alternateRequest = null
-        alternateAlreadyOn = false
+        if (!awaitingUnduck) volume?.close()
     }
 
     @Synchronized
-    fun state(): String = "ecarxAudioMode=${when (alternateAudioOn()) {
-        true -> if (alternateAlreadyOn) "already-on" else "on"
-        false -> "off"
-        null -> "unknown"
-    }} modeProbe=${when {
-        modeUnsupported -> "unsupported"
-        modeVerified -> "verified"
-        else -> "pending"
-    }} promptSignalSent=$signalled closed=$closed"
+    fun state(): String = "ecarxAudioMode=${alternateAudioOn()} modeProbe=${modeProbe.name.lowercase()}" +
+        " promptSignalSent=${markedNavigationVolume != null} unduckPending=$awaitingUnduck closed=$closed"
 
-    private fun openAlternate(): Boolean {
-        val before = alternateAudioOn()
-        if (before == true) {
-            if (alternateRequest == null) alternateAlreadyOn = true
-            modeVerified = true
-            return true
+    private fun endPrompt() {
+        // PAS can discard unduck entirely. Release our alternate request even in that case, since
+        // the firmware selects the navigation group only while its marker AND alternate are true.
+        releaseAlternate()
+        val initial = markedNavigationVolume ?: return
+        markedNavigationVolume = null
+        val groups = checkNotNull(volume)
+        val before = groups.navigationVolume()
+        awaitingUnduck = true
+        if (!send("unduckAudio") {
+                synchronized(this) {
+                    // Parking assist also writes media volume. Only reconcile the navigation group.
+                    if (before != null && before != initial && groups.navigationVolume() == initial) {
+                        groups.restoreNavigationVolume(before)
+                    }
+                    awaitingUnduck = false
+                    if (closed) groups.close()
+                }
+            }) {
+            awaitingUnduck = false
         }
-        if (modeVerified) {
-            // Verified earlier this session; a later false or unreadable state is transient. The
-            // marker stays as sent and the prompt focus still drives the MCU duck on its own.
-            report("CarPlay audio mode unavailable state=$before")
-            return false
-        }
-        // First use is the capability probe. GRANTED is not a mode-state read: contentType 33
-        // toggles rather than sets the mode, so the post-request read decides support.
-        val requested = before != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            requestAlternateMode()
-        val on = requested && alternateAudioOn() == true
-        if (on) {
-            modeVerified = true
-            return true
-        }
-        if (!modeUnsupported) {
-            modeUnsupported = true
-            report("CarPlay audio mode unsupported state=$before; prompt signal disabled")
-            abandonProbeRequest()
-        }
-        return false
     }
 
-    private fun requestAlternateMode(): Boolean {
+    private fun openAlternate(): Boolean {
+        // A mode already on may belong to the OEM or another client. Never adopt a mode we cannot
+        // release at the end of this prompt.
+        if (alternateAudioOn() != false || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         val manager = audioManager ?: return false
         val attributes = alternateAttributes() ?: return false
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -134,17 +132,22 @@ internal class EcarxCarPlayAudioHandshake(
             report("CarPlay audio mode request failed: ${it.javaClass.simpleName}")
             return false
         }
-        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) alternateRequest = request
         report("CarPlay audio mode request result=$result")
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return false
+        alternateRequest = request
+        return alternateAudioOn() == true
     }
 
-    /** The probe failed after a grant: return the out-of-stack request rather than leave it behind. */
-    private fun abandonProbeRequest() {
-        alternateRequest?.let { request ->
-            runCatching { audioManager?.abandonAudioFocusRequest(request) }
+    private fun releaseAlternate(): Boolean {
+        val held = alternateRequest ?: return true
+        val result = runCatching { audioManager?.abandonAudioFocusRequest(held) }.getOrNull()
+        val on = alternateAudioOn()
+        if (on == false) {
+            alternateRequest = null
+            return true
         }
-        alternateRequest = null
+        report("CarPlay audio mode release unconfirmed result=$result state=$on")
+        return false
     }
 
     /** Android 9 may rewrite unknown content types; preserve the vendor's out-of-stack type 33. */
@@ -154,23 +157,19 @@ internal class EcarxCarPlayAudioHandshake(
             .setContentType(CONTENT_TYPE_ALTERNATE)
             .build()
         if (requested.contentType == CONTENT_TYPE_ALTERNATE) return requested
-        val base = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .build()
         return runCatching {
             AudioAttributes::class.java.getDeclaredField("mContentType")
                 .apply { isAccessible = true }
-                .setInt(base, CONTENT_TYPE_ALTERNATE)
-            base
+                .setInt(requested, CONTENT_TYPE_ALTERNATE)
+            requested
         }.getOrNull()
     }
 
-    private fun send(command: String): Boolean {
+    private fun send(command: String, delivered: (() -> Unit)? = null): Boolean {
         val intent = Intent(ACTION_CAR_PLAY_DUCK_COMMAND)
             .putExtra(EXTRA_COMMAND, command)
             .putExtra(EXTRA_VOLUME, 0)
-        return runCatching { broadcast(intent) }.fold(
+        return runCatching { broadcast(intent, delivered) }.fold(
             onSuccess = {
                 report("CarPlay prompt signal sent command=$command percent=0")
                 true

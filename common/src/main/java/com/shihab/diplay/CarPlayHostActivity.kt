@@ -4366,7 +4366,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             clusterVideoHeight = cluster?.heightPixels ?: 0,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
-            audioFocusEnabled = carAudioControl || AirPlayPersistence.loadAudioFocusEnabled(this),
+            audioFocusEnabled = AirPlayPersistence.loadAudioFocusEnabled(this),
             audioFocusAutoYield = AirPlayPersistence.loadAudioFocusAutoYield(this),
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
@@ -4402,7 +4402,7 @@ open class CarPlayHostActivity : ComponentActivity() {
             mainVideoFrameRate = fps,
             vendorLowLatencyDecoder = AirPlayPersistence.loadLowLatencyDecoder(this),
             mtkDecoderTuningEnabled = AirPlayPersistence.loadMtkDecoderTuning(this),
-            navigationPromptAudioFocus = carAudioControl || AirPlayPersistence.loadNavigationPromptAudioFocus(this),
+            navigationPromptAudioFocus = AirPlayPersistence.loadNavigationPromptAudioFocus(this),
             ecarxNavigationWheelHandshake = carAudioControl,
         )
     }

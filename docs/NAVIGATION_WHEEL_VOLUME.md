@@ -19,7 +19,7 @@ The evidence comes from the locally recovered `CarAudioImplDCY11` and `MediaFocu
 | v124 `50829942`, v125 `950e9470` | v125 was the PR #46 Soft AP observer test package, not a new audio backend. Both used configured navigation routing and duck/unduck-driven temporary focus. |
 | v128 / v129 `98e99167` | The relevant sink and prompt-focus implementations match v125. The later v129 car investigation recorded inaudible common prompts without duckAudio/focus; that history cannot establish that focus-free route 0 works now. |
 | Later `b4d1b805`, `455d719e` | Audible-PCM-based prompt lifetime replaced open-stream lifetime; follow-iPhone routing selects the car or music route. This is part of the retained DiPlay policy, rather than functionality first introduced by this PR. |
-| PR base `f3e7f852` | The precise pre-PR comparison for the off mode. The new car-owned preference is separate, defaults off and does not rewrite the prior focus settings. |
+| PR base `d1425f52` | The pre-PR comparison for the off mode. The car-owned preference defaults off and preserves the saved focus settings. |
 
 Version codes alone do not identify source: v125 and v129 were package-time overrides. Their local package build-source records establish the commits above; no private package or authentication asset is included here.
 
@@ -30,37 +30,29 @@ Under **Settings → Advanced**, enable **Wheel volume during navigation guidanc
 | Car audio control | Playback and ducking |
 | --- | --- |
 | Off (default) | Preserve the pre-PR DiPlay playback, routing, focus and ducking behavior. Existing settings retain their values. No ECARX alternate request or CarPlay duck broadcast is added. |
-| On | Use the separate car navigation channel (route 0) for every prompt, request navigation focus, and let the car lower music. DiPlay adds neither percentage-based broadcast attenuation nor a second media PCM duck. If the car makes music too quiet, turn this switch off and reconnect. |
+| On | When the alternate-mode probe passes, route prompts to the car navigation channel (route 0) and let the car lower music while navigation focus is granted. The legacy DiPlay playback and focus policy applies when the probe fails. |
 
 The off mode retains the existing accessibility-service key routing: only an active prompt with an identifiable separate legacy stream can be captured. Automatic/usage routing, media stream 3 and ambiguous routes pass through. That path requires wheel-key accessibility permission. Calls, zoom and joystick retain priority; consumed DOWN/repeats/UP remain paired.
 
-The on mode uses the car's volume-key selection. During guidance and its buffered tail, the vendor marker selects navigation usage 12 (group 1), subject to the car's higher call/voice priorities. Guidance without an iPhone duckAudio command is also marked. Silence and prompt cleanup restore normal key targeting. This backend does not require accessibility-service interception for route 0.
+The on mode uses the car's volume-key selection. During guidance and its buffered tail, the vendor marker selects navigation usage 12 (group 1), subject to the car's higher call/voice priorities. Guidance without an iPhone duckAudio command can also be marked. The adapter skips the marker if any group the receiver could write is at zero or unreadable.
 
 ## Implementation boundaries
 
-- The saved `navigation_car_audio_control` preference is independent of the existing focus preferences. The host activates it only when navigation volume keys are enabled and ECARX is identified. Only that combination supplies the vendor adapter, forces navigation focus, pins route 0 and delegates ducking. The off path uses the original configuration.
-- Rust `media::audio::scheduler` retains routing and gain policy. `NavigationPromptFocus` executes the existing duck/audible/tail/timeout decisions for both the car focus request and the vendor marker, without another prompt timer. No new software-duck algorithm or amplitude setting is introduced.
-- Duck ownership is single and verified. The music stands down for the whole prompt window — `NavigationPromptFocus.platformOwnsPromptDuck()` (prompt focus held or marker sent) — not for a successful marker send only: the MCU ducks the music while the prompt focus is granted (car test 2026-11-07), so a CAN_DUCK loss to the music in that window maps to `PlatformDuckingLoss` and DiPlay adds no second PCM duck. Send failure does not shorten the window.
-- `EcarxCarPlayAudioHandshake` treats the vendor mode as a probed capability, not an assumption. The first prompt verifies that the out-of-stack request really turned `isAlternateAudioOn` on (GRANTED alone proves nothing); an already-on mode is adopted without toggling it. A probe failure — unreadable state, rejected request, or a grant without the mode — latches `unsupported` for the session, returns the probe request and never signals again: prompts keep playing with prompt focus and MCU ducking, only volume-key grouping is not marked. Diagnostics report `modeProbe=pending|verified|unsupported`.
-- `com.lge.ivi.cp.action.CAR_PLAY_DUCK_COMMAND` always uses **volume=0**: the broadcast marks the prompt without requesting music attenuation. Transient-loss mute and denied-focus mute remain in force.
-- The receiver's duck flag is global with no firmware timeout. A crashed earlier session can leave it set, so this session's first marker is preceded by one unduck — the duck that immediately follows bounds any misbehaving restore of that sweep. Whether unduck on an un-ducked receiver is a no-op stays a real-car check.
-- Even at zero depth, the vendor receiver saves/restores a focus group's volume index. Before unduck, a zero-depth marker refreshes the snapshot to preserve navigation volume changes made during guidance. Repeated active notifications do not resend markers. Close clears the marker and prevents late callbacks from reopening the mode.
+- The host offers the adapter when navigation volume keys and car audio control are enabled on an identified ECARX unit. The sink verifies that it can open and release alternate mode before choosing the car route, focus and ducking policy. An unreadable state, a failed request, a grant without a state change, or an already-on mode results in `modeProbe=unsupported` and the saved DiPlay policy. A mode already on may belong to another client.
+- Rust `media::audio::scheduler` retains routing and gain policy. `NavigationPromptFocus` uses the existing duck, audible PCM, tail and timeout decisions. A granted navigation focus transfers attenuation to the MCU, so a CAN_DUCK loss during that grant maps to `PlatformDuckingLoss`. Transient-loss mute and denied-focus mute remain in force.
+- Every marker uses `volume=0`. The firmware still saves the current focus group's index and clamps the result to at least 1. The adapter requires groups 0, 1, 2 and 4 to have readable positive levels before sending duck. It sends only unduck at the end. If the ordered broadcast completes and the navigation group has returned to its starting value, the adapter preserves the driver's changed level, including 0. That correction applies to the navigation group only.
+- Parking Assist can ignore unduck and leave the firmware flag set. On prompt release, the app releases its own alternate request independently of broadcast delivery. This removes one of the two conditions for the firmware's navigation key targeting. Broadcast completion gives no confirmation of the raw firmware flag.
 
 ## Validation
 
-Automated checks cover the default-off preference and preserved legacy choices, backup round trips, both backend settings layouts at 1920×1080, routing, actual focus outcomes, platform-owned ducking, alternate adoption/rejection/unknown state, zero attenuation, repeated marks, adjusted navigation volume, tail/timeout and close.
-
-Local verification on 2026-11-18 (v2 probe/sweep/window changes):
-
-- Targeted JVM checks after the v2 changes: shared `EcarxCarPlayAudioHandshakeTest` **10**, `NavigationPromptFocusTest` **72**, `AudioFocusAutoYieldTest` **45**, `AndroidMediaSinkStateTest` **1**, `AndroidMediaSinkDetachTest` **5**, `AudioRouteAttributesTest` **6** — all passed, no failures or skips. These are selected tests, not a rerun of the full suite.
-- The earlier full-batch numbers on this branch (shared 122 / common 26, Rust scheduler tests 16, ARM64 native 638 exports plus `JNI_OnLoad`, `:mobile:lintDebug` / `:mobile:assembleDebug`) predate the v2 changes; CI reruns them.
-- `git diff --check` passed; the two native-graphics settings captures below use 1920×1080 landscape. UI rendering is simulated and does not establish real-car behavior.
+Automated checks cover the default-off preference, malformed backup values, the sink's legacy route and focus on probe failure, volume protection across focus-group changes, navigation adjustment to zero, discarded Parking Assist cleanup, alternate ownership, and audible tail, timeout and disconnect. The settings screenshots below were generated at 1920×1080.
 
 ```sh
 ./gradlew --offline --no-daemon \
   :shared:testDebugUnitTest \
   --tests '*EcarxCarPlayAudioHandshakeTest' --tests '*NavigationPromptFocusTest' \
   --tests '*AudioFocusAutoYieldTest' --tests '*NavigationAudioRouteTest' \
+  --tests '*AndroidMediaSinkStateTest' --tests '*AndroidMediaSinkDetachTest' --tests '*AudioRouteAttributesTest' \
   :common:testDebugUnitTest \
   --tests '*AudioFocusSettingsTest' --tests '*SettingsBackupCodecTest' \
   --tests '*EcarxSettingsScreenshotsTest.navigationAudioBackendChoiceFitsTheCurrentHeadUnit' \
@@ -75,14 +67,12 @@ scripts/check_rust_android_native.sh arm64-v8a
 
 ![Existing DiPlay backend, 1920×1080](screenshots/navigation-audio-diplay-1920x1080.png)
 
-Real-car acceptance remains required:
+## Real-car acceptance
 
-1. With the switch off, compare against the pre-PR package using the same saved settings. Confirm original playback and ducking and no vendor handshake signals.
-2. With it on, confirm the first navigation prompt after cold boot is audible without music, then repeat with music playing.
-3. During guidance, check `isAlterAudioOn=true`, `isDucking=true`, suggested usage 12 and group 1 changes from volume keys. The new navigation level must remain after guidance ends, including when navigation was already atop the focus stack.
-4. Check for a single car-owned attenuation, common prompts without duckAudio, buffered tails, missing-unduck timeout, disconnect and normal key targeting afterward. Record routing/DSP and app-restart behavior separately.
-5. v2 additions: (a) whether a duckable focus loss actually reaches DiPlay's music while a marker is active — it decides whether the `PlatformDuckingLoss` mapping is exercised or is harmless redundancy; (b) whether the sweep unduck is a no-op on an un-ducked receiver; (c) a firmware without the vendor mode (probe fails) degrades to the off-equivalent prompt path with one `modeProbe=unsupported` diagnostic line and no further broadcasts.
-
-The private broadcast is not a pure state-only API: the receiver still writes the focus group's index and clamps a ducked result to at least 1 even when `volume=0`. Include an initially muted/zero-volume case in car acceptance. Its global duck state has no firmware timeout; the v2 sweep unduck bounds a dead session's residue to one restart, but a failed cleanup broadcast must still not be mistaken for verified recovery. The local tests cover the probe latch, the sweep ordering, normal close and a surviving process's prompt timeout, not cleanup after process death or interference from another vendor client.
+1. Compare the off setting to the pre-PR package with the same preferences. On a firmware that fails the probe, compare the on setting with off for route, focus and ducking, and check `modeProbe=unsupported`.
+2. Verify that the first prompt after cold boot is audible, with and without music. Include iPhone coexist guidance, the actual MCU attenuation and focus notifications, buffered tails, missing-unduck timeout and disconnect.
+3. Verify the platform-signed app can read and restore the real car audio group. Check group 1 key targeting and confirm a newly adjusted level persists after the prompt, including an adjustment to 0. Start separate prompts with media or navigation at 0 and verify the firmware marker is skipped and the level stays at 0.
+4. Let a Parking Assist warning overlap the end of a marked prompt. Verify alternate turns off and the physical keys return to their normal target even if the receiver ignores unduck. Check a new prompt after the warning. Record the raw duck flag separately from the key target.
+5. Record the vendor mode and group state after killing and restarting the app mid-prompt. The out-of-stack mode has no verified process-death cleanup. Also verify that a mode already owned by another vendor client is left intact.
 
 Historical confirmation of the accessibility feature does not establish acceptance of the new car backend. See the [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md).

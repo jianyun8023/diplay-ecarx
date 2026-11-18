@@ -68,6 +68,7 @@ object SettingsBackupCodec {
     private val FILES = mapOf(
         "diplay_airplay" to Policy.Allow(AIRPLAY_KEYS, AIRPLAY_PREFIXES,
             types = mapOf("navigation_usage_route_migrated" to KeyType.BOOLEAN,
+                "navigation_car_audio_control" to KeyType.BOOLEAN,
                 "navigation_oem_content" to KeyType.BOOLEAN)),
         "diplay" to Policy.Allow(DIPLAY_KEYS),
         // These readers call getInt and getBoolean, which throw on any other stored type. A key that is not stored yet

@@ -136,13 +136,11 @@ internal class NavigationPromptFocus(
     }
 
     /**
-     * True while a prompt plays through its own focus or the vendor marker. The head unit then owns
-     * the duck — its MCU ducks the music while the prompt focus is granted (car test 2026-11-07),
-     * and the vendor marker only adds the volume-key grouping — so a CAN_DUCK loss to the music in
-     * that window must not also lower DiPlay's own PCM. Send failure does not shorten the window.
+     * The MCU ducks music while the prompt's focus is granted (car test 2026-11-07).
+     * A marker by itself only affects volume-key grouping.
      */
     @Synchronized
-    fun platformOwnsPromptDuck(): Boolean = request != null || promptSignalled
+    fun platformOwnsPromptDuck(): Boolean = request != null
 
     @Synchronized fun diagnosticReport(): String = "Focus navigation " +
         NativeAudioScheduler.focusDiagnostics(diagnostics, 0, 0) +

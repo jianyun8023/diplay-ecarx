@@ -335,12 +335,12 @@ class NavigationPromptFocusTest {
         assertFalse(focus.platformOwnsPromptDuck())
     }
 
-    @Test fun aMarkerWithoutFocusAlsoOwnsThePlatformDuck() {
+    @Test fun aMarkerWithoutFocusDoesNotOwnThePlatformDuck() {
         val markers = mutableListOf<Boolean>()
         val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
         assertFalse(focus.platformOwnsPromptDuck())
         focus.onNavigationAudio(true)
-        assertTrue(focus.platformOwnsPromptDuck())
+        assertFalse(focus.platformOwnsPromptDuck())
         focus.onNavigationAudio(false)
         idle(AUDIBLE_RELEASE_DELAY_MILLIS)
         assertFalse(focus.platformOwnsPromptDuck())

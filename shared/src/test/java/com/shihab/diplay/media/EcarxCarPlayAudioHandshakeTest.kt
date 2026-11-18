@@ -1,8 +1,12 @@
 package com.shihab.diplay.media
 
+import android.car.Car
 import android.content.Intent
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -16,150 +20,254 @@ class EcarxCarPlayAudioHandshakeTest {
     private val app = RuntimeEnvironment.getApplication()
     private val audio = app.getSystemService(AudioManager::class.java)
     private val sent = mutableListOf<Intent>()
-    private var mode: Boolean? = false
-    private var acceptsMode = true
+    private val reports = mutableListOf<String>()
+    private val volumes = mutableListOf(20, 10, 14, 10)
+    private val restored = mutableListOf<Int>()
+    private var volumeReadable = true
+    private var volumeClosed = false
+    private var currentGroup = 0
+    private var savedGroup = -1
+    private var savedVolume = 0
+    private var parkingWarning = false
+    private var alternateReadable = true
+    private var alternateAlreadyOn = false
+    private var alternateSupported = true
+    private var deliverUnduck = true
+    private var unduckComplete: (() -> Unit)? = null
+
+    @Before fun allowFocus() {
+        shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+    }
+
+    private fun isAlternateOn(): Boolean? {
+        if (!alternateReadable) return null
+        val shadow = shadowOf(audio)
+        val request = shadow.lastAudioFocusRequest?.audioFocusRequest
+        return alternateAlreadyOn || alternateSupported && request?.audioAttributes?.contentType == 33 &&
+            request !== shadow.lastAbandonedAudioFocusRequest
+    }
 
     private fun handshake() = EcarxCarPlayAudioHandshake(
-        app, broadcast = { sent += it }, alternateAudioOn = {
-            if (mode == false && shadowOf(audio).lastAudioFocusRequest != null &&
-                shadowOf(audio).lastAudioFocusRequest.audioFocusRequest.audioAttributes.contentType == 33 &&
-                acceptsMode) mode = true
-            mode
+        app, report = reports::add, alternateAudioOn = ::isAlternateOn,
+        connectVolume = {
+            object : EcarxCarAudioGroups {
+                override fun markableNavigationVolume() = volumes[1].takeIf { volumeReadable && volumes.all { it > 0 } }
+                override fun navigationVolume() = volumes[1].takeIf { volumeReadable }
+                override fun restoreNavigationVolume(value: Int) {
+                    restored += value
+                    volumes[1] = value
+                }
+                override fun close() { volumeClosed = true }
+            }
+        },
+        broadcast = { intent, complete ->
+            sent += intent
+            assertEquals(0, intent.getIntExtra("volume", -1))
+            if (!parkingWarning) {
+                if (intent.getStringExtra("command") == "duckAudio") {
+                    savedGroup = currentGroup
+                    savedVolume = volumes[currentGroup]
+                    volumes[currentGroup] = maxOf(1, savedVolume)
+                } else if (savedGroup >= 0) {
+                    volumes[savedGroup] = savedVolume
+                    savedGroup = -1
+                }
+            }
+            if (deliverUnduck) complete?.invoke() else unduckComplete = complete
         },
     )
 
-    @Test fun aPromptOpensTheVendorModeAndMarksWithoutAttenuating() {
-        shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+    private fun commands() = sent.map { it.getStringExtra("command") }
+
+    @Test fun carAudioVolumeChecksTheFirmwareGroupsAndRestoresOnlyNavigation() {
+        Car.reset()
+        Car.available = true
+        shadowOf(app).grantPermissions("android.car.permission.CAR_CONTROL_AUDIO_VOLUME")
+        val groups = EcarxCarAudioVolume(app, Handler(Looper.getMainLooper()), reports::add)
+        try {
+            val settings = Car.last.audio.volumes
+            settings.putAll(mapOf(0 to 20, 1 to 10, 2 to 14, 3 to 0, 4 to 0))
+            assertNull(groups.markableNavigationVolume())
+            settings[4] = 12
+            assertEquals(10, groups.markableNavigationVolume())
+            groups.restoreNavigationVolume(0)
+            assertEquals(0, groups.navigationVolume())
+            assertEquals(20, settings[0])
+        } finally {
+            groups.close()
+            assertTrue(Car.last.disconnected)
+            Car.reset()
+        }
+    }
+
+    @Test fun probeVerifiesBothTransitionsWithoutBroadcastAndTheModeBelongsToEachPrompt() {
         val handshake = handshake()
+        assertTrue(handshake.probe())
+        assertEquals(false, isAlternateOn())
+        assertTrue(sent.isEmpty())
         assertTrue(handshake.onPrompt(true))
         val request = shadowOf(audio).lastAudioFocusRequest.audioFocusRequest
         assertEquals(33, request.audioAttributes.contentType)
-        assertEquals(1, request.audioAttributes.usage)
-        // The first marker is preceded by one unduck: a crashed earlier session can leave the
-        // receiver's duck flag set with no firmware timeout to clear it, and the duck that
-        // immediately follows bounds any misbehaving restore of that sweep.
-        assertEquals(listOf("unduckAudio", "duckAudio"), sent.map { it.getStringExtra("command") })
-        assertTrue(sent.all { it.getIntExtra("volume", -1) == 0 })
-        assertTrue(handshake.isSignalling())
-        handshake.close()
-        assertSame(request, shadowOf(audio).lastAbandonedAudioFocusRequest)
-        assertFalse(handshake.isSignalling())
-    }
-
-    @Test fun anAlreadyOpenModeIsAdoptedWithoutTogglingOrAbandoningIt() {
-        mode = true
-        val handshake = handshake()
-        assertTrue(handshake.onPrompt(true))
-        assertNull(shadowOf(audio).lastAudioFocusRequest)
-        handshake.close()
-        assertNull(shadowOf(audio).lastAbandonedAudioFocusRequest)
-    }
-
-    @Test fun repeatedPromptMarksDoNotRepeatTheDuckBroadcast() {
-        mode = true
-        val handshake = handshake()
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN, request.focusGain)
+        assertEquals(true, isAlternateOn())
         repeat(3) { assertTrue(handshake.onPrompt(true)) }
-        assertEquals(listOf("unduckAudio", "duckAudio"), sent.map { it.getStringExtra("command") })
+        assertEquals(listOf("duckAudio"), commands())
         handshake.onPrompt(false)
-        assertEquals(
-            listOf("unduckAudio", "duckAudio", "duckAudio", "unduckAudio"),
-            sent.map { it.getStringExtra("command") },
-        )
-        assertTrue(sent.all { it.getIntExtra("volume", -1) == 0 })
+        assertEquals(false, isAlternateOn())
+        assertSame(request, shadowOf(audio).lastAbandonedAudioFocusRequest)
+        assertEquals(listOf("duckAudio", "unduckAudio"), commands())
+        assertTrue(handshake.onPrompt(true))
+        assertEquals(true, isAlternateOn())
+        handshake.close()
+        assertEquals(false, isAlternateOn())
     }
 
-    @Test fun unduckKeepsTheNavigationVolumeAdjustedByTheWheel() {
-        mode = true
-        // The vendor snapshots and restores the current focus group's index even at volume=0.
-        val groups = intArrayOf(20, 10)
-        var focusGroup = 1
-        var savedGroup = -1
-        var savedVolume = 0
-        val handshake = EcarxCarPlayAudioHandshake(app, alternateAudioOn = { mode }, broadcast = { intent ->
-            val volume = intent.getIntExtra("volume", -1)
-            assertEquals(0, volume)
-            if (intent.getStringExtra("command") == "duckAudio") {
-                savedGroup = focusGroup
-                savedVolume = groups[focusGroup]
-                groups[focusGroup] = maxOf(1, ((100 - volume) * groups[focusGroup]) / 100)
-            } else if (savedGroup >= 0) {
-                groups[savedGroup] = savedVolume
-                savedGroup = -1
-            }
-        })
-        handshake.onPrompt(true)
-        groups[1] = 16
+    @Test fun initiallyZeroMediaIsNotRaisedWhenFocusMovesToNavigation() {
+        val handshake = handshake()
+        assertTrue(handshake.probe())
+        volumes[0] = 0
+        assertFalse(handshake.onPrompt(true))
+        currentGroup = 1
         handshake.onPrompt(false)
-        assertArrayEquals(intArrayOf(20, 16), groups)
+        assertEquals(listOf(0, 10, 14, 10), volumes)
+        assertTrue(sent.isEmpty())
+        assertEquals(false, isAlternateOn())
         handshake.close()
     }
 
-    @Test fun closePreventsLateAudioFromReopeningTheMode() {
-        mode = true
+    @Test fun zeroNavigationAndUnreadableGroupsAlsoSkipTheMarker() {
         val handshake = handshake()
-        handshake.onPrompt(true)
-        handshake.close()
-        val count = sent.size
+        assertTrue(handshake.probe())
+        volumes[1] = 0
         assertFalse(handshake.onPrompt(true))
-        assertEquals(count, sent.size)
+        volumes[1] = 10
+        volumeReadable = false
+        assertFalse(handshake.onPrompt(true))
+        assertTrue(sent.isEmpty())
+        volumeReadable = true
+        assertTrue(handshake.onPrompt(true))
         handshake.close()
-        assertEquals(count, sent.size)
     }
 
-    @Test fun anUnreadableModeDoesNotAttemptAToggle() {
-        mode = null
+    @Test fun unduckDoesNotReplaceTheSnapshotWhenTheFocusGroupChanges() {
         val handshake = handshake()
+        assertTrue(handshake.probe())
+        assertTrue(handshake.onPrompt(true))
+        currentGroup = 1
+        volumes[1] = 0
+        handshake.onPrompt(false)
+        assertEquals(listOf(20, 0, 14, 10), volumes)
+        assertEquals(listOf("duckAudio", "unduckAudio"), commands())
+        assertTrue(restored.isEmpty())
+        handshake.close()
+    }
+
+    @Test fun unduckPreservesAChangeToTheGroupTheFirmwareActuallyRestored() {
+        val handshake = handshake()
+        assertTrue(handshake.probe())
+        currentGroup = 1
+        assertTrue(handshake.onPrompt(true))
+        volumes[1] = 0
+        deliverUnduck = false
+        handshake.close()
+        assertEquals(10, volumes[1])
+        assertFalse(volumeClosed)
+        unduckComplete!!.invoke()
+        assertEquals(0, volumes[1])
+        assertEquals(listOf(0), restored)
+        assertTrue(volumeClosed)
+    }
+
+    @Test fun parkingWarningMayIgnoreUnduckButCannotKeepOurAlternateModeOpen() {
+        val handshake = handshake()
+        assertTrue(handshake.probe())
+        assertTrue(handshake.onPrompt(true))
+        assertTrue(savedGroup >= 0 && isAlternateOn() == true)
+        parkingWarning = true
+        volumes[0] = 2
+        deliverUnduck = false
+        handshake.onPrompt(false)
+        assertTrue(savedGroup >= 0) // The receiver discarded the broadcast.
+        assertEquals(false, isAlternateOn())
+        parkingWarning = false
+        volumes[0] = 20 // The parking policy restores media after the discarded unduck.
+        unduckComplete!!.invoke()
+        assertEquals(20, volumes[0])
+        assertTrue(restored.isEmpty())
+        deliverUnduck = true
+        assertTrue(handshake.onPrompt(true))
+        handshake.onPrompt(false)
+        assertEquals(-1, savedGroup)
+        assertEquals(false, isAlternateOn())
+        handshake.close()
+    }
+
+    @Test fun quietCloseWaitsForCleanupAndLateAudioCannotReopenTheMode() {
+        val handshake = handshake()
+        assertTrue(handshake.probe())
+        assertTrue(handshake.onPrompt(true))
+        deliverUnduck = false
+        handshake.onPrompt(false)
         assertFalse(handshake.onPrompt(true))
+        handshake.close()
+        assertFalse(handshake.onPrompt(true))
+        assertEquals(listOf("duckAudio", "unduckAudio"), commands())
+        unduckComplete!!.invoke()
+        assertTrue(volumeClosed)
+    }
+
+    @Test fun anAlreadyOpenModeIsLeftWithItsExistingOwner() {
+        alternateAlreadyOn = true
+        val handshake = handshake()
+        assertFalse(handshake.probe())
+        assertFalse(handshake.onPrompt(true))
+        handshake.close()
         assertNull(shadowOf(audio).lastAudioFocusRequest)
+        assertNull(shadowOf(audio).lastAbandonedAudioFocusRequest)
         assertTrue(sent.isEmpty())
     }
 
-    @Test fun aRejectedModeDoesNotSendAPromptMarker() {
-        acceptsMode = false
+    @Test fun anUnreadableProbeIsLatchedForTheSinkWithoutAttemptingAToggle() {
+        alternateReadable = false
+        val handshake = handshake()
+        assertFalse(handshake.probe())
+        alternateReadable = true
+        assertFalse(handshake.probe())
+        assertFalse(handshake.onPrompt(true))
+        assertNull(shadowOf(audio).lastAudioFocusRequest)
+        assertTrue(sent.isEmpty())
+        assertEquals(1, reports.count { "modeProbe=unsupported" in it })
+        handshake.close()
+    }
+
+    @Test fun aRejectedRequestDoesNotSendAMarker() {
         shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
         val handshake = handshake()
+        assertFalse(handshake.probe())
         assertFalse(handshake.onPrompt(true))
         assertTrue(sent.isEmpty())
+        handshake.close()
     }
 
-    @Test fun aGrantedRequestDoesNotProveThatTheModeIsOn() {
-        shadowOf(audio).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
-        val handshake = EcarxCarPlayAudioHandshake(app, alternateAudioOn = { false }, broadcast = { sent += it })
+    @Test fun aGrantedRequestWithoutAChangeStillReturnsTheProbeRequest() {
+        alternateSupported = false
+        val handshake = handshake()
+        assertFalse(handshake.probe())
         assertFalse(handshake.onPrompt(true))
         assertTrue(sent.isEmpty())
-        assertTrue(handshake.state().contains("ecarxAudioMode=off"))
-        assertTrue(handshake.state().contains("modeProbe=unsupported"))
-        // The probe failed after a grant: the out-of-stack request goes back, not left behind.
         assertNotNull(shadowOf(audio).lastAbandonedAudioFocusRequest)
         handshake.close()
     }
 
-    @Test fun anUnsupportedProbeDisablesTheMarkerForTheSession() {
-        mode = null
+    @Test fun aVerifiedModeBecomingTemporarilyUnreadableDoesNotChangeCapability() {
         val handshake = handshake()
+        assertTrue(handshake.probe())
+        alternateReadable = false
         assertFalse(handshake.onPrompt(true))
         assertTrue(sent.isEmpty())
-        // The vendor mode appearing later does not rearm the disabled session.
-        mode = true
-        assertFalse(handshake.onPrompt(true))
-        assertTrue(sent.isEmpty())
-        assertTrue(handshake.state().contains("modeProbe=unsupported"))
-        handshake.close()
-        assertFalse(handshake.onPrompt(false))
-    }
-
-    @Test fun aVerifiedModeReadFailingLaterIsTransientNotUnsupported() {
-        mode = true
-        val handshake = handshake()
-        assertTrue(handshake.onPrompt(true))
-        mode = null
-        // A verified session keeps its sent marker; the unreadable state is a transient refusal.
-        assertFalse(handshake.onPrompt(true))
         assertTrue(handshake.state().contains("modeProbe=verified"))
-        handshake.onPrompt(false)
-        assertEquals(
-            listOf("unduckAudio", "duckAudio", "duckAudio", "unduckAudio"),
-            sent.map { it.getStringExtra("command") },
-        )
+        alternateReadable = true
+        assertTrue(handshake.onPrompt(true))
+        handshake.close()
     }
 }
