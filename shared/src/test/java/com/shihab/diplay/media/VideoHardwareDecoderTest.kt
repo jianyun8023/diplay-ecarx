@@ -23,6 +23,8 @@ import org.robolectric.shadows.ShadowMediaCodec
 import org.robolectric.shadows.ShadowMediaCodecList
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class VideoDecoderSelectionTest {
     private val ecarx = listOf(
@@ -79,6 +81,8 @@ class VideoDecoderSelectionTest {
 @Config(sdk = [28], manifest = Config.NONE, shadows = [VideoHardwareDecoderTest.BusyCodec::class])
 class VideoHardwareDecoderTest {
     private val reports = CopyOnWriteArrayList<String>()
+    private val hardwareAvailable = CountDownLatch(1)
+    private val hardwareConfigured = CountDownLatch(1)
     private val surfaces = mutableListOf<Surface>()
     private var sink: AndroidMediaSink? = null
     private val avcC = byteArrayOf(1, 0x42, 0xC0.toByte(), 0x1E, 0xFF.toByte(), 0xE1.toByte(),
@@ -137,11 +141,11 @@ class VideoHardwareDecoderTest {
         assertTrue(reports.any { "software decoder fallback decoder=$SOFTWARE hardware=$HARDWARE" in it })
 
         // The worker finds the hardware free again and rebuilds on it at the next keyframe.
-        val deadline = System.currentTimeMillis() + 5_000
-        while (reports.none { "available again" in it } && System.currentTimeMillis() < deadline) Thread.sleep(50)
-        assertTrue(reports.any { "hardware decoder $HARDWARE available again" in it })
-        sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        assertTrue(reports.toString(), hardwareAvailable.await(5, TimeUnit.SECONDS))
+        // The diagnostic is emitted before releasing the software codec. Let the worker finish that job.
         barrier()
+        sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        assertTrue(reports.toString(), hardwareConfigured.await(5, TimeUnit.SECONDS))
         assertEquals(HARDWARE, BusyCodec.created.last())
         assertEquals(1, reports.count { "decoder=$HARDWARE mime=" in it })
     }
@@ -157,7 +161,11 @@ class VideoHardwareDecoderTest {
     private fun surface() = Surface(SurfaceTexture(0)).also { surfaces += it }
     private fun configure() {
         sink = AndroidMediaSink(surface = null)
-        sink!!.setVideoDiagnosticHandler(110) { reports += it }
+        sink!!.setVideoDiagnosticHandler(110) {
+            reports += it
+            if ("hardware decoder $HARDWARE available again" in it) hardwareAvailable.countDown()
+            if ("decoder=$HARDWARE mime=" in it) hardwareConfigured.countDown()
+        }
         sink!!.setSurface(110, surface())
         sink!!.onVideoConfig(110, avcC)
         sink!!.onVideoFrame(110, idr, 1L, System.nanoTime())

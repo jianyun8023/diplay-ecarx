@@ -82,6 +82,24 @@ class AudioFocusAutoYieldTest {
         assertTrue(volumes(phone).isEmpty())
     }
 
+    @Test fun platformNavigationDuckingDoesNotAlsoLowerThePcmButTransientMuteStillWorks() {
+        var platformDucking = true
+        val coordinator = AudioFocusCoordinator(context, true, true,
+            platformHandlesDucking = { platformDucking }).also(coordinators::add)
+        val first = track(); val second = track()
+        coordinator.acquire(first, AudioChannel.MEDIA, attributes)
+        coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)
+        coordinator.acquire(second, AudioChannel.MEDIA, attributes)
+        assertTrue(volumes(first).isEmpty())
+        assertTrue(volumes(second).isEmpty())
+        coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        assertEquals(listOf(0f), volumes(first))
+        coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+        platformDucking = false
+        coordinator.listener.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)
+        assertEquals(listOf(0f, 1f, 0.2f), volumes(first))
+    }
+
     @Test fun musicHoldsFocusOnlyWhileItIsTheGrantedRequest() {
         val coordinator = coordinator()
         assertFalse(coordinator.mediaHoldsFocus())

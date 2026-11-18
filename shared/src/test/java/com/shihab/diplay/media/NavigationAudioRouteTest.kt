@@ -12,6 +12,12 @@ class NavigationAudioRouteTest {
         assertEquals(5, NavigationAudioRoute.choose(false, configured = 5, iphoneDucking = true))
     }
 
+    @Test fun wheelVolumeKeepsAllPromptsOnTheSeparateNavigationGroup() {
+        for (follows in listOf(true, false)) for (ducked in listOf(true, false)) {
+            assertEquals(NavigationAudioRoute.CAR_CHANNEL, NavigationAudioRoute.choose(follows, 3, ducked, wheelVolume = true))
+        }
+    }
+
     @Test fun promptsOnTheMusicStreamFollowTheCarsNavigationVolume() {
         // 1.5 dB per car volume step; the PCM can only be lowered.
         assertEquals(-6, CarNavigationVolume.relativeDb(mediaStep = 10, navigationStep = 6))

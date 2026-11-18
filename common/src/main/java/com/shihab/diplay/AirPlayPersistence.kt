@@ -48,6 +48,7 @@ object AirPlayPersistence {
     private const val KEY_AUDIO_FOCUS_ENABLED = "audio_focus_enabled"
     private const val KEY_AUDIO_FOCUS_AUTO_YIELD = "audio_focus_auto_yield"
     private const val KEY_NAVIGATION_PROMPT_AUDIO_FOCUS = "navigation_prompt_audio_focus"
+    private const val KEY_NAVIGATION_CAR_AUDIO_CONTROL = "navigation_car_audio_control"
     private const val KEY_NAVIGATION_FOLLOWS_IPHONE = "navigation_follows_iphone"
     private const val KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS = "disable_media_key_audio_focus"
     private const val KEY_MEDIA_AUDIO_CHANNEL = "media_audio_channel"
@@ -266,7 +267,15 @@ object AirPlayPersistence {
             .apply()
     }
 
-    /** Each navigation prompt requests duckable focus while audio focus is on. */
+    /** Opt-in car backend; false preserves the existing DiPlay playback and ducking policy. */
+    fun loadNavigationCarAudioControl(context: Context): Boolean = preferences(context)
+        .getBoolean(KEY_NAVIGATION_CAR_AUDIO_CONTROL, false)
+
+    fun saveNavigationCarAudioControl(context: Context, enabled: Boolean) {
+        preferences(context).edit().putBoolean(KEY_NAVIGATION_CAR_AUDIO_CONTROL, enabled).apply()
+    }
+
+    /** Legacy DiPlay prompt-focus policy; independent of the opt-in car-owned backend. */
     fun loadNavigationPromptAudioFocus(context: Context): Boolean = loadNavigationFollowsIphone(context) ||
         preferences(context)
             .getBoolean(KEY_NAVIGATION_PROMPT_AUDIO_FOCUS, true)

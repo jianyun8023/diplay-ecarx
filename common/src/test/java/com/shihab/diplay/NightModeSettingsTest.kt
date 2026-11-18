@@ -219,18 +219,15 @@ class NightModeSettingsTest {
     private fun appearanceSummary(mode: CarPlayNightMode) =
         activity.getString(R.string.carplay_night_mode) + " · " + activity.getString(modeLabel(mode))
 
-    private fun renderOverview() {
+    private fun renderOverview() = renderSettingsPage(SettingsCategory.OVERVIEW)
+
+    private fun renderSettings() = renderSettingsPage(SettingsCategory.DISPLAY)
+
+    private fun renderSettingsPage(category: SettingsCategory) {
         ReflectionHelpers.setField(activity, "page", "settings")
-        ReflectionHelpers.setField(activity, "settingsCategory", SettingsCategory.OVERVIEW)
+        ReflectionHelpers.setField(activity, "settingsCategory", category)
         ReflectionHelpers.callInstanceMethod<Unit>(activity, "render")
         page = ReflectionHelpers.getField<ScrollView>(activity, "rootScroll").getChildAt(0) as LinearLayout
-    }
-
-    private fun renderSettings() {
-        page = LinearLayout(activity)
-        DiPlayActivity::class.java.getDeclaredMethod("displaySettings", LinearLayout::class.java)
-            .apply { isAccessible = true }.invoke(activity, page)
-        activity.setContentView(page)
     }
 
     private fun assertAmbientVisible(expected: Boolean) {

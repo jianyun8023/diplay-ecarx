@@ -3719,9 +3719,21 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         toggle(card, getString(R.string.settings_navigation_wheel_volume), getString(R.string.settings_navigation_wheel_volume_description),
             NavigationWheelSettings.enabled(this)) {
             NavigationWheelSettings.setEnabled(this, it)
+            if (AirPlayPersistence.loadNavigationCarAudioControl(this)) markReconnectNeeded()
             render()
         }
-        if (!NavigationWheelSettings.enabled(this) || WheelKeyService.connected()) return
+        if (!NavigationWheelSettings.enabled(this)) return
+        if (com.shihab.diplay.hud.EcarxCapabilities.detect(this).identified) {
+            toggle(card, getString(R.string.settings_navigation_car_audio_control),
+                getString(R.string.settings_navigation_car_audio_control_description),
+                AirPlayPersistence.loadNavigationCarAudioControl(this)) {
+                AirPlayPersistence.saveNavigationCarAudioControl(this, it)
+                markReconnectNeeded()
+                render()
+            }
+            if (AirPlayPersistence.loadNavigationCarAudioControl(this)) return
+        }
+        if (WheelKeyService.connected()) return
         card.addView(label(getString(R.string.settings_navigation_wheel_service_required), 14, WARNING))
         card.addView(button(getString(R.string.wheel_keys_open_settings), false) {
             if (!UsbAutoConfirmService.openSettings(this)) toast(getString(R.string.wheel_keys_no_settings))
