@@ -323,6 +323,29 @@ class NavigationPromptFocusTest {
         assertTrue(focus.diagnosticReport().contains("promptSignalled=false"))
     }
 
+    @Test fun platformOwnsPromptDuckSpansTheWholePromptWindow() {
+        val focus = focus(promptSignal = { false })
+        assertFalse(focus.platformOwnsPromptDuck())
+        focus.onDuck()
+        // The MCU ducks while the prompt focus is granted even when the marker send failed,
+        // so the platform duck window follows the focus, not the marker send.
+        assertTrue(focus.platformOwnsPromptDuck())
+        focus.onUnduck()
+        idle(RELEASE_DELAY_MILLIS)
+        assertFalse(focus.platformOwnsPromptDuck())
+    }
+
+    @Test fun aMarkerWithoutFocusAlsoOwnsThePlatformDuck() {
+        val markers = mutableListOf<Boolean>()
+        val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
+        assertFalse(focus.platformOwnsPromptDuck())
+        focus.onNavigationAudio(true)
+        assertTrue(focus.platformOwnsPromptDuck())
+        focus.onNavigationAudio(false)
+        idle(AUDIBLE_RELEASE_DELAY_MILLIS)
+        assertFalse(focus.platformOwnsPromptDuck())
+    }
+
     @Test fun markerOnlyPromptsHaveATimeoutAndCannotRestartAfterClose() {
         val markers = mutableListOf<Boolean>()
         val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })

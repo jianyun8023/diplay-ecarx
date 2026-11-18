@@ -35,8 +35,11 @@ class EcarxCarPlayAudioHandshakeTest {
         val request = shadowOf(audio).lastAudioFocusRequest.audioFocusRequest
         assertEquals(33, request.audioAttributes.contentType)
         assertEquals(1, request.audioAttributes.usage)
-        assertEquals("duckAudio", sent.single().getStringExtra("command"))
-        assertEquals(0, sent.single().getIntExtra("volume", -1))
+        // The first marker is preceded by one unduck: a crashed earlier session can leave the
+        // receiver's duck flag set with no firmware timeout to clear it, and the duck that
+        // immediately follows bounds any misbehaving restore of that sweep.
+        assertEquals(listOf("unduckAudio", "duckAudio"), sent.map { it.getStringExtra("command") })
+        assertTrue(sent.all { it.getIntExtra("volume", -1) == 0 })
         assertTrue(handshake.isSignalling())
         handshake.close()
         assertSame(request, shadowOf(audio).lastAbandonedAudioFocusRequest)
@@ -56,9 +59,12 @@ class EcarxCarPlayAudioHandshakeTest {
         mode = true
         val handshake = handshake()
         repeat(3) { assertTrue(handshake.onPrompt(true)) }
-        assertEquals(1, sent.size)
+        assertEquals(listOf("unduckAudio", "duckAudio"), sent.map { it.getStringExtra("command") })
         handshake.onPrompt(false)
-        assertEquals(listOf("duckAudio", "duckAudio", "unduckAudio"), sent.map { it.getStringExtra("command") })
+        assertEquals(
+            listOf("unduckAudio", "duckAudio", "duckAudio", "unduckAudio"),
+            sent.map { it.getStringExtra("command") },
+        )
         assertTrue(sent.all { it.getIntExtra("volume", -1) == 0 })
     }
 
@@ -122,6 +128,38 @@ class EcarxCarPlayAudioHandshakeTest {
         assertFalse(handshake.onPrompt(true))
         assertTrue(sent.isEmpty())
         assertTrue(handshake.state().contains("ecarxAudioMode=off"))
+        assertTrue(handshake.state().contains("modeProbe=unsupported"))
+        // The probe failed after a grant: the out-of-stack request goes back, not left behind.
+        assertNotNull(shadowOf(audio).lastAbandonedAudioFocusRequest)
         handshake.close()
+    }
+
+    @Test fun anUnsupportedProbeDisablesTheMarkerForTheSession() {
+        mode = null
+        val handshake = handshake()
+        assertFalse(handshake.onPrompt(true))
+        assertTrue(sent.isEmpty())
+        // The vendor mode appearing later does not rearm the disabled session.
+        mode = true
+        assertFalse(handshake.onPrompt(true))
+        assertTrue(sent.isEmpty())
+        assertTrue(handshake.state().contains("modeProbe=unsupported"))
+        handshake.close()
+        assertFalse(handshake.onPrompt(false))
+    }
+
+    @Test fun aVerifiedModeReadFailingLaterIsTransientNotUnsupported() {
+        mode = true
+        val handshake = handshake()
+        assertTrue(handshake.onPrompt(true))
+        mode = null
+        // A verified session keeps its sent marker; the unreadable state is a transient refusal.
+        assertFalse(handshake.onPrompt(true))
+        assertTrue(handshake.state().contains("modeProbe=verified"))
+        handshake.onPrompt(false)
+        assertEquals(
+            listOf("unduckAudio", "duckAudio", "duckAudio", "unduckAudio"),
+            sent.map { it.getStringExtra("command") },
+        )
     }
 }

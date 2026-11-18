@@ -101,7 +101,7 @@ class AndroidMediaSink(
         audioFocusEnabled,
         audioFocusAutoYield,
         onAudioDiagnostic,
-        platformHandlesDucking = { ecarxAudioHandshake?.isSignalling() == true },
+        platformHandlesDucking = { platformOwnsPromptDuck() },
     )
 
     private val navigationPromptFocus = NavigationPromptFocus(
@@ -123,6 +123,15 @@ class AndroidMediaSink(
 
     /** The iPhone's latest duckAudio/unduckAudio, for the per-prompt log line. */
     @Volatile private var iphoneDucking = false
+
+    /**
+     * The prompt window owns the duck either way: the MCU ducks the music while the prompt focus
+     * is granted even when the marker send failed (car test 2026-11-07), so the music stands down
+     * for the whole window, not just for a successful marker send. Read by the coordinator's
+     * CAN_DUCK mapping through this method so neither initializer references the other.
+     */
+    private fun platformOwnsPromptDuck(): Boolean =
+        ecarxNavigationWheelHandshake && navigationPromptFocus.platformOwnsPromptDuck()
 
     /**
      * The route of the current or next prompt. Following the iPhone, each navigation renderer moves
