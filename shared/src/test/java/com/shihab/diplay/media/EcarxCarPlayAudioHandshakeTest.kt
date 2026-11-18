@@ -79,6 +79,23 @@ class EcarxCarPlayAudioHandshakeTest {
 
     private fun commands() = sent.map { it.getStringExtra("command") }
 
+    @Test
+    @Config(sdk = [25, 33])
+    fun versionsWithoutTheVendorContentTypeStayOnStandardRouting() {
+        val handshake = EcarxCarPlayAudioHandshake(
+            app,
+            alternateAudioOn = { false },
+            connectVolume = { error("unsupported mode cannot connect car volume") },
+        )
+        try {
+            assertFalse(handshake.probe())
+            assertFalse(handshake.onPrompt(true))
+            assertNull(shadowOf(audio).lastAudioFocusRequest)
+        } finally {
+            handshake.close()
+        }
+    }
+
     @Test fun carAudioVolumeChecksTheFirmwareGroupsAndRestoresOnlyNavigation() {
         Car.reset()
         Car.available = true

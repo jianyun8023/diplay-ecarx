@@ -1,5 +1,6 @@
 package com.shihab.diplay.media
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -121,7 +122,7 @@ internal class EcarxCarPlayAudioHandshake(
     private fun openAlternate(): Boolean {
         // A mode already on may belong to the OEM or another client. Never adopt a mode we cannot
         // release at the end of this prompt.
-        if (alternateAudioOn() != false || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || alternateAudioOn() != false) return false
         val manager = audioManager ?: return false
         val attributes = alternateAttributes() ?: return false
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -139,6 +140,7 @@ internal class EcarxCarPlayAudioHandshake(
     }
 
     private fun releaseAlternate(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
         val held = alternateRequest ?: return true
         val result = runCatching { audioManager?.abandonAudioFocusRequest(held) }.getOrNull()
         val on = alternateAudioOn()
@@ -150,18 +152,19 @@ internal class EcarxCarPlayAudioHandshake(
         return false
     }
 
-    /** Android 9 may rewrite unknown content types; preserve the vendor's out-of-stack type 33. */
+    /** ECARX uses content type 33. Only its Android 9 firmware needs the non-SDK field fallback. */
+    @SuppressLint("WrongConstant", "SoonBlockedPrivateApi")
     private fun alternateAttributes(): AudioAttributes? {
-        val requested = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(CONTENT_TYPE_ALTERNATE)
-            .build()
-        if (requested.contentType == CONTENT_TYPE_ALTERNATE) return requested
+        val builder = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+        val requested = runCatching { builder.setContentType(CONTENT_TYPE_ALTERNATE).build() }.getOrNull()
+        if (requested?.contentType == CONTENT_TYPE_ALTERNATE) return requested
+        if (Build.VERSION.SDK_INT != Build.VERSION_CODES.P) return null
         return runCatching {
+            val attributes = requested ?: builder.build()
             AudioAttributes::class.java.getDeclaredField("mContentType")
                 .apply { isAccessible = true }
-                .setInt(requested, CONTENT_TYPE_ALTERNATE)
-            requested
+                .setInt(attributes, CONTENT_TYPE_ALTERNATE)
+            attributes
         }.getOrNull()
     }
 
