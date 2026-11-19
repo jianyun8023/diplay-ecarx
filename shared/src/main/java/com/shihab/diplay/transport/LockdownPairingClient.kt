@@ -27,79 +27,76 @@ class LockdownPairingClient internal constructor(
         require(hostId.isNotBlank()) { "hostId must not be blank" }
         require(systemBuid.isNotBlank()) { "systemBuid must not be blank" }
         val state = NativeLockdown.pairCreate(label, hostId, systemBuid, totalTimeoutMillis, System.nanoTime())
-        val connectPlan = NativeLockdown.pairStep(state, 1, null, isCancelled(), System.nanoTime())
-        if ((connectPlan[0] as IntArray)[0] == 11) pairingError(connectPlan)
-        val connection = connect((connectPlan[2] as LongArray)[0])
+        val connection = when (val first = LockdownJniEffects.pairStep(state, LockdownPairEvent.Cancelled(isCancelled()), System.nanoTime())) {
+            is LockdownPairAction.Connect -> connect(first.timeoutMillis)
+            is LockdownPairAction.Error -> pairingError(first)
+            else -> throw LockdownContractException("pairing did not ask to connect first: ${first::class.simpleName}")
+        }
         return LockdownPlistChannel(connection).use { channel ->
             var record: LockdownPairRecord? = null
-            var action = NativeLockdown.pairStep(state, 2, null, false, System.nanoTime())
+            var action = LockdownJniEffects.pairStep(state, LockdownPairEvent.Continue, System.nanoTime())
             val checkWaiting = {
-                when (NativeLockdown.pairWait(state, isCancelled(), System.nanoTime())) {
-                    1 -> throw LockdownPairingException.Cancelled
-                    2 -> throw LockdownPairingException.TimedOut
-                    else -> Unit
+                when (LockdownJniEffects.trustWait(state, isCancelled(), System.nanoTime())) {
+                    LockdownTrustWait.CANCELLED -> throw LockdownPairingException.Cancelled
+                    LockdownTrustWait.TIMED_OUT -> throw LockdownPairingException.TimedOut
+                    LockdownTrustWait.WAITING -> Unit
                 }
             }
             while (true) {
-                val kind = (action[0] as IntArray)[0]
-                val meta = action[2] as LongArray
-                var event = 2
-                var value: Array<Any?>? = null
-                var cancelled = false
-                when (kind) {
-                    1 -> { event = 1; cancelled = isCancelled() }
-                    3 -> {
-                        try {
-                            @Suppress("UNCHECKED_CAST")
-                            val request = action[1] as Array<Any?>
-                            value = channel.requestNative(request, meta[0], if (meta[1] != 0L) checkWaiting else null)
-                            event = 3
-                        } catch (_: LockdownResponseTimedOut) {
-                            event = 6
-                        }
+                var event: LockdownPairEvent = LockdownPairEvent.Continue
+                when (action) {
+                    is LockdownPairAction.Check -> event = LockdownPairEvent.Cancelled(isCancelled())
+                    is LockdownPairAction.Connect -> throw LockdownContractException("pairing asked to connect twice")
+                    is LockdownPairAction.Request -> try {
+                        event = LockdownPairEvent.Response(
+                            channel.requestNative(action.request, action.timeoutMillis, if (action.waitForTrust) checkWaiting else null),
+                        )
+                    } catch (_: LockdownResponseTimedOut) {
+                        event = LockdownPairEvent.ResponseTimedOut
                     }
-                    4 -> {
-                        val created = createRecord(action[3] as ByteArray, action[4] as String, hostId, systemBuid)
+                    is LockdownPairAction.Generate -> {
+                        val created = createRecord(action.devicePublicKey, action.wifi, hostId, systemBuid)
                         record = created
-                        value = arrayOf(created.deviceCertificatePem, created.hostCertificatePem, created.hostId,
-                            created.rootCertificatePem, created.systemBuid)
-                        event = 4
+                        event = LockdownPairEvent.RecordGenerated(arrayOf(
+                            created.deviceCertificatePem, created.hostCertificatePem, created.hostId,
+                            created.rootCertificatePem, created.systemBuid,
+                        ))
                     }
-                    5 -> Log.i("diplay-usb", "lockdown UntrustedHostBUID set")
-                    6 -> {
+                    is LockdownPairAction.LogUntrustedBuidSet -> Log.i("diplay-usb", "lockdown UntrustedHostBUID set")
+                    is LockdownPairAction.LogPairPrepared -> {
                         val created = record!!
                         Log.i("diplay-usb", "lockdown pair prepared hostId=uuid systemBuid=uuid " +
                             "deviceKey=${created.devicePublicKeyPem.size} deviceCert=${created.deviceCertificatePem.size} " +
                             "hostCert=${created.hostCertificatePem.size} rootCert=${created.rootCertificatePem.size}")
                     }
-                    7 -> Log.i("diplay-usb", "lockdown pair attempt=${meta[0]}")
-                    8 -> {
+                    is LockdownPairAction.LogPairAttempt -> Log.i("diplay-usb", "lockdown pair attempt=${action.attempt}")
+                    is LockdownPairAction.TrustPending -> {
                         Log.i("diplay-usb", "lockdown trust pending; keeping connection open")
                         onTrustPending()
                     }
-                    9 -> try { Thread.sleep(meta[0]) } catch (_: InterruptedException) {
+                    is LockdownPairAction.Sleep -> try {
+                        Thread.sleep(action.millis)
+                    } catch (_: InterruptedException) {
                         Thread.currentThread().interrupt()
-                        event = 5
+                        event = LockdownPairEvent.SleepInterrupted
                     }
-                    10 -> return@use PairedRecord(record!!, action[3] as ByteArray?)
-                    11 -> pairingError(action)
-                    else -> error("Invalid native pairing effect")
+                    is LockdownPairAction.Done -> return@use PairedRecord(record!!, action.escrowBag)
+                    is LockdownPairAction.Error -> pairingError(action)
                 }
-                action = NativeLockdown.pairStep(state, event, value, cancelled, System.nanoTime())
+                action = LockdownJniEffects.pairStep(state, event, System.nanoTime())
             }
             @Suppress("UNREACHABLE_CODE")
             error("Pairing effect loop ended")
         }
     }
 
-    private fun pairingError(action: Array<Any?>): Nothing = when ((action[2] as LongArray)[0].toInt()) {
-        0 -> throw LockdownPairingException.Cancelled
-        1 -> throw LockdownPairingException.TimedOut
-        2 -> throw LockdownPairingException.UserDeniedPairing
-        3 -> throw LockdownPairingException.PasswordProtected
-        4 -> throw LockdownPairingException.RemoteError(action[1] as String)
-        5 -> throw LockdownPairingException.InvalidResponse(action[1] as String)
-        else -> error("Invalid native pairing error")
+    private fun pairingError(error: LockdownPairAction.Error): Nothing = when (error.code) {
+        LockdownPairErrorCode.CANCELLED -> throw LockdownPairingException.Cancelled
+        LockdownPairErrorCode.TIMED_OUT -> throw LockdownPairingException.TimedOut
+        LockdownPairErrorCode.USER_DENIED -> throw LockdownPairingException.UserDeniedPairing
+        LockdownPairErrorCode.PASSWORD_PROTECTED -> throw LockdownPairingException.PasswordProtected
+        LockdownPairErrorCode.REMOTE -> throw LockdownPairingException.RemoteError(error.text)
+        LockdownPairErrorCode.INVALID_RESPONSE -> throw LockdownPairingException.InvalidResponse(error.text)
     }
 }
 

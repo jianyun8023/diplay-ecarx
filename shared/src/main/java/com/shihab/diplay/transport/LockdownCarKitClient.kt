@@ -5,7 +5,13 @@ import java.security.GeneralSecurityException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Platform I/O and TLS effects for Rust-owned StartSession/StartService negotiation. */
-class LockdownCarKitClient(private val host: Iap2UsbMuxHost) {
+class LockdownCarKitClient internal constructor(
+    private val connect: (Int, Long) -> BlockingDuplexByteStream,
+    private val tlsOpen: (BlockingDuplexByteStream, LockdownPairRecord, Long) -> BlockingDuplexByteStream =
+        TlsDuplexChannel::open,
+) {
+    constructor(host: Iap2UsbMuxHost) : this({ port, timeout -> host.connect(port, timeout) })
+
     @Throws(IphoneUsbException::class, GeneralSecurityException::class)
     fun open(pairedRecord: PairedRecord, label: String): BlockingDuplexByteStream = open(pairedRecord.pairRecord, label)
 
@@ -29,35 +35,27 @@ class LockdownCarKitClient(private val host: Iap2UsbMuxHost) {
         }.use {
             var response: Array<Any?>? = null
             while (true) {
-                val action = NativeLockdown.serviceStep(state, response)
-                val meta = action[2] as LongArray
-                when ((action[0] as IntArray)[0]) {
-                    2 -> channel = LockdownPlistChannel(host.connect(meta[0].toInt(), meta[1]))
-                    3 -> {
-                        @Suppress("UNCHECKED_CAST")
-                        val request = action[1] as Array<Any?>
-                        response = channel!!.requestNative(request, meta[0])
-                    }
-                    4 -> {
+                when (val action = LockdownJniEffects.serviceStep(state, response)) {
+                    is LockdownServiceAction.ConnectLockdown ->
+                        channel = LockdownPlistChannel(connect(action.port, action.timeoutMillis))
+                    is LockdownServiceAction.Request ->
+                        response = channel!!.requestNative(action.request, action.timeoutMillis)
+                    is LockdownServiceAction.SwitchToTls -> {
                         val tls = channel!!.use { plaintext ->
-                            TlsDuplexChannel.open(plaintext.detach(), pairRecord, meta[0])
+                            tlsOpen(plaintext.detach(), pairRecord, action.timeoutMillis)
                         }
                         channel = LockdownPlistChannel(tls)
                     }
-                    5 -> {
-                        val connection = host.connect(meta[0].toInt(), meta[1])
-                        service = if (meta[2] != 0L) TlsDuplexChannel.open(connection, pairRecord, meta[1]) else connection
+                    is LockdownServiceAction.ConnectService -> {
+                        val connection = connect(action.port, action.timeoutMillis)
+                        service = if (action.tls) tlsOpen(connection, pairRecord, action.timeoutMillis) else connection
                     }
-                    10 -> {
+                    is LockdownServiceAction.Done -> {
                         val result = CarkitServiceStream(service!!, channel!!)
                         handedOff = true
                         return@use result
                     }
-                    11 -> throw IphoneUsbException.CarkitRejected(
-                        action[1] as String,
-                        (action[2] as LongArray).firstOrNull()?.toInt() ?: 0,
-                    )
-                    else -> error("Invalid native service effect")
+                    is LockdownServiceAction.Error -> throw IphoneUsbException.CarkitRejected(action.text, action.reason)
                 }
             }
             @Suppress("UNREACHABLE_CODE")
