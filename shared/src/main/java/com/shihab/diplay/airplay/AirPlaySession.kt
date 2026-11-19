@@ -71,14 +71,6 @@ interface AirPlayMediaHandler {
     fun onSessionClosed(session: AirPlaySession) {}
     fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {}
     fun onSetupResponseSent(session: AirPlaySession) {}
-    /**
-     * The iPhone's `duckAudio` (true) / `unduckAudio` (false) command for a navigation prompt.
-     *
-     * [durationMs] and [volume] are the iPhone's own parameters for the command; each is null when
-     * the command omits it. They are carried through rather than discarded because the prompt's
-     * intended depth and fade length are the iPhone's decision, not this app's.
-     */
-    fun onDuckAudio(session: AirPlaySession, ducked: Boolean, durationMs: Int? = null, volume: Float? = null) {}
     /** duckAudio (true) and unduckAudio (false): the iPhone marks the start and end of a navigation prompt. */
     fun onAudioDuck(session: AirPlaySession, ducked: Boolean) {}
 }
@@ -826,6 +818,10 @@ class AirPlaySession(
                 if (action and 2 != 0) releaseNavigationExit("accessory-granted")
             }
         }
+        // The iPhone sends duckAudio/unduckAudio right before/after a navigation prompt. Acting on
+        // the interpreted fact directly avoids the 2-3 s lag of Android's focus callback on 820A
+        // (the prompt finished before the media ducked); the focus callback remains as a backstop.
+        // This plan is the single interpretation: the raw command still reaches the listener below.
         commandPlan.duck?.let { media.onAudioDuck(this, it) }
         when (commandPlan.ui) {
             2 -> listener.onVideoPlaybackUiRequested(this)

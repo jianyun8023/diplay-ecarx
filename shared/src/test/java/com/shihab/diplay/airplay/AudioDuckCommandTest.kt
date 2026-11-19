@@ -53,6 +53,27 @@ class AudioDuckCommandTest {
         }
     }
 
+    @Test fun staleUnduckFromTheReplacedSessionDoesNotReleaseTheCurrentPrompt() {
+        val ducks = mutableListOf<Boolean>()
+        val engine = CarPlayMediaEngine(object : MediaSink {
+            override fun onAudioDuck(ducked: Boolean) { ducks += ducked }
+        })
+        val first = session(engine)
+        val current = session(engine)
+        try {
+            // B takes over while A's prompt is still open; A's late unduck must not release B's.
+            command(first, "duckAudio")
+            command(current, "duckAudio")
+            command(first, "unduckAudio")
+            assertEquals(listOf(true, true), ducks)
+            command(current, "unduckAudio")
+            assertEquals(listOf(true, true, false), ducks)
+        } finally {
+            first.close()
+            current.close()
+        }
+    }
+
     private fun command(session: AirPlaySession, type: String) {
         val body = BplistCodec.encode(mapOf("type" to type, "params" to mapOf("durationMs" to 500L)))
         AirPlaySession::class.java.getDeclaredMethod("handle", RtspMessage.Request::class.java)

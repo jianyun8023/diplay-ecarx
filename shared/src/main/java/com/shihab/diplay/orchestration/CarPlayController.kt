@@ -450,16 +450,9 @@ class CarPlayController(
                     debugLog("AirPlay command type=" + type + " keys=" + params.keys.sorted())
                 }
             }
-            // The parameters arrive from a plist, so they may be integer or real.
-            val duckDurationMs = (params["durationMs"] as? Number)?.toInt()
-            val duckVolume = (params["volume"] as? Number)?.toFloat()
-            // The iPhone sends duckAudio/unduckAudio right before/after a navigation prompt. Acting
-            // on them directly avoids the 2-3 s lag of Android's focus callback on 820A (the prompt
-            // finished before the media ducked); the focus callback remains as a backstop.
-            when (type) {
-                "duckAudio" -> media.onDuckAudio(session, true, duckDurationMs, duckVolume)
-                "unduckAudio" -> media.onDuckAudio(session, false, duckDurationMs, duckVolume)
-            }
+            // duckAudio/unduckAudio already drove the media duck fact through the session's
+            // control-command plan (AirPlaySession reads Rust's interpretation once); this
+            // listener only forwards the raw command to the host UI.
             uiListener?.onCommand(session, type, params)
         }
 
