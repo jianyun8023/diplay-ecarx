@@ -4,7 +4,7 @@ import com.shihab.diplay.airplay.NativeMedia
 
 /** Native protocol values only. Bootstrap-array results also cross host-test classloaders safely. */
 internal object NativeUsbMux {
-    init { check(NativeMedia.available) { "Native protocol core is unavailable" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun framerCreate(): Long
     @JvmStatic external fun framerAppend(handle: Long, bytes: ByteArray)
     /** [intArray(kind, protocol/invalidLength, length, word8, sequence), payload?, diagnostic?]. */

@@ -72,7 +72,7 @@ internal class ControllerLifecycleCore(wireless: Boolean, location: Boolean) {
     @Synchronized fun teardownPlan(): IntArray = NativeCarPlayController.teardownPlan(owner)
 
     companion object {
-        fun requireNative() { check(NativeMedia.available) { "Native controller lifecycle core is unavailable" } }
+        fun requireNative() { NativeMedia.requireAvailable() }
         fun wirelessClosePlan(current: Boolean): IntArray { requireNative(); return NativeCarPlayController.wirelessClosePlan(current) }
         fun handoff(requested: Boolean, tunnel: Boolean, session: Boolean): Boolean {
             requireNative(); return NativeCarPlayController.handoff(requested, tunnel, session)

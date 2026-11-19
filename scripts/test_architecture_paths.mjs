@@ -26,6 +26,7 @@ test('architecture rules apply at their production source paths', t => {
     ['mobile/src/debug/kotlin/Host.kt', loader, 'dp-core-loader'],
     ['shared/src/main/java/com/shihab/diplay/airplay/NativeMedia.kt', loader],
     ['common/src/main/kotlin/Host.kt', 'val hasCore = NativeMedia.available', 'dp-core-fallback'],
+    ['common/src/main/kotlin/Guard.kt', 'fun begin() { check(NativeMedia.available) }', 'dp-core-fallback'],
     ['shared/src/main/kotlin/Codec.kt', oracle, 'dp-test-oracle'],
     ['shared/src/testCore/kotlin/Codec.kt', oracle],
     ['common/src/test/kotlin/Host.kt', binding],

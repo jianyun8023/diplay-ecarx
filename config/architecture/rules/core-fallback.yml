@@ -4,25 +4,8 @@ severity: error
 files: ['**/src/{main,release,debug}/**/*.kt']
 rule:
   any:
-    - all:
-        - any:
-            - pattern: NativeMedia.available
-            - pattern: com.shihab.diplay.airplay.NativeMedia.available
-        # Existing mandatory guards propagate failure through their own check message.
-        - not:
-            inside:
-              kind: value_argument
-              inside:
-                kind: value_arguments
-                inside:
-                  kind: call_suffix
-                  inside:
-                    kind: call_expression
-                    has:
-                      any:
-                        - { kind: simple_identifier, regex: '^(check|require)$' }
-                        - pattern: kotlin.check
-                        - pattern: kotlin.require
+    - pattern: NativeMedia.available
+    - pattern: com.shihab.diplay.airplay.NativeMedia.available
     - all:
         - kind: identifier
         - regex: '^com\.shihab\.diplay\.airplay\.NativeMedia\.available$'

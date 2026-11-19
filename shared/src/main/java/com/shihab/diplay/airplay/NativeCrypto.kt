@@ -2,7 +2,7 @@ package com.shihab.diplay.airplay
 
 /** Stateless cryptography; identity persistence, Unicode and hardware signing remain on Android. */
 internal object NativeCrypto {
-    init { check(NativeMedia.available) { "Native protocol core is unavailable" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun x25519Generate(): Array<ByteArray>
     @JvmStatic external fun x25519Shared(privateKey: ByteArray, peer: ByteArray): ByteArray
     @JvmStatic external fun ed25519Generate(): Array<ByteArray>

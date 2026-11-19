@@ -56,7 +56,7 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 | `dp-receiver-close` | 在音频、缓冲音频或视频接收器中直接引用 `libc::close` | 启动返回零时由 Kotlin 回收 socket FD，启动成功后由 `platform::stream` 释放。 |
 | `dp-host-jni` | 在 `common`、`mobile` 或 `maphost` 生产 Kotlin 中声明 `external fun` | 将绑定放在 `shared` 的对应 owner，宿主调用其 Kotlin 接口。 |
 | `dp-core-loader` | 在 `NativeMedia.kt` 以外直接调用 JVM 加载器加载字面量 `"diplay_media"` | 由 `NativeMedia` 缓存加载结果，绑定使用 `requireAvailable()`。 |
-| `dp-core-fallback` | 在生产 Kotlin 中用 `NativeMedia.available` 选择实现，或把它保存为另一个状态 | 核心调用使用 `requireAvailable()`。现有直接断言可继续使用，SDK 编解码能力仍由平台判断。 |
+| `dp-core-fallback` | 在生产 Kotlin 中引用 `NativeMedia.available`（含 `check`／`require` 断言或保存为状态） | 核心调用统一走 `requireAvailable()`，保留原始加载异常的 cause 链；测试源集的可用性探针不受限，SDK 编解码能力仍由平台判断。 |
 | `dp-test-oracle` | 在生产 Kotlin 中导入或直接引用 `org.bouncycastle`、`org.concentus` | 使用生产配对或 Opus 接口，独立参照放在测试源集。 |
 
 Kotlin 规则覆盖当前模块的 `main`、`debug`、`release` 源集。跨函数的错误传播、FD 的实际释放时机和设备表现需要相应的契约测试与设备验证。新增规则时，用一个违规样例和最相近的合法写法定义匹配边界。涉及文件归属时，再补充目录用例。[规则](../config/architecture/rules/) · [语法样例](../config/architecture/tests/) · [目录用例](../scripts/test_architecture_paths.mjs)

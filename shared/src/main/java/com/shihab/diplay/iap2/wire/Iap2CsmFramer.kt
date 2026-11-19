@@ -42,7 +42,7 @@ class Iap2CsmFramer : AutoCloseable {
 }
 
 internal object NativeIap2Csm {
-    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun create(): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun offer(handle: Long, chunk: ByteArray): Array<Iap2Frame>

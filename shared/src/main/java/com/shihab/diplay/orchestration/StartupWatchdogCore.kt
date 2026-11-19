@@ -32,7 +32,7 @@ internal class StartupWatchdogCore(kind: Int, now: Long = 0, timeout: Long = 0) 
         const val ACCEPTED = 64
         const val LOG_SUCCESS = 128
         const val FIRST_ACCEPT = 512
-        private fun requireNative() { check(NativeMedia.available) { "Native startup watchdog core is unavailable" } }
+        private fun requireNative() { NativeMedia.requireAvailable() }
         fun budget(missing: Int): Long { requireNative(); return NativeStartupWatchdog.budget(missing) }
         fun elapsed(start: Long, now: Long): Long = NativeStartupWatchdog.elapsed(start, now)
         fun remaining(timeout: Long, start: Long, now: Long): Long = NativeStartupWatchdog.remaining(timeout, start, now)

@@ -117,7 +117,7 @@ class Iap2LinkEngine(config: Iap2LinkConfig = Iap2LinkConfig()) : AutoCloseable 
 }
 
 internal object NativeIap2Link {
-    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun create(config: IntArray): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun state(handle: Long): Int

@@ -31,7 +31,7 @@ object AirPlayCrypto {
         require(aadOffset >= 0 && aadLength >= 0 && aadOffset <= aad.size - aadLength)
         require(key.size == 32) { "ChaCha20 requires a 256 bit key" }
         require(nonce.size == 12) { "ChaCha20Poly1305 nonce must be 96 bits" }
-        check(NativeMedia.available) { "Native protocol core is unavailable" }
+        NativeMedia.requireAvailable()
         if (length < 16) throw AEADBadTagException("ChaCha20-Poly1305 tag mismatch")
         val output = ByteArray(length - 16)
         if (NativeMedia.chachaOpen(key, nonce, aad, aadOffset, aadLength,
