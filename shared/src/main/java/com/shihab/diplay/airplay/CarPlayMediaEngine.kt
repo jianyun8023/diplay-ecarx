@@ -19,6 +19,18 @@ import java.util.concurrent.atomic.AtomicReference
 /** Identity of one CarPlay audio stream: the stream type plus its CarPlay audio type. */
 data class AudioStreamId(val type: Int, val audioType: String)
 
+/**
+ * Named facts of a screen stream's decode loop that drive session behavior. The decoder delivers
+ * them through [MediaSink.setVideoEventHandler]; diagnostic text is formatting only, and no
+ * consumer reparses it for these facts.
+ */
+sealed interface VideoStreamEvent {
+    /** The stream's decoder rendered its first frame onto the current surface. */
+    data object FirstFrameRendered : VideoStreamEvent
+    /** A frame the session asked to sample finished rendering, with the decode loop's own fields. */
+    data class FrameSampled(val sampledAt: Long, val epoch: Long, val decoderId: Int) : VideoStreamEvent
+}
+
 /** Rendering seam for the decrypted CarPlay media streams. */
 interface MediaSink {
     fun requestVideoFrameSample(): Boolean = false
@@ -40,6 +52,8 @@ interface MediaSink {
     }
     fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {}
     fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {}
+    /** Named decode-loop facts of stream [type]; registered per SETUP, like the diagnostic handler. */
+    fun setVideoEventHandler(type: Int, handler: (VideoStreamEvent) -> Unit) {}
     fun onScreenStreamActive(type: Int, active: Boolean) {}
     fun onNativeAudioRoute(id: AudioStreamId, format: AudioFormat, route: NativeAudioRoute) { route.disconnect() }
     fun onAudioQueueEvent(id: AudioStreamId, kind: Int, value: Long, extra: Long) {}
@@ -183,14 +197,16 @@ class CarPlayMediaEngine(
         val streamKey = StreamKey(session, type)
         Log.i(TAG, "airplay screen key connectionID=${parsed.connectionIdDecimal}")
         val screen = ScreenStream(key, peer, session::logDebug)
+        // The named decode-loop facts drive this session's behavior; the diagnostic handler below
+        // only formats text (the cluster's decode lines and the session log).
+        if (type == STREAM_TYPE_MAIN_SCREEN) sink.setVideoEventHandler(type) handler@{ event ->
+            if (streams[streamKey] !== screen) return@handler
+            when (event) {
+                VideoStreamEvent.FirstFrameRendered -> session.videoFrameRendered()
+                is VideoStreamEvent.FrameSampled -> session.videoFrameSample(event.sampledAt, event.decoderId, event.epoch)
+            }
+        }
         sink.setVideoDiagnosticHandler(type) {
-            if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it.startsWith("frame sample ")) {
-                val sample = it.removePrefix("frame sample ").split(' ')
-                session.videoFrameSample(sample[0].toLong(), sample[2].toInt(), sample[1].toLong())
-            }
-            if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it == "first frame rendered") {
-                session.videoFrameRendered()
-            }
             if (type == STREAM_TYPE_ALT_SCREEN && !session.isClosed &&
                 streams[streamKey] === screen && clusterVideoOwner.get() === screen) {
                 if (it == "first frame rendered") {

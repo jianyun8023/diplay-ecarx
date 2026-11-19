@@ -1,6 +1,7 @@
 package com.shihab.diplay.media
 
 import android.graphics.SurfaceTexture
+import com.shihab.diplay.airplay.VideoStreamEvent
 import com.shihab.diplay.testcore.HostVideoPipe
 import android.media.MediaCrypto
 import android.media.MediaFormat
@@ -56,16 +57,22 @@ class NativeVideoLoopTest {
         val first = CountDownLatch(1)
         val sampled = CountDownLatch(1)
         val samples = CopyOnWriteArrayList<String>()
+        val typedEvents = CopyOnWriteArrayList<VideoStreamEvent>()
         val surface = Surface(SurfaceTexture(0))
         val sink = AndroidMediaSink()
+        HostVideoPipe.postedFrameSamples.clear()
         try {
             assertFalse(sink.requestVideoFrameSample())
             sink.setVideoDiagnosticHandler(MAIN) {
-                if (it == "first frame rendered") {
+                if (it.startsWith("frame sample ")) { samples += it; }
+            }
+            sink.setVideoEventHandler(MAIN) { event ->
+                typedEvents += event
+                if (event == VideoStreamEvent.FirstFrameRendered) {
                     assertTrue(sink.requestVideoFrameSample())
                     first.countDown()
                 }
-                if (it.startsWith("frame sample ")) { samples += it; sampled.countDown() }
+                if (event is VideoStreamEvent.FrameSampled) sampled.countDown()
             }
             sink.setSurface(MAIN, surface)
             sink.onVideoConfig(MAIN, avcC)
@@ -77,6 +84,15 @@ class NativeVideoLoopTest {
             assertTrue(sink.beginSurfaceDetach(surface, parkMain = false).await())
             assertEquals(1, samples.size)
             assertEquals("1", samples.single().split(' ')[3])
+            // The listener receives the decode loop's own fields, one per field, never reparsed text.
+            val decoder = mainDecoder(sink) as VideoDecoder
+            val sample = typedEvents.filterIsInstance<VideoStreamEvent.FrameSampled>().single()
+            val posted = HostVideoPipe.postedFrameSamples.single()
+            assertEquals(posted.first, sample.sampledAt)
+            assertEquals(posted.second, sample.epoch)
+            assertEquals(System.identityHashCode(decoder), sample.decoderId)
+            assertEquals(1, typedEvents.count { it == VideoStreamEvent.FirstFrameRendered })
+            assertEquals("frame sample ${posted.first} ${posted.second} ${System.identityHashCode(decoder)}", samples.single())
         } finally {
             sink.close()
             assertTrue(sink.awaitVideoReleased(5_000))
@@ -137,7 +153,7 @@ class NativeVideoLoopTest {
 
     @Test @Config(sdk = [27]) fun prePieVideoFailsWithTheMinimumSupportedVersion() {
         val before = HostVideoPipe.activeCount
-        val failure = assertThrows(IllegalStateException::class.java) { NativeVideoPipe.create(0, false) { _, _ -> } }
+        val failure = assertThrows(IllegalStateException::class.java) { NativeVideoPipe.create(0, false) { _, _, _, _ -> } }
         assertEquals("Native video decoding requires Android 9 / API 28", failure.message)
         assertEquals(before, HostVideoPipe.activeCount)
     }

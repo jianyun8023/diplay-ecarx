@@ -239,5 +239,9 @@ internal abstract class NativeStreamCallbacks {
 
 /** Events from a native video pipe, delivered in order on its own `carplay-video-events` thread. */
 internal abstract class NativeVideoCallbacks {
-    abstract fun onEvent(kind: Int, detail: String?)
+    /**
+     * A named event kind, its diagnostic detail, and the kind's typed fields: the frame sample's
+     * sampled timestamp and decoder epoch. Consumers read the numbers, never the text.
+     */
+    abstract fun onEvent(kind: Int, detail: String?, numberA: Long, numberB: Long)
 }

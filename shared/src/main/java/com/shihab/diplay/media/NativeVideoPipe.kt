@@ -93,11 +93,16 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         const val EVENT_FRAME_SAMPLE = 9
 
         /** Video requires the async NDK loop; initialization failure must not select a second decoder path. */
-        fun create(pacingDelayNanos: Long, trackTouches: Boolean, onEvent: (Int, String?) -> Unit): NativeVideoPipe {
+        fun create(
+            pacingDelayNanos: Long,
+            trackTouches: Boolean,
+            onEvent: (Int, String?, Long, Long) -> Unit,
+        ): NativeVideoPipe {
             NativeMedia.requireAvailable()
             check(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) { "Native video decoding requires Android 9 / API 28" }
             val callbacks = object : NativeVideoCallbacks() {
-                override fun onEvent(kind: Int, detail: String?) = onEvent(kind, detail)
+                override fun onEvent(kind: Int, detail: String?, numberA: Long, numberB: Long) =
+                    onEvent(kind, detail, numberA, numberB)
             }
             val handle = NativeMedia.pipeCreate(callbacks, pacingDelayNanos, trackTouches)
             check(handle != 0L) { "Native video decode loop could not be created" }

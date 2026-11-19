@@ -41,6 +41,26 @@ const EVENT_FIRST_FRAME: i32 = 7;
 const EVENT_LOG: i32 = 8;
 const EVENT_FRAME_SAMPLE: i32 = 9;
 
+/// One queued event for Kotlin (`NativeVideoCallbacks.onEvent`): a named kind, its optional
+/// diagnostic detail, and the typed fields the kind carries. `EVENT_FRAME_SAMPLE` reports the
+/// sampled frame's timestamp and the decoder epoch as numbers; no consumer reparses text.
+#[derive(Clone)]
+struct Event {
+    kind: i32,
+    detail: Option<String>,
+    numbers: [i64; 2],
+}
+
+impl Event {
+    fn text(kind: i32, detail: Option<String>) -> Event {
+        Event {
+            kind,
+            detail,
+            numbers: [0, 0],
+        }
+    }
+}
+
 const MAX_FRAMES: usize = 60;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const INPUT_STALL_NS: i64 = 500_000_000;
@@ -116,7 +136,7 @@ pub struct Pipe {
     inner: Mutex<Inner>,
     /// Wakes the feeder (work queued) and a release waiting for the feeder.
     work: Condvar,
-    events: Mutex<(VecDeque<(i32, Option<String>)>, bool)>,
+    events: Mutex<(VecDeque<Event>, bool)>,
     wake: Condvar,
     live_received: AtomicI64,
     live_rendered: AtomicI64,
@@ -126,12 +146,10 @@ pub struct Pipe {
 
 impl Pipe {
     fn post(&self, kind: i32, detail: Option<String>) {
-        let mut events = self.events.lock().unwrap();
-        events.0.push_back((kind, detail));
-        self.wake.notify_one();
+        self.post_all(vec![Event::text(kind, detail)]);
     }
 
-    fn post_all(&self, list: Vec<(i32, Option<String>)>) {
+    fn post_all(&self, list: Vec<Event>) {
         if list.is_empty() {
             return;
         }
@@ -141,14 +159,14 @@ impl Pipe {
     }
 }
 
-type Events = Vec<(i32, Option<String>)>;
+type Events = Vec<Event>;
 
 impl Inner {
     fn request_keyframe(&mut self, now: i64, events: &mut Events) {
         if !keyframe_request(&mut self.last_keyframe_request_ns, now, false) {
             return;
         }
-        events.push((EVENT_REQUEST_KEYFRAME, None));
+        events.push(Event::text(EVENT_REQUEST_KEYFRAME, None));
     }
 
     fn drop_frames(&mut self) {
@@ -168,11 +186,11 @@ impl Inner {
             self.frames_since_configure,
         );
         self.stats.recoveries += 1;
-        events.push((
+        events.push(Event::text(
             EVENT_LOG,
             Some(format!("Video recovery: {reason}; waiting for keyframe")),
         ));
-        events.push((
+        events.push(Event::text(
             EVENT_REPORT,
             Some(format!(
                 "recovery: {reason}; waiting for keyframe{}",
@@ -185,7 +203,7 @@ impl Inner {
         ));
         if !keep && !self.codec.is_null() && !self.retired && self.pending_configs == 0 {
             self.retired = true;
-            events.push((EVENT_RELEASE_DECODER, None));
+            events.push(Event::text(EVENT_RELEASE_DECODER, None));
         }
         self.drop_frames();
         self.reference.reset();
@@ -257,7 +275,7 @@ impl Inner {
             self.reference.queued();
             if !self.first_input_logged {
                 self.first_input_logged = true;
-                events.push((
+                events.push(Event::text(
                     EVENT_LOG,
                     Some(format!(
                         "video decoder first input annexB={} packet=NativePacket decoder=native",
@@ -282,7 +300,7 @@ impl Inner {
                 self.waiting_since_ns = now;
             } else if now - self.waiting_since_ns >= INPUT_STALL_NS {
                 self.waiting_since_ns = 0;
-                events.push((EVENT_INPUT_STALLED, None));
+                events.push(Event::text(EVENT_INPUT_STALLED, None));
                 self.recover("video decoder input stalled", false, now, events);
             }
         }
@@ -424,15 +442,19 @@ fn run_feeder(pipe: Arc<Pipe>) {
                 guard.stats.rendered += 1;
                 if let Some(sampled_at) = codec_io.sampled_at.take() {
                     guard.sample_next_frame = false;
-                    events.push((
-                        EVENT_FRAME_SAMPLE,
-                        Some(format!("{} {}", sampled_at, guard.decoder_epoch)),
-                    ));
+                    events.push(Event {
+                        kind: EVENT_FRAME_SAMPLE,
+                        detail: None,
+                        numbers: [sampled_at, guard.decoder_epoch],
+                    });
                 }
                 pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
                 if !guard.first_frame_sent {
                     guard.first_frame_sent = true;
-                    events.push((EVENT_FIRST_FRAME, Some(format!("bytes={bytes}"))));
+                    events.push(Event::text(
+                        EVENT_FIRST_FRAME,
+                        Some(format!("bytes={bytes}")),
+                    ));
                 }
             }
             if let Some(error) = result.failure {
@@ -441,7 +463,7 @@ fn run_feeder(pipe: Arc<Pipe>) {
                 if !guard.retired && !guard.codec_held {
                     guard.retired = true;
                     guard.stats.codec_errors += 1;
-                    events.push((EVENT_CODEC_ERROR, Some(error)));
+                    events.push(Event::text(EVENT_CODEC_ERROR, Some(error)));
                 }
             } else if result.oversized {
                 guard.recover(
@@ -682,14 +704,14 @@ unsafe extern "C" fn on_format(
     let f = |key: &CStr| format_int(format, key);
     let mut events = Vec::new();
     if vendor {
-        events.push((EVENT_REPORT, Some(format!(
+        events.push(Event::text(EVENT_REPORT, Some(format!(
             "QTI driver-reported output format vendor.qti-ext-dec-low-latency.enable={} \
              vendor.qti-ext-dec-picture-order.enable={}; effectiveness=unverified (reported values may be stale; \
              unreported is not unsupported)",
             f(c"vendor.qti-ext-dec-low-latency.enable").replace("null", "unreported"),
             f(c"vendor.qti-ext-dec-picture-order.enable").replace("null", "unreported")))));
     }
-    events.push((EVENT_REPORT, Some(format!(
+    events.push(Event::text(EVENT_REPORT, Some(format!(
         "output format requested={width}x{height} coded={}x{} crop={},{},{},{} stride={} slice={} color={}/{}/{}",
         f(KEY_WIDTH), f(KEY_HEIGHT), f(c"crop-left"), f(c"crop-top"), f(c"crop-right"), f(c"crop-bottom"),
         f(c"stride"), f(c"slice-height"), f(c"color-standard"), f(c"color-range"), f(c"color-transfer")))));
@@ -753,14 +775,26 @@ fn run_events(
                 events = pipe.wake.wait(events).unwrap();
             }
         };
-        let Some((kind, detail)) = next else { break };
+        let Event {
+            kind,
+            detail,
+            numbers,
+        } = match next {
+            Some(event) => event,
+            None => break,
+        };
         let text = detail
             .map(|d| env.string(&d))
             .unwrap_or(std::ptr::null_mut());
         env.call_void(
             callbacks,
             on_event,
-            &[jvalue { i: kind }, jvalue { l: text }],
+            &[
+                jvalue { i: kind },
+                jvalue { l: text },
+                jvalue { j: numbers[0] },
+                jvalue { j: numbers[1] },
+            ],
         );
         env.delete_local(text);
     }
@@ -781,7 +815,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
         return 0;
     }
     let class = e.object_class(callbacks);
-    let on_event = e.method(class, "onEvent", "(ILjava/lang/String;)V");
+    let on_event = e.method(class, "onEvent", "(ILjava/lang/String;JJ)V");
     e.delete_local(class);
     if on_event.is_null() {
         return 0;
@@ -1175,7 +1209,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeHol
                     && !inner.frames.is_empty()
                 {
                     inner.need_decoder_sent = true;
-                    events.push((EVENT_NEED_DECODER, None));
+                    events.push(Event::text(EVENT_NEED_DECODER, None));
                 }
                 pipe.work.notify_all();
             }
@@ -1287,7 +1321,7 @@ unsafe fn submit(
                     && !inner.need_decoder_sent
                 {
                     inner.need_decoder_sent = true;
-                    events.push((EVENT_NEED_DECODER, None));
+                    events.push(Event::text(EVENT_NEED_DECODER, None));
                 }
                 pipe.work.notify_all();
             }

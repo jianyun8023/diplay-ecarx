@@ -14,12 +14,15 @@ import com.shihab.diplay.media.NativeVideoPipe
 import com.shihab.diplay.media.VideoJob
 import com.shihab.diplay.media.VideoKeyFrameRequests
 import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /** SDK adapter for host control/lifecycle tests. This does not validate NDK callbacks or frame timing. */
 object HostVideoPipe {
     var failCreate = false
     private var nextHandle = 1L
     private val pipes = mutableMapOf<Long, Pipe>()
+    /** The frame samples this double posted, for field-fidelity assertions against the typed events. */
+    val postedFrameSamples = ConcurrentLinkedQueue<Pair<Long, Long>>()
     val activeCount: Int get() = synchronized(pipes) { pipes.size }
     fun codec(handle: Long): MediaCodec? = synchronized(pipes) { pipes[handle]?.codec }
     internal fun get(handle: Long): Pipe = synchronized(pipes) { checkNotNull(pipes[handle]) }
@@ -196,8 +199,9 @@ object HostVideoPipe {
             } else { configuration = next; duplicateLogged = false; 0 }
         }
         fun lastConfiguration(): ByteArray? = synchronized(lock) { configuration?.copyOf() }
-        private fun event(kind: Int, detail: String? = null) {
-            if (kind != NativeVideoPipe.EVENT_REQUEST_KEYFRAME || requestKeyframe(System.nanoTime(), false)) callbacks.onEvent(kind, detail)
+        private fun event(kind: Int, detail: String? = null, numberA: Long = 0L, numberB: Long = 0L) {
+            if (kind == NativeVideoPipe.EVENT_FRAME_SAMPLE) postedFrameSamples += numberA to numberB
+            if (kind != NativeVideoPipe.EVENT_REQUEST_KEYFRAME || requestKeyframe(System.nanoTime(), false)) callbacks.onEvent(kind, detail, numberA, numberB)
         }
         private fun hasPending(): Boolean = queue.backlogAfterCurrent().pendingFrames > 0 || queue.resyncPending()
 
@@ -261,7 +265,7 @@ object HostVideoPipe {
                                         stats[0]++
                                         if (sampledAt != null) {
                                             frameSample = false
-                                            event(NativeVideoPipe.EVENT_FRAME_SAMPLE, "$sampledAt $epoch")
+                                            event(NativeVideoPipe.EVENT_FRAME_SAMPLE, numberA = sampledAt, numberB = epoch)
                                         }
                                         decodeTimes += (elapsed / 1000).toInt()
                                     }

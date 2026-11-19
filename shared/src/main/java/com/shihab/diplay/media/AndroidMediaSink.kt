@@ -16,6 +16,7 @@ import com.shihab.diplay.airplay.MicrophoneConfig
 import com.shihab.diplay.airplay.NativeVideoRoute
 import com.shihab.diplay.airplay.NativeAudioRoute
 import com.shihab.diplay.airplay.VideoCodec
+import com.shihab.diplay.airplay.VideoStreamEvent
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -222,6 +223,8 @@ class AndroidMediaSink(
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
+    /** Named decode-loop facts per stream type; the engine consumes these, while text stays diagnostic. */
+    private val videoEventHandlers = ConcurrentHashMap<Int, (VideoStreamEvent) -> Unit>()
     private val recoveryPending = AtomicBoolean(false)
     // Other surfaces that show a stream too, such as the centre card. The main screen gives each its own
     // decoder; other streams draw them from the stream's decoder ([mirrorsShareDecoder]).
@@ -239,6 +242,10 @@ class AndroidMediaSink(
 
     override fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {
         videoDiagnosticHandlers[type] = handler
+    }
+
+    override fun setVideoEventHandler(type: Int, handler: (VideoStreamEvent) -> Unit) {
+        videoEventHandlers[type] = handler
     }
 
     private fun requestVideoRecovery(type: Int) {
@@ -487,6 +494,7 @@ class AndroidMediaSink(
                 nativeVideoRoutes.remove(type)?.disconnect()
                 videoRecoveryHandlers.remove(type)
                 videoDiagnosticHandlers.remove(type)
+                videoEventHandlers.remove(type)
                 videoDecoders[type]?.let { retire(type, it) }
                 synchronized(mirrorLock) {
                     mirrorDecoders.keys.filter { it.first == type }.forEach { mirrorDecoders.remove(it)?.close() }
@@ -817,6 +825,7 @@ class AndroidMediaSink(
         }
         videoRecoveryHandlers.clear()
         videoDiagnosticHandlers.clear()
+        videoEventHandlers.clear()
         recoveryExecutor.shutdownNow()
         // Audio workers close asynchronously; none may reacquire focus after their sink closes.
         audioFocusCoordinator.close()
@@ -884,6 +893,12 @@ class AndroidMediaSink(
                 if (it.startsWith("frame sample ") && (statsLabel != null || videoDecoders[type] !== video)) return@diagnostic
                 val message = if (type == 111 && (statsLabel != null || videoDecoders[type] !== video)) "inactive decoder $it" else it
                 videoDiagnosticHandlers[type]?.invoke(message)
+            },
+            // Only the stream's current decoder speaks for it; a replaced or mirror decoder's late
+            // facts must not drive the successor's session behavior.
+            onEvent = event@{
+                if (statsLabel != null || videoDecoders[type] !== video) return@event
+                videoEventHandlers[type]?.invoke(it)
             },
             statsLabel = statsLabel,
             onExit = ::onVideoDecoderExit,

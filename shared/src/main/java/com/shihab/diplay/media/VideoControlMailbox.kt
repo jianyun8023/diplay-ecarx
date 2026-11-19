@@ -11,8 +11,8 @@ internal sealed interface VideoJob {
     data class DetachSurface(val request: SurfaceDetachRequest) : VideoJob
     /** Ask the iPhone for a keyframe, so a surface that just came back gets a picture without waiting for motion. */
     data object RefreshPicture : VideoJob
-    /** An event from the native decode loop ([NativeVideoPipe]), handled on the worker. */
-    data class NativeEvent(val kind: Int, val detail: String?) : VideoJob
+    /** An event from the native decode loop ([NativeVideoPipe]), handled on the worker, with the kind's typed fields. */
+    data class NativeEvent(val kind: Int, val detail: String?, val numberA: Long, val numberB: Long) : VideoJob
 }
 
 /**

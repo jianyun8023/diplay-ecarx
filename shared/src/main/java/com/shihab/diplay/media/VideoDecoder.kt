@@ -11,6 +11,7 @@ import android.view.Surface
 import com.shihab.diplay.airplay.HeapPacket
 import com.shihab.diplay.airplay.MediaPacket
 import com.shihab.diplay.airplay.VideoCodec
+import com.shihab.diplay.airplay.VideoStreamEvent
 import java.io.Closeable
 
 /** CarPlay's main screen stream type. */
@@ -121,6 +122,8 @@ internal class VideoDecoder(
     private val preferSoftwareHevcDecoder: Boolean,
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
+    /** The named decode-loop facts this decoder delivers to the stream; diagnostic text stays with [report]. */
+    private val onEvent: (VideoStreamEvent) -> Unit = {},
     statsLabel: String? = null,
     pacingDelayNanos: Long = 0L,
     /** Called on the worker as its last step, after it has released its codec. */
@@ -149,8 +152,8 @@ internal class VideoDecoder(
     private var debugLogsCheckedNanos = 0L
     private var lastStatsNanos = System.nanoTime()
     private val queue = VideoControlMailbox()
-    private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail ->
-        queue.offer(VideoJob.NativeEvent(kind, detail))
+    private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail, numberA, numberB ->
+        queue.offer(VideoJob.NativeEvent(kind, detail, numberA, numberB))
     }.apply { setAccepting(surface != null, resetChain = false) }
     // Guards [pipe] against [submit] and [liveCounters] once the worker has destroyed it.
     private val pipeLock = Any()
@@ -288,7 +291,7 @@ internal class VideoDecoder(
                         is VideoJob.MirrorChanged -> changeMirror(job.key, job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
                         // Once per new surface, so it skips the rate limit an earlier request may still hold.
-                        is VideoJob.NativeEvent -> onPipeEvent(job.kind, job.detail)
+                        is VideoJob.NativeEvent -> onPipeEvent(job.kind, job.detail, job.numberA, job.numberB)
                         is VideoJob.RefreshPicture -> if (hasCodec()) {
                             pipe.requestKeyframe(System.nanoTime(), force = true)
                             requestKeyFrame()
@@ -349,9 +352,14 @@ internal class VideoDecoder(
     }
 
     /** What the native decode loop asks of the worker; see [NativeVideoPipe]. */
-    private fun onPipeEvent(kind: Int, detail: String?) {
+    private fun onPipeEvent(kind: Int, detail: String?, numberA: Long, numberB: Long) {
         when (kind) {
-            NativeVideoPipe.EVENT_FRAME_SAMPLE -> report("frame sample $detail ${System.identityHashCode(this)}")
+            NativeVideoPipe.EVENT_FRAME_SAMPLE -> {
+                // The named fact carries the sampled timestamp, the decoder epoch and this decoder's
+                // identity as fields; the diagnostic line below only keeps its historical format.
+                report("frame sample $numberA $numberB ${System.identityHashCode(this)}")
+                onEvent(VideoStreamEvent.FrameSampled(numberA, numberB, System.identityHashCode(this)))
+            }
             NativeVideoPipe.EVENT_REQUEST_KEYFRAME -> {
                 requestKeyFrame()
             }
@@ -368,6 +376,7 @@ internal class VideoDecoder(
             NativeVideoPipe.EVENT_FIRST_FRAME -> {
                 configuration.firstFrame()
                 report("first frame rendered")
+                onEvent(VideoStreamEvent.FirstFrameRendered)
                 if (vendorLowLatency) report("QTI first output released for rendering " +
                     "qtiLowLatencySubmitted=$configuredVendorLowLatency effectiveness=unverified")
                 Log.i(TAG, "video decoder rendered first frame $detail decoder=native")

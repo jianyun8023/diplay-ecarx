@@ -178,40 +178,67 @@ class CurrentScreenListenerTest {
         ScreenStream::class.java.getDeclaredField("listener").apply { isAccessible = true }
             .get(screen) as ScreenStream.Listener
 
-    @Test fun onlyTheCurrentMainStreamsRenderedFrameMarksTheSessionReady() {
+    @Test fun onlyTheCurrentMainStreamsNamedEventsMarkTheSessionReady() {
         val diagnostics = mutableMapOf<Int, (String) -> Unit>()
+        val events = mutableMapOf<Int, (VideoStreamEvent) -> Unit>()
         val sink = object : MediaSink {
             override fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {
                 diagnostics[type] = handler
             }
+            override fun setVideoEventHandler(type: Int, handler: (VideoStreamEvent) -> Unit) {
+                events[type] = handler
+            }
         }
         val rendered = mutableListOf<AirPlaySession>()
+        val samples = mutableListOf<Triple<Long, Int, Long>>()
         val session = testSession(object : AirPlaySessionListener {
             override fun onVideoFrameRendered(session: AirPlaySession) { rendered += session }
+            override fun onVideoFrameSample(session: AirPlaySession, elapsedMs: Long, decoderId: Int, epoch: Long) {
+                samples += Triple(elapsedMs, decoderId, epoch)
+            }
         })
         val engine = CarPlayMediaEngine(sink)
         try {
             withSharedSecret(session)
             engine.onScreen(session, 111, mapOf("streamConnectionID" to 1L))
+            // A cluster stream registers no session event path; its decoder cannot mark the main screen.
+            assertFalse(events.containsKey(111))
             diagnostics.getValue(111)("first frame rendered")
             assertFalse(session.hasRenderedMainFrame)
             assertTrue(rendered.isEmpty())
 
             engine.onScreen(session, 110, mapOf("streamConnectionID" to 2L))
-            val replaced = diagnostics.getValue(110)
+            val replaced = events.getValue(110)
             engine.onScreen(session, 110, mapOf("streamConnectionID" to 3L))
-            replaced("first frame rendered")
+            replaced(VideoStreamEvent.FirstFrameRendered)
             assertFalse(session.hasRenderedMainFrame)
+            assertTrue(rendered.isEmpty())
+
+            // Diagnostic text alone, even the historical lines, never advances the session.
+            diagnostics.getValue(110)("first frame rendered")
+            diagnostics.getValue(110)("frame sample 42 7 99")
             diagnostics.getValue(110)("decoder configured")
             assertFalse(session.hasRenderedMainFrame)
-            diagnostics.getValue(110)("first frame rendered")
+            assertTrue(rendered.isEmpty())
+            assertTrue(samples.isEmpty())
+
+            events.getValue(110)(VideoStreamEvent.FirstFrameRendered)
             assertTrue(session.hasRenderedMainFrame)
             assertEquals(listOf(session), rendered)
+            // Every first-frame fact notifies while the session is open; a decoder reports its own
+            // first frame once, so a recovery's frame reaches the listener exactly the same way.
+            events.getValue(110)(VideoStreamEvent.FirstFrameRendered)
+            assertEquals(listOf(session, session), rendered)
+
+            events.getValue(110)(VideoStreamEvent.FrameSampled(sampledAt = 42L, epoch = 7L, decoderId = 99))
+            assertEquals(listOf(Triple(42L, 99, 7L)), samples)
 
             session.close()
             assertFalse(session.hasRenderedMainFrame)
-            diagnostics.getValue(110)("first frame rendered")
-            assertEquals(listOf(session), rendered)
+            events.getValue(110)(VideoStreamEvent.FirstFrameRendered)
+            events.getValue(110)(VideoStreamEvent.FrameSampled(sampledAt = 1L, epoch = 2L, decoderId = 3))
+            assertEquals(listOf(session, session), rendered)
+            assertEquals(listOf(Triple(42L, 99, 7L)), samples)
         } finally {
             engine.onSessionClosed(session)
             session.close()

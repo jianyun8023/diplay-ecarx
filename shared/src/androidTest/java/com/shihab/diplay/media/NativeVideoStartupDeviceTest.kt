@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class NativeVideoStartupDeviceTest {
     @Test fun forcedRefreshThrottlesNativeRecoveryUntilTheDeadline() {
         val requested = CountDownLatch(1)
-        val pipe = NativeVideoPipe.create(0, false) { kind, _ ->
+        val pipe = NativeVideoPipe.create(0, false) { kind, _, _, _ ->
             if (kind == NativeVideoPipe.EVENT_REQUEST_KEYFRAME) requested.countDown()
         }
         try {
@@ -284,7 +284,7 @@ class NativeVideoStartupDeviceTest {
         val needsDecoder = CountDownLatch(1)
         val keyframes = AtomicInteger()
         val logs = CopyOnWriteArrayList<String>()
-        val pipe = NativeVideoPipe.create(0, false) { kind, detail ->
+        val pipe = NativeVideoPipe.create(0, false) { kind, detail, _, _ ->
             if (kind == NativeVideoPipe.EVENT_REQUEST_KEYFRAME) keyframes.incrementAndGet()
             if (kind == NativeVideoPipe.EVENT_NEED_DECODER) needsDecoder.countDown()
             if (detail != null) logs.add(detail)
