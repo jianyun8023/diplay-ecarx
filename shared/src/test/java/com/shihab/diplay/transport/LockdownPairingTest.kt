@@ -111,6 +111,29 @@ class LockdownPairingTest {
         assertEquals(1, stream.closes)
     }
 
+    @Test fun corruptedPairStateLengthThrowsInsteadOfAbortingAndPairingStillWorks() {
+        // The five-word state is the JNI contract; a caller that broke it gets a typed Java
+        // exception from every state-reading entry, never a release-process abort.
+        val state = NativeLockdown.pairCreate("test", "host", "buid", 10_000, System.nanoTime())
+        val corrupted = state.copyOf().also { it[0] = longArrayOf(0, 0, 0) }
+        try {
+            LockdownJniEffects.pairStep(corrupted, LockdownPairEvent.Continue, System.nanoTime())
+            fail("Expected pairStep to reject the corrupted state")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("5 words"))
+        }
+        try {
+            LockdownJniEffects.trustWait(corrupted, false, System.nanoTime())
+            fail("Expected pairWait to reject the corrupted state")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message!!.contains("5 words"))
+        }
+        // The host survived both violations: the next legal call pairs normally.
+        val stream = PairingStream(listOf(null))
+        client(stream).pair("test", "host", "buid", 10_000)
+        assertEquals(1, stream.closes)
+    }
+
     private fun client(stream: PairingStream) = LockdownPairingClient({ stream }) { _, _, _, _ -> record() }
 
     private fun record() = LockdownPairRecord.restore("host", "buid", "00:11:22:33:44:55",

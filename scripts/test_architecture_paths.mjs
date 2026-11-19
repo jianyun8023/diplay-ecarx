@@ -35,6 +35,7 @@ test('architecture rules apply at their production source paths', t => {
     [`${core}/protocols/rtsp/jni.rs`, pointer],
     [`${core}/protocols/iap2_body.rs`, pointer],
     [`${core}/protocols/mqtt/jni.rs`, 'extern "system" fn Java_example() { panic!(); }', 'dp-jni-panic'],
+    [`${core}/transport/lockdown/jni.rs`, 'extern "system" fn Java_example(v: Vec<i64>) -> i32 { let w: [i64; 5] = v.try_into().unwrap(); 0 }', 'dp-jni-panic'],
     [`${core}/session/controller/mod.rs`, schedule, 'dp-session-thread'],
     [`${core}/media/audio/receiver.rs`, close, 'dp-receiver-close'],
     [`${core}/platform/stream.rs`, close],
