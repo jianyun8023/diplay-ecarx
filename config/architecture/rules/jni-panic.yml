@@ -1,0 +1,23 @@
+id: dp-jni-panic
+language: Rust
+severity: error
+files: [shared/src/main/rust/diplay-media/src/**/*.rs]
+rule:
+  inside:
+    kind: function_item
+    has: { field: name, regex: '^(Java_|JNI_OnLoad$)' }
+    stopBy: end
+  any:
+    - all:
+        - kind: macro_invocation
+        - has: { field: macro, regex: '(^|::)(panic|todo|unimplemented)$' }
+    - pattern: $RESULT.expect($MSG)
+    - pattern: $RESULT.expect_err($MSG)
+    - all:
+        - pattern: $RESULT.unwrap()
+        - has:
+            field: function
+            has: { field: value, kind: identifier }
+    - pattern: $VALUES.get($INDEX).unwrap()
+    - pattern: $VALUES.get_mut($INDEX).unwrap()
+message: JNI 入口显式 panic 会终止宿主进程。校验输入，并使用该入口约定的错误返回值或 Java 异常。

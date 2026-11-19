@@ -1,0 +1,8 @@
+id: dp-rust-protocol-unsafe
+valid:
+  - "fn decode(bytes: &[u8]) -> Option<u8> { bytes.first().copied() }"
+  - "// unsafe fn read() belongs to the JNI adapter"
+invalid:
+  - "fn decode(ptr: *const u8) -> u8 { unsafe { *ptr } }"
+  - "unsafe fn decode(ptr: *const u8) -> u8 { *ptr }"
+  - "unsafe impl Send for Parser {}"

@@ -1,0 +1,12 @@
+id: dp-core-loader
+language: Kotlin
+severity: error
+files: ['**/src/{main,release,debug}/**/*.kt']
+ignores: [shared/src/main/java/com/shihab/diplay/airplay/NativeMedia.kt]
+rule:
+  any:
+    - pattern: System.loadLibrary("diplay_media")
+    - pattern: java.lang.System.loadLibrary("diplay_media")
+    - pattern: Runtime.getRuntime().loadLibrary("diplay_media")
+    - pattern: java.lang.Runtime.getRuntime().loadLibrary("diplay_media")
+message: NativeMedia 缓存 Rust 核心的加载结果。通过所属 shared 接口访问核心，绑定处调用 NativeMedia.requireAvailable()。

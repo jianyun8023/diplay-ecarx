@@ -1,0 +1,10 @@
+id: dp-session-thread
+valid:
+  - "use std::thread::{Thread, ThreadId as Id};"
+  - "fn retry(now: u64) -> u64 { now + RETRY_MS }"
+  - "fn describe() -> &'static str { \"thread::sleep\" }"
+invalid:
+  - "use std::thread::sleep as pause;"
+  - "use std::thread::{ThreadId, spawn as worker};"
+  - "fn retry() { std::thread::sleep(delay); }"
+  - "fn recover() { thread::spawn(move || reset()); }"

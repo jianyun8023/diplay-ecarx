@@ -1,0 +1,16 @@
+id: dp-rust-module-path
+language: Rust
+severity: error
+files: [shared/src/main/rust/diplay-media/src/**/*.rs]
+rule:
+  kind: identifier
+  regex: ^path$
+  any:
+    - inside: { kind: attribute }
+    - all:
+        - precedes: { regex: '^=$' }
+        - inside:
+            kind: attribute
+            has: { kind: identifier, regex: ^cfg_attr$ }
+            stopBy: end
+message: 'Rust 模块路径标明代码归属。将文件放在所属模块目录并使用 mod 声明，移除 #[path] 别名。'

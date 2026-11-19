@@ -1,0 +1,9 @@
+id: dp-core-loader
+valid:
+  - "fun load() = NativeMedia.requireAvailable()"
+  - "fun load() = System.loadLibrary(\"diplay_i2c\")"
+  - "// System.loadLibrary(\"diplay_media\")"
+invalid:
+  - "fun load() = java.lang.System.loadLibrary(\"diplay_media\")"
+  - "fun load() { System.loadLibrary(\n    \"diplay_media\"\n) }"
+  - "fun load() = Runtime.getRuntime().loadLibrary(\"diplay_media\")"

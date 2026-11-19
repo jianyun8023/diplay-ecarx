@@ -1,0 +1,7 @@
+id: dp-host-jni
+valid:
+  - "fun read() = controller.snapshot()"
+  - "val note = \"external fun read(): Long\""
+invalid:
+  - "private external fun read(): Long"
+  - "object Host {\n    @JvmStatic\n    external fun open(id: Int): Long\n}"

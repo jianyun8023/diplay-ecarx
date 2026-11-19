@@ -24,6 +24,8 @@ The full CI command from `.github/workflows/android.yml` is a reference, not a r
 
 Set `ANDROID_HOME` or `local.properties` if Gradle cannot find the SDK.
 
+Run `bash scripts/check_architecture.sh` for Rust/Kotlin ownership changes. It runs the same rule fixtures and source scan as the required CI check. Each finding names the owner and the intended repair. See [enforced architecture rules](docs/ARCHITECTURE.zh-CN.md#可执行的架构规则).
+
 ## Task guides
 
 Before editing, read the guide for the affected owner and its callers. These linked rules are required for the matching task; they are not loaded automatically just because the files exist. Read both sides of a cross-owner change. Start with the task row, then use the guide's headings and cross-links; unrelated guides need not be loaded.

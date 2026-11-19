@@ -69,7 +69,7 @@ jobs:
           --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
           -- -D clippy::correctness -D clippy::suspicious
 
-  # Bug-level Kotlin static analysis. Runs the detekt CLI on JDK 21: the Gradle daemon pins
+  # Architecture contracts and Kotlin static analysis. Runs the detekt CLI on JDK 21: the Gradle daemon pins
   # JDK 25 (gradle/gradle-daemon-jvm.properties) and detekt 1.23's embedded compiler rejects it.
   kotlin_static:
     needs: changes
@@ -78,6 +78,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Rust and Kotlin architecture rules
+        run: bash scripts/check_architecture.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

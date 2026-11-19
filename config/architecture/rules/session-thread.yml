@@ -1,0 +1,20 @@
+id: dp-session-thread
+language: Rust
+severity: error
+files: [shared/src/main/rust/diplay-media/src/session/**/*.rs]
+rule:
+  any:
+    - pattern: std::thread::sleep
+    - pattern: thread::sleep
+    - pattern: std::thread::spawn
+    - pattern: thread::spawn
+    - all:
+        - kind: scoped_use_list
+        - has: { field: path, regex: '^(::)?(std::)?thread$' }
+        - has:
+            field: list
+            has:
+              any:
+                - { kind: identifier, regex: '^(sleep|spawn)$' }
+                - { kind: use_as_clause, has: { field: path, regex: '^(sleep|spawn)$' } }
+message: 会话状态机需要可重放的时序。返回动作或期限，由 Android 宿主安排等待和线程执行。

@@ -1,0 +1,8 @@
+id: dp-rust-module-path
+valid:
+  - "mod jni;"
+  - "#[cfg(target_os = \"android\")] mod ndk;"
+  - "const NOTE: &str = \"#[path]\";"
+invalid:
+  - "#[path = \"../old.rs\"] mod codec;"
+  - "#[cfg_attr(target_os = \"android\", path = \"old.rs\")] mod codec;"

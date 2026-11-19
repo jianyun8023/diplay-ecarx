@@ -1,0 +1,16 @@
+id: dp-rust-protocol-unsafe
+language: Rust
+severity: error
+files: [shared/src/main/rust/diplay-media/src/protocols/**/*.rs]
+ignores:
+  - '**/jni.rs'
+  - '**/jni/**'
+  # These three existing owners also implement their JNI bindings in the same file.
+  - 'shared/src/main/rust/diplay-media/src/protocols/{iap2_body,iap2_wire,iap2_csm}.rs'
+rule:
+  any:
+    - kind: unsafe_block
+    - all:
+        - any: [{ kind: function_modifiers }, { kind: impl_item }, { kind: trait_item }, { kind: foreign_mod_item }]
+        - has: { regex: '^unsafe$' }
+message: 协议算法消费已校验的值。将裸指针或 JVM 操作放回该协议的 JNI 适配层，向算法传入切片或类型化参数。

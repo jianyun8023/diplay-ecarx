@@ -1,0 +1,10 @@
+id: dp-test-oracle
+valid:
+  - "import com.shihab.diplay.airplay.NativeCrypto"
+  - "val notice = \"org.concentus.OpusDecoder\""
+  - "import org.bouncycastletools.Trace"
+invalid:
+  - "import org.bouncycastle.crypto.Signer as TestSigner"
+  - "import org.concentus.*"
+  - "fun decoder() = org.concentus.OpusDecoder(48000, 2)"
+  - "lateinit var signer: org.bouncycastle.crypto.Signer"

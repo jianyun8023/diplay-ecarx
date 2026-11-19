@@ -18,6 +18,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 ## 开发与构建
 
 - [技术架构](ARCHITECTURE.zh-CN.md) — 当前模块、会话数据流、Rust 核心与 Kotlin 平台适配边界及代码归属。
+- [可执行的架构规则](ARCHITECTURE.zh-CN.md#可执行的架构规则) — 本地检查命令、CI 门禁和各条规则的适用范围。
 - [Rust 核心验收矩阵](RUST_CORE_REMAINING.zh-CN.md) — 当前已验证范围、剩余项和历史迁移审计；已关闭的 issue 不作为当前待办清单。
 - [协议样本与黄金向量](PROTOCOL_VECTORS.zh-CN.md) — 样本来源、独立预期、测试入口和外部证据缺口。
 - [领克 01 / ECARX 753 平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md) — 厂商接口、固件行为、权限、验证矩阵与证据索引，长期维护；新接口先登记再使用。

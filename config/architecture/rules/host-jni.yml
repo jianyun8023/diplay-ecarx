@@ -1,0 +1,8 @@
+id: dp-host-jni
+language: Kotlin
+severity: error
+files: ['{common,mobile,samples/maphost}/src/{main,release,debug}/**/*.kt']
+rule:
+  kind: function_modifier
+  regex: ^external$
+message: 宿主模块直接声明 JNI 会绕过 shared 接口。将 native 声明放在 shared 的对应 owner 中，宿主调用其 Kotlin 接口。

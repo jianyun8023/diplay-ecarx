@@ -1,0 +1,17 @@
+id: dp-rust-crate-root
+language: Rust
+severity: error
+files: [shared/src/main/rust/diplay-media/src/lib.rs]
+rule:
+  kind: source_file
+  has:
+    not:
+      any:
+        - kind: line_comment
+        - kind: block_comment
+        - kind: inner_attribute_item
+        - kind: attribute_item
+        - all:
+            - pattern: pub mod $OWNER;
+            - has: { field: name, regex: '^(media|platform|protocols|session|transport|vehicle)$' }
+message: lib.rs 只装配六个核心模块。将实现、重导出或兼容层移入所属模块，调用方使用该模块路径。

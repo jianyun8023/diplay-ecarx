@@ -1,0 +1,12 @@
+id: dp-test-oracle
+language: Kotlin
+severity: error
+files: ['**/src/{main,release,debug}/**/*.kt']
+rule:
+  any:
+    - all:
+        - any: [{ kind: identifier }, { kind: user_type }]
+        - regex: '^org\s*\.\s*(bouncycastle|concentus)\b'
+    - pattern: org.bouncycastle
+    - pattern: org.concentus
+message: Bouncy Castle 和 Concentus 是独立测试参照。生产配对和 Opus 使用 shared 的 Rust 接口，参照实现放在 testCore。

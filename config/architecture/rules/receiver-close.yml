@@ -1,0 +1,20 @@
+id: dp-receiver-close
+language: Rust
+severity: error
+files:
+  - shared/src/main/rust/diplay-media/src/media/audio/receiver.rs
+  - shared/src/main/rust/diplay-media/src/media/audio/buffered.rs
+  - shared/src/main/rust/diplay-media/src/media/video/receiver.rs
+rule:
+  any:
+    - pattern: libc::close
+    - all:
+        - kind: scoped_use_list
+        - has: { field: path, regex: '^(::)?libc$' }
+        - has:
+            field: list
+            has:
+              any:
+                - { kind: identifier, regex: '^close$' }
+                - { kind: use_as_clause, has: { field: path, regex: '^close$' } }
+message: 接收器的 socket 由 platform::stream 管理。启动失败时让 Kotlin 收回 FD，运行结束时让 RunningSocket 释放。其他独立持有的描述符使用 OwnedFd。

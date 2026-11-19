@@ -1,0 +1,14 @@
+id: dp-core-fallback
+valid:
+  - "fun begin() { kotlin.require(NativeMedia.available) }"
+  - "fun begin() { NativeMedia.requireAvailable(); startNative() }"
+  - "fun begin() { if (started) { check(NativeMedia.available) } }"
+  - "fun select() = if (decoder.available) hardware() else software()"
+invalid:
+  - "val hasCore = NativeMedia.available"
+  - "import com.shihab.diplay.airplay.NativeMedia.available as hasCore"
+  - "fun begin() { check(NativeMedia.available || useKotlin) }"
+  - "fun open() = if (NativeMedia.available) rust() else kotlinCore()"
+  - "fun open() { if (!com.shihab.diplay.airplay.NativeMedia.available || offline) fallback() }"
+  - "fun open() = when (NativeMedia.available) { true -> rust(); false -> fallback() }"
+  - "fun open() = when { !NativeMedia.available -> fallback(); else -> rust() }"

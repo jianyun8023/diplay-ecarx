@@ -42,6 +42,25 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 
 每次复用按实际协议边界记录来源提交，先验证本项目样本的字节布局、认证结果、异常和恢复语义。参考 workspace 包含 Tokio／OpenSSL，livi-cp 密码实现使用 aws-lc-rs；其 Android 10+ ARM64 分发不能代替本项目 API 28 和 ARMv7 的验证。bplist、control cipher、HID 与 PairVerify primitives 复用 `6ac88bab7351a39b0cffac20c5dcf92ca848319b` 的黄金向量数据，未导入实现或运行时；PairVerify 没有完整握手黄金向量。已将其 [NOTICE](https://github.com/f-io/LIVI/blob/6ac88bab7351a39b0cffac20c5dcf92ca848319b/NOTICE) 要求的署名加入 README 和应用可查看的第三方许可声明。
 
+## 可执行的架构规则
+
+在仓库根目录运行 `bash scripts/check_architecture.sh`。CI 使用 Node.js 22 和 npm，首次运行会下载固定版本的 ast-grep。脚本先验证规则的正反样例和目录范围，再扫描四个 Android 模块。命中规则会输出文件、行号、规则 ID 和修复方向，并以非零状态退出。PR 的 `kotlin_static` 任务运行同一脚本，其结果计入 `check`。
+
+| 规则 ID | 拦截的写法 | 修复位置 |
+| --- | --- | --- |
+| `dp-rust-crate-root` | 在 `lib.rs` 添加业务实现、兼容模块或重导出 | 根文件只声明既有六个模块。实现放入所属模块，调用方使用其路径。 |
+| `dp-rust-module-path` | 在核心源码用 `#[path]` 或条件路径属性指向别处的文件 | 按实际目录声明子模块，使源码位置反映归属。 |
+| `dp-rust-protocol-unsafe` | 在协议算法文件中写 `unsafe` 块、函数或实现 | 在所属协议的 JNI 层处理裸指针，算法接收切片或类型化的值。三个仍与 JNI 同文件的 iAP2 模块在规则中逐一列出。 |
+| `dp-jni-panic` | 在 `Java_*` 或 `JNI_OnLoad` 函数体直接使用 `panic!`、`todo!`、`unimplemented!`、`expect`、`expect_err`，或对变量、`get`、`get_mut` 的结果调用 `unwrap()` | 发布构建使用 `panic = "abort"`。按该入口的契约返回错误或设置 Java 异常。 |
+| `dp-session-thread` | 在 Rust `session` 中直接引用 `thread::sleep` 或 `thread::spawn` | 状态机返回期限或动作，Android 宿主负责等待和执行。 |
+| `dp-receiver-close` | 在音频、缓冲音频或视频接收器中直接引用 `libc::close` | 启动返回零时由 Kotlin 回收 socket FD，启动成功后由 `platform::stream` 释放。 |
+| `dp-host-jni` | 在 `common`、`mobile` 或 `maphost` 生产 Kotlin 中声明 `external fun` | 将绑定放在 `shared` 的对应 owner，宿主调用其 Kotlin 接口。 |
+| `dp-core-loader` | 在 `NativeMedia.kt` 以外直接调用 JVM 加载器加载字面量 `"diplay_media"` | 由 `NativeMedia` 缓存加载结果，绑定使用 `requireAvailable()`。 |
+| `dp-core-fallback` | 在生产 Kotlin 中用 `NativeMedia.available` 选择实现，或把它保存为另一个状态 | 核心调用使用 `requireAvailable()`。现有直接断言可继续使用，SDK 编解码能力仍由平台判断。 |
+| `dp-test-oracle` | 在生产 Kotlin 中导入或直接引用 `org.bouncycastle`、`org.concentus` | 使用生产配对或 Opus 接口，独立参照放在测试源集。 |
+
+Kotlin 规则覆盖当前模块的 `main`、`debug`、`release` 源集。跨函数的错误传播、FD 的实际释放时机和设备表现需要相应的契约测试与设备验证。新增规则时，用一个违规样例和最相近的合法写法定义匹配边界。涉及文件归属时，再补充目录用例。[规则](../config/architecture/rules/) · [语法样例](../config/architecture/tests/) · [目录用例](../scripts/test_architecture_paths.mjs)
+
 ## 1. 目标平台
 
 - 量产目标：Android 9 / API 28，ECARX 753（高通 820A），车机平台签名。当前适配的 820A 使用 `arm64-v8a`，作为默认（也是默认构建）的生产包；`armeabi-v7a` 回退包和模拟器 `x86_64` 包改为按需显式构建（`-PdiplayAbis=...` / `scripts/check_rust_android_native.sh <abi>`），默认不构建、不测试。构建覆盖不等于全部运行时验收。

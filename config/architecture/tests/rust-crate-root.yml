@@ -1,0 +1,8 @@
+id: dp-rust-crate-root
+valid:
+  - "//! owners\n#![allow(dead_code)]\npub mod media;\npub mod vehicle;"
+invalid:
+  - "pub use media::audio;"
+  - "pub mod compat;"
+  - "pub mod protocols { pub fn work() {} }"
+  - "fn helper() {}"

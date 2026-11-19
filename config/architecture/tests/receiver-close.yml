@@ -1,0 +1,9 @@
+id: dp-receiver-close
+valid:
+  - "use libc::{c_int, recv};"
+  - "fn receive(control: &Control) { if control.closed() { return; } }"
+  - "// libc::close(fd) is owned by the stream"
+invalid:
+  - "use libc::close as close_fd;"
+  - "use libc::{close as close_fd, c_int};"
+  - "unsafe fn receive(fd: i32) { libc::close(fd); }"
