@@ -358,6 +358,7 @@ Robolectric 与 host JNI 不代替 native TCP、真实 renderer／AudioRecord �
 | 中：排队命令与旧 session UI 回调 | Controller 727／738 行捕获 session 后排队，执行时没有相邻 knob／viewArea 路径那样的当前身份检查；415 行旧 `requestUI` 回调也未按 active session 限定 | 沿现有 controller owner 定义来源准入；Kotlin 保留 Executor、session 身份和实际发送。补 A 排队→B 激活→A 仍开放的合同，不将迟到 A 命令改投 B |
 | ✅ 已完成：一般命令包络与 SETUP 整体形状 | 已迁入 `protocols::airplay`：`NativeAirPlayProtocol.setupPlan`（streams-vs-peer 信封）与 `remoteCommandPlan`（remote 信封）在 Rust 判定（`363b614c`）；控制命令解释（noisy／duck／ui／navigationEntity）在 `control` op15 且有单测（`57db7caa`）。Kotlin 仅消费具名计划、解码与回调 | 完成；保留类型／缺省／转换／拒绝行为，解码对象与实际 callback 留 Kotlin，未新增 negotiated-stream 或 active-session 门禁 |
 | ✅ 已完成：视频 URL 可播放规则 | 已迁 `protocols::airplay::video` op10（`playable_url`）；`VideoInCar.isPlayableUrl` 与 `parseItem` 改调 Rust 并删除 Kotlin scheme 常量；Rust 单测 + Kotlin 契约测试覆盖 | 完成；http／https 与 app-scheme 规则、本地／FairPlay 排除均在 Rust |
+| ✅ 已完成：首帧与采样具名事件 | vpipe `EVENT_FRAME_SAMPLE` 原以 `"sampledAt epoch"` 文本下发、`VideoDecoder` 拼英文文案、`CarPlayMediaEngine` 按文案推进会话并拆词取数（2026-11-19 边界复核第 1 项）。现 JNI 事件带两个类型化数字（`NativeVideoCallbacks.onEvent(kind, detail, a, b)`），解码器发 `VideoStreamEvent.FirstFrameRendered`／`FrameSampled(sampledAt, epoch, decoderId)`，sink 仅转发当前解码器的事件，引擎只按具名事件推进当前主屏；诊断文案仅剩格式化，会话行为零处字符串比较／拆词／数字转换（`d90920db`） | 完成；`CurrentScreenListenerTest` 驱动具名事件并屏蔽文案断言就绪通知，`NativeVideoLoopTest` 逐字段核对采样事件与解码器身份；诊断输出保留原格式 |
 
 下一批优先普通音频 route 的退休／恢复区分，再处理麦克风 sender 和视频 config 资格。
 Controller tunnel 与排队命令另成行为合同批次，避免与媒体资源交接同时改变。仍保留以下提交时点：
