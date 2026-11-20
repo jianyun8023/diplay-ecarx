@@ -21,7 +21,6 @@ class NavigationAudioRoutePersistenceTest {
         assertTrue(AirPlayPersistence.loadAdvancedAudioChannelMapping(context))
         assertEquals(0, AirPlayPersistence.loadMediaAudioChannel(context))
         assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
-        assertFalse(AirPlayPersistence.loadNavigationOemContent(context))
 
         AirPlayPersistence.saveAdvancedAudioChannelMapping(context, false)
         assertEquals(3, AirPlayPersistence.loadMediaAudioChannel(context))
@@ -44,18 +43,21 @@ class NavigationAudioRoutePersistenceTest {
         }
     }
 
-    @Test fun bothContentModesSelectAutomaticRoutingAndSurviveBackup() {
-        assertFalse(AirPlayPersistence.loadNavigationOemContent(context))
-        for (oem in listOf(true, false)) {
-            AirPlayPersistence.saveNavigationAudioChannel(context, 13)
-            AirPlayPersistence.saveNavigationOemContent(context, oem)
-            assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
-            val document = SettingsBackupCodec.export(context, "test")
-            prefs.edit().clear().commit()
-            assertFalse(SettingsBackupCodec.import(context, document).invalid)
-            assertEquals(oem, AirPlayPersistence.loadNavigationOemContent(context))
-            assertEquals(0, AirPlayPersistence.loadNavigationAudioChannel(context))
-        }
+    @Test fun backupIgnoresRetiredContentModeAndKeepsNavigationChannel() {
+        val document = """
+            {"format":"diplay-settings","version":1,"settings":{"diplay_airplay":{
+                "navigation_oem_content":false,"navigation_audio_channel":15
+            }}}
+        """.trimIndent().encodeToByteArray()
+        val result = SettingsBackupCodec.import(context, document)
+        assertFalse(result.invalid)
+        assertEquals(1, result.skipped)
+        assertFalse(prefs.contains("navigation_oem_content"))
+        assertEquals(15, AirPlayPersistence.loadNavigationAudioChannel(context))
+
+        prefs.edit().putBoolean("navigation_oem_content", false).commit()
+        val exported = SettingsBackupCodec.export(context, "test").decodeToString()
+        assertFalse(exported.contains("navigation_oem_content"))
     }
 
     @Test fun formerLegacy13UsesNavigationAttributesAfterUpgrade() {

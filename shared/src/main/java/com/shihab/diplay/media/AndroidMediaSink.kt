@@ -72,7 +72,6 @@ class AndroidMediaSink(
     private val mtkDecoderTuningEnabled: Boolean = false,
     /** Opt-in (#946): navigation prompts request duckable focus while the iPhone ducks audio. Needs [audioFocusEnabled]. */
     navigationPromptAudioFocus: Boolean = false,
-    private val navigationOemContent: Boolean = false,
     /**
      * ECARX: each navigation stream picks its route from the iPhone's duckAudio ([NavigationAudioRoute]),
      * and on the music stream follows the car's navigation volume ([CarNavigationVolume]).
@@ -102,7 +101,7 @@ class AndroidMediaSink(
         appContext,
         promptFocusEnabled = navigationPromptAudioFocus,
         audioFocusEnabled = audioFocusEnabled,
-        attributes = { navigationRouteAttributes(promptRoute(), navigationOemContent) },
+        attributes = { AudioRouteAttributes.navigation(promptRoute()) },
         // On the music stream a prompt reaches the speakers through the focus CarPlay music already
         // holds. Asking again made the ECARX head unit resend its amplifier source each time, a hitch
         // in the music (car test 2026-11-07). Without music it still asks: after a cold boot the
@@ -938,7 +937,6 @@ class AndroidMediaSink(
             speakerphoneCall = false,
             echoReference = echoReference,
             voiceFilter = callVoiceFilter && format.audioType == TELEPHONY_AUDIO_TYPE,
-            navigationOemContent = navigationOemContent,
             outputDeviceResolver = { id ->
                 runCatching {
                     audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull { it.id == id }

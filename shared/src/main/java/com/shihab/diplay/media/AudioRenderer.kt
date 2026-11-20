@@ -36,7 +36,6 @@ internal class AudioRenderer(
     /** Receives the played call audio so the call microphone can cancel its echo. */
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
-    private val navigationOemContent: Boolean = false,
     private val outputDeviceResolver: ((Int) -> android.media.AudioDeviceInfo?)? = null,
 ) : Closeable {
     /** The configured navigation channel, or the route chosen for the current prompt ([navigationRouteWanted]). */
@@ -238,7 +237,7 @@ internal class AudioRenderer(
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
                 "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} " +
-                "mediaChannel=$mediaChannel navigationChannel=$navigationChannel navigationOemContent=$navigationOemContent focus=$audioFocusEnabled") }
+                "mediaChannel=$mediaChannel navigationChannel=$navigationChannel focus=$audioFocusEnabled") }
             val native = NativePcm.create(format.sampleRate, format.channels, voiceFilterEnabled, format.codec)
             nativePcm = native
             val configuration = native.configuration()
@@ -537,8 +536,8 @@ internal class AudioRenderer(
     }
 
     private fun audioAttributesFor(selection: AudioChannelSelection): AudioAttributes =
-        if (selection.channel == AudioChannel.NAVIGATION && navigationChannel == 0) {
-            NavigationAudioAttributes.create(navigationOemContent)
+        if (selection.channel == AudioChannel.NAVIGATION) {
+            NavigationAudioAttributes.create()
         } else AudioAttributes.Builder()
             .setUsage(usageFor(selection.channel))
             .setContentType(contentTypeFor(selection.contentType))

@@ -17,7 +17,7 @@ class AudioRouteAttributesTest {
         }
         assertEquals(AudioAttributes.USAGE_MEDIA, attributes.usage)
         assertEquals(AudioAttributes.CONTENT_TYPE_MUSIC, attributes.contentType)
-        assertEquals(attributes, AudioRouteAttributes.navigation(AudioManager.STREAM_MUSIC, oemContent = true))
+        assertEquals(attributes, AudioRouteAttributes.navigation(AudioManager.STREAM_MUSIC))
     }
 
     @Test fun automaticAndUnsupportedLegacyStreamsKeepTheirUsageFallback() {
@@ -28,7 +28,6 @@ class AudioRouteAttributesTest {
             val navigation = AudioRouteAttributes.navigation(channel)
             assertEquals(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, navigation.usage)
             assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, navigation.contentType)
-            assertEquals(navigation, navigationRouteAttributes(channel))
         }
     }
 }

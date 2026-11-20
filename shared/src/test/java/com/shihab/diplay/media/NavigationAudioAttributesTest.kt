@@ -14,25 +14,20 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], manifest = Config.NONE)
 class NavigationAudioAttributesTest {
-    @Test fun standardUsesTheExistingNavigationAttributes() {
+    @Test fun stockAndroidFallsBackToStandardNavigationSpeech() {
         val attributes = NavigationAudioAttributes.create()
         assertEquals(12, attributes.usage)
         assertEquals(1, attributes.contentType)
     }
 
-    @Test fun stockAndroidMustNotSilentlyPassAsOemContent20() {
-        val error = assertThrows(IllegalArgumentException::class.java) { NavigationAudioAttributes.create(true) }
-        assertTrue(error.message!!, error.message!!.contains("requested=12/20 resolved=12/0"))
-    }
-
     @Test @Config(shadows = [OemBuilder::class])
-    fun oemModeRetainsBothAttributesAndMatchesNavigationFocus() {
-        val attributes = NavigationAudioAttributes.create(true)
+    fun ecarxNavigationAttributesAreUsedForPlaybackAndFocus() {
+        val attributes = NavigationAudioAttributes.create()
         assertEquals(12, attributes.usage)
         assertEquals(20, attributes.contentType)
-        val focus = navigationRouteAttributes(0, true)
+        val focus = AudioRouteAttributes.navigation(0)
         assertEquals(attributes, focus)
-        assertEquals(1, navigationRouteAttributes(3, true).usage)
+        assertEquals(1, AudioRouteAttributes.navigation(3).usage)
     }
 
     @Implements(AudioAttributes.Builder::class)

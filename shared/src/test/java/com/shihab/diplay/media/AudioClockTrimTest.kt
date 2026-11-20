@@ -42,7 +42,7 @@ class AudioClockTrimTest {
             .build()
         renderer = AudioRenderer(AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0, AudioFocusCoordinator(null, false, false),
-                0, 500, { message: String -> reports.add(message) }, false, null, false, false)
+                0, 500, { message: String -> reports.add(message) })
         set("debugLogsEnabled", { true })
         set("track", track)
         set("mappedChannel", AudioChannel.MEDIA)

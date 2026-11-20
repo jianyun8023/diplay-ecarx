@@ -43,7 +43,7 @@ class AudioRebufferDiagnosticsTest {
                 AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0,
                 AudioFocusCoordinator(null, false, false),
-                0, 500, { msg: String -> reports.add(msg) }, false, null, false, false
+                0, 500, { msg: String -> reports.add(msg) }
             )
 
         fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
@@ -114,7 +114,7 @@ class AudioRebufferDiagnosticsTest {
                 AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"),
                 false, false, 0, 0,
                 AudioFocusCoordinator(null, false, false),
-                0, 500, { msg: String -> reports.add(msg) }, false, null, false, false
+                0, 500, { msg: String -> reports.add(msg) }
             )
 
         fun set(name: String, value: Any?) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)

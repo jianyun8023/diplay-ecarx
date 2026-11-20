@@ -62,7 +62,7 @@ class NavigationPromptFocusTest {
 
     @Test fun aPromptMixedIntoMusicThatHoldsFocusAsksForNothingAndAsksAgainWithoutMusic() {
         var musicHoldsFocus = true
-        val focus = NavigationPromptFocus(context, true, true, { navigationRouteAttributes(AudioManager.STREAM_MUSIC) },
+        val focus = NavigationPromptFocus(context, true, true, { AudioRouteAttributes.navigation(AudioManager.STREAM_MUSIC) },
             reports::add, skipRequest = { musicHoldsFocus }).also(helpers::add)
         focus.onNavigationAudio(true)
         focus.onNavigationAudio(false)
@@ -160,12 +160,12 @@ class NavigationPromptFocusTest {
     }
 
     @Test fun routeAttributesFollowTheNavigationAudioStreamSetting() {
-        val automatic = navigationRouteAttributes(0)
+        val automatic = AudioRouteAttributes.navigation(0)
         assertEquals(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, automatic.usage)
         assertEquals(AudioAttributes.CONTENT_TYPE_SPEECH, automatic.contentType)
-        assertEquals(AudioAttributes.USAGE_MEDIA, navigationRouteAttributes(AudioManager.STREAM_MUSIC).usage)
+        assertEquals(AudioAttributes.USAGE_MEDIA, AudioRouteAttributes.navigation(AudioManager.STREAM_MUSIC).usage)
         // Stream 15 is not an Android legacy stream; the track keeps usage attributes for it.
-        assertEquals(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, navigationRouteAttributes(15).usage)
+        assertEquals(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, AudioRouteAttributes.navigation(15).usage)
     }
 
     @Test fun sinkAsksOnlyWithBothSettingsOnAndUsesTheChosenNavigationStream() {
@@ -277,7 +277,7 @@ class NavigationPromptFocusTest {
     }
 
     private fun focus(enabled: Boolean = true, audioFocus: Boolean = true, channel: Int = 0) =
-        NavigationPromptFocus(context, enabled, audioFocus, { navigationRouteAttributes(channel) }, reports::add)
+        NavigationPromptFocus(context, enabled, audioFocus, { AudioRouteAttributes.navigation(channel) }, reports::add)
             .also(helpers::add)
 
     private fun idle(millis: Long) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis))

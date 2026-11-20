@@ -31,7 +31,7 @@ class AudioRebufferCapacityTest {
             val type = Class.forName("com.shihab.diplay.media.AudioRenderer")
             val renderer = AudioRenderer(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 96, "media"), false, false, 0, 0,
-                    AudioFocusCoordinator(null, false, false), 0, millis, { _: String -> }, false, null, false, false)
+                    AudioFocusCoordinator(null, false, false), 0, millis, { _: String -> })
             fun set(name: String, value: Any) = type.getDeclaredField(name).apply { isAccessible = true }.set(renderer, value)
             val native = RendererNativeFixture(renderer)
             try {
