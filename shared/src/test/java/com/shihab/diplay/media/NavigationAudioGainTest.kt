@@ -90,7 +90,7 @@ class NavigationAudioGainTest {
                 val renderer = AudioRenderer(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 96, "media"),
                     false, false, 0, 0, AudioFocusCoordinator(null, false, false), 0, 300,
-                    { _: String -> }, false, null, false, false)
+                    { _: String -> })
                 val track = track()
                 type.getDeclaredField("mappedChannel").apply { isAccessible = true }.set(renderer, channel)
                 type.getDeclaredField("track").apply { isAccessible = true }.set(renderer, track)

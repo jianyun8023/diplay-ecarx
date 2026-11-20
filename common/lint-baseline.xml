@@ -290,17 +290,6 @@
     <issue
         id="NewApi"
         message="Call requires API level 28 (current min is 24): `android.media.AudioDeviceInfo#getAddress`"
-        errorLine1="                    &quot;routeAddress=${device?.address ?: &quot;none&quot;}&quot;)"
-        errorLine2="                                            ~~~~~~~">
-        <location
-            file="src/main/java/com/shihab/diplay/AudioChannelPreview.kt"
-            line="136"
-            column="45"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.media.AudioDeviceInfo#getAddress`"
         errorLine1="                DiagnosticRedactor.redact(&quot;id=${device.id} type=${device.type} address=${device.address}&quot;)"
         errorLine2="                                                                                                ~~~~~~~">
         <location

@@ -17,7 +17,6 @@ internal object AudioDiagnosticSnapshot {
             "advancedMapping=${AirPlayPersistence.loadAdvancedAudioChannelMapping(context)} " +
             "mediaChannel=${AirPlayPersistence.loadMediaAudioChannel(context)} " +
             "navigationChannel=${AirPlayPersistence.loadNavigationAudioChannel(context)} " +
-            "navigationOemContent=${AirPlayPersistence.loadNavigationOemContent(context)} " +
             "focus=${AirPlayPersistence.loadAudioFocusEnabled(context)} " +
             "navigationPromptFocus=${AirPlayPersistence.loadNavigationPromptAudioFocus(context)} " +
             "navigationFollowsIphone=${AirPlayPersistence.loadNavigationFollowsIphone(context)} " +

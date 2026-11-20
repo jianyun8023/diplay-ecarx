@@ -52,7 +52,6 @@ object AirPlayPersistence {
     private const val KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS = "disable_media_key_audio_focus"
     private const val KEY_MEDIA_AUDIO_CHANNEL = "media_audio_channel"
     private const val KEY_NAVIGATION_AUDIO_CHANNEL = "navigation_audio_channel"
-    private const val KEY_NAVIGATION_OEM_CONTENT = "navigation_oem_content"
     private const val KEY_NAVIGATION_USAGE_ROUTE_MIGRATED = "navigation_usage_route_migrated"
     private const val KEY_NAVIGATION_AUDIO_ATTENUATION = "navigation_audio_attenuation_db"
     private const val KEY_NAVIGATION_STREAM_TYPE = "navigation_stream_type"
@@ -337,19 +336,8 @@ object AirPlayPersistence {
     fun saveNavigationAudioChannel(context: Context, channel: Int) {
         preferences(context).edit()
             .putInt(KEY_NAVIGATION_AUDIO_CHANNEL, channel.takeIf { it in AUDIO_CHANNELS } ?: 0)
-            .putBoolean(KEY_NAVIGATION_OEM_CONTENT, channel == 0 && loadNavigationOemContent(context))
             .putBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, true)
             .apply()
-    }
-
-    fun loadNavigationOemContent(context: Context): Boolean =
-        preferences(context).getBoolean(KEY_NAVIGATION_OEM_CONTENT, false)
-
-    fun saveNavigationOemContent(context: Context, enabled: Boolean) {
-        preferences(context).edit()
-            .putBoolean(KEY_NAVIGATION_OEM_CONTENT, enabled)
-            .putInt(KEY_NAVIGATION_AUDIO_CHANNEL, 0)
-            .putBoolean(KEY_NAVIGATION_USAGE_ROUTE_MIGRATED, true).apply()
     }
 
     fun loadNavigationAudioAttenuationDb(context: Context): Int =

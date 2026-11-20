@@ -8,10 +8,6 @@ import android.os.Looper
 import android.util.Log
 import com.shihab.diplay.compat.AudioFocusRequestCompat
 
-/** The attributes the navigation renderer plays with, for a focus request made before its track exists. */
-internal fun navigationRouteAttributes(navigationChannel: Int, oemContent: Boolean = false): AudioAttributes =
-    AudioRouteAttributes.navigation(navigationChannel, oemContent)
-
 /**
  * Opt-in audio focus for navigation prompts (#946, #545). Navigation audio takes no focus by default,
  * so a prompt plays over music without ducking it. With the option on, this holds a duckable temporary

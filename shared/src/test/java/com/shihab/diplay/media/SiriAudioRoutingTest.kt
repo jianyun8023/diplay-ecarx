@@ -21,7 +21,7 @@ class SiriAudioRoutingTest {
                 val renderer = AudioRenderer(
                         AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 100, "speechrecognition"),
                         advanced, false, media, 14, AudioFocusCoordinator(null, false, false),
-                        14, 500, { _: String -> }, false, null, false, false,
+                        14, 500, { _: String -> },
                     )
                 renderer.use {
                     val selection = type.getDeclaredMethod("mappedSelection").apply { isAccessible = true }
@@ -46,7 +46,7 @@ class SiriAudioRoutingTest {
             val renderer = AudioRenderer(
                     AudioFormat(AudioCodecKind.LPCM, 48_000, 1, 100, "speechrecognition"),
                     false, false, mediaChannel, 14, AudioFocusCoordinator(null, false, false),
-                    14, 500, { line: String -> reports.add(line); Unit }, false, null, false, false,
+                    14, 500, { line: String -> reports.add(line); Unit },
                 )
             try {
                 type.getDeclaredMethod("createTrack").apply { isAccessible = true }.invoke(renderer)
