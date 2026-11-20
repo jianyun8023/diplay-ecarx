@@ -71,8 +71,8 @@ Both use the real `VideoDecoder` failure cleanup, confirm the replacement decode
 and then require a rendered frame and the live counters, without sending a replacement HEVC IDR.
 `NativeVideoRouteDeviceTest.encryptedScreenStreamHardwareDecodesToSurfaceWithoutPacketCallbacks` separately
 checks one encrypted AVC IDR through receiver, native route and Surface, with no Kotlin packet callbacks.
-The [startup validation record](benchmarks/native-video-startup-2026-11-14.md) keeps the red/green evidence
-and each batch's totals; ARMv7 fallback and x86_64 emulator coverage do not substitute for ARM64 device results.
+The [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md) summarizes the current validation status;
+ARMv7 fallback and x86_64 emulator coverage do not substitute for ARM64 device results.
 
 ## Host unit tests
 

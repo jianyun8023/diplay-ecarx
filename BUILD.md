@@ -20,53 +20,20 @@ ECARX 接口通过运行时反射和动态代理调用。编译和单测**不需
 
 ---
 
-## 1. 工具链（实测通过的版本）
+## 1. 工具链与原生库前置
 
-| 组件 | 版本 |
-| --- | --- |
-| JDK | **Temurin 25.0.4.1+1**（必须 25） |
-| Android SDK Platform | `platforms;android-37.0` |
-| Android SDK Build-Tools | **36.0.0** |
-| Android SDK Platform-Tools | 含开发端 `adb`；`apksigner`、`aapt2`、`dexdump` 位于 Build-Tools |
-| Gradle | 9.5.0（用仓库自带 wrapper，不要另装） |
-| 工程配置 | AGP 9.3.0（内置 Kotlin）/ `compileSdk 37` / `minSdk 24`；生产目标仍为 Android 9 / API 28 |
+完整的 JDK 25 / Android SDK 37 / Build-Tools 36.0.0 / NDK 28.2.13676358 / Rust 1.97.1 / CMake / Python 3 工具链要求、多 ABI 按需选项（`-PdiplayAbis=...`）及 `provenance.json` 校验契约，统一见 [`docs/BUILD.md`](docs/BUILD.md#prepare-the-build-environment)。
 
-**Rust 核心必须从当前源码构建。** 需要 NDK **28.2.13676358**、Rust **1.97.1**、
-Python 3、可调用的 CMake 与主机 C/C++ 构建工具（bundled libopus／host JNI 测试使用），以及默认目标
-`aarch64-linux-android`（ARM64）。如需按需构建 ARMv7 或 x86_64，另行安装 `armv7-linux-androideabi`、`x86_64-linux-android`。
-C JNI 库仍使用 `shared/src/main/jniLibs/` 中的预编译文件；
-其中历史 `libdiplay_media.so` 不再参与任何 Gradle APK/AAR 打包。
-
-在运行下面的 Gradle APK 构建命令之前，执行：
-
-```sh
-export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
-scripts/check_rust_android_native.sh
-```
-
-该脚本默认构建并检查 ARM64（`arm64-v8a`）的 ELF/JNI 导出，输出到 `.native/rust-android/`；如需同时验证或打包 ARMv7 / x86_64，显式传参 `scripts/check_rust_android_native.sh armeabi-v7a x86_64` 并在 Gradle 命令加上 `-PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64`。
-Gradle 的所有 variant 只使用经验证的生成 JNI 目录，不会静默回退到旧 Rust 二进制。
-每个 ABI 的 `provenance.json` 绑定 Rust 源码、Cargo.lock、工具链/构建脚本和库文件的 SHA-256；
-缺少所需 ABI、来源记录、源码变更或二进制不匹配都会在打包前失败，并提示重新构建。
-这也适用于未提交的修改和没有 `.git` 的源码压缩包，不依赖提交号或时间戳。
-记录用于发现意外陈旧/混用产物，不是抵御恶意篡改的签名。
-
-CI 下载产物或自定义本地产物目录时，对构建脚本和 Gradle 设置同一个绝对路径：
-`export DIPLAY_JNI_LIBS_DIR=/absolute/path/to/rust-android-libs`。
-原生 Android 构建脚本使用 Linux／macOS 的 NDK 主机目录；Windows Gradle 构建可使用与当前源码匹配的 CI 原生库及 receipt，或在 Linux／macOS 构建后设置此目录。
-普通 JVM 单元测试不要求 Android Rust 产物。
-`gradlew clean` 清理生成的打包目录，但保留 `.native/` 供下次验证复用。
-
-回归测试：`python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'`。
+在运行下方 Gradle APK 构建前，确保 `java -version` 为 25 并先准备默认 ARM64 原生库：
 
 ```sh
 export JAVA_HOME=/path/to/jdk-25
 export ANDROID_HOME=/path/to/android-sdk
-java -version    # 输出必须显示 25
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+scripts/check_rust_android_native.sh
 ```
 
-**国内网络**：`repo.maven.apache.org` / `dl.google.com` 可能不可达，需在 `settings.gradle.kts` 或
-`init.gradle` 里配镜像，否则首次同步会长时间卡住。
+**国内网络**：`repo.maven.apache.org` / `dl.google.com` 可能不可达，需在 `settings.gradle.kts` 或 `init.gradle` 里配镜像，否则首次同步会长时间卡住。
 
 ---
 

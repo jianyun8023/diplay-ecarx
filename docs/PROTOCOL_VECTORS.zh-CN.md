@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | LIVI Rust | `6ac88bab7351a39b0cffac20c5dcf92ca848319b` | bplist、control cipher、HID、RTSP 的黄金字节 |
 | Bouncy Castle | 1.79（旧 Kotlin 行为） | PairVerify 公钥规范／低阶点拒绝边界 |
-| 目标车机日志 | ECARX 753 / 820A 实车与桌面 dump（见[实验记录](benchmarks/native-media-2026-11-12.md)） | PASCD 固定报文及厂商语义；HUD 完整输入输出样本仍待补 |
+| 目标车机日志 | ECARX 753 / 820A 实车与桌面 dump（见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)） | PASCD 固定报文及厂商语义；HUD 完整输入输出样本仍待补 |
 | Android 平台 | API 28 / API 35 行为对照 | UTF-16／ASCII 替换、`Math.round`、Long 环绕等 |
 | 独立 SRP 数学参考 | [公开输入及固定结果](../shared/src/test/resources/pairsetup-srp-golden.properties)，Python 标准库 hashlib／pow 独立重算 | 固定 SRP A／B／S／K／M1／M2；不是完整 PairSetup TLV transcript |
 | 独立参考实现（完整 transcript） | 生成脚本 [`scripts/gen_pair_transcripts.py`](../scripts/gen_pair_transcripts.py)，Python `cryptography` 46.0.5（X25519／Ed25519／ChaCha20-Poly1305／HKDF-SHA512）+ 上行的独立 SRP 数学；固定输入：accessory seed `0x11`(verify)/`0x21`(setup)、X25519 ephemeral `0x42`、controller seed `0x33`/`0x31`、SRP salt `0x11`/b `0x22`/a `0x33` | PairVerify 完整 M1–M4、PairSetup 完整 M1–M6 的固定字节与期望回复；**独立参考实现，非第三方抓包** |
