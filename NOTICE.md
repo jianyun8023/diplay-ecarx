@@ -31,7 +31,7 @@
     车机权限声明与参数修正、RTP 时钟探针与 Opus 编码器支持、通话回声参考、音频焦点与路由、
     **蓝牙 profile 级让出（保留 iAP2 握手）**、**车机品牌化**（品牌名统一为 `Lynk&Co`，并移除设置里的
     「自定义车机图标 / 品牌名」入口，改为只读卡片）等；
-  - 原生库改为预编译 `.so` 随仓库提供，**构建不再需要 NDK**；
+  - 两个小型 C 辅助库（`liblocal_hotspot_radio.so`、`libdiplay_i2c.so`）随仓库提供预编译 `.so`（无需在普通 Gradle 构建中跑 `ndk-build`）；CarPlay 协议与媒体核心 `libdiplay_media.so` 已迁至 Rust（`shared/src/main/rust/diplay-media`），从源码构建需 Rust `1.97.1` 与 Android NDK `28.2.13676358`（见 [`docs/BUILD.md`](docs/BUILD.md)）；
   - DIM/navigation、方控、日夜跟随和音场读取恢复为运行时反射与动态代理；移除 AdaptAPI 编译 JAR 和 Gradle 依赖，编译与单测改用独立接口夹具；
   - 删除未使用的 GKUI Policy 恢复声明模块、旧下载站及 Pages 自动部署；APK 补充离线许可全文与版权声明，发布附件提供同一提交的源码归档；
   - 平台签名改用 AOSP 默认 platform 密钥（本车机固件为 `test-keys`，厂商未更换该密钥），
@@ -80,8 +80,10 @@ Both are licensed under GNU GPL-3.0.
 - **Date of modification**: from **2026-10-09** onward; see the git history for exact dates.
 - **Nature of the changes**: ECARX-specific entry points and behavior added; upstream attribution retained. ECARX head-unit
   adaptation and fixes added (marked `fix1`…`fix10`), including head-unit branding -- the
-  upstream custom car-icon/name setting was removed in favour of a read-only card; native
-  libraries shipped prebuilt so the NDK is no longer required; release signing switched to the
+  upstream custom car-icon/name setting was removed in favour of a read-only card; the two small C
+  helper libraries (`liblocal_hotspot_radio.so`, `libdiplay_i2c.so`) are checked in as prebuilt
+  binaries while the Rust CarPlay core (`libdiplay_media.so`) is built and verified from source with
+  Rust `1.97.1` and Android NDK `28.2.13676358`; release signing switched to the
   AOSP default platform key so that `signature`-level permissions are granted on this head unit.
   AdaptAPI access now uses runtime reflection and dynamic proxies without a vendor compilation JAR.
   Details in `CHANGELOG.md`, `README.md` and `BUILD.md`.

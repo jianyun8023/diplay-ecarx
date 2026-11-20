@@ -2,9 +2,9 @@
 
 A CarPlay accessory may declare several **view areas** inside the main screen's video stream and tell the iPhone which one to draw in. DiPlay uses this for three optional settings, all without reconnecting CarPlay:
 
-- **CarPlay dock** (Settings → Display and performance, and the in-session menu): Automatic (default), Driver's side or Bottom.
-- **CarPlay in the head unit's split screen** (Settings → Display and performance, off by default): when the head unit shows DiPlay in half of the screen, CarPlay redraws for that window instead of shrinking with black bars, and returns to full screen.
-- **Turn CarPlay with the screen without reconnecting** (Settings → Display and performance, off by default): for head units whose screen turns, CarPlay redraws in the other orientation instead of reconnecting.
+- **CarPlay dock** (Settings → Display → Display and performance, and the in-session menu): Automatic (default), Driver's side or Bottom.
+- **CarPlay in the head unit's split screen** (Settings → Advanced → Display (experimental), off by default): when the head unit shows DiPlay in half of the screen, CarPlay redraws for that window instead of shrinking with black bars, and returns to full screen.
+- **Turn CarPlay with the screen without reconnecting** (Settings → Advanced → Display (experimental), off by default): for head units whose screen turns, CarPlay redraws in the other orientation instead of reconnecting.
 
 ## How it works
 

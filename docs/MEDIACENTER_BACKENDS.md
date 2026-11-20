@@ -11,43 +11,42 @@
 | 设置 | Android MediaSession | 亿咖通媒体源 | HY dashboard 补发 |
 | --- | --- | --- | --- |
 | DiPlay 直接接管 | 发布 | DiPlay 的 MediaCenterSessionEngine 注册、发布和清理 | 不发送 |
-| HY 代理 | 发布 | HY 读取标准会话后代理；DiPlay 不注册、不申请播放归属 | 当前匹配封面就绪后定向发送 |
+| Android 标准（v145 前称「HY 代理」） | 发布 | HY 或其他桌面读取标准会话后代理；DiPlay 不注册、不申请播放归属 | 开启「给 HY 补发封面通知」（默认开）且当前匹配封面就绪后定向发送 |
 
 沿用 `diplay_media_session/ecarx` 偏好：原“亿咖通”（true / ECARX）对应“DiPlay 直接接管”；
-原“标准安卓”（false / ANDROID）对应“HY 代理”。没有新增选项或改变旧值。
+原“标准安卓”（false / ANDROID）对应“Android 标准”（v145 前称“HY 代理”）。没有新增模式枚举或改变旧值；
+v145 起在“Android 标准”模式下新增独立的「给 HY 补发封面通知」开关（默认开启，偏好键 `hy_artwork_broadcast`），
+用于控制是否向 HY 发送 `dashboard` 封面广播。
 
 **默认值是“DiPlay 直接接管”（true）**：`d19750f6` 把 `MediaSessionSettings.mode()` 的缺省从
 ANDROID 改成 ECARX，本文早先写的“ANDROID 也是默认值”已不成立。老用户的选择不受影响，
 只有从未设置过的机器会拿到新默认。
-没有 HY 时，“HY 代理”仍可作为纯标准 Android 会话使用。修改下次连接生效，设置仍提示重新连接。
+没有 HY 时，“Android 标准”可关闭「给 HY 补发封面通知」，作为纯标准 Android 会话使用。修改下次连接生效，设置仍提示重新连接。
 已有 `EcarxOutputSettings.mediaEnabled` 继续约束 DiPlay 的直接输出。
 
 ## 会话、焦点与按键
 
 直接接管模式新增的标准会话不申请音乐焦点，保留原 ECARX/音频渲染器行为。
-HY 模式保留现有焦点策略：渲染器已管理焦点时，媒体会话不重复申请；禁用媒体键焦点时也不申请。
+Android 标准（HY 代理）模式保留现有焦点策略：渲染器已管理焦点时，媒体会话不重复申请；禁用媒体键焦点时也不申请。
 否则保留媒体键焦点的丢失、通话临时中断及 iPhone 真实恢复播放时的恢复逻辑。
 元数据、暂停和进度来自同一份 iPhone 状态，不伪造暂停、时长或封面尺寸。
 
 ECARX 已取得媒体控制权时，Geely、ECARX 备用广播、前台 raw KeyEvent、标准 MediaSession
 硬件媒体键及 Accessibility 的标准媒体键映射不重复转发。自定义非标准媒体键映射仍按原设置处理。
-没有 ECARX 控制权时保留已有备用路径。HY 模式不订阅 Geely 媒体键，也不接管 ECARX 媒体键；
+没有 ECARX 控制权时保留已有备用路径。Android 标准模式不订阅 Geely 媒体键，也不接管 ECARX 媒体键；
 标准 transport controls 在两种模式下始终可用。没有添加按时间猜测重复事件的防抖。
 标准回调捕获连接归属，断连后的旧回调不能控制新连接，即使复用同一 controller 对象。
 
 **Siri 接管不再独立于媒体接管方**（`c8f087ac` 之后）：两条语音键通道都以“直接接管”为前提——
 `GeelyWheelKeys.start()` 走 `shouldHandleSiriKey()`，ECARX 广播通道走 `managesVehicleKeys()`，
-两者在 `outputMode == ANDROID` 时都为假。因此在 HY 代理模式下 DiPlay **不接管语音键**，
+两者在 `outputMode == ANDROID` 时都为假。因此在 Android 标准（HY 代理）模式下 DiPlay **不接管语音键**，
 按键由 HY 处理。独立的 DiPlay Siri 启动器已移除，不能再通过选择该应用来配置转发。
 主应用仍接受显式的 `com.shihab.diplay.action.SIRI` Intent，不会把 DiPlay 界面带到前台；
 只有支持发送该 Intent 的外部调用方才能使用这条入口。
 `requestSiriFromAction()` 本身不检查接管方，所以显式 Intent 在两种模式下都可用。
 不恢复“打开应用唤醒 Siri”，也不调整导航、声音路由或声道配置。
 
-> 待修：设置里 `settings_media_output_description` 仍写着“自定义 Siri 按键均可用”，与上述行为不符，
-> 且自定义按键本版未适配。改文案前不要以那句为准。
-
-切换到 HY 代理前，仍等待旧 ECARX 注册释放确认，避免 HY 一读取新 active session 就争用媒体源。
+切换到 Android 标准（HY 代理）前，仍等待旧 ECARX 注册释放确认，避免 HY 一读取新 active session 就争用媒体源。
 迟到的注册 token 必须清理；超时或清理结果不确定时保留阻塞及诊断，拒绝清理需要重启进程。
 这只约束接管方交接，不再以标准会话和 ECARX 发布互斥为生命周期前提。
 
@@ -62,7 +61,7 @@ ECARX 已取得媒体控制权时，Geely、ECARX 备用广播、前台 raw KeyE
 - `business/sources/z0/i.java`：更新会调用 `updateCurrentSourceType`、
   `updateMusicPlaybackState` 和 `updateMediaList`。它会更新亿咖通媒体信息，不只是 HY 本地 UI。
 
-`CarPlayMediaSession` 拥有发送资格和去重状态。仅 HY 模式且标准会话 active、当前歌曲对应的
+`CarPlayMediaSession` 拥有发送资格和去重状态。仅在「Android 标准」模式、开启「给 HY 补发封面通知」且标准会话 active、当前歌曲对应的
 封面 URL 已就绪时，`HyMediaDisplay` 向 `com.hyphp.hywebview` 定向发送已有 `dashboard` 协议。
 复用 `ClusterArtworkServer` 的回环 HTTP URL；发送 URI 而非复制完整 Bitmap 到广播。
 当前元数据、封面 URL 或播放状态改变时补发，仅进度变化不发。
@@ -79,7 +78,7 @@ HY 未运行或接收条件不满足时，广播不会缓存重放；后续封�
 直接接管时必须确保 HY 不再代理车机媒体。DiPlay 不主动发 HY 消息，但 HY 若仍轮询标准会话，
 就可能主动注册或更新自己的亿咖通媒体源。不能假定 HY 的 mode=0 已完全退出，必须结合实际版本、
 授权、启动注册与运行日志验证。DiPlay 不修改 HY APK，也不停止第三方服务。
-HY 代理模式则需要 HY 的媒体代理、授权和相应仪表功能实际可用。
+Android 标准模式配合 HY 使用时，则需要 HY 的媒体代理、授权和相应仪表功能实际可用。
 
 标准会话消费者需自行具备 Android 所要求的会话读取权限。软件测试不证明嘟嘟/HY 已取得权限，
 也不证明真实 HY 已渲染封面。既有报告 6/7/8 属于旧 88f39fa 包，重复日志不能算多次复现；
@@ -90,8 +89,8 @@ HTTP 成功次数不能识别请求者或证明仪表已显示。
 `MediaOutputRoutingTest` 覆盖两模式标准控制、直接模式没有 HY 补发、ECARX 清理交接、
 旧会话回调、相同时长/尺寸封面、复用引用、缓存及先后到达、快速切歌、播放态变化和进度去重。
 `HyMediaDisplayTest` 验证定向广播字段、缺省值和失败隔离；焦点与 Siri 使用原有专项回归。
-设置截图由 `SimplifiedSettingsUiTest.mediaModeHasAnAdvancedEntry` 生成，尺寸 1920×1080。
-按 `AGENTS.md` 运行 shared/common/home 测试及 mobile/home/maphost lint、Debug 构建。
+设置截图由 `SimplifiedSettingsUiTest.mediaModeLivesInAudioOnly` 生成，尺寸 1920×1080。
+按 `AGENTS.md` 运行 `shared/common` 测试及 `mobile/maphost` lint、Debug 构建。
 
 实车待验：两模式下嘟嘟读取信息及控制；HY 同尺寸/同时长换曲封面；延迟封面和快速切歌；
 后台、暂停、通话结束恢复；每个物理键只执行一次；重连及模式交接没有遗留媒体源。

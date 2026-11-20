@@ -1,6 +1,6 @@
 # Built-in car hotspot setup
 
-Production scope: Android 9 / ECARX 753 / 820A, ARM64 or ARMv7, with the vehicle platform signature. Other devices are debugging environments. See [the permission checklist](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
+Production scope: Android 9 / ECARX 753 / 820A, ARM64 (`arm64-v8a`) by default (ARMv7 and x86_64 are opt-in local builds), with the vehicle platform signature. Other devices are debugging environments. See [the permission checklist](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
 
 Install the matching DiPlay APK on the car, not on the iPhone. Update in place with a matching package and signing certificate to preserve settings. Built-in car hotspot is the default; Wi-Fi Direct, Same LAN and USB remain available. Save the car's actual hotspot credentials before connecting.
 
@@ -33,7 +33,7 @@ the menu open and preserves the previously saved authentication choice.
    Bluetooth. Allow the app permissions requested on the car.
 5. Return to the app and tap Connect phone. Select your phone when asked.
    In DiPlay, use Choose iPhone if you need to select a different phone.
-6. Accept the Android Auto or CarPlay prompts on your phone.
+6. Accept the CarPlay prompts on your iPhone.
 
 You do not need to join the hotspot manually on your phone before tapping
 Connect phone. The app sends its details over Bluetooth so the phone can
