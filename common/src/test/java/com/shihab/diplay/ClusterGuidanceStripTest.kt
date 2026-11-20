@@ -2,10 +2,10 @@ package com.shihab.diplay
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.text.format.DateFormat
+import android.provider.Settings
 import com.shihab.diplay.glance.CarPlayGlance
 import com.shihab.diplay.host.R
-import java.util.Date
+import java.util.Calendar
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -21,8 +21,10 @@ import org.robolectric.annotation.GraphicsMode
 class ClusterGuidanceStripTest {
     private val app = RuntimeEnvironment.getApplication()
 
-    private fun arrivalText(epochSeconds: Long): String =
-        app.getString(R.string.turn_card_info_arrival, DateFormat.getTimeFormat(app).format(Date(epochSeconds * 1000)))
+    private val arrivalEpochSeconds = Calendar.getInstance().apply {
+        clear()
+        set(2026, Calendar.NOVEMBER, 20, 21, 54)
+    }.timeInMillis / 1000
 
     @Test fun aRouteWhosePhoneHasSentNoDistanceOrArrivalSaysNothing() {
         assertNull(ClusterGuidanceStrip.content(app, CarPlayGlance.Snapshot(connected = true, maneuverType = 1, road = "无名道路")))
@@ -38,16 +40,17 @@ class ClusterGuidanceStripTest {
         assertNull(ClusterGuidanceStrip.content(app, snapshot))
     }
 
-    @Test fun arrivalDurationAndDistanceAreSpeltLikeTheFactoryStrip() {
+    @Test fun arrivalUses24HourTimeEvenWhenTheSystemUses12HourTime() {
+        Settings.System.putString(app.contentResolver, Settings.System.TIME_12_24, "12")
         val snapshot = CarPlayGlance.Snapshot(
             connected = true,
             maneuverType = 1,
-            arrivalEpochSeconds = 1_800_000_000,
+            arrivalEpochSeconds = arrivalEpochSeconds,
             remainingSeconds = 180,
             remainingMeters = 938,
         )
         val line = ClusterGuidanceStrip.content(app, snapshot)!!
-        assertEquals(arrivalText(1_800_000_000), line.arrival)
+        assertEquals(app.getString(R.string.turn_card_info_arrival, "21:54"), line.arrival)
         assertEquals("3 min · 938 m", line.detail)
     }
 
@@ -56,8 +59,8 @@ class ClusterGuidanceStripTest {
         assertEquals("1.2 km", onlyDistance.text)
         assertEquals("", onlyDistance.arrival)
 
-        val onlyArrival = ClusterGuidanceStrip.content(app, CarPlayGlance.Snapshot(connected = true, arrivalEpochSeconds = 1_800_000_000))!!
-        assertEquals(arrivalText(1_800_000_000), onlyArrival.text)
+        val onlyArrival = ClusterGuidanceStrip.content(app, CarPlayGlance.Snapshot(connected = true, arrivalEpochSeconds = arrivalEpochSeconds))!!
+        assertEquals(app.getString(R.string.turn_card_info_arrival, "21:54"), onlyArrival.text)
     }
 
     @Test fun longRoutesCountInHoursAndKilometres() {

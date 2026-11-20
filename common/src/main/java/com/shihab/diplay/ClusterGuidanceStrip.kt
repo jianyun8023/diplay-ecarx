@@ -1,9 +1,9 @@
 package com.shihab.diplay
 
 import android.content.Context
-import android.text.format.DateFormat
 import com.shihab.diplay.glance.CarPlayGlance
 import com.shihab.diplay.host.R
+import java.text.SimpleDateFormat
 import java.util.Date
 
 /**
@@ -34,7 +34,8 @@ internal object ClusterGuidanceStrip {
     fun content(context: Context, snapshot: CarPlayGlance.Snapshot): Line? {
         if (!snapshot.connected) return null
         val arrival = snapshot.arrivalEpochSeconds?.let { epoch ->
-            val time = DateFormat.getTimeFormat(context).format(Date(epoch * 1000))
+            val locale = context.resources.configuration.locales[0]
+            val time = SimpleDateFormat("HH:mm", locale).format(Date(epoch * 1000))
             context.getString(R.string.turn_card_info_arrival, time)
         }
         val detail = listOfNotNull(
