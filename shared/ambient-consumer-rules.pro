@@ -22,7 +22,7 @@
     void onEnded(java.lang.String);
 }
 -keepclassmembers class * extends com.shihab.diplay.airplay.NativeVideoCallbacks {
-    void onEvent(int, java.lang.String);
+    void onEvent(int, java.lang.String, long, long);
 }
 
 # The wired deadline passes opaque values through these JNI entry points.
