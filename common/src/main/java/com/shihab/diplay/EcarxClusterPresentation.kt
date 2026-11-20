@@ -35,6 +35,10 @@ import android.widget.FrameLayout
  * The presentation owns no lifecycle of its own. [EcarxClusterSession] retains it across Activity
  * recreation and decides when the route/session allows `show()` / `dismiss()`; this class only
  * hands the decoder a surface and takes it away again before the window goes down.
+ *
+ * The projected map carries no guidance of its own — Apple's glass turn card is a different cluster
+ * content — so a [ClusterGuidanceStripView] sits over the video with the arrival, duration and
+ * remaining distance in the place the head unit's factory navigation puts them.
  */
 internal class EcarxClusterPresentation(
     context: Context,
@@ -44,6 +48,9 @@ internal class EcarxClusterPresentation(
 ) : Presentation(context, display) {
 
     private var texture: ClusterVideoTexture? = null
+    private var strip: ClusterGuidanceStripView? = null
+    private var stripContent: ClusterGuidanceStrip.Line? = null
+    private var stripNight = false
     private var videoSize = 1920 to 720
 
     fun setVideoSize(width: Int, height: Int) {
@@ -51,6 +58,20 @@ internal class EcarxClusterPresentation(
         videoSize = width to height
         texture?.setVideoSize(width, height)
     }
+
+    /** Null hides the strip; the window may not exist yet, which is why the content is kept here. */
+    fun setGuidance(line: ClusterGuidanceStrip.Line?, night: Boolean) {
+        if (stripContent == line && stripNight == night) return
+        stripContent = line
+        stripNight = night
+        strip?.apply {
+            content = line
+            this.night = night
+        }
+    }
+
+    /** The strip's own text, for the session's diagnostic line. */
+    fun guidanceText(): String = stripContent?.text ?: "none"
 
     /** View sizes are layout observations; neither the decoded stream nor final cluster visibility. */
     fun videoGeometryDiagnostics(): String {
@@ -80,9 +101,15 @@ internal class EcarxClusterPresentation(
         val view = ClusterVideoTexture(context, onPresented = onPresented, onSurface = onSurface)
         texture = view
         view.setVideoSize(videoSize.first, videoSize.second)
+        val overlay = ClusterGuidanceStripView(context).apply {
+            content = stripContent
+            night = stripNight
+        }
+        strip = overlay
         setContentView(FrameLayout(context).apply {
             setBackgroundColor(Color.BLACK)
             addView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         })
     }
 
@@ -91,6 +118,7 @@ internal class EcarxClusterPresentation(
         // stops being pointed at a window that is about to disappear, rather than at a dead surface.
         texture?.close()
         texture = null
+        strip = null
         super.onStop()
     }
 }

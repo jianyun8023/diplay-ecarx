@@ -9,6 +9,7 @@ import com.shihab.diplay.hud.ClusterMapIntent
 import com.shihab.diplay.hud.NavigationOutputs
 import com.shihab.diplay.hud.EcarxOutputSettings
 import com.shihab.diplay.airplay.AirPlaySession
+import com.shihab.diplay.glance.CarPlayGlance
 import com.shihab.diplay.media.AndroidMediaSink
 import com.shihab.diplay.orchestration.CarPlayController
 
@@ -34,6 +35,7 @@ internal class EcarxClusterSession(
     @Volatile private var closed = false
     private val stateListener: () -> Unit = ::onSessionChanged
     private val routeListener: (ClusterMapIntent) -> Unit = ::onRouteRequested
+    private val guidanceTick = Runnable(::refreshGuidance)
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) { if (displayId == DISPLAY_ID) apply() }
         override fun onDisplayRemoved(displayId: Int) { if (displayId == DISPLAY_ID) hide() }
@@ -64,6 +66,7 @@ internal class EcarxClusterSession(
         "sessionActive=${controller.activeAirPlaySession() != null} panelWanted=$wanted " +
             "presentationShowing=${presentation?.isShowing == true} clusterSurfaceValid=${surface?.isValid == true} " +
             "source=${if (mirrorMain) "main-mirror" else "independent-map"} " +
+            "strip=${presentation?.guidanceText() ?: "none"} " +
             "binding=$binding firstFrameObserved=$firstFrameObserved projectionRequested=$projectionRequested physicalDisplay=unobserved"
 
     private fun apply() {
@@ -91,7 +94,10 @@ internal class EcarxClusterSession(
                     if (mirrorMain) "cluster mirror surface ready" else "cluster first texture frame")
             }
         }
-        if (presentation != null) return
+        if (presentation != null) {
+            refreshGuidance()
+            return
+        }
         val display = displays?.getDisplay(DISPLAY_ID) ?: return
         lateinit var panel: EcarxClusterPresentation
         panel = EcarxClusterPresentation(app, display, onSurface = { next ->
@@ -133,9 +139,33 @@ internal class EcarxClusterSession(
         log("window shown awaitingSurface=${surface == null} " +
             "source=${if (mirrorMain) "main-mirror" else "independent-map"} " +
             "${panel.videoGeometryDiagnostics()} physicalDisplay=unobserved")
+        refreshGuidance()
+    }
+
+    /**
+     * The strip counts down, so it cannot wait for the phone to send again: route updates are quiet
+     * for long stretches while the arrival time runs. One second matches the DIM publication rhythm
+     * and the widget's own redraw limit.
+     */
+    private fun refreshGuidance() {
+        main.removeCallbacks(guidanceTick)
+        val panel = presentation
+        if (closed || panel == null || !panel.isShowing) return
+        // The mirrored centre screen is CarPlay's own UI, which already carries its own guidance;
+        // the switch is read every tick so turning it off applies without reconnecting.
+        val wanted = !mirrorMain && EcarxOutputSettings.arrivalStrip(app)
+        // The glass sits on the map, so it follows the day/night the map itself is drawn with —
+        // the mode published for CarPlay — not DiPlay's own chrome theme, which defaults to dark.
+        val night = AppAppearanceRuntime.hostNight() ?: app.resolveAppNightNow()
+        panel.setGuidance(
+            if (wanted) ClusterGuidanceStrip.content(app, CarPlayGlance.snapshot()) else null,
+            night = night,
+        )
+        main.postDelayed(guidanceTick, GUIDANCE_TICK_MILLIS)
     }
 
     private fun hide() {
+        main.removeCallbacks(guidanceTick)
         controller.setClusterOutputVisible(false)
         val panel = presentation ?: return
         presentation = null
@@ -182,6 +212,7 @@ internal class EcarxClusterSession(
 
     companion object {
         private const val MIRROR_KEY = "ecarx-cluster-main"
+        private const val GUIDANCE_TICK_MILLIS = 1_000L
         const val DISPLAY_ID = 1
         const val WIDTH = 1920
         const val HEIGHT = 720
