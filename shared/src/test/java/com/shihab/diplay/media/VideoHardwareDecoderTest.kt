@@ -23,6 +23,8 @@ import org.robolectric.shadows.ShadowMediaCodec
 import org.robolectric.shadows.ShadowMediaCodecList
 import java.nio.ByteBuffer
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class VideoDecoderSelectionTest {
     private val ecarx = listOf(
@@ -129,21 +131,27 @@ class VideoHardwareDecoderTest {
     }
 
     @Test fun aBusyHardwareDecoderFallsBackToSoftwareOpenlyAndComesBack() {
+        val hardwareAvailable = CountDownLatch(1)
+        val hardwareConfigured = CountDownLatch(1)
+        val hardwareReport = "decoder=$HARDWARE mime="
         BusyCodec.busyRemaining = 4
-        configure()
-        // Four refusals (the first create and its three retries), then the software decoder, created once.
-        assertEquals(List(4) { HARDWARE } + SOFTWARE, BusyCodec.created)
-        assertTrue(reports.any { "decoder=$SOFTWARE" in it })
+        configure { report ->
+            if (report.startsWith("hardware decoder $HARDWARE available again")) hardwareAvailable.countDown()
+            if (report.startsWith(hardwareReport)) hardwareConfigured.countDown()
+        }
+        assertTrue(reports.any { it.startsWith("decoder=$SOFTWARE mime=") })
         assertTrue(reports.any { "software decoder fallback decoder=$SOFTWARE hardware=$HARDWARE" in it })
 
-        // The worker finds the hardware free again and rebuilds on it at the next keyframe.
-        val deadline = System.currentTimeMillis() + 5_000
-        while (reports.none { "available again" in it } && System.currentTimeMillis() < deadline) Thread.sleep(50)
-        assertTrue(reports.any { "hardware decoder $HARDWARE available again" in it })
-        sink!!.onVideoFrame(110, idr, 2L, System.nanoTime())
+        assertTrue("Hardware availability was not reported", hardwareAvailable.await(5, TimeUnit.SECONDS))
+        // The probe reports availability before releasing the software codec. Wait for that worker to finish.
         barrier()
-        assertEquals(HARDWARE, BusyCodec.created.last())
-        assertEquals(1, reports.count { "decoder=$HARDWARE mime=" in it })
+        assertTrue("Hardware was configured before the IDR", reports.none { it.startsWith(hardwareReport) })
+        sink!!.onVideoFrame(110, idr, 1L, System.nanoTime())
+        // The pipe posts the rebuild asynchronously, so a decoder-worker barrier can overtake it.
+        assertTrue("Hardware was not configured after the IDR", hardwareConfigured.await(5, TimeUnit.SECONDS))
+        // Four refusals, one software fallback, one hardware probe, then the actual hardware rebuild.
+        assertEquals(List(4) { HARDWARE } + listOf(SOFTWARE, HARDWARE, HARDWARE), BusyCodec.created)
+        assertEquals(1, reports.count { it.startsWith(hardwareReport) })
     }
 
     @Test fun aDecoderThatRefusesToStartDoesNotTurnIntoSoftware() {
@@ -155,12 +163,14 @@ class VideoHardwareDecoderTest {
     }
 
     private fun surface() = Surface(SurfaceTexture(0)).also { surfaces += it }
-    private fun configure() {
+    private fun configure(onReport: (String) -> Unit = {}) {
         sink = AndroidMediaSink(surface = null)
-        sink!!.setVideoDiagnosticHandler(110) { reports += it }
+        sink!!.setVideoDiagnosticHandler(110) { report ->
+            reports += report
+            onReport(report)
+        }
         sink!!.setSurface(110, surface())
         sink!!.onVideoConfig(110, avcC)
-        sink!!.onVideoFrame(110, idr, 1L, System.nanoTime())
         barrier()
     }
     private fun barrier() { assertTrue(sink!!.beginSurfaceDetach(surface(), parkMain = false).await()) }
