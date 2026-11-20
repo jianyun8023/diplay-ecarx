@@ -116,18 +116,14 @@ class LockdownPairingTest {
         // exception from every state-reading entry, never a release-process abort.
         val state = NativeLockdown.pairCreate("test", "host", "buid", 10_000, System.nanoTime())
         val corrupted = state.copyOf().also { it[0] = longArrayOf(0, 0, 0) }
-        try {
+        val stepError = assertThrows(IllegalArgumentException::class.java) {
             LockdownJniEffects.pairStep(corrupted, LockdownPairEvent.Continue, System.nanoTime())
-            fail("Expected pairStep to reject the corrupted state")
-        } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message!!.contains("5 words"))
         }
-        try {
+        assertTrue(stepError.message!!.contains("5 words"))
+        val waitError = assertThrows(IllegalArgumentException::class.java) {
             LockdownJniEffects.trustWait(corrupted, false, System.nanoTime())
-            fail("Expected pairWait to reject the corrupted state")
-        } catch (expected: IllegalArgumentException) {
-            assertTrue(expected.message!!.contains("5 words"))
         }
+        assertTrue(waitError.message!!.contains("5 words"))
         // The host survived both violations: the next legal call pairs normally.
         val stream = PairingStream(listOf(null))
         client(stream).pair("test", "host", "buid", 10_000)
@@ -135,9 +131,6 @@ class LockdownPairingTest {
     }
 
     private fun client(stream: PairingStream) = LockdownPairingClient({ stream }) { _, _, _, _ -> record() }
-
-    private fun record() = LockdownPairRecord.restore("host", "buid", "00:11:22:33:44:55",
-        byteArrayOf(1), byteArrayOf(2), byteArrayOf(3), byteArrayOf(4), byteArrayOf(5), byteArrayOf(6))
 
     private fun expectSame(expected: Throwable, block: () -> Unit) {
         try { block(); fail("Expected $expected") } catch (actual: Throwable) { assertSame(expected, actual) }
@@ -191,6 +184,10 @@ private class PairingStream(
 
     override fun close() { closes++ }
 }
+
+/** One restored pair record, shared by the pairing and CarKit service tests. */
+internal fun record() = LockdownPairRecord.restore("host", "buid", "00:11:22:33:44:55",
+    byteArrayOf(1), byteArrayOf(2), byteArrayOf(3), byteArrayOf(4), byteArrayOf(5), byteArrayOf(6))
 
 internal fun plistFrame(content: String): ByteArray {
     val xml = "<plist version=\"1.0\"><dict>$content</dict></plist>".toByteArray()

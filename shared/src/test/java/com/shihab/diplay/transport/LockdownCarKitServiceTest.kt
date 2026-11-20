@@ -115,9 +115,6 @@ class LockdownCarKitServiceTest {
         assertEquals(listOf(62078 to 5_000L), connections)
         assertEquals(listOf("lockdown"), closes)
     }
-
-    private fun record() = LockdownPairRecord.restore("host", "buid", "00:11:22:33:44:55",
-        byteArrayOf(1), byteArrayOf(2), byteArrayOf(3), byteArrayOf(4), byteArrayOf(5), byteArrayOf(6))
 }
 
 /** Serves one scripted plist reply per request and records its close order by [name]. */

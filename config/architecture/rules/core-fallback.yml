@@ -6,8 +6,14 @@ rule:
   any:
     - pattern: NativeMedia.available
     - pattern: com.shihab.diplay.airplay.NativeMedia.available
+    - pattern: NativeMedia.loadError
+    - pattern: com.shihab.diplay.airplay.NativeMedia.loadError
     - all:
         - kind: identifier
         - regex: '^com\.shihab\.diplay\.airplay\.NativeMedia\.available$'
+        - inside: { kind: import_header }
+    - all:
+        - kind: identifier
+        - regex: '^com\.shihab\.diplay\.airplay\.NativeMedia\.loadError$'
         - inside: { kind: import_header }
 message: 已迁移的核心只有一个生产实现。调用 NativeMedia.requireAvailable() 并使用 Rust 接口，将独立 Kotlin 参考留在测试源集。

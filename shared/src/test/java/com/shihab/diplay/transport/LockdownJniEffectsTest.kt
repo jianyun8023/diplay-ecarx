@@ -2,8 +2,8 @@ package com.shihab.diplay.transport
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -35,18 +35,17 @@ class LockdownJniEffectsTest {
             LockdownPairAction.Request(request, 90_000, waitForTrust = true),
             LockdownJniEffects.pairAction(raw(3, request, longArrayOf(90_000, 1))),
         )
-        LockdownJniEffects.pairAction(raw(4, payload = byteArrayOf(1, 2, 3), extra = "00:11:22:33:44:55")).let { action ->
-            assertTrue(action is LockdownPairAction.Generate)
-            action as LockdownPairAction.Generate
-            assertTrue(action.devicePublicKey.contentEquals(byteArrayOf(1, 2, 3)))
-            assertEquals("00:11:22:33:44:55", action.wifi)
-        }
+        val generate = LockdownJniEffects.pairAction(
+            raw(4, payload = byteArrayOf(1, 2, 3), extra = "00:11:22:33:44:55"),
+        ) as LockdownPairAction.Generate
+        assertTrue(generate.devicePublicKey.contentEquals(byteArrayOf(1, 2, 3)))
+        assertEquals("00:11:22:33:44:55", generate.wifi)
         assertEquals(LockdownPairAction.LogUntrustedBuidSet, LockdownJniEffects.pairAction(raw(5)))
         assertEquals(LockdownPairAction.LogPairPrepared, LockdownJniEffects.pairAction(raw(6)))
         assertEquals(LockdownPairAction.LogPairAttempt(3), LockdownJniEffects.pairAction(raw(7, numbers = longArrayOf(3))))
         assertEquals(LockdownPairAction.TrustPending, LockdownJniEffects.pairAction(raw(8)))
         assertEquals(LockdownPairAction.Sleep(250), LockdownJniEffects.pairAction(raw(9, numbers = longArrayOf(250))))
-        (LockdownJniEffects.pairAction(raw(10)) as LockdownPairAction.Done).let { assertEquals(null, it.escrowBag) }
+        (LockdownJniEffects.pairAction(raw(10)) as LockdownPairAction.Done).let { assertNull(it.escrowBag) }
         (LockdownJniEffects.pairAction(raw(10, payload = byteArrayOf(9))) as LockdownPairAction.Done).let {
             assertTrue(it.escrowBag!!.contentEquals(byteArrayOf(9)))
         }
@@ -97,44 +96,30 @@ class LockdownJniEffectsTest {
 
     @Test fun unknownOrMalformedActionsFailAsRecognizableContractErrorsWithoutIo() {
         for (kind in listOf(0, 12, 99)) {
-            try {
-                LockdownJniEffects.pairAction(raw(kind))
-                fail("expected a pairing contract error for kind $kind")
-            } catch (expected: LockdownContractException) {
-                assertTrue(expected.message!!.contains("$kind"))
-            }
+            val error = assertThrows(LockdownContractException::class.java) { LockdownJniEffects.pairAction(raw(kind)) }
+            assertTrue(error.message!!.contains("$kind"))
         }
         for (kind in listOf(0, 1, 6, 99)) {
-            try {
-                LockdownJniEffects.serviceAction(raw(kind))
-                fail("expected a service contract error for kind $kind")
-            } catch (expected: LockdownContractException) {
-                assertTrue(expected.message!!.contains("$kind"))
-            }
+            val error = assertThrows(LockdownContractException::class.java) { LockdownJniEffects.serviceAction(raw(kind)) }
+            assertTrue(error.message!!.contains("$kind"))
         }
-        try {
+        val unknownCode = assertThrows(LockdownContractException::class.java) {
             LockdownJniEffects.pairAction(raw(11, "unmapped", longArrayOf(9)))
-            fail("expected a contract error for the unknown pairing error code")
-        } catch (expected: LockdownContractException) {
-            assertTrue(expected.message!!.contains("pairing error code 9"))
         }
+        assertTrue(unknownCode.message!!.contains("pairing error code 9"))
         // Malformed layouts are contract errors, not raw casts or silent defaults.
-        try {
+        assertThrows(LockdownContractException::class.java) {
             LockdownJniEffects.pairAction(arrayOf(null, null, longArrayOf()))
-            fail("expected a contract error for the missing kind header")
-        } catch (expected: LockdownContractException) { }
-        try {
+        }
+        assertThrows(LockdownContractException::class.java) {
             LockdownJniEffects.pairAction(arrayOf(intArrayOf(2), null, null))
-            fail("expected a contract error for the missing numbers")
-        } catch (expected: LockdownContractException) { }
-        try {
+        }
+        assertThrows(LockdownContractException::class.java) {
             LockdownJniEffects.serviceAction(arrayOf(intArrayOf(2), null, longArrayOf(62078)))
-            fail("expected a contract error for the missing second number")
-        } catch (expected: LockdownContractException) { }
-        try {
+        }
+        assertThrows(LockdownContractException::class.java) {
             LockdownJniEffects.serviceAction(raw(3, "not-an-array", longArrayOf(5_000)))
-            fail("expected a contract error for a malformed request")
-        } catch (expected: LockdownContractException) { }
+        }
     }
 
     @Test fun missingPayloadsStayNullAndAreNeverReplacedByDefaults() {
