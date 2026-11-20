@@ -5,9 +5,12 @@ valid:
   - "extern \"system\" fn Java_com_example_read() -> i32 { input().unwrap_or(-1) }"
   - "#[test] fn decode() { input().expect(\"fixture\"); }"
   - "fn describe() { println!(\"panic!\"); }"
+  - 'extern "system" fn Java_example() -> i32 { let words: [i64; 5] = match v.try_into() { Ok(w) => w, Err(_) => return -1 }; 0 }'
 invalid:
   - 'extern "system" fn Java_example() -> i32 { let value = input(); value.unwrap() }'
   - 'extern "system" fn Java_example() { values.get(i).unwrap(); }'
   - "extern \"system\" fn Java_com_example_read() { if invalid() { std::panic!(\"invalid\"); } }"
   - "extern \"C\" fn JNI_OnLoad() -> i32 { load().expect(\"library\") }"
   - "extern \"system\" fn Java_com_example_read() { todo!() }"
+  - 'extern "system" fn Java_example(v: Vec<i64>) -> i32 { let words: [i64; 5] = v.try_into().unwrap(); 0 }'
+  - 'unsafe extern "system" fn Java_example(env: Env) -> i32 { let state: [i64; 5] = read_words(env).try_into().unwrap(); 0 }'

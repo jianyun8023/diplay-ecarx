@@ -541,6 +541,14 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_pa
     let e = Env(env);
     let result = e.frame(|| {
         let words = e.longs(e.item(state, 0)?)?;
+        // The five-word pairing state is the JNI contract `pairCreate` builds; a caller that
+        // broke it gets a typed Java exception, never a release-process abort (panic=abort).
+        if words.len() != 5 {
+            e.throw(
+                c"java/lang/IllegalArgumentException",
+                c"Lockdown pairing state must carry exactly 5 words",
+            )?;
+        }
         Ok(if remaining(words[1], now).is_some() {
             0
         } else {
@@ -563,8 +571,18 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_pa
         use super::flow::{Effect, Pair};
         let words = e.item(state, 0)?;
         let words_value = e.longs(words)?;
+        // Same five-word contract as `pairWait`: validate at the entry, then pass a fixed
+        // type inward, so a corrupted state cannot panic the release host process.
+        if words_value.len() != 5 {
+            e.throw(
+                c"java/lang/IllegalArgumentException",
+                c"Lockdown pairing state must carry exactly 5 words",
+            )?;
+        }
+        let mut state_words = [0i64; 5];
+        state_words.copy_from_slice(&words_value);
         let mut p = Pair {
-            words: words_value.try_into().unwrap(),
+            words: state_words,
             config: [
                 e.text(e.item(state, 1)?)?,
                 e.text(e.item(state, 2)?)?,
@@ -794,7 +812,9 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_re
         let deadline = now(e, io)?.wrapping_add(budget * 1_000_000);
         let read = (|| {
             let header = fully(e, io, 4, deadline, human != 0)?;
-            let n = u32::from_be_bytes(header.try_into().unwrap()) as usize;
+            // `fully` always returns exactly four bytes; keep the conversion panic-free anyway,
+            // so a short read turns into the invalid-length error instead of a host abort.
+            let n = u32::from_be_bytes(*header.first_chunk::<4>().unwrap_or(&[0; 4])) as usize;
             if n == 0 || n > max as usize {
                 return Err((
                     3,

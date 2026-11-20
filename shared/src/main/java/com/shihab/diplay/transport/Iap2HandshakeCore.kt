@@ -49,7 +49,7 @@ internal class Iap2HandshakeCore(kind: Int) {
         LOCATION, VEHICLE, FORWARD, CONTROL_NOT_READY }
 
     companion object {
-        fun requireNative() { check(NativeMedia.available) { "Native iAP2 handshake core is unavailable" } }
+        fun requireNative() { NativeMedia.requireAvailable() }
         fun challengeValid(length: Int): Boolean { requireNative(); return NativeIap2Handshake.challengeValid(length) }
         fun rejection(parameters: List<Iap2Parameter>): Iap2IdentificationException.Rejected {
             requireNative()

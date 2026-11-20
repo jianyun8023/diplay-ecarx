@@ -11,7 +11,7 @@ class PairSetup(private val identity: AirPlayIdentity, private val pairings: Pai
     @Synchronized fun handle(body: ByteArray): ByteArray {
         check(!closed) { "PairSetup is closed" }
         if (handle == 0L) {
-            check(NativeMedia.available) { "Native protocol core is unavailable" }
+            NativeMedia.requireAvailable()
             handle = NativePairSetup.create(identity.privateKey, identity.publicKey,
                 identity.pairingId.toByteArray(Charsets.UTF_8)).also { check(it != 0L) }
         }

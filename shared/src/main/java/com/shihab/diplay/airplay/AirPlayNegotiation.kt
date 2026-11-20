@@ -72,7 +72,7 @@ internal class AirPlayNegotiation(config: AirPlayConfig) {
     enum class StreamAction { UNSUPPORTED, SCREEN, AUDIO, BUFFERED, DATA, BUFFERED_DISABLED }
 
     companion object {
-        private fun requireNative() { check(NativeMedia.available) { "Native AirPlay negotiation core is unavailable" } }
+        private fun requireNative() { NativeMedia.requireAvailable() }
 
         private fun capabilities(config: AirPlayConfig): Int =
             (if (config.hevc) 1 else 0) or (if (config.cluster != null) 2 else 0) or

@@ -59,7 +59,7 @@ internal object NativeIap2Wire {
     const val U64 = 6
     const val BOOL_NONZERO = 7
     const val BOOL_ONE = 8
-    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun encodeScalar(kind: Int, value: Long): ByteArray
     @JvmStatic external fun readScalar(kind: Int, bytes: ByteArray, offset: Int, fieldId: Int): Long
     @JvmStatic external fun encodeU16List(values: IntArray): ByteArray

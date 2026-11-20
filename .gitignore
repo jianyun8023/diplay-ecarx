@@ -52,3 +52,6 @@ reports/baseline/
 
 # Local agent working notes
 .workbuddy/
+
+# Local investigation outputs (source snapshots, captures); too large and device-specific to commit
+/artifacts/

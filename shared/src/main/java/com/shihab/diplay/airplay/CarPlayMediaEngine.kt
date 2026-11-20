@@ -132,7 +132,13 @@ class CarPlayMediaEngine(
     private val streams = ConcurrentHashMap<StreamKey, Closeable>()
     /** This engine's lease namespace: a replaced engine starts with an empty sharing registry. */
     internal val leaseEpoch = LEASE_EPOCHS.incrementAndGet()
-    private val clusterVideoOwner = AtomicReference<ScreenStream?>()
+    /**
+     * The latest stream registered for each screen type. Two sessions can hold the same type at once
+     * (their registry keys differ) while the sink's decoder, mirrors and saved configuration are shared
+     * per type, so only the type's latest stream may deliver: this is the configuration-delivery
+     * admission replaced native routes already have through their permanent Rust-side retirement.
+     */
+    private val screenOwners = ConcurrentHashMap<Int, ScreenStream>()
     private val audioMeta = ConcurrentHashMap<StreamKey, AudioMeta>()
     private val pendingMicrophone = ConcurrentHashMap<StreamKey, MicrophoneConfig>()
     private val audioCaptures = ConcurrentHashMap<StreamKey, AudioPacketCapture>()
@@ -208,7 +214,7 @@ class CarPlayMediaEngine(
         }
         sink.setVideoDiagnosticHandler(type) {
             if (type == STREAM_TYPE_ALT_SCREEN && !session.isClosed &&
-                streams[streamKey] === screen && clusterVideoOwner.get() === screen) {
+                streams[streamKey] === screen && screenOwners[type] === screen) {
                 if (it == "first frame rendered") {
                     NavigationOutputs.diagnostic("cluster video stream=111 decoderFirstFrame=submitted")
                 } else {
@@ -236,13 +242,16 @@ class CarPlayMediaEngine(
             }
         }
         val port = screen.listen(
-            object : ScreenStream.Listener by currentScreenListener(type, sink, isCurrent = { streams[streamKey] === screen }) {
+            object : ScreenStream.Listener by currentScreenListener(type, sink,
+                // The registry check covers a same-session replacement; the owner check also covers a
+                // different session taking the shared type over, whose decoders stay in the sink.
+                isCurrent = { streams[streamKey] === screen && screenOwners[type] === screen }) {
                 override fun onClosed(cause: Throwable?) {
                     Log.w(
                         TAG,
                         "screen stream ended type=$type reason=${cause?.message ?: "peer EOF"}",
                     )
-                    clusterVideoOwner.compareAndSet(screen, null)
+                    screenOwners.remove(type, screen)
                     if (streams.remove(streamKey, screen)) {
                         if (releaseLease(session, NativeMedia.LEASE_SCREEN, type, "")) {
                             sink.onScreenStreamActive(type, false)
@@ -254,7 +263,7 @@ class CarPlayMediaEngine(
         )
         streams.put(streamKey, screen)?.close()
         acquireLease(session, NativeMedia.LEASE_SCREEN, type, "")
-        if (type == STREAM_TYPE_ALT_SCREEN) clusterVideoOwner.set(screen)
+        screenOwners[type] = screen
         sink.onScreenStreamActive(type, true)
         return port
     }
@@ -658,7 +667,7 @@ class CarPlayMediaEngine(
         // sink is asked to stop, so a final flush lands on a still-live renderer.
         tornDown.forEach { key ->
             val removed = streams.remove(key)
-            if (key.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
+            if (removed is ScreenStream) screenOwners.remove(key.type, removed)
             removed?.close()
         }
         // Then release output leases. Only an audio stream holds an audio/microphone lease, so screen
@@ -696,7 +705,7 @@ class CarPlayMediaEngine(
         // renderer and only the last holder stops a shared sink (same order as teardown).
         sessionStreams.forEach {
             val removed = streams.remove(it)
-            if (it.type == STREAM_TYPE_ALT_SCREEN && removed is ScreenStream) clusterVideoOwner.compareAndSet(removed, null)
+            if (removed is ScreenStream) screenOwners.remove(it.type, removed)
             removed?.close()
         }
         sessionStreams

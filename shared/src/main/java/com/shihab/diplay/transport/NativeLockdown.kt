@@ -7,7 +7,7 @@ import org.xmlpull.v1.XmlPullParser
 
 /** Bootstrap-only JNI values; protocol state and decisions are opaque to the I/O adapters. */
 internal object NativeLockdown {
-    init { check(NativeMedia.available) { "Native media library is required" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun encode(source: Any): Array<Any?>
     @JvmStatic external fun encodeTree(tree: Array<Any?>): Array<Any?>
     @JvmStatic external fun decode(source: Any): Array<Any?>

@@ -22,7 +22,7 @@ internal class NtpTiming(monoNanos: Long, wallMillis: Long) {
 }
 
 internal object NativeNtpTiming {
-    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun create(monoNanos: Long, wallMillis: Long): LongArray
     @JvmStatic external fun synced(token: LongArray, monoNanos: Long): ByteArray
     @JvmStatic external fun request(token: LongArray, monoNanos: Long): ByteArray

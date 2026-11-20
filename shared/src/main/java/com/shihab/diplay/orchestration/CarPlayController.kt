@@ -2310,6 +2310,9 @@ class CarPlayController(
         @Volatile private var bluetoothSocket: BluetoothSocket? = null
         @Volatile private var bluetoothStream: BluetoothRfcommDuplexStream? = null
         @Volatile private var wirelessTunnelChannel: Iap2Session? = null
+        // Accepted tunnel links that have not taken the executor over yet. Guarded by the resource
+        // lock; a queued link is not the runtime channel until its task starts.
+        private val pendingTunnelChannels = mutableListOf<Iap2Session>()
         @Volatile private var wirelessRuntimeIdentification: Iap2IdentificationConfig? = null
         @Volatile private var wirelessAirPlayEndpoint: Iap2WirelessCarPlayEndpoint? = null
         private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
@@ -2990,16 +2993,19 @@ class CarPlayController(
                     closeBestEffort("stale tunneled iAP2 link") { channel.close() }
                     return false
                 }
-                wirelessTunnelChannel = channel
+                // The query names the channel whose control loop owns the executor, not one that is
+                // merely queued behind it. Publication happens when the task actually takes over.
+                pendingTunnelChannels += channel
             }
             val generation = this.generation
-            debugLog(
-                "wireless iAP2 runtime tunnel control starting " +
-                    "location=${identification.locationInformationEnabled} " +
-                    "vehicleStatus=${identification.vehicleStatusEnabled}",
-            )
             return try {
                 tunnelExecutor.execute {
+                    if (!takeOverWirelessTunnel(channel)) return@execute
+                    debugLog(
+                        "wireless iAP2 runtime tunnel control starting " +
+                            "location=${identification.locationInformationEnabled} " +
+                            "vehicleStatus=${identification.vehicleStatusEnabled}",
+                    )
                     try {
                         val result = Iap2WirelessControlClient(
                             session = channel,
@@ -3048,11 +3054,31 @@ class CarPlayController(
                 }
                 true
             } catch (error: Throwable) {
+                synchronized(wirelessResourceLock) { pendingTunnelChannels.remove(channel) }
                 if (wirelessTunnelChannel === channel) wirelessTunnelChannel = null
                 closeBestEffort("tunneled iAP2 link") { channel.close() }
                 debugLog("iAP2 tunnel executor rejected the link", error)
                 false
             }
+        }
+
+        /**
+         * Publishes an accepted tunnel only when its executor task starts. A run that closed while the
+         * task was queued releases the link instead of publishing it, and the task never starts control
+         * I/O. The caller holds no resource lock while the link is closed.
+         */
+        private fun takeOverWirelessTunnel(channel: Iap2Session): Boolean {
+            val running = synchronized(wirelessResourceLock) {
+                pendingTunnelChannels.remove(channel)
+                if (state.running) {
+                    wirelessTunnelChannel = channel
+                    true
+                } else {
+                    false
+                }
+            }
+            if (!running) closeBestEffort("stale tunneled iAP2 link") { channel.close() }
+            return running
         }
 
         private inline fun whileRunning(action: () -> Unit) {
@@ -3617,6 +3643,13 @@ class CarPlayController(
                             val tunnel = wirelessTunnelChannel
                             wirelessTunnelChannel = null
                             if (tunnel != null) closeBestEffort("tunneled iAP2 link") { tunnel.close() }
+                            // The real executor's shutdownNow drains queued tasks unexecuted, so a link
+                            // that never took over would leak unless it is swept with the generation.
+                            val pending = pendingTunnelChannels.toList()
+                            pendingTunnelChannels.clear()
+                            for (queuedTunnel in pending) {
+                                closeBestEffort("queued tunneled iAP2 link") { queuedTunnel.close() }
+                            }
                         }
                         7 -> closeBluetoothBootstrapTransport()
                         8 -> {

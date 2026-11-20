@@ -123,7 +123,7 @@ open class Iap2ProtocolException(message: String, cause: Throwable? = null) : IO
 
 /** Native CSM body parameter framing; order and repeated ids are preserved. */
 internal object NativeIap2Body {
-    init { check(NativeMedia.available) { "Rust core is unavailable: ${NativeMedia.loadError}" } }
+    init { NativeMedia.requireAvailable() }
     @JvmStatic external fun validateBuilder(ids: IntArray, kinds: IntArray, specs: IntArray): IntArray?
     @JvmStatic external fun encode(ids: IntArray, payloads: Array<ByteArray>): ByteArray
     @JvmStatic external fun parse(encoded: ByteArray): Array<Iap2Parameter>

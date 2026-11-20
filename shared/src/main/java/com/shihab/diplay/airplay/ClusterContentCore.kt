@@ -8,7 +8,7 @@ internal object ClusterContentCore {
         val needKeyFrame: Boolean, val rotateRouteToken: Boolean)
 
     fun create(initialUrl: String?): Snapshot {
-        check(NativeMedia.available) { "Native cluster content core is unavailable" }
+        NativeMedia.requireAvailable()
         return Snapshot(NativeClusterContent.create(initialUrl), 0)
     }
 

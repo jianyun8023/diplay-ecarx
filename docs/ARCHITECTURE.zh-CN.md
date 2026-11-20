@@ -51,12 +51,12 @@ PR #97 已完成 Rust 核心与 Kotlin Android 薄宿主集成；`feat/rust-carp
 | `dp-rust-crate-root` | 在 `lib.rs` 添加业务实现、兼容模块或重导出 | 根文件只声明既有六个模块。实现放入所属模块，调用方使用其路径。 |
 | `dp-rust-module-path` | 在核心源码用 `#[path]` 或条件路径属性指向别处的文件 | 按实际目录声明子模块，使源码位置反映归属。 |
 | `dp-rust-protocol-unsafe` | 在协议算法文件中写 `unsafe` 块、函数或实现 | 在所属协议的 JNI 层处理裸指针，算法接收切片或类型化的值。三个仍与 JNI 同文件的 iAP2 模块在规则中逐一列出。 |
-| `dp-jni-panic` | 在 `Java_*` 或 `JNI_OnLoad` 函数体直接使用 `panic!`、`todo!`、`unimplemented!`、`expect`、`expect_err`，或对变量、`get`、`get_mut` 的结果调用 `unwrap()` | 发布构建使用 `panic = "abort"`。按该入口的契约返回错误或设置 Java 异常。 |
+| `dp-jni-panic` | 在 `Java_*` 或 `JNI_OnLoad` 函数体直接使用 `panic!`、`todo!`、`unimplemented!`、`expect`、`expect_err`，对变量、`get`、`get_mut` 的结果调用 `unwrap()`，或使用 `try_into().unwrap()` 完成未校验的转换 | 发布构建使用 `panic = "abort"`。按该入口的契约返回错误或设置 Java 异常；先校验布局，再以固定类型向内传递。 |
 | `dp-session-thread` | 在 Rust `session` 中直接引用 `thread::sleep` 或 `thread::spawn` | 状态机返回期限或动作，Android 宿主负责等待和执行。 |
 | `dp-receiver-close` | 在音频、缓冲音频或视频接收器中直接引用 `libc::close` | 启动返回零时由 Kotlin 回收 socket FD，启动成功后由 `platform::stream` 释放。 |
 | `dp-host-jni` | 在 `common`、`mobile` 或 `maphost` 生产 Kotlin 中声明 `external fun` | 将绑定放在 `shared` 的对应 owner，宿主调用其 Kotlin 接口。 |
 | `dp-core-loader` | 在 `NativeMedia.kt` 以外直接调用 JVM 加载器加载字面量 `"diplay_media"` | 由 `NativeMedia` 缓存加载结果，绑定使用 `requireAvailable()`。 |
-| `dp-core-fallback` | 在生产 Kotlin 中用 `NativeMedia.available` 选择实现，或把它保存为另一个状态 | 核心调用使用 `requireAvailable()`。现有直接断言可继续使用，SDK 编解码能力仍由平台判断。 |
+| `dp-core-fallback` | 在生产 Kotlin 中引用 `NativeMedia.available`（含 `check`／`require` 断言或保存为状态） | 核心调用统一走 `requireAvailable()`，保留原始加载异常的 cause 链；测试源集的可用性探针不受限，SDK 编解码能力仍由平台判断。 |
 | `dp-test-oracle` | 在生产 Kotlin 中导入或直接引用 `org.bouncycastle`、`org.concentus` | 使用生产配对或 Opus 接口，独立参照放在测试源集。 |
 
 Kotlin 规则覆盖当前模块的 `main`、`debug`、`release` 源集。跨函数的错误传播、FD 的实际释放时机和设备表现需要相应的契约测试与设备验证。新增规则时，用一个违规样例和最相近的合法写法定义匹配边界。涉及文件归属时，再补充目录用例。[规则](../config/architecture/rules/) · [语法样例](../config/architecture/tests/) · [目录用例](../scripts/test_architecture_paths.mjs)

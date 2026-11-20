@@ -481,7 +481,13 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_buffere
                 };
                 packet.truncate(RTP_HEADER_LEN + plain);
                 if plain == 0 { packet.recycle(); continue; }
-                let timestamp = u32::from_be_bytes(packet.bytes()[4..8].try_into().unwrap());
+                // The frame-length check above guarantees the RTP header bytes; the panic-free
+                // read keeps a malformed packet from aborting the release host process.
+                let timestamp = packet
+                    .bytes()
+                    .get(4..8)
+                    .and_then(<[u8]>::first_chunk::<4>)
+                    .map_or(0, |b| u32::from_be_bytes(*b));
                 let frame = AudioPacket { handle: packet.into_handle(), sample: timestamp, arrived_ns: 0 };
                 received_bytes += length as u64;
                 let mut state = owner.state.lock().unwrap();
