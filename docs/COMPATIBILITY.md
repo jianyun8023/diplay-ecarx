@@ -1,6 +1,6 @@
 # Compatibility
 
-This fork targets only Android 9 (API 28), ECARX 753, Qualcomm 820A with its existing platform signature. Releases ship three packages, one per ABI: ARM64 (`arm64-v8a`, the default production package), ARMv7 (`armeabi-v7a`, the fallback) and x86_64 (test-only, for the emulator). The in-app updater downloads the package that matches the device's own ABI. Other Android releases are development/debug environments, not production support commitments. The app has no ADB runtime or authorization dependency; see [the permission checklist](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
+This fork targets only Android 9 (API 28), ECARX 753, Qualcomm 820A with its existing platform signature. Releases ship the ARM64 (`arm64-v8a`) APK by default (the in-app updater downloads it); ARMv7 (`armeabi-v7a`) and x86_64 (emulator) are opt-in builds (`-PdiplayAbis=...`) and are not built or tested by default. Other Android releases are development/debug environments, not production support commitments. The app has no ADB runtime or authorization dependency; see [the permission checklist](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md).
 
 Current vehicle evidence and remaining acceptance work are tracked in the [acceptance matrix](RUST_CORE_REMAINING.zh-CN.md).
 
@@ -8,7 +8,7 @@ This public preview is an independent receiver, not an Apple-certified CarPlay a
 
 | Area | Current scope |
 | --- | --- |
-| Head unit | Android 9 / API 28, ECARX 753 / 820A; ARM64 (default) and ARMv7 (fallback), plus x86_64 for the emulator; vehicle platform signature required for protected features |
+| Head unit | Android 9 / API 28, ECARX 753 / 820A; ARM64 (`arm64-v8a`, default), ARMv7 and x86_64 opt-in only; vehicle platform signature required for protected features |
 | Phone | Standard, non-jailbroken iPhone with CarPlay enabled; device/iOS compatibility varies |
 | Physical evidence | Previous private builds: wired and wireless picture, touch and audio confirmed on the development car with iPhone XS / iOS 18.7.10 |
 | Wi-Fi | Auto uses eligible saved/aligned channels; beside a 5 GHz station, explicit 2.4 GHz precedes other 5 GHz/unpinned default fallbacks. Manual channels stay explicit; no band/performance guarantee. |

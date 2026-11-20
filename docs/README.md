@@ -22,6 +22,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 - [Rust 核心验收矩阵](RUST_CORE_REMAINING.zh-CN.md) — 当前已验证范围、剩余项和历史迁移审计；已关闭的 issue 不作为当前待办清单。
 - [协议样本与黄金向量](PROTOCOL_VECTORS.zh-CN.md) — 样本来源、独立预期、测试入口和外部证据缺口。
 - [领克 01 / ECARX 753 平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md) — 厂商接口、固件行为、权限、验证矩阵与证据索引，长期维护；新接口先登记再使用。
+- [分支模型](BRANCHING.md) — 主干 `dev`、标签发版与分支收敛建议。
 - [构建 DiPlay 领克 01 / ECARX 753 移植版](../BUILD.md) — 本移植版特有的签名与 MFi 身份；通用流程见下一条。
 - [Build DiPlay](BUILD.md) ／ [從原始碼建置 DiPlay](BUILD.zh-TW.md) — 模块、Android Studio、单测与 lint 的通用流程。
 - [753 车机权限与无 ADB 实施清单](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md) — 平台权限与不依赖 ADB 的实施、验收基准。
@@ -29,7 +30,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 - [Test checklist](TESTING.md) — 测试要点与主机单测。
 - [繁體中文翻譯維護](LOCALIZATION.zh-TW.md) — 本地化维护。
 - [Credits and license notices](THIRD_PARTY_NOTICES.md)、[licenses/](licenses/) — 第三方许可。
-- 代理与贡献者约定见根目录 [AGENTS.md](../AGENTS.md)。
+- 代理与贡献者约定见根目录 [AGENTS.md](../AGENTS.md)，按归属域拆分任务指南：[会话与传输](agent-guides/SESSION_AND_TRANSPORT.md)、[媒体](agent-guides/MEDIA.md)、[协议](agent-guides/PROTOCOLS.md)、[车辆与仪表](agent-guides/VEHICLE.md)、[界面与设置](agent-guides/UI_AND_SETTINGS.md)。
 
 ## 功能与机制说明
 

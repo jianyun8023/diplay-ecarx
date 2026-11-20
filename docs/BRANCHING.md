@@ -19,19 +19,19 @@
 3. 发布 GitHub Release（`release.yml` 校验 tag 与 APK `versionCode` 一致，产出签名 APK、licenses、源码、mapping、`update.json`）。
 4. **不要**从陈旧的 `release`/`main` 分支发版——它们可能落后主干数百个提交。
 
-## 3. 当前状态（2026-11-18 复核）
+## 3. 当前状态（2026-11-20 复核）
 
 | 分支 | 最新提交 | 相对 `origin/dev` |
 | --- | --- | --- |
-| `origin/dev` | `f3e7f852`（2026-11-17） | 主干 |
-| `origin/feat/ecarx-carplay-duck-handshake` | `895ca625` | PR #126 源分支（开放） |
-| `origin/feat/boot-ready-gate` | `e0fd87a7` | 领先 2 个提交，**无开放 PR**，在途工作（开机自启等热点就绪） |
-| `origin/exp/carplay-ultra-bench` | 2026-11-11 | 实验分支 |
+| `origin/dev` | `78abe4d5`（2026-11-20） | 主干（已含 `v153` 及 PR #128–#132） |
+| `origin/fix/ecarx-navigation-audio-default` | `11d76f3d`（2026-11-20） | PR #132 源分支，已合入 `dev`（`1fdeab35`），待清理 |
+| `origin/feat/boot-ready-gate` | `e0fd87a7`（2026-11-17） | 领先 2 个提交，**无开放 PR**，在途工作（开机自启等热点/桌面就绪） |
+| `origin/exp/carplay-ultra-bench` | `eee32046`（2026-11-11） | 实验分支 |
 | `main`（仅本地） | `c7b60eda`（2026-10-27） | 上游基线存档；远端已删 |
-| `release/v121`（仅本地） | `3d143eb5` | 仅多一个 versionCode=121 提交，发布锚点由 `v121` 标签承担 |
-| `release-v150-armv8`、`build/dev-release-v130`（仅本地，含 worktree） | — | 已完全包含于 dev，无独有内容 |
+| `release/v121`（仅本地） | `3d143eb5`（2026-11-03） | 仅多一个 versionCode=121 提交，发布锚点由 `v121` 标签承担 |
+| `release-v150-armv8`、`build/dev-release-v130`（仅本地） | — | 已完全包含于 `dev`，无独有内容 |
 
-早期 `release` 分支（曾领先 dev 两个提交）**本地与远端均已删除**，删除前其内容核实如下：
+此前的 `origin/feat/ecarx-carplay-duck-handshake`（PR #126）已于 2026-11-19 合入并在 2026-11-20 由 PR #131 回退，远端分支已删除。早期 `release` 分支（曾领先 dev 两个提交）**本地与远端均已删除**，删除前其内容核实如下：
 
 - `fix(usb): preserve iPhone trust waits and actionable pairing outcomes`——同标题修复已在 dev 祖先中（`98f8657a`、`2fda17bd`，2026-10-28），dev 版本范围更大；
 - `docs(release): record verified USB pairing promotion`——纯文档，已被 [native-usb-2026-11-13 验收记录](benchmarks/native-usb-2026-11-13.md) 和 2026-11-14 的 USB 收尾确认覆盖。

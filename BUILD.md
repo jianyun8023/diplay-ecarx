@@ -32,8 +32,9 @@ ECARX 接口通过运行时反射和动态代理调用。编译和单测**不需
 | 工程配置 | AGP 9.3.0（内置 Kotlin）/ `compileSdk 37` / `minSdk 24`；生产目标仍为 Android 9 / API 28 |
 
 **Rust 核心必须从当前源码构建。** 需要 NDK **28.2.13676358**、Rust **1.97.1**、
-Python 3、可调用的 CMake 与主机 C/C++ 构建工具（bundled libopus／host JNI 测试使用），以及 `aarch64-linux-android`、`armv7-linux-androideabi`、`x86_64-linux-android`
-三个 Rust target。C JNI 库仍使用 `shared/src/main/jniLibs/` 中的预编译文件；
+Python 3、可调用的 CMake 与主机 C/C++ 构建工具（bundled libopus／host JNI 测试使用），以及默认目标
+`aarch64-linux-android`（ARM64）。如需按需构建 ARMv7 或 x86_64，另行安装 `armv7-linux-androideabi`、`x86_64-linux-android`。
+C JNI 库仍使用 `shared/src/main/jniLibs/` 中的预编译文件；
 其中历史 `libdiplay_media.so` 不再参与任何 Gradle APK/AAR 打包。
 
 在运行下面的 Gradle APK 构建命令之前，执行：
@@ -43,18 +44,17 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 scripts/check_rust_android_native.sh
 ```
 
-该脚本构建并检查三个 ABI 的 ELF/JNI 导出，默认输出到 `.native/rust-android/`。
+该脚本默认构建并检查 ARM64（`arm64-v8a`）的 ELF/JNI 导出，输出到 `.native/rust-android/`；如需同时验证或打包 ARMv7 / x86_64，显式传参 `scripts/check_rust_android_native.sh armeabi-v7a x86_64` 并在 Gradle 命令加上 `-PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64`。
 Gradle 的所有 variant 只使用经验证的生成 JNI 目录，不会静默回退到旧 Rust 二进制。
 每个 ABI 的 `provenance.json` 绑定 Rust 源码、Cargo.lock、工具链/构建脚本和库文件的 SHA-256；
-缺少任一 ABI、来源记录、源码变更或二进制不匹配都会在打包前失败，并提示重新构建。
+缺少所需 ABI、来源记录、源码变更或二进制不匹配都会在打包前失败，并提示重新构建。
 这也适用于未提交的修改和没有 `.git` 的源码压缩包，不依赖提交号或时间戳。
 记录用于发现意外陈旧/混用产物，不是抵御恶意篡改的签名。
 
 CI 下载产物或自定义本地产物目录时，对构建脚本和 Gradle 设置同一个绝对路径：
 `export DIPLAY_JNI_LIBS_DIR=/absolute/path/to/rust-android-libs`。
-原生 Android 构建脚本使用 Linux／macOS 的 NDK 主机目录；Windows Gradle 构建可使用与当前源码匹配的 CI 三 ABI 库及 receipt，或在 Linux／macOS 构建后设置此目录。
-单 ABI 检查（如 `scripts/check_rust_android_native.sh arm64-v8a`）不能替代完整 APK 打包需要的三个 ABI；
-其他 ABI 必须已有与当前源码匹配的产物。普通 JVM 单元测试不要求 Android Rust 产物。
+原生 Android 构建脚本使用 Linux／macOS 的 NDK 主机目录；Windows Gradle 构建可使用与当前源码匹配的 CI 原生库及 receipt，或在 Linux／macOS 构建后设置此目录。
+普通 JVM 单元测试不要求 Android Rust 产物。
 `gradlew clean` 清理生成的打包目录，但保留 `.native/` 供下次验证复用。
 
 回归测试：`python3 -m unittest discover -s scripts -p 'test_rust_android_inputs.py'`。
@@ -193,19 +193,19 @@ export ANDROID_KEYSTORE_PASSWORD=android
 export ANDROID_KEY_ALIAS=aosp-platform
 export ANDROID_KEY_PASSWORD=android
 ./gradlew :mobile:assembleRelease
-# → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-<abi>-release.apk（每个 ABI 一个：arm64-v8a / armeabi-v7a / x86_64）
+# → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-arm64-v8a-release.apk（默认仅 ARM64；加 -PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64 可按需打出多 ABI）
 
 # 普通源码 Debug
 ./gradlew :mobile:assembleDebug
-# → mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk（每个 ABI 一个）
+# → mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk
 
 # 仅在本地独立车测时显式注入身份
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneDebug
-# → mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-<abi>-debug.apk（每个 ABI 一个）
+# → mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk
 
 # 首装包：Release 包名 + 身份，之后由 GitHub 公开 Release 覆盖升级（签名变量同上）
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneRelease
-# → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-<abi>-release.apk（含身份，不要分享）
+# → mobile/build/outputs/apk/release/DiPlay-v<versionCode>-arm64-v8a-release.apk（含身份，不要分享）
 ```
 
 Release 默认开启 R8 代码与资源优化，主应用保留名称和源码调试信息供诊断使用。

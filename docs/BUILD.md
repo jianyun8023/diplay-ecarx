@@ -66,7 +66,7 @@ java -version
 The output must identify Java 25.
 On Windows, use `gradlew.bat` in place of `./gradlew` in the commands below.
 The native Android build scripts use Linux/macOS NDK host directories. For Windows Gradle builds,
-use the matching three-ABI libraries and receipts from Android checks, or build them on Linux/macOS,
+use the matching ARM64 (or requested ABI) libraries and receipts from Android checks, or build them on Linux/macOS,
 then select their directory with `DIPLAY_JNI_LIBS_DIR` as described below.
 
 ### Prepare Rust Android inputs

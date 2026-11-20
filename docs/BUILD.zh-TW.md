@@ -13,7 +13,7 @@
 
 `:common` 與 `:shared` 是共用函式庫。要安裝主程式，請選 **mobile**；如果裝到「DiPlay map host」，表示選錯模組或 APK。單獨執行 `assembleDebug` 可能建置多個應用程式。
 
-主程式的 Debug／Release 都按 ABI 分包，每個 APK 只含一種 ABI。車機與本輪小米 8 驗證優先使用 `arm64-v8a`；`armeabi-v7a` 是備援，`x86_64` 僅供模擬器測試。
+主程式預設只建置與發佈 ARM64（`arm64-v8a`）；ARMv7（`armeabi-v7a`）與 `x86_64`（模擬器）改為按需顯式建置（`-PdiplayAbis=arm64-v8a,armeabi-v7a,x86_64`），預設不建置、不測試。每個主程式 APK 只含一種 ABI。
 
 ## 準備環境
 
@@ -28,15 +28,15 @@
 
 ### 準備 Rust Android 產物
 
-主程式與 `shared` 打包前需要目前原始碼對應的三 ABI 原生程式庫與 `provenance.json`。在 Linux／macOS 執行：
+主程式與 `shared` 打包前需要目前原始碼對應的預設 ARM64 原生程式庫與 `provenance.json`。在 Linux／macOS 執行：
 
 ```sh
-rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+rustup target add aarch64-linux-android
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 scripts/check_rust_android_native.sh
 ```
 
-預設輸出為 `.native/rust-android/`；Gradle 先核對來源與檔案雜湊，再打包，不會回退到檢入的舊 Rust 二進位檔。原生建置腳本使用 Linux／macOS 的 NDK 主機目錄；Windows 可使用符合目前原始碼的 CI 三 ABI 程式庫及 receipt，或在 Linux／macOS 建置後，將 `DIPLAY_JNI_LIBS_DIR` 設為該產物目錄的絕對路徑。詳細契約見[英文指南](BUILD.md#prepare-rust-android-inputs)。
+預設輸出為 `.native/rust-android/`；Gradle 先核對來源與檔案雜湊，再打包，不會回退到檢入的舊 Rust 二進位檔。如需同時建置 ARMv7／`x86_64`，請另裝對應 rustup target 並顯式傳參 `scripts/check_rust_android_native.sh armeabi-v7a x86_64`。原生建置腳本使用 Linux／macOS 的 NDK 主機目錄；Windows 可使用符合目前原始碼的 CI 程式庫及 receipt，或在 Linux／macOS 建置後，將 `DIPLAY_JNI_LIBS_DIR` 設為該產物目錄的絕對路徑。詳細契約見[英文指南](BUILD.md#prepare-rust-android-inputs)。
 
 ### Windows PowerShell
 
@@ -71,7 +71,7 @@ sdk.dir=C:/Users/YOUR_NAME/AppData/Local/Android/Sdk
 
 ## 完整檢查
 
-目前的完整 Gradle 指令見 [AGENTS.md](../AGENTS.md#checks)，CI 額外的 Rust 單元測試、三 ABI 驗證與 mobile／maphost 兩個應用程式的 Release R8 檢查見 [Android workflow](../.github/workflows/android.yml)。Rust 單元測試入口為：
+目前的完整 Gradle 指令見 [AGENTS.md](../AGENTS.md#checks)，CI 額外的 Rust 單元測試、ARM64 原生驗證、靜態分析與 mobile／maphost 兩個應用程式的 Release R8 檢查見 [Android workflow](../.github/workflows/android.yml)。Rust 單元測試入口為：
 
 ```sh
 cargo test --locked --lib --manifest-path shared/src/main/rust/diplay-media/Cargo.toml
@@ -113,7 +113,7 @@ Linux／macOS：
 DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assembleStandaloneDebug
 ```
 
-任一必要檔案缺少或為空時，任務會停止；建置也會拒絕非預期的憑證容器。ARM64 輸出為 `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk`，另有 ARMv7 與 x86_64 分包。請確認 APK 中的 `assets/offline-mfi/identity.pk8` 與 `assets/offline-mfi/certificate.p7b` 符合選定素材。使用相同簽章更新既有測試程式，才能保留設定。
+任一必要檔案缺少或為空時，任務會停止；建置也會拒絕非預期的憑證容器。預設 ARM64 輸出為 `mobile/build/outputs/apk/debug/DiPlay-v<versionCode>-arm64-v8a-debug.apk`（ARMv7 與 `x86_64` 僅在指定 `-PdiplayAbis=...` 時建置）。請確認 APK 中的 `assets/offline-mfi/identity.pk8` 與 `assets/offline-mfi/certificate.p7b` 符合選定素材。使用相同簽章更新既有測試程式，才能保留設定。
 
 ## 正式版建置
 
@@ -132,13 +132,13 @@ DIPLAY_AUTH_ASSETS_DIR=/absolute/path/to/runtime-assets ./gradlew :mobile:assemb
 .\gradlew.bat :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintRelease :mobile:assembleRelease
 ```
 
-Linux／macOS 使用 `./gradlew`。ARM64 輸出為 `mobile/build/outputs/apk/release/DiPlay-v<versionCode>-arm64-v8a-release.apk`，另有 ARMv7 備援與 x86_64 測試分包。只有明確設定 `DIPLAY_AUTH_ASSETS_DIR` 的本機車測建置才會加入外部配件身分；接收者可從 APK 擷取該身分。公開 Actions Release 不注入 MFi 身分，APK 也不含 Android 簽章私密金鑰。詳見[第三方聲明](THIRD_PARTY_NOTICES.md)。
+Linux／macOS 使用 `./gradlew`。預設 ARM64 輸出為 `mobile/build/outputs/apk/release/DiPlay-v<versionCode>-arm64-v8a-release.apk`（ARMv7 與 `x86_64` 僅在指定 `-PdiplayAbis=...` 時建置）。只有明確設定 `DIPLAY_AUTH_ASSETS_DIR` 的本機車測建置才會加入外部配件身分；接收者可從 APK 擷取該身分。公開 Actions Release 不注入 MFi 身分，APK 也不含 Android 簽章私密金鑰。詳見[第三方聲明](THIRD_PARTY_NOTICES.md)。
 
-[Release workflow](../.github/workflows/release.yml) 由已發布的 GitHub Release 或手動派送觸發，重建並驗證原生程式庫、執行主程式 Release lint 與簽章建置；它不重跑 Rust／JVM 測試，也不等待另一個 Android checks workflow。發布附件與 `update.json` 的預設 APK 為 ARM64，裝置更新依自己的 ABI 選包；手動派送只上傳 Actions artifact。
+[Release workflow](../.github/workflows/release.yml) 由已發布的 GitHub Release 或手動派送觸發，重建並驗證 ARM64 原生程式庫、執行主程式 Release lint 與簽章建置；它不重跑 Rust／JVM 測試，也不等待另一個 Android checks workflow。發布附件與 `update.json` 預設僅提供 ARM64 APK；手動派送只上傳 Actions artifact。
 
 APK 的 `assets/licenses/` 包含 GPL、AGPL、元件授權全文、版權聲明及原始碼取得方式，可在「關於 → 授權與原始碼」離線閱讀。Actions 發布附件同時提供 `DiPlay-licenses.zip`、`DiPlay-source.tar.gz`、`SOURCE-REVISION.txt` 及 `SHA256SUMS.txt`；原始碼壓縮檔與 APK 使用同一提交。自行修改的版本須另提供實際使用的修改後原始碼。保留的 C 預編譯程式庫仍有[原始碼對應限制](../shared/src/main/jniLibs/NOTICE.md)，不能以附上倉庫壓縮檔取代此項驗證。
 
-公開原始碼壓縮檔應對應 release tag，排除認證身分、簽章金鑰、本機設定及建置輸出。不要使用已退役的 `build-beta.py` 作為建置流程。
+公開原始碼壓縮檔應對應 release tag，排除認證身分、簽章金鑰、本機設定及建置輸出。已退役的 `build-beta.py` 已自倉庫移除。
 
 ## 建置問題
 
