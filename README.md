@@ -2,13 +2,13 @@
 
 正式环境：Android 9（API 28）／753／820A，使用现有平台签名。应用内不使用 ADB。默认只发布 ARM64 APK（当前适配的 820A 车机）；ARMv7 与 x86_64 改为按需显式构建（`-PdiplayAbis=...`），默认不构建、不测试。其他 Android 版本仅用于调试。见 [权限清单](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
 
-[简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
+简体中文（本页） · [繁體中文](README.zh-TW.md) · [English](#english)
 
 DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话。适配**亿咖通车机 753 版本**（领克高通 820A 平台），当前在 **2021 款领克 01** 上验证；同平台的 753 车机理论上通用。
 
 连接、日常设置和排错，见 [车主使用说明（含设置图）](docs/USER-GUIDE.zh-CN.md)。功能细节和验证范围见 [详细说明](docs/FEATURES.zh-CN.md)。
 
-两份指南以 v148 车测包为界面说明基线，截图出处按各页标注保留，尚未全量核对最新界面。当前发行见 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已验场景与剩余项见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。
+两份指南正文已对照 v153（及 `dev` 后续改动）核对，历史截图出处按各页标注保留。当前发行见 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已验场景与剩余项见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。
 
 | 功能 | 需要开启的设置 |
 | --- | --- |
@@ -54,7 +54,7 @@ Releases ship the ARM64 APK by default for the adapted 820A head unit; ARMv7 and
 
 For connection, everyday settings and troubleshooting, see the [owner's guide with settings screenshots](docs/USER-GUIDE.zh-CN.md). Behavior and validation limits are in the [detailed feature guide](docs/FEATURES.zh-CN.md). Both guides are in Simplified Chinese.
 
-Both guides use the v148 car-test build as their UI baseline, with older screenshot sources marked on each page. They have not been fully checked against the latest UI. For the current release, see [latest Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest); completed checks and remaining acceptance work are in the [current matrix](docs/RUST_CORE_REMAINING.zh-CN.md).
+Both guides have been updated against the v153 (and post-v153 `dev`) UI text, while retaining older screenshot sources marked on each page. For the current release, see [latest Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest); completed checks and remaining acceptance work are in the [current matrix](docs/RUST_CORE_REMAINING.zh-CN.md).
 
 | Feature | Settings |
 | --- | --- |

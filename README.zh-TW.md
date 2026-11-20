@@ -1,14 +1,14 @@
 # DiPlay · 領克 01 CarPlay
 
-正式環境：Android 9（API 28）／753／820A，使用現有平台簽章。應用程式內不使用 ADB。發行套件按 ABI 分為獨立的 ARM64、ARMv7 和 x86_64 APK；目前適配的 820A 車機選 ARM64，ARMv7 為相容備援，x86_64 僅供模擬器測試。其他 Android 版本僅用於除錯。見 [權限清單](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
+正式環境：Android 9（API 28）／753／820A，使用現有平台簽章。應用程式內不使用 ADB。預設只發佈 ARM64 APK（目前適配的 820A 車機）；ARMv7 與 x86_64 改為按需顯式建置（`-PdiplayAbis=...`），預設不建置、不測試。其他 Android 版本僅用於除錯。見 [權限清單](docs/ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md)。
 
-[简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [English](README.md#english)
+[简体中文](README.md) · 繁體中文（本頁） · [English](README.md#english)
 
 DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話。適配**億咖通車機 753 版本**（領克高通 820A 平台），目前於 **2021 款領克 01** 驗證；同平台的 753 車機理論上通用。
 
 連接、日常設定和排錯，見 [車主使用說明（含設定圖）](docs/USER-GUIDE.zh-CN.md)。功能細節與驗證範圍見 [詳細說明](docs/FEATURES.zh-CN.md)（兩份皆為簡體中文）。
 
-兩份指南以 v148 車測包為介面說明基線，截圖來源按各頁標註保留，尚未完整核對最新介面。目前發行版見 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已驗證場景與剩餘項目見[目前驗收矩陣](docs/RUST_CORE_REMAINING.zh-CN.md)。
+兩份指南正文已對照 v153（及 `dev` 後續變動）核對，歷史截圖來源按各頁標註保留。目前發行版見 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已驗證場景與剩餘項目見[目前驗收矩陣](docs/RUST_CORE_REMAINING.zh-CN.md)。
 
 | 功能 | 需要開啟的設定 |
 | --- | --- |
@@ -22,6 +22,7 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 | 開機自動連接 | **設定 → 連接 → 自動連接**，開啟兩項啟動開關，選無線與目標 iPhone；車機熱點需儲存設定並按需開啟自動熱點 |
 | 自動熱點保持穩定 | 在 **設定 → 連接 → 連接設定** 選擇車載熱點，開啟自動熱點後預設「保持車機 Wi-Fi 關閉」；需要車機連其他 Wi-Fi 時關閉此項 |
 | 方向盤語音鍵叫 Siri | **設定 → 車輛 → 方向盤按鍵**，開啟「方向盤喚醒 Siri」；直接接管模式選短按／長按，HY 代理模式選 155/156 或 312/303 |
+| 在車機上接打電話 | 在 CarPlay 畫面接聽／掛斷；聲音走 CarPlay，車機電話介面和儀表卡片來自獨立電話堆疊，通話時音樂與導航避讓 |
 
 **文中「HY」指 HYWebview（`com.hyphp.hywebview`），適配版本 3.6.1。** DiPlay 直接接管模式下，請關閉 HY 的媒體接管及同一語音鍵的方控接管；HY 代理模式請在兩邊選擇相同的 Siri 模擬按鍵。
 
@@ -29,7 +30,7 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 
 只顯示導航提示和歌曲資訊時，保持「整屏鏡像到儀表」關閉。修改設定後，依照畫面提示重新連接。
 
-**高德地圖顯示到儀表，需要 iPhone 使用 iOS 17.4 或更新版本。**
+**儀表地圖需要 iPhone 使用 iOS 17.4 或更新版本**：儀表上的箭頭、距離、車道走 iOS 17.4 起的導航中繼資料通道；地圖畫面系統自 iOS 16.4 起支援，高德另要求 iOS 17.4 及以上、iPhone 12 或更新機型。
 
 自動熱點會關閉車機連接其他 Wi-Fi 的功能，iPhone 的 Wi-Fi 仍須開啟。關閉保護項時，若 CarPlay 正在使用熱點，車機 Wi-Fi 延至下次車輛啟動恢復。開機設定齊全時可直接進入 CarPlay；桌面等待依版本而異，見[啟動說明](docs/STARTUP_PRIORITY_AND_SYSTEM_APP.zh-CN.md)。
 
@@ -40,5 +41,7 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 開發參考：[文件索引](docs/README.md)、[建置說明](BUILD.md)與 [SDK 適配說明](docs/ECARX_SDK_CONTEXT.zh-CN.md)。ECARX 介面透過執行時反射及動態代理存取，編譯與單元測試不需要廠商 JAR。
 
 基於 [DiPlay](https://github.com/shihabal3amri/DiPlay)、[DiPlay-ECARX](https://github.com/jiopia/DiPlay-ECARX) 和 [xcertplay](https://github.com/shilapi/xcertplay)，部分介面改編自 [DiAuto](https://github.com/shihabal3amri/DiAuto)。許可與第三方聲明見 [LICENSE](LICENSE) 及 [相關說明](docs/THIRD_PARTY_NOTICES.md)。
+
+Based on LIVI by Lasse Heitgres (https://github.com/f-io/LIVI)
 
 CarPlay 及相關標識屬於 Apple；本專案與 Apple、領克、億咖通無隸屬或背書關係。

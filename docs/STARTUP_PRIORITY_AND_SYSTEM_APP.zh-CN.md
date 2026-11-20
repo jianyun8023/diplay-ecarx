@@ -1,6 +1,6 @@
 # 开机启动优先级与系统应用边界（Android 9 / 753）
 
-维护日期：2026-11-15。系统应用与早期启动的证据来自 2026-11-06；当前启动行为见下文及[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。旧实验分支不是当前工作入口。
+维护日期：2026-11-20。系统应用与早期启动的证据来自 2026-11-06；当前启动行为见下文及[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)。旧实验分支不是当前工作入口。
 
 ## 系统应用边界与历史依据（2026-11-06）
 
@@ -14,8 +14,8 @@
 
 - `LOCKED_BOOT_COMPLETED` 先读取 device-protected 的自启镜像并预热进程。用户未解锁时不读 CE 配置、不创建窗口；解锁后可走已配置的无线直达入口，不必只等 `BOOT_COMPLETED`。
 - `BOOT_COMPLETED` 承担恢复、配置和拉起回退；原厂导航恢复仅在导航输出空闲时执行，避免后到的广播打断已经开始的导航。
-- **2026-11-15 工作区待合入改动**：ECARX 的解锁与普通开机入口共用 `EAS_LAUNCH_BAT_2ND` 等待，超时 15 秒放行；等待期间预读配置、加载核心、准备本地身份与认证，不提前创建窗口或控制器。相关原始改动在本轮文档整理前已存在，不能据此认定公开包已包含。
-- 对应 `LAUNCHER_SECOND_BATCH`、`LAUNCHER_SECOND_BATCH_MISSED` 和 `BOOT_PREPARE_*` 的时序见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)；耗时口径见[启动采样](CARPLAY_STARTUP_SAMPLING.zh-CN.md)。超时放行不证明原厂 Home 服务已经就绪，模拟器广播验证不替代实车冷启动。
+- **未合入分支实验（`origin/feat/boot-ready-gate`）**：ECARX 的解锁与普通开机入口共用 `EAS_LAUNCH_BAT_2ND` 等待，超时 15 秒放行；等待期间预读配置、加载核心、准备本地身份与认证，不提前创建窗口或控制器。该改动尚未合入 `dev`，公开包不包含。
+- 对应时序与耗时口径见[平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md)和[启动采样](CARPLAY_STARTUP_SAMPLING.zh-CN.md)。超时放行不证明原厂 Home 服务已经就绪，模拟器广播验证不替代实车冷启动。
 
 ## 最初实现记录（2026-11-06）
 

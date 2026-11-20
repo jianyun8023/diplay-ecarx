@@ -7,29 +7,28 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 
 - [车主使用说明](USER-GUIDE.zh-CN.md) — 连接、日常设置、排错与升级，含设置截图。
 - [功能与使用说明](FEATURES.zh-CN.md) — 各功能的行为、前提、各地图在仪表上的差异与待实车验证项。
-- [Install and connect](INSTALL.md) ／ [安裝與連線](INSTALL.zh-TW.md) — 安装与首次连接。
-- [設定與疑難排解](SETTINGS.zh-TW.md) — 设置项与排错（繁体）。
+- [Install and connect](INSTALL.md) — 英文安装与首次连接指南。
 - [Built-in car hotspot setup](CONNECTION_SETUP.md) — 车机热点连接方式。
 - [Existing Wi-Fi / Same LAN](EXISTING_WIFI.md) — 现有 Wi-Fi 同网段连接。
 - [Compatibility](COMPATIBILITY.md) — 车机与 iPhone 兼容范围。
 - [CarPlay on your launcher's home screen](LAUNCHER_INTEGRATION.md) — 桌面集成。
-- [Privacy and diagnostics](PRIVACY.md) ／ [隱私權與診斷](PRIVACY.zh-TW.md) — 隐私与诊断报告。
+- [Privacy and diagnostics](PRIVACY.md) — 隐私与诊断报告。
 
 ## 开发与构建
 
 - [技术架构](ARCHITECTURE.zh-CN.md) — 当前模块、会话数据流、Rust 核心与 Kotlin 平台适配边界及代码归属。
 - [可执行的架构规则](ARCHITECTURE.zh-CN.md#可执行的架构规则) — 本地检查命令、CI 门禁和各条规则的适用范围。
-- [Rust 核心验收矩阵](RUST_CORE_REMAINING.zh-CN.md) — 当前已验证范围、剩余项和历史迁移审计；已关闭的 issue 不作为当前待办清单。
+- [Rust 核心验收矩阵](RUST_CORE_REMAINING.zh-CN.md) — 当前已验证范围与剩余待验项；已关闭的 issue 不作为当前待办清单。
 - [协议样本与黄金向量](PROTOCOL_VECTORS.zh-CN.md) — 样本来源、独立预期、测试入口和外部证据缺口。
 - [领克 01 / ECARX 753 平台笔记](ECARX_753_PLATFORM_NOTES.zh-CN.md) — 厂商接口、固件行为、权限、验证矩阵与证据索引，长期维护；新接口先登记再使用。
-- [构建 DiPlay 领克 01 / ECARX 753 移植版](../BUILD.md) — 本移植版特有的签名与 MFi 身份；通用流程见下一条。
-- [Build DiPlay](BUILD.md) ／ [從原始碼建置 DiPlay](BUILD.zh-TW.md) — 模块、Android Studio、单测与 lint 的通用流程。
+- [分支模型](BRANCHING.md) — 主干 `dev`、标签发版与分支收敛建议。
+- [构建 DiPlay 领克 01 / ECARX 753 移植版](../BUILD.md) — 本移植版特有的平台签名、`.env` 与 MFi 身份；通用构建流程见下一条。
+- [Build DiPlay](BUILD.md) — 模块、工具链、Rust 原生构建、Android Studio、单测与 lint 的通用流程。
 - [753 车机权限与无 ADB 实施清单](ADB_AND_PLATFORM_PERMISSIONS.zh-CN.md) — 平台权限与不依赖 ADB 的实施、验收基准。
 - [ECARX SDK 与麦克风 Policy 上下文](ECARX_SDK_CONTEXT.zh-CN.md) — 反射与动态代理访问厂商接口。
 - [Test checklist](TESTING.md) — 测试要点与主机单测。
-- [繁體中文翻譯維護](LOCALIZATION.zh-TW.md) — 本地化维护。
 - [Credits and license notices](THIRD_PARTY_NOTICES.md)、[licenses/](licenses/) — 第三方许可。
-- 代理与贡献者约定见根目录 [AGENTS.md](../AGENTS.md)。
+- 代理与贡献者约定见根目录 [AGENTS.md](../AGENTS.md)，按归属域拆分任务指南：[会话与传输](agent-guides/SESSION_AND_TRANSPORT.md)、[媒体](agent-guides/MEDIA.md)、[协议](agent-guides/PROTOCOLS.md)、[车辆与仪表](agent-guides/VEHICLE.md)、[界面与设置](agent-guides/UI_AND_SETTINGS.md)。
 
 ## 功能与机制说明
 
@@ -64,21 +63,14 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 ## 验证素材与基准
 
 - [verification/navigation-v109](verification/navigation-v109/) — 导航接管决策引用的 v109 导航验证素材。
-- [预编译 libopus 实测（2026-11-10）](benchmarks/native-opus-2026-11-10.md) — 当时选用原生 Opus 编码的依据；后续 Opus 统一为静态链接的 libopus，见技术架构。
-- [原生媒体迁移历史实验（2026-11-12 起）](benchmarks/native-media-2026-11-12.md) — 各阶段 A/B/C/D 台架测量和后续迁移验证，含逐轮 CSV；待办与开关默认值按当时版本理解。
-- [原生视频首帧与配置失败交错验证（2026-11-14）](benchmarks/native-video-startup-2026-11-14.md) — #113 已合并结果与后续失败交错修复分批登记，包含有效 red、本地检查和实机待验范围。
+- [预编译 libopus 实测（2026-11-10）](benchmarks/native-opus-2026-11-10.md) — 选用原生 Opus 编码的性能依据（后续统一为静态链接 libopus，见技术架构）。
+- [媒体流原生解密实测（2026-11-11）](benchmarks/native-chacha-2026-11-11.md) — 原生 ChaCha 解密的性能依据（现并入 `libdiplay_media.so`）。
 - [车速、挡位与恢复复核（2026-11-14）](benchmarks/vehicle-speed-2026-11-14.md) — Ultra 实车证据、HY DCYTools 同源挡位、固件单位与订阅行为、本地恢复回归及实车待测范围。
-- [原生 USB NCM 台架验收记录（2026-11-13，已收尾）](benchmarks/native-usb-2026-11-13.md) — 拔插／重启／切换、156 秒有线采样及主动断开背景，保留版本和结论适用范围。
-- [媒体流原生解密实测（2026-11-11）](benchmarks/native-chacha-2026-11-11.md) — 原生 ChaCha 的性能依据（现并入 `libdiplay_media.so`）。
-- [媒体状态归属验证（2026-11-14）](benchmarks/media-state-ownership-2026-11-14.md) — 视频、封面、媒体发布与音频恢复的分批验证。
-- [AAC 输入与原生采集链（2026-11-15）](benchmarks/native-aac-capture-2026-11-15.md) — ARM64/ARMv7 手机设备验证与声学边界。
-- [MQTT、HUD、RTSP 与下行音频边界（2026-11-15）](benchmarks/native-platform-boundaries-2026-11-15.md) — 实施范围、合同测试与真实连接分别记录。
 - [默认模式诊断手机实测（2026-11-15）](benchmarks/default-diagnostics-mi8-2026-11-15.md) — 两轮无线连接、日志导出和最终统计，不替代实车验收。
 
 ## 发布
 
-- [CHANGELOG.md](../CHANGELOG.md) — 本移植版的变更记录，当前版本以 GitHub Release 为准。
-- [DiPlay ECARX release notes](RELEASE-NOTES-NEXT.md) — 面向发布页的英文摘要。
+- [CHANGELOG.md](../CHANGELOG.md) — 本移植版的完整变更记录；公开发布包见 [GitHub Releases](https://github.com/jianyun8023/diplay-ecarx/releases)。
 - 上游 DiPlay 的发布说明、验证与评审记录见[上游仓库](https://github.com/shihabal3amri/DiPlay)。
 
 ## 文档维护
