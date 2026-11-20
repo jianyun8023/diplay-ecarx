@@ -8,6 +8,8 @@ These rules are part of [AGENTS.md](../../AGENTS.md). Apply its global ownership
 
 - `CarPlayHostActivity` owns the foreground session and window lifecycle. `CarPlaySidePanel` owns its panel views, gestures, animation callbacks and cleanup; the host supplies the current session geometry and actions. `CarPlaySafeAreaEditor` owns the safe-area switches, summary and editor overlay; the host supplies the activity size, palette and settings baseline. `CarPlayBackgroundSession` (its own file) hands the running session between hosts.
 
+- `EcarxClusterSession` owns the retained cluster window and its one-second content tick; `EcarxClusterPresentation` hosts the video texture and the `ClusterGuidanceStripView` drawn over it. `ClusterGuidanceStrip` turns a `CarPlayGlance` snapshot into the strip's text (arrival, duration, remaining distance) and `GlanceText` spells distance and duration for both the strip and the home-screen widget. The strip follows `CarPlayGlance`, so it keeps no route state of its own and needs no Rust change.
+
 - `DiPlayActivity` owns page navigation and settings composition. `DiPlayControls` holds its custom text controls, and `DiPlayUpdates` owns update checks, downloads, verification and installation for that Activity lifetime. `DiPlayDiagnosticReport` builds the diagnostic report text from the application context.
 
 ## Adding or moving a setting

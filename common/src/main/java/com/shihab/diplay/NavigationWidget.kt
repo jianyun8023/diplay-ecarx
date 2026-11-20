@@ -90,12 +90,12 @@ internal object NavigationWidgetUpdater {
             }
             else -> {
                 views.setImageViewResource(R.id.widget_arrow, arrow(type, glance.drivingSide))
-                views.setTextViewText(R.id.widget_distance, distance(context, glance.distanceMeters.toLong()))
+                views.setTextViewText(R.id.widget_distance, GlanceText.distance(context, glance.distanceMeters.toLong()))
                 views.setTextViewText(R.id.widget_road, glance.road)
                 val eta = listOfNotNull(
                     glance.arrivalEpochSeconds?.let { DateFormat.getTimeFormat(context).format(Date(it * 1000)) },
-                    glance.remainingMeters?.let { distance(context, it) },
-                    glance.remainingSeconds?.let { duration(context, it) },
+                    glance.remainingMeters?.let { GlanceText.distance(context, it) },
+                    glance.remainingSeconds?.let { GlanceText.duration(context, it) },
                 ).joinToString(" · ")
                 views.setTextViewText(R.id.widget_eta, eta)
                 views.setViewVisibility(R.id.widget_eta, if (eta.isEmpty()) View.GONE else View.VISIBLE)
@@ -119,17 +119,5 @@ internal object NavigationWidgetUpdater {
         6, 7, in 28..46 -> R.drawable.ic_maneuver_roundabout
         10, 12, 24, 25, 27 -> R.drawable.ic_maneuver_destination
         else -> R.drawable.ic_maneuver_straight
-    }
-
-    private fun distance(context: Context, meters: Long): String = when {
-        meters < 1_000 -> context.getString(R.string.widget_distance_meters, ((meters + 5) / 10 * 10).toInt())
-        meters < 10_000 -> context.getString(R.string.widget_distance_km_decimal, meters / 1000.0)
-        else -> context.getString(R.string.widget_distance_km, ((meters + 500) / 1000).toInt())
-    }
-
-    private fun duration(context: Context, seconds: Long): String {
-        val minutes = ((seconds + 30) / 60).toInt()
-        return if (minutes < 60) context.getString(R.string.widget_minutes, minutes)
-        else context.getString(R.string.widget_hours_minutes, minutes / 60, minutes % 60)
     }
 }
