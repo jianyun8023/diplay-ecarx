@@ -8,7 +8,7 @@ DiPlay 让你在领克车机上使用 iPhone 的导航、音乐、Siri 和通话
 
 连接、日常设置和排错，见 [车主使用说明（含设置图）](docs/USER-GUIDE.zh-CN.md)。功能细节和验证范围见 [详细说明](docs/FEATURES.zh-CN.md)。
 
-两份指南以 v148 车测包为界面说明基线，截图出处按各页标注保留，尚未全量核对最新界面。当前发行见 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已验场景与剩余项见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。
+两份指南正文已对照 v153（及 `dev` 后续改动）核对，历史截图出处按各页标注保留。当前发行见 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已验场景与剩余项见[当前验收矩阵](docs/RUST_CORE_REMAINING.zh-CN.md)。
 
 | 功能 | 需要开启的设置 |
 | --- | --- |

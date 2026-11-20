@@ -8,7 +8,7 @@ DiPlay 讓你在領克車機上使用 iPhone 的導航、音樂、Siri 和通話
 
 連接、日常設定和排錯，見 [車主使用說明（含設定圖）](docs/USER-GUIDE.zh-CN.md)。功能細節與驗證範圍見 [詳細說明](docs/FEATURES.zh-CN.md)（兩份皆為簡體中文）。
 
-兩份指南以 v148 車測包為介面說明基線，截圖來源按各頁標註保留，尚未完整核對最新介面。目前發行版見 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已驗證場景與剩餘項目見[目前驗收矩陣](docs/RUST_CORE_REMAINING.zh-CN.md)。
+兩份指南正文已對照 v153（及 `dev` 後續變動）核對，歷史截圖來源按各頁標註保留。目前發行版見 [最新 Release](https://github.com/jianyun8023/diplay-ecarx/releases/latest)，各版本已驗證場景與剩餘項目見[目前驗收矩陣](docs/RUST_CORE_REMAINING.zh-CN.md)。
 
 | 功能 | 需要開啟的設定 |
 | --- | --- |

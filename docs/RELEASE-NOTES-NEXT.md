@@ -21,8 +21,8 @@ This page summarizes **[v153](https://github.com/jianyun8023/diplay-ecarx/releas
 
 Guides:
 
-- [Owner's guide](USER-GUIDE.zh-CN.md) (Simplified Chinese, v148 UI baseline): connection, everyday settings, troubleshooting and upgrades, with screenshot sources marked in the guide.
-- [Detailed feature guide](FEATURES.zh-CN.md) (v148 UI baseline): behavior, prerequisites, per-map cluster differences and remaining vehicle checks. Neither guide has been fully checked against the latest UI.
+- [Owner's guide](USER-GUIDE.zh-CN.md) (Simplified Chinese, v153+ text baseline): connection, everyday settings, troubleshooting and upgrades, with historical screenshot sources marked in the guide.
+- [Detailed feature guide](FEATURES.zh-CN.md) (v153+ text baseline): behavior, prerequisites, per-map cluster differences and remaining vehicle checks.
 
 The instrument-cluster map requires **iOS 17.4 or later** on the iPhone: turn-by-turn, distance and lane prompts use the navigation-metadata channel added in iOS 17.4, while the cluster map picture itself is supported from iOS 16.4. **Amap additionally requires iOS 17.4 and iPhone 12 or later.**
 

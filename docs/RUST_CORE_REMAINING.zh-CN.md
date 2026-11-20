@@ -4,7 +4,7 @@
 - **PairVerify/PairSetup 完整 transcript（2026-11-17）**：为关闭「外部认证向量缺完整 transcript」缺口，用独立参考实现（[`scripts/gen_pair_transcripts.py`](../scripts/gen_pair_transcripts.py)，Python `cryptography` + 已独立复算的 SRP 数学）生成固定 M1–M4／M1–M6 原始字节，固化为 `pair-verify-transcript.properties`／`pair-setup-transcript.properties`。Rust 只增加 `#[cfg(test)]` 的确定性 seam（`PairVerify::use_ephemeral_seed`、`PairSetup::use_srp_secret`，生产仍 `SystemRandom`），对 M2／M4／M6 与派生 control key 逐字节断言。cargo 325 通过；三 ABI 原生 631 JNI／来源校验通过。**来源为独立参考实现，非第三方抓包**（见[向量清单](PROTOCOL_VECTORS.zh-CN.md)）。
 - **蓝牙守卫决策下沉（2026-11-17）**：新增 Rust `session::bt_profile_guard`，承接 yield 模式/延迟/skip、pausedByUs、restore 阶段、启动恢复门槛、boot-radio 观察与 adapter-ready 拒绝等纯策略；`CarBluetoothProfileGuard` 保留 `BluetoothAdapter`/profile-proxy 执行、广播、重试线程与持久化 journal，`testCoreShadows` 提供独立 Kotlin 参考供 Robolectric。Rust 7 项单测 + Kotlin 独立 JVM 决策测试；cargo 332、shared JVM 2122 全通过，三 ABI 638 JNI 校验，小米 8 真机无线会话复验（`BT guard armed mode=media delayMs=0`，连接/首帧/音频正常）。**审计结论**：更新管理属应用层（`protocols/session/media/vehicle` 之外，且不影响 CarPlay 正确性）、热点决策已在 `session::hotspot_recovery`／`p2p_startup`／`network_address`——二者不再下沉。
 
-## 当前状态与验收矩阵（2026-11-15）
+## 当前状态与验收矩阵（2026-11-20，v153+）
 
 **源码层面的完整 Rust 核心迁移已由 [PR #97](https://github.com/jianyun8023/diplay-ecarx/pull/97) 合入 `dev`。** 当前工作是具体缺陷修复与按版本补验，不再沿用旧迁移分支。本文是当前剩余项的仓库入口；已关闭的 [#96](https://github.com/jianyun8023/diplay-ecarx/issues/96)、[#98](https://github.com/jianyun8023/diplay-ecarx/issues/98)、[#99](https://github.com/jianyun8023/diplay-ecarx/issues/99) 保留历史证据，其正文中的旧清单和关闭状态都不能单独作为当前验收结论。
 
@@ -24,6 +24,8 @@
 | 双屏／HUD／生命周期与长测 | 历史 v149 实车有 cluster 首帧，#98 小米 8 台架有 overlay 地图实际渲染；#113 新会话记录了两路接收。 | HUD／车道、双屏生命周期及已有性能记录已由用户确认 OK，不再追加回放、实体显示核验或长测。原记录覆盖范围保持不变。 |
 | v149 观察项与 QTI low-latency | [#99 v150 实车评论](https://github.com/jianyun8023/diplay-ecarx/issues/99#issuecomment-6872722131)已验证低延迟开关下发／撤销、正常起播；延迟对照无可测收益，驱动未回报实际生效，保持默认关闭。 | #99 的 08:24:18–08:24:38 Host 暂停，用户已确认记不清操作背景，**仅保留观察，不认定故障或当前回归**。3.2 秒音频到达间隙／stale backlog、熄火后状态也先核操作背景和当前包复现，再决定是否处理。等待数据的 `readsOver250Ms` 不等于处理耗时。 |
 | 独立协议样本 | 保留数学参考、旧实现差分及已登记的外部向量。 | PairVerify／PairSetup 已补**完整 transcript**（独立参考实现固定字节 + Rust 逐字节断言，2026-11-17）；HUD／车道已确认 OK，不再要求补固定输入输出回放。来源为独立参考实现而非第三方抓包；如需第三方互通证据仍应补外部发布向量或已知密钥真实抓包。 |
+| 架构边界与静态门禁（#128、#130） | 2026-11-19/20 已在 `dev` 完成 7 项边界修复（具名首帧/采样事件、单点 duck 解释、Lockdown 具名动作与 5-word 长度校验、跨会话按类型屏幕配置准入、隧道控制循环接管时发布、16 处 `requireAvailable()` 异常链）并落地 10 条 ast-grep 架构门禁 + detekt/clippy/rustfmt CI 检查；`db508105` 修复 R8 保留原生视频事件回调。 | 主机测试与静态规则全绿；实车/双机交接与长时运行仍需车测补验。 |
+| v153+ 通话挂断、仪表到达条与导航音频（#127、#129、#131、#132） | #127 通话挂断先停旧轨再关麦与恢复模式已在 2026-11-18 小米 8 台架验证 0 欠载；#129/`78abe4d5` 仪表到达时间与剩余条（24 小时制、V3 空角、日夜跟随）已有单测与渲染预览；#131 已回退 #126 导航音量握手开关，#132 改为默认 ECARX 12/20（回退 12/1）并移除试听。 | 三项均待 753/820A 实车验收（通话挂断声学、仪表到达条显示、12/20 导航播报）。 |
 
 当前平台状态另见 [ECARX 验收表](ECARX_753_PLATFORM_NOTES.zh-CN.md#7-验证矩阵)。新增结果须注明源码／包、环境、场景和未覆盖范围；历史实车通过、最新变更未补验与确实未覆盖的目标硬件分别记录。原始日志、认证资产和设备标识留在本地，不提交仓库。
 
