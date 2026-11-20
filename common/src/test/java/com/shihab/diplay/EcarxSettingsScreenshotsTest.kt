@@ -10,7 +10,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.Switch
 import android.widget.TextView
 import com.shihab.diplay.host.R
 import java.io.File
@@ -29,41 +28,6 @@ import org.robolectric.util.ReflectionHelpers
 @Config(sdk = [29])
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class EcarxSettingsScreenshotsTest {
-    @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
-    fun navigationAudioBackendChoiceFitsTheCurrentHeadUnit() {
-        val activity = Robolectric.buildActivity(DiPlayActivity::class.java).get()
-        activity.setTheme(android.R.style.Theme_Material_NoActionBar)
-        shadowOf(activity.packageManager).installPackage(PackageInfo().apply { packageName = "com.ecarx.xui.service" })
-        val wheelPrefs = activity.getSharedPreferences("diplay_navigation_wheel", 0)
-        wheelPrefs.edit().putBoolean("enabled", true).commit()
-        val output = File("build/reports/ecarx-settings-ui").apply { mkdirs() }
-        try {
-            for (carControlled in listOf(false, true)) {
-                AirPlayPersistence.saveNavigationCarAudioControl(activity, carControlled)
-                val page = LinearLayout(activity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setBackgroundColor(DiPlayPalette.DARK.surface)
-                }
-                activity.javaClass.getDeclaredMethod("navigationWheelControls", LinearLayout::class.java)
-                    .apply { isAccessible = true }.invoke(activity, page)
-                val choice = views(page).filterIsInstance<Switch>().single {
-                    it.contentDescription == activity.getString(R.string.settings_navigation_car_audio_control)
-                }
-                assertEquals(carControlled, choice.isChecked)
-                val serviceWarning = views(page).filterIsInstance<TextView>().any {
-                    it.text.toString() == activity.getString(R.string.settings_navigation_wheel_service_required)
-                }
-                assertEquals(!carControlled, serviceWarning)
-                render(page, 1920, File(output, "navigation-${if (carControlled) "car" else "diplay"}-current-head-unit.png"))
-            }
-        } finally {
-            shadowOf(activity.packageManager).removePackage("com.ecarx.xui.service")
-            wheelPrefs.edit().clear().commit()
-            AirPlayPersistence.saveNavigationCarAudioControl(activity, false)
-            activity.finish()
-        }
-    }
-
     @Test @Config(qualifiers = "zh-rCN-w1920dp-h1080dp-land-mdpi")
     fun settingsAndEditorFitTheCurrentHeadUnit() {
         val name = "current-head-unit"

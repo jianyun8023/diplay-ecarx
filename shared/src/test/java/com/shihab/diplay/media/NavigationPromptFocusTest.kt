@@ -276,90 +276,9 @@ class NavigationPromptFocusTest {
         assertFalse(isAudiblePcm16(pcm(12000, 0, 0), 2, 4, 64))
     }
 
-    private fun focus(
-        enabled: Boolean = true,
-        audioFocus: Boolean = true,
-        channel: Int = 0,
-        skipRequest: () -> Boolean = { false },
-        promptSignal: ((Boolean) -> Boolean)? = null,
-    ) = NavigationPromptFocus(
-        context, enabled, audioFocus, { navigationRouteAttributes(channel) }, reports::add,
-        skipRequest = skipRequest, promptSignal = promptSignal,
-    ).also(helpers::add)
-
-    @Test fun aVendorMarkerKeepsTheNavigationFocusAndReleasesAfterTheAudibleTail() {
-        val markers = mutableListOf<Boolean>()
-        val focus = focus(promptSignal = { active -> markers += active; active })
-        focus.onDuck()
-        val sent = shadowOf(manager).lastAudioFocusRequest
-        assertEquals(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, sent.durationHint)
-        focus.onNavigationAudio(true)
-        focus.onUnduck()
-        idle(RELEASE_DELAY_MILLIS)
-        assertEquals(listOf(true), markers)
-        focus.onNavigationAudio(false)
-        idle(AUDIBLE_RELEASE_DELAY_MILLIS)
-        assertEquals(listOf(true, false), markers)
-        assertTrue(abandoned(sent))
-    }
-
-    @Test fun wheelMarkersFollowAudiblePromptsEvenWhenNavigationFocusIsOff() {
-        val markers = mutableListOf<Boolean>()
-        val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
-        focus.onNavigationAudio(true)
-        assertNull(shadowOf(manager).lastAudioFocusRequest)
-        assertEquals(listOf(true), markers)
-        assertEquals("off", focus.state())
-        focus.onNavigationAudio(false)
-        idle(AUDIBLE_RELEASE_DELAY_MILLIS)
-        assertEquals(listOf(true, false), markers)
-    }
-
-    @Test fun aFailedMarkerDoesNotPreventNavigationFocus() {
-        val focus = focus(promptSignal = { false })
-        focus.onDuck()
-        assertNotNull(shadowOf(manager).lastAudioFocusRequest)
-        assertEquals("held", focus.state())
-        assertTrue(focus.diagnosticReport().contains("promptSignalled=false"))
-    }
-
-    @Test fun platformOwnsPromptDuckSpansTheWholePromptWindow() {
-        val focus = focus(promptSignal = { false })
-        assertFalse(focus.platformOwnsPromptDuck())
-        focus.onDuck()
-        // The MCU ducks while the prompt focus is granted even when the marker send failed,
-        // so the platform duck window follows the focus, not the marker send.
-        assertTrue(focus.platformOwnsPromptDuck())
-        focus.onUnduck()
-        idle(RELEASE_DELAY_MILLIS)
-        assertFalse(focus.platformOwnsPromptDuck())
-    }
-
-    @Test fun aMarkerWithoutFocusDoesNotOwnThePlatformDuck() {
-        val markers = mutableListOf<Boolean>()
-        val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
-        assertFalse(focus.platformOwnsPromptDuck())
-        focus.onNavigationAudio(true)
-        assertFalse(focus.platformOwnsPromptDuck())
-        focus.onNavigationAudio(false)
-        idle(AUDIBLE_RELEASE_DELAY_MILLIS)
-        assertFalse(focus.platformOwnsPromptDuck())
-    }
-
-    @Test fun markerOnlyPromptsHaveATimeoutAndCannotRestartAfterClose() {
-        val markers = mutableListOf<Boolean>()
-        val focus = focus(enabled = false, promptSignal = { active -> markers += active; active })
-        focus.onDuck()
-        focus.onDuck()
-        idle(TIMEOUT_MILLIS)
-        assertEquals(listOf(true, false), markers)
-        focus.onNavigationAudio(true)
-        focus.close()
-        focus.onDuck()
-        focus.onNavigationAudio(true)
-        idle(STREAM_TIMEOUT_MILLIS)
-        assertEquals(listOf(true, false, true, false), markers)
-    }
+    private fun focus(enabled: Boolean = true, audioFocus: Boolean = true, channel: Int = 0) =
+        NavigationPromptFocus(context, enabled, audioFocus, { navigationRouteAttributes(channel) }, reports::add)
+            .also(helpers::add)
 
     private fun idle(millis: Long) = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(millis))
 

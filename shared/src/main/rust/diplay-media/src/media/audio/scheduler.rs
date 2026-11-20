@@ -194,11 +194,8 @@ pub fn write_disposition(count: i32, native: bool) -> i32 {
     }
 }
 
-pub fn navigation_route(follows: bool, configured: i32, ducking: bool, wheel_volume: bool) -> i32 {
-    if wheel_volume {
-        // A separate navigation bus is required for the car's navigation volume group to apply.
-        0
-    } else if !follows {
+pub fn navigation_route(follows: bool, configured: i32, ducking: bool) -> i32 {
+    if !follows {
         configured
     } else if ducking {
         0
@@ -343,7 +340,6 @@ enum FocusEvent {
     RequestGranted,
     RequestDenied,
     Close,
-    PlatformDuckingLoss,
 }
 
 impl FocusEvent {
@@ -357,7 +353,6 @@ impl FocusEvent {
             6 => Self::RequestGranted,
             7 => Self::RequestDenied,
             8 => Self::Close,
-            9 => Self::PlatformDuckingLoss,
             _ => return None,
         })
     }
@@ -454,13 +449,9 @@ fn focus_step_policy(
                 decision.gain_intent = focus_gain_intent(primary);
             }
         }
-        FocusEvent::DuckingLoss
-        | FocusEvent::PlatformDuckingLoss
-        | FocusEvent::TransientLoss
-        | FocusEvent::Gain => {
+        FocusEvent::DuckingLoss | FocusEvent::TransientLoss | FocusEvent::Gain => {
             match event {
                 FocusEvent::DuckingLoss => state.media_gain = MediaGain::Duck,
-                FocusEvent::PlatformDuckingLoss => state.media_gain = MediaGain::Full,
                 FocusEvent::TransientLoss if mute_transient => state.media_gain = MediaGain::Mute,
                 FocusEvent::TransientLoss => return decision,
                 _ => {
@@ -697,36 +688,14 @@ mod tests {
         assert_eq!(write_disposition(0, true), 2);
         assert_eq!(write_disposition(-6, true), 4);
         assert_eq!(write_disposition(0, false), 3);
-        assert_eq!(navigation_route(false, 10, true, false), 10);
-        assert_eq!(navigation_route(true, 10, true, false), 0);
-        assert_eq!(navigation_route(true, 10, false, false), 3);
-        assert_eq!(navigation_route(true, 3, false, true), 0);
-        assert_eq!(navigation_route(false, 3, false, true), 0);
+        assert_eq!(navigation_route(false, 10, true), 10);
+        assert_eq!(navigation_route(true, 10, true), 0);
+        assert_eq!(navigation_route(true, 10, false), 3);
     }
 
     // Decision slots: [abandon, new request, channel, gain intent, media gain, other gain, scope].
     // Channels 1 media, 2 phone, 3 assistant; gains 0 full, 1 duck 0.2, 2 mute; scope 0 nothing,
     // 1 the new output, 2 all outputs.
-    #[test]
-    fn platform_duck_keeps_full_pcm_gain_without_promoting_a_rejected_request() {
-        let mut state = [0; 6];
-        focus_step(&mut state, 1, 1, true, true);
-        focus_step(&mut state, 6, 1, true, true);
-        assert_eq!(
-            focus_step(&mut state, 9, 0, true, true),
-            [0, 0, 0, 0, 0, 0, 2]
-        );
-        assert_eq!(
-            focus_step(&mut state, 3, 0, true, true),
-            [0, 0, 0, 0, 1, 0, 2]
-        );
-        focus_step(&mut state, 7, 1, true, true);
-        assert_eq!(
-            focus_step(&mut state, 9, 0, true, true),
-            [0, 0, 0, 0, 2, 2, 2]
-        );
-    }
-
     #[test]
     fn focus_priority_asks_phone_above_assistant_above_media_with_their_gain_intents() {
         let mut state = [0; 6];
@@ -1311,9 +1280,8 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_media_NativeAudioScheduler_
     follows: jboolean,
     configured: jint,
     ducking: jboolean,
-    wheel_volume: jboolean,
 ) -> jint {
-    navigation_route(follows != 0, configured, ducking != 0, wheel_volume != 0)
+    navigation_route(follows != 0, configured, ducking != 0)
 }
 
 #[no_mangle]

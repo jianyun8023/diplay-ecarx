@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_navigation_wheel_volume">导航播报时方向盘调节导航音量（实验性）</string>
-    <string name="settings_navigation_wheel_volume_description">CarPlay 导航播报期间，音量键调节导航音量。DiPlay 模式需要方向盘按键无障碍权限和独立音频流，不拦截自动或媒体路由。通话、地图缩放和摇杆保持优先。</string>
-    <string name="settings_navigation_car_audio_control">由车机控制导航音频（实验性）</string>
-    <string name="settings_navigation_car_audio_control_description">使用 ECARX 导航焦点，由车机压低音乐，DiPlay 不再额外压低。音乐变得过轻时可关闭，沿用 DiPlay 原有的播放和压低方式。下次连接 CarPlay 时生效。</string>
+    <string name="settings_navigation_wheel_volume_description">CarPlay 导航播报期间，音量键调节所选导航音频流；其他时候按车机原有方式处理。需要方向盘按键无障碍权限。通话、地图缩放和摇杆保持优先。不拦截自动或媒体音频路由。</string>
     <string name="settings_navigation_wheel_service_required">请在 Android 设置中允许方向盘按键无障碍服务，或使用“启用方向盘按键服务”。</string>
 </resources>

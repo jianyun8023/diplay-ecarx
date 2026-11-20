@@ -24,27 +24,9 @@ class SettingsBackupCodecTest {
     @Test
     fun navigationPromptAudioFocusTravelsWithTheAudioFocusSettings() {
         AirPlayPersistence.saveNavigationPromptAudioFocus(context, true)
-        AirPlayPersistence.saveNavigationCarAudioControl(context, true)
         val document = JSONObject(String(SettingsBackupCodec.export(context, "0.2.22")))
         val airplay = document.getJSONObject("settings").getJSONObject("diplay_airplay")
         assertTrue(airplay.getBoolean("navigation_prompt_audio_focus"))
-        assertTrue(airplay.getBoolean("navigation_car_audio_control"))
-        AirPlayPersistence.saveNavigationCarAudioControl(context, false)
-        SettingsBackupCodec.import(context, document.toString().toByteArray())
-        assertTrue(AirPlayPersistence.loadNavigationCarAudioControl(context))
-    }
-
-    @Test
-    fun firstImportRejectsNonBooleanCarAudioControl() {
-        val document = """
-            {"format": "diplay-settings", "version": 1, "settings": {
-              "diplay_airplay": {"navigation_car_audio_control": "true"}
-            }}
-        """.trimIndent()
-        val outcome = SettingsBackupCodec.import(context, document.toByteArray())
-        assertEquals(SettingsImportOutcome(0, 1, false), outcome)
-        assertFalse(prefs("diplay_airplay").contains("navigation_car_audio_control"))
-        assertFalse(AirPlayPersistence.loadNavigationCarAudioControl(context))
     }
 
     @Test
