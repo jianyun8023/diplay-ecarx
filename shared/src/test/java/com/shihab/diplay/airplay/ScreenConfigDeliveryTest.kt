@@ -5,8 +5,6 @@ import android.media.MediaCrypto
 import android.media.MediaFormat
 import android.view.Surface
 import com.shihab.diplay.media.AndroidMediaSink
-import java.io.Closeable
-import java.net.Socket
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -35,10 +33,16 @@ class ScreenConfigDeliveryTest {
     /** Records every csd-0 the shadow SDK decoders were configured with, the decoder call record. */
     private object RecordingCodec : ShadowMediaCodec.CodecConfig.Codec {
         val configurations = CopyOnWriteArrayList<ByteArray>()
+
+        /** Guards [configurations] appends so [awaitConfigurations] wakes on the event, not a tick. */
+        val lock = Object()
         override fun onConfigured(format: MediaFormat?, surface: Surface?, crypto: MediaCrypto?, flags: Int) {
-            configurations += format?.getByteBuffer("csd-0")?.let { csd ->
-                ByteArray(csd.remaining()).also { copy -> csd.duplicate().get(copy) }
-            } ?: ByteArray(0)
+            synchronized(lock) {
+                configurations += format?.getByteBuffer("csd-0")?.let { csd ->
+                    ByteArray(csd.remaining()).also { copy -> csd.duplicate().get(copy) }
+                } ?: ByteArray(0)
+                lock.notifyAll()
+            }
         }
         override fun process(input: ByteBuffer, output: ByteBuffer) {}
     }
@@ -197,11 +201,14 @@ class ScreenConfigDeliveryTest {
 
     private fun awaitConfigurations(expected: Int) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-        while (RecordingCodec.configurations.size < expected) {
-            if (System.nanoTime() > deadline) {
-                error("only ${RecordingCodec.configurations.size} of $expected codec configurations arrived")
+        synchronized(RecordingCodec.lock) {
+            while (RecordingCodec.configurations.size < expected) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) {
+                    error("only ${RecordingCodec.configurations.size} of $expected codec configurations arrived")
+                }
+                TimeUnit.NANOSECONDS.timedWait(RecordingCodec.lock, remaining)
             }
-            Thread.sleep(10)
         }
     }
 
@@ -211,43 +218,6 @@ class ScreenConfigDeliveryTest {
     }
 
     private fun surface() = Surface(SurfaceTexture(0)).also { surfaces += it }
-
-    private fun withSharedSecret(session: AirPlaySession) {
-        session.pairVerify.handle(Tlv8Codec.encode(listOf(
-            Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, AirPlayCrypto.x25519Generate().publicKey),
-        )))
-        assertTrue(session.sharedSecret != null)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun streamsOf(engine: CarPlayMediaEngine): Map<CarPlayMediaEngine.StreamKey, Closeable> =
-        CarPlayMediaEngine::class.java.getDeclaredField("streams").apply { isAccessible = true }
-            .get(engine) as Map<CarPlayMediaEngine.StreamKey, Closeable>
-
-    private fun listenerOf(screen: ScreenStream): ScreenStream.Listener =
-        ScreenStream::class.java.getDeclaredField("listener").apply { isAccessible = true }
-            .get(screen) as ScreenStream.Listener
-
-    // onScreen needs the control peer's address.
-    private fun connectedSocket(): Socket = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { server ->
-        Socket(server.inetAddress, server.localPort)
-    }
-
-    private fun testSession(): AirPlaySession = AirPlaySession(
-        socket = connectedSocket(),
-        config = AirPlayConfig(
-            deviceName = "test",
-            deviceId = "02:00:00:00:00:02",
-            btMac = "02:00:00:00:00:01",
-            sourceVersion = "1.0",
-            main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
-        ),
-        identity = AirPlayIdentity.generate(),
-        pairings = PairingStore(),
-        mfi = null,
-        listener = object : AirPlaySessionListener {},
-        media = object : AirPlayMediaHandler {},
-    )
 
     private companion object {
         // Distinct SPS marker bytes: every configuration byte set and every decoder call record

@@ -1,8 +1,6 @@
 package com.shihab.diplay.airplay
 
 import com.shihab.diplay.hud.NavigationOutputs
-import java.io.Closeable
-import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
@@ -162,22 +160,6 @@ class CurrentScreenListenerTest {
         }
     }
 
-    private fun withSharedSecret(session: AirPlaySession) {
-        session.pairVerify.handle(Tlv8Codec.encode(listOf(
-            Tlv8Item(6, byteArrayOf(1)), Tlv8Item(3, AirPlayCrypto.x25519Generate().publicKey),
-        )))
-        assertTrue(session.sharedSecret != null)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun streamsOf(engine: CarPlayMediaEngine): Map<CarPlayMediaEngine.StreamKey, Closeable> =
-        CarPlayMediaEngine::class.java.getDeclaredField("streams").apply { isAccessible = true }
-            .get(engine) as Map<CarPlayMediaEngine.StreamKey, Closeable>
-
-    private fun listenerOf(screen: ScreenStream): ScreenStream.Listener =
-        ScreenStream::class.java.getDeclaredField("listener").apply { isAccessible = true }
-            .get(screen) as ScreenStream.Listener
-
     @Test fun onlyTheCurrentMainStreamsNamedEventsMarkTheSessionReady() {
         val diagnostics = mutableMapOf<Int, (String) -> Unit>()
         val events = mutableMapOf<Int, (VideoStreamEvent) -> Unit>()
@@ -291,24 +273,4 @@ class CurrentScreenListenerTest {
         }
     }
 
-    // onScreen needs the control peer's address.
-    private fun connectedSocket(): Socket = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { server ->
-        Socket(server.inetAddress, server.localPort)
-    }
-
-    private fun testSession(listener: AirPlaySessionListener = object : AirPlaySessionListener {}): AirPlaySession = AirPlaySession(
-        socket = connectedSocket(),
-        config = AirPlayConfig(
-            deviceName = "test",
-            deviceId = "02:00:00:00:00:02",
-            btMac = "02:00:00:00:00:01",
-            sourceVersion = "1.0",
-            main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
-        ),
-        identity = AirPlayIdentity.generate(),
-        pairings = PairingStore(),
-        mfi = null,
-        listener = listener,
-        media = object : AirPlayMediaHandler {},
-    )
 }

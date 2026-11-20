@@ -6,6 +6,9 @@ valid:
 invalid:
   - "val hasCore = NativeMedia.available"
   - "import com.shihab.diplay.airplay.NativeMedia.available as hasCore"
+  - "fun begin() { NativeMedia.loadError?.let { report(it) } }"
+  - "val failed = com.shihab.diplay.airplay.NativeMedia.loadError"
+  - "import com.shihab.diplay.airplay.NativeMedia.loadError as coreError"
   - "fun begin() { check(NativeMedia.available) }"
   - "fun begin() { kotlin.require(NativeMedia.available) }"
   - "fun begin() { check(NativeMedia.available || useKotlin) }"

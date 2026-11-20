@@ -17,6 +17,7 @@ import com.shihab.diplay.transport.Iap2LinkEngine
 import com.shihab.diplay.transport.Iap2WirelessCarPlayEndpoint
 import com.shihab.diplay.transport.Iap2WirelessIdentification
 import com.shihab.diplay.transport.Iap2WirelessSecurity
+import com.shihab.diplay.transport.iap2Packet
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -118,30 +119,26 @@ class WirelessTunnelPublicationTest {
 
             assertTrue(startTunnel(run, streamB))
             val taskB = requireNotNull(executor.takeNext()) { "the replacement task must be queued" }
-            assertNotNull(taskB)
 
             // B was accepted but its task is deliberately not running: this is the interleaving.
             val observed = runtimeChannel(run)
             val observedStream = streamOf(observed)
             val executing = streamOf(channelA)
+            val labels = "observed=" + streamLabel(observedStream, streamA, streamB) +
+                " expected=" + streamLabel(executing, streamA, streamB)
             println(
-                "TUNNEL-PUBLICATION observed=" + streamLabel(observedStream, streamA, streamB) +
-                    " expected=" + streamLabel(executing, streamA, streamB) +
+                "TUNNEL-PUBLICATION " + labels +
                     " readyTraces=" + debugLogCount(READY) +
                     " startTraces=" + debugLogCount(STARTING),
             )
             assertEquals("the queued task must not have entered its control loop", 1, debugLogCount(READY))
             assertNotSame(
-                "a queued tunnel must not be published as the runtime channel " +
-                    "(observed=" + streamLabel(observedStream, streamA, streamB) +
-                    " expected=" + streamLabel(executing, streamA, streamB) + ")",
+                "a queued tunnel must not be published as the runtime channel ($labels)",
                 streamB,
                 observedStream,
             )
             assertSame(
-                "the query must keep naming the channel actually executing control I/O " +
-                    "(observed=" + streamLabel(observedStream, streamA, streamB) +
-                    " expected=" + streamLabel(executing, streamA, streamB) + ")",
+                "the query must keep naming the channel actually executing control I/O ($labels)",
                 channelA,
                 observed,
             )
@@ -299,13 +296,8 @@ class WirelessTunnelPublicationTest {
     private fun runtimeChannel(run: Any): Iap2Session? =
         runType.getDeclaredMethod("runtimeChannel").apply { isAccessible = true }.invoke(run) as Iap2Session?
 
-    private fun pendingTunnelChannels(run: Any): List<*> = try {
-        val publication = run.javaClass.getDeclaredField("pendingTunnelChannels").apply { isAccessible = true }
-        (publication.get(run) as Collection<*>).toList()
-    } catch (_: NoSuchFieldException) {
-        // The baseline publishes at handler time and keeps no pending publication list.
-        emptyList<Any>()
-    }
+    private fun pendingTunnelChannels(run: Any): List<*> =
+        (field(run, "pendingTunnelChannels") as Collection<*>).toList()
 
     private fun closeRun(run: Any) = runType.getDeclaredMethod(
         "closeWirelessStack", CarPlayVpnService::class.java, Int::class.javaObjectType,
@@ -510,19 +502,7 @@ class WirelessTunnelPublicationTest {
                     Iap2LinkEngine.SessionDescriptor(Iap2LinkEngine.FILE_TRANSFER_SESSION_ID, 1, 2),
                 ),
             )
-            return packet(0xc0, 1, 99, 0, synchronization.encode())
+            return iap2Packet(0xc0, 1, 99, 0, synchronization.encode())
         }
-
-        fun packet(control: Int, sequence: Int, acknowledgement: Int, sessionId: Int, payload: ByteArray): ByteArray {
-            val length = 10 + payload.size
-            val header = byteArrayOf(
-                0xff.toByte(), 0x5a, (length ushr 8).toByte(), length.toByte(),
-                control.toByte(), sequence.toByte(), acknowledgement.toByte(), sessionId.toByte(), 0,
-            )
-            header[8] = checksum(header.copyOf(8)).toByte()
-            return header + payload + checksum(payload).toByte()
-        }
-
-        fun checksum(bytes: ByteArray): Int = (-bytes.sumOf { it.toInt() and 0xff }) and 0xff
     }
 }

@@ -51,6 +51,20 @@ impl Env {
         self.ok()?;
         Ok(v)
     }
+    /// Decode the fixed five-word pairing state the `pairCreate` contract builds. Validate the
+    /// arity once here, so a caller that broke the JNI contract gets a typed Java exception
+    /// instead of a release-process abort (panic=abort).
+    unsafe fn pair_words(&self, words: jlongArray) -> R<[i64; 5]> {
+        let words = self.longs(words)?;
+        if let [a, b, c, d, e] = words.as_slice() {
+            return Ok([*a, *b, *c, *d, *e]);
+        }
+        self.throw(
+            c"java/lang/IllegalArgumentException",
+            c"Lockdown pairing state must carry exactly 5 words",
+        )?;
+        Err(Fault::Pending)
+    }
     unsafe fn put_longs(&self, a: jlongArray, v: &[i64]) -> R<()> {
         ((**self.0).SetLongArrayRegion.unwrap())(self.0, a, 0, v.len() as i32, v.as_ptr());
         self.ok()
@@ -540,15 +554,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_pa
     }
     let e = Env(env);
     let result = e.frame(|| {
-        let words = e.longs(e.item(state, 0)?)?;
-        // The five-word pairing state is the JNI contract `pairCreate` builds; a caller that
-        // broke it gets a typed Java exception, never a release-process abort (panic=abort).
-        if words.len() != 5 {
-            e.throw(
-                c"java/lang/IllegalArgumentException",
-                c"Lockdown pairing state must carry exactly 5 words",
-            )?;
-        }
+        let words = e.pair_words(e.item(state, 0)?)?;
         Ok(if remaining(words[1], now).is_some() {
             0
         } else {
@@ -570,17 +576,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_transport_NativeLockdown_pa
     export(env, |e| {
         use super::flow::{Effect, Pair};
         let words = e.item(state, 0)?;
-        let words_value = e.longs(words)?;
-        // Same five-word contract as `pairWait`: validate at the entry, then pass a fixed
-        // type inward, so a corrupted state cannot panic the release host process.
-        if words_value.len() != 5 {
-            e.throw(
-                c"java/lang/IllegalArgumentException",
-                c"Lockdown pairing state must carry exactly 5 words",
-            )?;
-        }
-        let mut state_words = [0i64; 5];
-        state_words.copy_from_slice(&words_value);
+        let state_words = e.pair_words(words)?;
         let mut p = Pair {
             words: state_words,
             config: [

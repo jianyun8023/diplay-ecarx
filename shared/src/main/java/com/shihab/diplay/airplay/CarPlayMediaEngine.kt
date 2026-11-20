@@ -203,6 +203,11 @@ class CarPlayMediaEngine(
         val streamKey = StreamKey(session, type)
         Log.i(TAG, "airplay screen key connectionID=${parsed.connectionIdDecimal}")
         val screen = ScreenStream(key, peer, session::logDebug)
+        // Two sessions can hold the same type at once, but the sink's decoder, mirrors and saved
+        // configuration are shared per type. The registry check covers a same-session replacement;
+        // the owner check also covers a different session taking the type over, whose decoders stay
+        // in the sink.
+        val isCurrent = { streams[streamKey] === screen && screenOwners[type] === screen }
         // The named decode-loop facts drive this session's behavior; the diagnostic handler below
         // only formats text (the cluster's decode lines and the session log).
         if (type == STREAM_TYPE_MAIN_SCREEN) sink.setVideoEventHandler(type) handler@{ event ->
@@ -213,8 +218,7 @@ class CarPlayMediaEngine(
             }
         }
         sink.setVideoDiagnosticHandler(type) {
-            if (type == STREAM_TYPE_ALT_SCREEN && !session.isClosed &&
-                streams[streamKey] === screen && screenOwners[type] === screen) {
+            if (type == STREAM_TYPE_ALT_SCREEN && !session.isClosed && isCurrent()) {
                 if (it == "first frame rendered") {
                     NavigationOutputs.diagnostic("cluster video stream=111 decoderFirstFrame=submitted")
                 } else {
@@ -242,10 +246,7 @@ class CarPlayMediaEngine(
             }
         }
         val port = screen.listen(
-            object : ScreenStream.Listener by currentScreenListener(type, sink,
-                // The registry check covers a same-session replacement; the owner check also covers a
-                // different session taking the shared type over, whose decoders stay in the sink.
-                isCurrent = { streams[streamKey] === screen && screenOwners[type] === screen }) {
+            object : ScreenStream.Listener by currentScreenListener(type, sink, isCurrent = isCurrent) {
                 override fun onClosed(cause: Throwable?) {
                     Log.w(
                         TAG,

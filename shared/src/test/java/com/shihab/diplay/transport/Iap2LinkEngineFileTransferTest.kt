@@ -23,13 +23,13 @@ class Iap2LinkEngineFileTransferTest {
                 Iap2LinkEngine.SessionDescriptor(Iap2LinkEngine.FILE_TRANSFER_SESSION_ID, 1, 2),
             ),
         )
-        engine.feed(packet(0xc0, 1, 99, 0, synchronization.encode()), 1)
+        engine.feed(iap2Packet(0xc0, 1, 99, 0, synchronization.encode()), 1)
         assertTrue(engine.writable())
         while (engine.pollEvent() != null) Unit
         engine.takeOutput()
 
         val datagram = byteArrayOf(0x81.toByte(), 4, 0, 0, 0, 0, 0, 0, 0, 5, 0, 2)
-        engine.feed(packet(0x40, 2, 99, Iap2LinkEngine.FILE_TRANSFER_SESSION_ID, datagram), 2)
+        engine.feed(iap2Packet(0x40, 2, 99, Iap2LinkEngine.FILE_TRANSFER_SESSION_ID, datagram), 2)
         val event = engine.pollEvent() as Iap2LinkEngine.Event.Session
         assertEquals(Iap2LinkEngine.FILE_TRANSFER_SESSION_ID, event.sessionId)
         assertArrayEquals(datagram, event.bytes)
@@ -42,22 +42,4 @@ class Iap2LinkEngineFileTransferTest {
         assertArrayEquals(start, reply.copyOfRange(9, 11))
     }
 
-    private fun packet(
-        control: Int,
-        sequence: Int,
-        acknowledgement: Int,
-        sessionId: Int,
-        payload: ByteArray,
-    ): ByteArray {
-        val length = 10 + payload.size
-        val header = byteArrayOf(
-            0xff.toByte(), 0x5a, (length ushr 8).toByte(), length.toByte(),
-            control.toByte(), sequence.toByte(), acknowledgement.toByte(), sessionId.toByte(), 0,
-        )
-        header[8] = checksum(header.copyOf(8)).toByte()
-        return header + payload + checksum(payload).toByte()
-    }
-
-    private fun checksum(bytes: ByteArray): Int =
-        (-bytes.sumOf { it.toInt() and 0xff }) and 0xff
 }
