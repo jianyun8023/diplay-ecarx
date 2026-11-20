@@ -24,6 +24,10 @@ import android.view.View
  * density does not describe its 1920×720 panel. Geometry and shaders are rebuilt when the content,
  * the appearance or the view size changes, never inside [onDraw]: the strip is redrawn once a
  * second, but the cluster shares its GPU with the map's decoder.
+ *
+ * The corner it occupies is the free part of the V3 layout — above the bottom status bar and left
+ * of the right-hand menu — rather than the panel's outer edge, where the measured reference puts
+ * those two opaque components. See [BOTTOM_BAR_TOP].
  */
 internal class ClusterGuidanceStripView(context: Context) : View(context) {
     var content: ClusterGuidanceStrip.Line? = null
@@ -73,8 +77,8 @@ internal class ClusterGuidanceStripView(context: Context) : View(context) {
         val pad = HORIZONTAL_PADDING * unit
         val barHeight = BAR_HEIGHT * unit
         radius = barHeight / 2f
-        val right = width - END_MARGIN * unit
-        val bottom = height - BOTTOM_MARGIN * unit
+        val right = (RIGHT_MENU_LEFT - EDGE_GAP) * unit
+        val bottom = (BOTTOM_BAR_TOP - EDGE_GAP) * unit
         val widthPx = text.measureText(label) + 2 * pad
         bar.set(right - widthPx, bottom - barHeight, right, bottom)
         val metrics = text.fontMetrics
@@ -137,9 +141,18 @@ internal class ClusterGuidanceStripView(context: Context) : View(context) {
         const val BAR_HEIGHT = 54f
         const val HORIZONTAL_PADDING = 30f
         const val TEXT_SIZE = 29f
-        /** Clear of the cluster's own bottom edge, where the factory bar keeps its readouts. */
-        const val END_MARGIN = 42f
-        const val BOTTOM_MARGIN = 26f
+        /**
+         * Where the free bottom-right corner is, from the V3 cluster layout reference
+         * (`instrument_cluster_essentials_v3`: `H 底部状态栏 [0, 620, 1920, 100]`,
+         * `G 右侧菜单 [1730, 247, 92, 331]`).
+         *
+         * The system composites the head unit's own bar and menu above a projection, so the strip
+         * stops short of both: covering `H` would hide the text behind the range, seat-belt and
+         * coolant readouts, and reaching past `x = 1730` would sit under the menu.
+         */
+        const val BOTTOM_BAR_TOP = 620f
+        const val RIGHT_MENU_LEFT = 1730f
+        const val EDGE_GAP = 18f
         const val SHADOW_STEPS = 3
         const val SHADOW_OFFSET = 5f
         /** Nearest layer darkest; the outermost one is only a hint. */

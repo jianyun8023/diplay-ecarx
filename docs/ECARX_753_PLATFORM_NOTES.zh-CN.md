@@ -27,6 +27,7 @@
 | 原厂 HiCar | `com.ecarx.hmi` | 代码 `EcarxHicarControl` |
 | 第三方桌面 / 媒体代理 | HYWebview `com.hyphp.hywebview` 3.6.1（versionCode 28）；嘟嘟 `com.dudu.autoui` | 实车安装列表 |
 | 仪表布局 | V3 1920×720，左侧 ADAS 面板限制居中矩形宽度；安全区 top 273 / bottom 100 / left 494 / right 494 | 实车标定 |
+| 仪表组件坐标 | 布局参考包 V3（工作区 `reference/instrument_cluster_essentials_v3.zip`）：`H` 底部状态栏 `[0,620,1920,100]`（含续航/燃油、安全带与驾驶模式、冷却液温度）、`G` 右侧菜单 `[1730,247,92,331]`、`C` 导航提示卡 `[735,164,445,109]`、`F` 左下车道辅助 `[169,443,325,137]`；原车 UI 由系统合成在投屏之上，不要往 `H` 里画会被盖住的内容 | 照片重建，约 10–15 px 不确定度 |
 | 中控分辨率 | 1920×1080 横屏，含车机底部 Dock | 实车截图 |
 | 应用安装位置 | `/data/app/com.shihab.diplay-*/base.apk`，平台签名，flags 无 `SYSTEM`／`PERSISTENT`；历史 UID 10125，2026-11-02 截图 UID 10105 | 实车 dumpsys、截图 |
 | 发布 ABI | 三个独立 APK：arm64-v8a（默认）、armeabi-v7a（兜底）、x86_64（仅模拟器测试） | 构建配置 |

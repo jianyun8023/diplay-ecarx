@@ -12,6 +12,7 @@ object EcarxOutputSettings {
     private const val KEY_PRESENTATION_RELEASE_PENDING = "dim_presentation_release_pending"
     private const val KEY_MIRROR_MAIN = "dim_mirror_main_screen"
     private const val KEY_MEDIA = "dim_media_enabled"
+    private const val KEY_ARRIVAL_STRIP = "cluster_arrival_strip"
 
     /**
      * The two string arguments of `DimInteraction.setPresentationToDimSwitch(int,String,String,boolean)`.
@@ -140,6 +141,22 @@ object EcarxOutputSettings {
 
     /** See [PRESENTATION_PACKAGE]. */
     fun presentationPackage(context: Context): String = PRESENTATION_PACKAGE
+
+    /**
+     * Whether the projected cluster map carries DiPlay's arrival/duration/distance strip.
+     *
+     * **On by default.** The strip is one view redrawn once a second inside the projection window:
+     * no decoder, no Surface and no change to the video stream, so leaving it on costs nothing that
+     * the map output does not already pay for. Turning it off leaves the map exactly as the phone
+     * draws it.
+     */
+    fun arrivalStrip(context: Context): Boolean = prefs(context).getBoolean(KEY_ARRIVAL_STRIP, true)
+
+    fun setArrivalStrip(context: Context, enabled: Boolean) {
+        check(prefs(context).edit().putBoolean(KEY_ARRIVAL_STRIP, enabled).commit()) {
+            "Could not persist the ECARX cluster arrival strip setting"
+        }
+    }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }

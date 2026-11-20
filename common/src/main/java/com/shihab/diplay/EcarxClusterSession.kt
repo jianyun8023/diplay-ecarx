@@ -151,10 +151,15 @@ internal class EcarxClusterSession(
         main.removeCallbacks(guidanceTick)
         val panel = presentation
         if (closed || panel == null || !panel.isShowing) return
-        // The mirrored centre screen is CarPlay's own UI, which already carries its own guidance.
+        // The mirrored centre screen is CarPlay's own UI, which already carries its own guidance;
+        // the switch is read every tick so turning it off applies without reconnecting.
+        val wanted = !mirrorMain && EcarxOutputSettings.arrivalStrip(app)
+        // The glass sits on the map, so it follows the day/night the map itself is drawn with —
+        // the mode published for CarPlay — not DiPlay's own chrome theme, which defaults to dark.
+        val night = AppAppearanceRuntime.hostNight() ?: app.resolveAppNightNow()
         panel.setGuidance(
-            if (mirrorMain) null else ClusterGuidanceStrip.content(app, CarPlayGlance.snapshot()),
-            night = app.resolveAppNightNow(),
+            if (wanted) ClusterGuidanceStrip.content(app, CarPlayGlance.snapshot()) else null,
+            night = night,
         )
         main.postDelayed(guidanceTick, GUIDANCE_TICK_MILLIS)
     }

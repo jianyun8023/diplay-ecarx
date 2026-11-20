@@ -68,6 +68,13 @@ class ClusterGuidanceStripTest {
         assertEquals("1 h 30 min · 120 km", line.text)
     }
 
+    @Test fun theStripIsOnByDefaultAndTheSwitchSticks() {
+        val settings = com.shihab.diplay.hud.EcarxOutputSettings
+        assertTrue("on unless the driver turns it off", settings.arrivalStrip(app))
+        settings.setArrivalStrip(app, false)
+        assertTrue("off survives a read", !settings.arrivalStrip(app))
+    }
+
     @Test
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun theStripDrawsInTheBottomRightCornerAndNothingWithoutARoute() {
@@ -81,6 +88,14 @@ class ClusterGuidanceStripTest {
         assertTrue("the strip is painted", !drawn.isBlank())
         assertTrue("the strip stays out of the upper half", drawn.topHalfIsBlank())
         assertTrue("the strip stays in the right part of the panel", drawn.leftHalfIsBlank())
+        assertTrue(
+            "the strip stops above the bottom status bar (V3 H [0,620,1920,100])",
+            drawn.isBlankBelow(BOTTOM_BAR_TOP),
+        )
+        assertTrue(
+            "the strip stops short of the right-hand menu (V3 G [1730,247,92,331])",
+            drawn.isBlankRightOf(RIGHT_MENU_LEFT),
+        )
     }
 
     private fun render(view: ClusterGuidanceStripView): Bitmap {
@@ -101,8 +116,20 @@ class ClusterGuidanceStripTest {
         (0 until width / 2 step 8).none { x -> getPixel(x, y) != 0 }
     }
 
+    private fun Bitmap.isBlankBelow(y: Int): Boolean = (y until height step 4).all { row ->
+        (0 until width step 4).none { x -> getPixel(x, row) != 0 }
+    }
+
+    private fun Bitmap.isBlankRightOf(x: Int): Boolean = (0 until height step 4).all { row ->
+        (x until width step 4).none { column -> getPixel(column, row) != 0 }
+    }
+
     private companion object {
         const val PANEL_WIDTH = 1920
         const val PANEL_HEIGHT = 720
+        /** V3 reference package: the bottom status bar starts here. */
+        const val BOTTOM_BAR_TOP = 620
+        /** V3 reference package: the right-hand menu starts here. */
+        const val RIGHT_MENU_LEFT = 1730
     }
 }
