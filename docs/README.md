@@ -54,7 +54,7 @@ DiPlay 领克 01 / ECARX 753 移植版的全部文档。新增文档时在这里
 - [CarPlay 期间仅停用原车蓝牙媒体](BLUETOOTH_MEDIA_YIELD.md)
 - [Buffered music](BUFFERED_AUDIO.md)
 - [车机媒体接管方（车机媒体集成）](MEDIACENTER_BACKENDS.md)
-- [Navigation guidance volume keys: existing DiPlay mode and optional ECARX car-owned mode](NAVIGATION_WHEEL_VOLUME.md)
+- [Navigation guidance volume keys](NAVIGATION_WHEEL_VOLUME.md)
 
 导航与仪表：
 

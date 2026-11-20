@@ -50,8 +50,8 @@ class ShadowNativeAudioScheduler {
         @JvmStatic @Implementation fun bufferPlan(media: Boolean, rate: Int, channels: Int, minimum: Int, millis: Int): IntArray =
             HostNative.call("media.NativeAudioScheduler", "bufferPlan", media, rate, channels, minimum, millis) as IntArray
 
-        @JvmStatic @Implementation fun navigationRoute(follows: Boolean, configured: Int, ducking: Boolean, wheelVolume: Boolean): Int =
-            HostNative.call("media.NativeAudioScheduler", "navigationRoute", follows, configured, ducking, wheelVolume) as Int
+        @JvmStatic @Implementation fun navigationRoute(follows: Boolean, configured: Int, ducking: Boolean): Int =
+            HostNative.call("media.NativeAudioScheduler", "navigationRoute", follows, configured, ducking) as Int
 
         @JvmStatic @Implementation fun captureRecovery(state: LongArray, event: Int, nowNanos: Long, timeoutMillis: Long): Int =
             HostNative.call("media.NativeAudioScheduler", "captureRecovery", state, event, nowNanos, timeoutMillis) as Int

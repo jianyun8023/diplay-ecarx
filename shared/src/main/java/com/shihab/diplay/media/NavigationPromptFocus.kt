@@ -39,8 +39,6 @@ internal class NavigationPromptFocus(
      * a first prompt before any music was silent, so this never skips while nothing holds focus.
      */
     private val skipRequest: () -> Boolean = { false },
-    /** Opens/closes the vendor prompt marker; true means the platform accepted the signal send. */
-    private val promptSignal: ((Boolean) -> Boolean)? = null,
 ) {
     private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val handler by lazy { Handler(Looper.getMainLooper()) }
@@ -54,13 +52,10 @@ internal class NavigationPromptFocus(
     private val diagnostics = LongArray(10)
     private var heldSince = 0L
     private var skipping = false
-    private var promptSignalled = false
 
     @Synchronized
     fun onDuck() {
-        if (NativeAudioScheduler.promptFocus(
-                promptState, DUCK, promptFocusEnabled || promptSignal != null, request != null || promptSignalled,
-            ) != ACQUIRE) return
+        if (NativeAudioScheduler.promptFocus(promptState, DUCK, promptFocusEnabled, request != null) != ACQUIRE) return
         if (!acquire("duck")) return
         // Each duck restarts the timeout, and a duck right after an unduck keeps the same request.
         val timeout = NativeAudioScheduler.promptFocus(promptState, DUCK_TIMEOUT, promptFocusEnabled, request != null)
@@ -71,9 +66,7 @@ internal class NavigationPromptFocus(
     @Synchronized
     fun onUnduck() {
         // Navigation sound still playing keeps the prompt going; its silence releases the focus.
-        val delay = NativeAudioScheduler.promptFocus(
-            promptState, UNDUCK, promptFocusEnabled || promptSignal != null, request != null || promptSignalled,
-        )
+        val delay = NativeAudioScheduler.promptFocus(promptState, UNDUCK, promptFocusEnabled, request != null)
         if (delay > 0) scheduleRelease("unduck", delay.toLong())
     }
 
@@ -83,10 +76,7 @@ internal class NavigationPromptFocus(
      */
     @Synchronized
     fun onNavigationAudio(audible: Boolean) {
-        val action = NativeAudioScheduler.promptFocus(
-            promptState, if (audible) AUDIBLE else SILENT,
-            promptFocusEnabled || promptSignal != null, request != null || promptSignalled,
-        )
+        val action = NativeAudioScheduler.promptFocus(promptState, if (audible) AUDIBLE else SILENT, promptFocusEnabled, request != null)
         if (action == ACQUIRE) {
             if (!acquire("audio")) return
             // Only bounds a renderer that never reports its silence.
@@ -98,28 +88,26 @@ internal class NavigationPromptFocus(
         }
     }
 
-    /** Acquires the configured platform resources; a marker can stay active with focus switched off. */
+    /** Holds the request, asking for it if needed; false when it is not held. */
     private fun acquire(trigger: String): Boolean {
-        if (!promptSignalled) promptSignalled = promptSignal?.invoke(true) == true
-        if (!promptFocusEnabled) return promptSignalled
         if (!audioFocusEnabled) {
             if (!skipReported) {
                 skipReported = true
                 runCatching { report("Audio: navigation prompt focus skipped audioFocus=off") }
             }
-            return promptSignalled
+            return false
         }
-        val manager = manager ?: return promptSignalled
+        val manager = manager ?: return false
         if (request != null) return true
         if (runCatching(skipRequest).getOrDefault(false)) {
             if (!skipping) {
                 skipping = true
                 runCatching { report("Audio: navigation prompt focus skipped trigger=$trigger music holds focus") }
             }
-            return promptSignalled
+            return false
         }
         skipping = false
-        return requestFocus(manager, trigger) || promptSignalled
+        return requestFocus(manager, trigger)
     }
 
     /**
@@ -135,16 +123,9 @@ internal class NavigationPromptFocus(
         else -> "none"
     }
 
-    /**
-     * The MCU ducks music while the prompt's focus is granted (car test 2026-11-07).
-     * A marker by itself only affects volume-key grouping.
-     */
-    @Synchronized
-    fun platformOwnsPromptDuck(): Boolean = request != null
-
     @Synchronized fun diagnosticReport(): String = "Focus navigation " +
         NativeAudioScheduler.focusDiagnostics(diagnostics, 0, 0) +
-        " trackedRequest=${request != null} state=${state()} platformOwner=unknown promptSignalled=$promptSignalled"
+        " trackedRequest=${request != null} state=${state()} platformOwner=unknown"
 
     @Synchronized
     fun close() {
@@ -199,10 +180,6 @@ internal class NavigationPromptFocus(
 
     private fun release(reason: String) {
         cancelRelease()
-        if (promptSignalled) {
-            promptSignal?.invoke(false)
-            promptSignalled = false
-        }
         val held = request ?: return
         request = null
         val result = manager?.let { runCatching { held.abandon(it) }.getOrNull() }

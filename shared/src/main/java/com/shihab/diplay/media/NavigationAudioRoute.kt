@@ -17,8 +17,8 @@ internal object NavigationAudioRoute {
     const val CAR_CHANNEL = 0
     const val MUSIC_STREAM = AudioManager.STREAM_MUSIC
 
-    fun choose(followsIphone: Boolean, configured: Int, iphoneDucking: Boolean, wheelVolume: Boolean = false): Int =
-        NativeAudioScheduler.navigationRoute(followsIphone, configured, iphoneDucking, wheelVolume)
+    fun choose(followsIphone: Boolean, configured: Int, iphoneDucking: Boolean): Int =
+        NativeAudioScheduler.navigationRoute(followsIphone, configured, iphoneDucking)
 
     fun label(route: Int): String = when (route) {
         CAR_CHANNEL -> "car"
