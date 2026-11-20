@@ -27,8 +27,7 @@ path ASCII-only. Alternatively the `externalNativeBuild` block can be put back i
 
 ## Integrity
 
-Rebuilt from the retained sources on 2026-11-13 with NDK `28.2.13676358` (shipped ABIs are
-ARM64 default, ARMv7 fallback, and x86_64 test-only for the emulator):
+Rebuilt from the retained sources on 2026-11-13 with NDK `28.2.13676358` (all three ABI directories are retained in `jniLibs/`; APK builds and GitHub Releases ship ARM64 `arm64-v8a` by default, while `armeabi-v7a` and `x86_64` are opt-in via `-PdiplayAbis=...`):
 
 | ABI | File | Bytes | SHA-256 |
 |---|---|---:|---|
@@ -57,7 +56,7 @@ linked into `libdiplay_media.so`. Its content-bound receipts include both the C 
 Speex sources/headers. The separate `libspeex_echo.so` prebuilts are no longer packaged.
 
 SpeexDSP's BSD-style notices remain in `../jni/speexdsp/COPYING` and its source headers.
-Release builds ship one APK per ABI: ARM64 (default), ARMv7 (fallback) and x86_64 (test-only).
+Release builds ship the ARM64 (`arm64-v8a`) APK by default; ARMv7 (`armeabi-v7a`) and `x86_64` remain available as explicit opt-in local builds (`-PdiplayAbis=...`).
 Keep the applicable licenses and corresponding source when redistributing native binaries.
 
 ## Rust CarPlay core
@@ -79,20 +78,15 @@ The C libopus and SpeexDSP are compiled into this same `.so` from vendored sourc
 `libopus.so` or `libspeex_echo.so` is shipped. `Cargo.lock` pins every crate.
 Build it from the repository root with
 `ANDROID_NDK_HOME=/path/to/ndk/28.2.13676358 scripts/check_rust_android_native.sh`;
-it needs Rust 1.97.1 and rustup targets `aarch64-linux-android`, `armv7-linux-androideabi`
-and `x86_64-linux-android`. The script checks ELF architecture, all Java JNI exports,
+it needs Rust 1.97.1 and rustup target `aarch64-linux-android` by default (plus `armv7-linux-androideabi`
+and `x86_64-linux-android` when those targets are passed explicitly). The script checks ELF architecture, all Java JNI exports,
 `JNI_OnLoad` and identical JNI export sets, then writes content-bound per-ABI provenance receipts.
-Gradle stages all three verified artifacts from `.native/rust-android` (or `DIPLAY_JNI_LIBS_DIR`)
+Gradle stages the verified artifacts for the requested ABIs (default `arm64-v8a`) from `.native/rust-android` (or `DIPLAY_JNI_LIBS_DIR`)
 and the C prebuilts into a generated JNI directory. Missing, stale or mismatched Rust inputs
 fail before APK/AAR packaging. Android checks, Release and source-only builds use this same contract.
-See `BUILD.md` for local setup. `cargo test` in the crate directory runs the host tests.
+See `docs/BUILD.md` for local setup. `cargo test` in the crate directory runs the host tests.
 
-The historical checked-in ARM binaries below are not used in APKs. They were rebuilt on
-2026-11-13 with Rust `1.97.1 (8bab26f4f 2026-07-14)`, NDK `28.2.13676358` and API 28. The source is the
-#100 package-rename batch based on `70733a9b`; that base commit alone does not contain this batch. Its
-source manifest SHA-256 is
-`5c68950c734d95a97e8c0c1c7c81e29ea0bfd810c7cc5e91dbda7e9d8b3dad27`.
-The digest is SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
+The provenance receipt digest is the SHA-256 of the sorted per-file `shasum -a 256` output, including repository-relative paths,
 for the crate's Rust sources, manifests/lockfile, toolchain pin, build script and any crate Cargo configuration:
 
 ```sh
@@ -102,7 +96,7 @@ rg --files --hidden shared/src/main/rust/diplay-media \
   LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256
 ```
 
-The historical prebuilt `libdiplay_media.so` copies that used to sit in `jniLibs/<abi>/` were removed on
+The historical prebuilt `libdiplay_media.so` copies that used to sit in `jniLibs/<abi>/` (last rebuilt on 2026-11-13 with Rust `1.97.1` and NDK `28.2.13676358`) were removed on
 2026-11-17: they were never packaged (Gradle stages Rust libraries from verified source builds) and only
 duplicated an old binary. Rust libraries are built and verified from current source with
 `scripts/check_rust_android_native.sh`; a required-core load failure stays explicit, and real SDK capability

@@ -59,7 +59,7 @@ Each locale MUST use its existing form: `(تجريبي)`, `(experimental)`, `(sp
    New Settings copy SHOULD use the `settings_` prefix. `SettingsTranslationsTest` fails when a `settings_*` string has no translation.
 7. A control that opens a choice uses `button()` with the text `"Title · Value"`.
    That form renders as a setting row with the value and a chevron, and Search indexes the title.
-8. When you move a control between categories, update `AdaptiveSettingsUiTest.settingsLiveWhereDriversLookForThem`.
+8. When you move a control between categories, update `SimplifiedSettingsUiTest.settingsLiveWhereDriversLookForThem` and `SettingsLayoutPolicyTest.everySettingsSectionHasExactlyOneDestination`.
 
 ### Overview
 
@@ -76,8 +76,8 @@ Spacing, size and shape in the Settings screen MUST come from one place.
    Test menus and panels on the current head unit at 1920×1080 pixels.
 3. Controls in one row MUST have the same height.
    Corner radius MUST follow the control height. A new button MUST NOT set its own radius.
-4. Every `SettingsCategory` except Overview MUST have a link on Overview.
-   `AdaptiveSettingsUiTest.overviewLinksToEveryOtherCategory` checks this.
+4. Every `SettingsCategory` except Overview MUST have a link on Overview, and every `SettingsSection` MUST map to exactly one category.
+   `SettingsLayoutPolicyTest.everySettingsSectionHasExactlyOneDestination` checks the category mapping.
 5. A layout change MUST include a screenshot at the current head unit size: 1920×1080 pixels,
    landscape, normal font scale. Do not add other screen sizes, portrait, large-font or RTL
    screenshot variants. Keep protocol and instrument-display dimension tests for their own formats.

@@ -4,7 +4,7 @@
 
 ## 1. 正式环境与结论
 
-正式环境只有 **2021 款领克 01／亿咖通 753／高通 820A／Android 9（API 28）**，使用本车现有平台签名。Android 10、13 等只可能用于开发调试，不作为正式兼容承诺。发布三种包，每个 ABI 一个独立 APK：`arm64-v8a`（默认正式包）、`armeabi-v7a`（兜底）、`x86_64`（仅模拟器测试用）。应用内升级按本机 ABI 下载对应平台的包。
+正式环境只有 **2021 款领克 01／亿咖通 753／高通 820A／Android 9（API 28）**，使用本车现有平台签名。Android 10、13 等只可能用于开发调试，不作为正式兼容承诺。当前构建与 GitHub Release 默认仅产出 **ARM64（`arm64-v8a`）** 正式包，应用内升级下载该包；`armeabi-v7a` 与 `x86_64` 仅保留在显式传入 `-PdiplayAbis=...` 时按需本地构建，默认不构建、不随 Release 发布。
 
 **本轮实现后，正式功能没有必须使用 ADB 的项目。** 应用内 ADB 客户端、密钥管理、5555 连接、ADB 授权流程及功能所用的 shell helper 均已删除。权限不足时明确失败、提供可用的系统设置入口或要求使用车机签名版本，不回退 ADB，也不要求先连接电脑或确认调试密钥。
 
@@ -38,7 +38,7 @@ Android 的签名权限规则见 [protectionLevel](https://developer.android.com
 
 新增的 `WRITE_SECURE_SETTINGS`、`MANAGE_APP_OPS_MODES`、`CONTROL_VPN`、`CONNECTIVITY_INTERNAL`、`MANAGE_USB` 均声明 `maxSdkVersion=28`。不会为了调试设备补做 Android 10／13 ADB 兼容路径。
 
-车辆电量、轮速等历史设置文案曾写“需要 ADB”，不能作为接入证据。基线创建控制器时 `vehicleStatusProvider = null`，本轮不宣称这些未接通的数据已恢复。实际按当前车机接口是否有有效数据判断，不要求启用 ADB。
+车辆电量、轮速等历史设置文案曾写“需要 ADB”，不能作为接入证据。v114 基线创建控制器时 `vehicleStatusProvider = null`，本轮不宣称这些未接通的数据已恢复（注：v150 / #101 起已在 753 车机上通过 `ISensor` 与 VHAL 接入真实车速和挡位，电量 `vehicleStatusProvider` 仍保持未接入）。实际按当前车机接口是否有有效数据判断，不要求启用 ADB。
 
 ## 4. 哪些项目必须用 ADB
 

@@ -38,7 +38,7 @@ Use the card:
 
 Size and place are remembered. The card goes when you open another app and comes back on the home screen. It also goes when CarPlay disconnects.
 
-In DiPlay settings, under the dashboard map, turn on **Dashboard map on the centre screen** (off by default) and give two permissions:
+In DiPlay settings, turn on **Show CarPlay map on the car home screen** under **Settings → Navigation → ECARX navigation** on ECARX 753 head units (or **Dashboard map on the centre screen** under **Settings → Advanced → Display (experimental)** on other head units; off by default) and give two permissions:
 
 - **Draw over other apps**: the settings screen offers it, or over ADB:
 
@@ -54,7 +54,7 @@ In DiPlay settings, under the dashboard map, turn on **Dashboard map on the cent
 
 (Test builds use the package `com.shihab.diplay.hudtest`.)
 
-The card is a separate decoder for the same stream, so the dashboard keeps its map. While the card shows the map, "Dashboard map only in Small and Full navi" does not pause the stream. If a launcher embeds the map (section 3), the card stays hidden.
+The card shares the single stream-111 hardware decoder with the dashboard via `GlVideoFanout` (since v147 / #83), so the dashboard keeps its map without opening a second decoder. While the card shows the map, "Dashboard map only in Small and Full navi" does not pause the stream. If a launcher embeds the map (section 3), the card stays hidden.
 
 ## 3. Embedded live map (for launcher developers)
 
@@ -141,7 +141,7 @@ The map is 8:3 on the 753 and 16:9 for the virtual dashboard. On Android 9 and 1
 
 ### Notes
 
-- Each attached view gets its own decoder in DiPlay. Attach one view, not one per page.
+- Attached views share DiPlay's single stream-111 hardware decoder via `GlVideoFanout`. Attach one view rather than one per page to avoid redundant surface fanout.
 - Once the driver turns sharing on, any app on the head unit could ask for the map. DiPlay logs which package asked (log tag `DiPlay-MapEmbed`).
 - If DiPlay restarts, your `ServiceConnection` is disconnected and reconnected; attach again then.
 - The protocol is new. Handle `ERROR` and a missing or older DiPlay gracefully.

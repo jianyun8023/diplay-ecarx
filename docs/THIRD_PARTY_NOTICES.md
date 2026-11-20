@@ -81,14 +81,13 @@ Concentus uses the Opus BSD-style license. The full copyright notices, redistrib
 
 The CarPlay screen and audio streams are received and opened in `libdiplay_media.so`, with ChaCha20-Poly1305 from [ring 0.17.14](https://github.com/briansmith/ring)
 by Brian Smith, which carries ChaCha20 and Poly1305 assembly from Google's [BoringSSL](https://boringssl.googlesource.com/boringssl)
-and, through it, OpenSSL. They are compiled with the app-owned `diplay-media` crate into `libdiplay_media.so`;
-ARM64 and ARMv7 binaries are checked in and used directly by APK builds. The crate also links jni-sys, libc, cfg-if
+and, through it, OpenSSL. They are compiled with the app-owned `diplay-media` crate into `libdiplay_media.so`, built and verified from current source via `scripts/check_rust_android_native.sh` (ARM64 default; ARMv7 and x86_64 are opt-in local targets). The crate also links jni-sys, libc, cfg-if
 and getrandom, each dual-licensed MIT or Apache-2.0.
 
 ring's own code and `untrusted` use ISC-style licenses; code taken from BoringSSL keeps its Apache-2.0, ISC or
 OpenSSL notices. The full texts are in [the Rust crate licenses](licenses/dependencies/Rust-crates-LICENSES.txt),
 and [native provenance](../shared/src/main/jniLibs/NOTICE.md) records the source, hashes and rebuild command.
-Migrated screen/protocol/crypto facades require the native core. Remaining audio fallback retirement is in progress; Android codec/output capability fallbacks are separate platform behavior.
+Protocol, session, screen, crypto and audio data-plane facades require the native Rust core; Android codec and audio output capability fallbacks (such as AudioTrack when AAudio cannot open) are separate platform behavior.
 
 ## Pairing and protocol cryptography
 
