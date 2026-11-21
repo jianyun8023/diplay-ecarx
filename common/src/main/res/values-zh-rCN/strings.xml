@@ -828,7 +828,7 @@
     <string name="ecarx_instrument_cluster_projection">开始导航时自动显示仪表地图</string>
     <string name="ecarx_instrument_cluster_projection_description">设置每条新路线开始时是否显示仪表地图，仪表上的显隐操作优先。更改从下一条路线生效。</string>
     <string name="settings_ecarx_cruise_map">未导航时也显示仪表地图（实验性）</string>
-    <string name="settings_ecarx_cruise_map_description">CarPlay 连接后，没有路线时也在仪表显示地图，仪表上的显隐操作优先。苹果地图只在画面变化时更新；其他地图应用可能让仪表空白。立即生效。</string>
+    <string name="settings_ecarx_cruise_map_description">CarPlay 连接后，没有路线时也在仪表显示地图。需先把仪表地图设为“始终显示”；若设为“导航时显示”，未导航时不会出图。仪表上的显隐操作优先。苹果地图只在画面变化时更新；其他地图应用可能让仪表空白。立即生效。</string>
     <string name="settings_ecarx_arrival_strip">仪表地图上的到达时间与剩余</string>
     <string name="settings_ecarx_arrival_strip_description">在投到仪表的地图右下角画一条玻璃条，显示到达时间、剩余时间和剩余距离。DiPlay 每秒重绘一次，不额外占用解码器、不新增 Surface，也不改动视频流。关闭后地图完全按手机画的样子显示。立即生效。</string>
     <string name="ecarx_cluster_call_rejected">车机拒绝了这次调用：需要系统签名且 DIM 权限被授予。</string>
