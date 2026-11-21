@@ -11,6 +11,36 @@ pub fn touch_latency(now: i64) -> Option<i64> {
     let sent = PENDING_TOUCH_NS.swap(0, Ordering::Relaxed);
     (sent != 0).then_some(now.wrapping_sub(sent))
 }
+pub fn take_stalled_touch(now: i64, timeout_ns: i64) -> bool {
+    let sent = PENDING_TOUCH_NS.load(Ordering::Relaxed);
+    if sent == 0 || now.wrapping_sub(sent) < timeout_ns {
+        return false;
+    }
+    PENDING_TOUCH_NS
+        .compare_exchange(sent, 0, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+}
+#[allow(clippy::too_many_arguments)]
+pub fn idle_keyframe_due(
+    accepting: bool,
+    has_codec: bool,
+    retired: bool,
+    pending_configs: usize,
+    queued_frames: usize,
+    first_frame_sent: bool,
+    last_activity_ns: i64,
+    now: i64,
+    timeout_ns: i64,
+) -> bool {
+    accepting
+        && has_codec
+        && !retired
+        && pending_configs == 0
+        && queued_frames == 0
+        && first_frame_sent
+        && last_activity_ns > 0
+        && now.wrapping_sub(last_activity_ns) >= timeout_ns
+}
 pub fn keyframe_due(last: i64, now: i64) -> bool {
     last == 0 || now.wrapping_sub(last) >= 1_000_000_000
 }
@@ -176,5 +206,120 @@ mod contracts {
         assert_eq!(memory.remember(0, vec![1, 2], false), 0);
         assert_eq!(memory.remember(1, vec![1, 2], true), 0);
         assert_eq!(memory.encoded(), Some(vec![1, 1, 2]));
+    }
+    #[test]
+    fn stalled_touch_fires_once_after_timeout_and_is_cleared_by_a_frame() {
+        PENDING_TOUCH_NS.store(0, Ordering::Relaxed);
+        assert!(!take_stalled_touch(5_000_000_000, 1_500_000_000));
+        touch_sent(1_000);
+        assert!(!take_stalled_touch(1_500_000_999, 1_500_000_000));
+        assert!(take_stalled_touch(1_500_001_000, 1_500_000_000));
+        assert!(!take_stalled_touch(3_000_000_000, 1_500_000_000));
+        touch_sent(2_000);
+        assert!(touch_latency(2_500).is_some());
+        assert!(!take_stalled_touch(10_000_000_000, 1_500_000_000));
+    }
+    #[test]
+    fn idle_keyframe_nudge_requires_active_rendered_stream_and_timeout() {
+        let timeout = 4_000_000_000;
+        assert!(!idle_keyframe_due(
+            false,
+            true,
+            false,
+            0,
+            0,
+            true,
+            100,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            false,
+            false,
+            0,
+            0,
+            true,
+            100,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            true,
+            true,
+            0,
+            0,
+            true,
+            100,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            true,
+            false,
+            1,
+            0,
+            true,
+            100,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            true,
+            false,
+            0,
+            1,
+            true,
+            100,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            true,
+            false,
+            0,
+            0,
+            false,
+            100,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            true,
+            false,
+            0,
+            0,
+            true,
+            0,
+            timeout + 100,
+            timeout
+        ));
+        assert!(!idle_keyframe_due(
+            true,
+            true,
+            false,
+            0,
+            0,
+            true,
+            100,
+            timeout + 99,
+            timeout
+        ));
+        assert!(idle_keyframe_due(
+            true,
+            true,
+            false,
+            0,
+            0,
+            true,
+            100,
+            timeout + 100,
+            timeout
+        ));
     }
 }

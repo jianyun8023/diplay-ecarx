@@ -277,6 +277,45 @@ class NativeVideoStartupDeviceTest {
         }
     }
 
+    @Test fun activeClusterPipeNudgesKeyframeWhenIdleAndSuppressesAfterClearSurface() {
+        requireHardware(AVC.mime)
+        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
+        val surface = Surface(texture)
+        val rendered = CountDownLatch(1)
+        val recoveryRequested = CountDownLatch(1)
+        val requests = AtomicInteger()
+        val sink = AndroidMediaSink(clusterVideoWidth = WIDTH, clusterVideoHeight = HEIGHT)
+        try {
+            sink.setVideoDiagnosticHandler(111) { if (it == "first frame rendered") rendered.countDown() }
+            sink.setVideoRecoveryHandler(111) {
+                requests.incrementAndGet()
+                recoveryRequested.countDown()
+            }
+            sink.setSurface(111, surface)
+            sink.onVideoConfig(111, AVC.config)
+            sink.onVideoFrame(111, AVC.bytes)
+            assertTrue("Initial cluster IDR must render on hardware decoder", rendered.await(10, TimeUnit.SECONDS))
+            assertEquals("Healthy startup should not trigger extra recovery", 0, requests.get())
+            assertTrue(
+                "Active cluster stream with no frames for 4s must request keyframe",
+                recoveryRequested.await(6, TimeUnit.SECONDS),
+            )
+            sink.clearSurface(111, surface)
+            val countAfterClear = requests.get()
+            val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 0)
+            repeat(5) {
+                sink.onVideoFrame(111, predicted)
+                Thread.sleep(50)
+            }
+            assertEquals("Trailing non-IDR frames after clearSurface must not request keyframe", countAfterClear, requests.get())
+        } finally {
+            sink.close()
+            assertTrue(sink.awaitVideoReleased(5_000))
+            surface.release()
+            texture.release()
+        }
+    }
+
     private class PipeSession : Closeable {
         private val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
         val surface = Surface(texture)

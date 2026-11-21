@@ -19,7 +19,6 @@ import com.shihab.diplay.airplay.VideoCodec
 import com.shihab.diplay.airplay.VideoStreamEvent
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Android rendering backend for the CarPlay media engine. Video frames are
@@ -208,7 +207,7 @@ class AndroidMediaSink(
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
     /** Named decode-loop facts per stream type; the engine consumes these, while text stays diagnostic. */
     private val videoEventHandlers = ConcurrentHashMap<Int, (VideoStreamEvent) -> Unit>()
-    private val recoveryPending = AtomicBoolean(false)
+    private val recoveryPending = ConcurrentHashMap.newKeySet<Int>()
     // Other surfaces that show a stream too, such as the centre card. The main screen gives each its own
     // decoder; other streams draw them from the stream's decoder ([mirrorsShareDecoder]).
     private val mirrorLock = Any()
@@ -231,15 +230,29 @@ class AndroidMediaSink(
         videoEventHandlers[type] = handler
     }
 
+    internal fun hasActiveOutputSurface(type: Int): Boolean = synchronized(videoOwnershipLock) {
+        !videoClosed && (
+            surfaces[type] != null ||
+                (type == MAIN_SCREEN_TYPE && defaultSurface != null) ||
+                synchronized(mirrorLock) { mirrorSurfaces.keys.any { it.first == type } }
+            )
+    }
+
     private fun requestVideoRecovery(type: Int) {
-        if (!recoveryPending.compareAndSet(false, true)) return
+        if (!hasActiveOutputSurface(type) || !recoveryPending.add(type)) return
         try {
             recoveryExecutor.execute {
-                try { videoRecoveryHandlers[type]?.invoke() }
-                catch (error: Exception) { Log.w("diplay-usb", "Video keyframe request failed", error) }
-                finally { recoveryPending.set(false) }
+                try {
+                    if (hasActiveOutputSurface(type)) videoRecoveryHandlers[type]?.invoke()
+                } catch (error: Exception) {
+                    Log.w("diplay-usb", "Video keyframe request failed", error)
+                } finally {
+                    recoveryPending.remove(type)
+                }
             }
-        } catch (_: java.util.concurrent.RejectedExecutionException) { recoveryPending.set(false) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            recoveryPending.remove(type)
+        }
     }
 
     fun setSurface(type: Int, surface: Surface) {
