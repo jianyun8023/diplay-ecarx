@@ -9,6 +9,7 @@ import com.shihab.diplay.orchestration.ControlRecoveryState
 import com.shihab.diplay.media.AutoPlayRecovery
 import com.shihab.diplay.transport.TransportFailureKind
 
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -5652,10 +5653,17 @@ open class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION") // API 28 exposes the task ID as persistentId.
     private fun exitApplication() {
         if (shuttingDown.get()) return
         restoreSettingsBaseline()
-        finishAndRemoveTask()
+        // Close the launcher task first so Android cannot resume it when CarPlay closes.
+        val hostTaskId = taskId
+        val (hostTasks, otherTasks) = getSystemService(ActivityManager::class.java).appTasks
+            .partition { it.taskInfo?.persistentId == hostTaskId }
+        otherTasks.forEach(ActivityManager.AppTask::finishAndRemoveTask)
+        hostTasks.forEach(ActivityManager.AppTask::finishAndRemoveTask)
+        if (hostTasks.isEmpty()) finish()
         shutdown(terminateProcess = true, reason = "settings exit application")
     }
 
