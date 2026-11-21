@@ -127,7 +127,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeClusterConten
     flags: jint,
     expected: jint,
 ) -> jobjectArray {
-    if !(1..=11).contains(&event)
+    if !(1..=12).contains(&event)
         || !(0..32).contains(&flags)
         || ([3, 4, 10].contains(&event) && url.is_null())
     {

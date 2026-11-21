@@ -273,7 +273,7 @@ class AirPlaySession(
     /** Sends a cluster keyframe only while the cluster stream is live and `stopUI` has not hidden it. */
     internal fun requestClusterKeyFrame(): Boolean = synchronized(clusterCommandLock) {
         val allowed = synchronized(clusterContentLock) {
-            !negotiation.isClosed && clusterStream > 0 && clusterContent.snapshot.token.getOrNull(3) == 1L
+            ClusterContentCore.recoveryAllowed(clusterContent.snapshot, negotiation.isClosed, clusterStream)
         }
         if (!allowed) false else sendCommand(AirPlayCommands.keyFrame(AirPlayInfoPlist.ALT_UUID))
     }

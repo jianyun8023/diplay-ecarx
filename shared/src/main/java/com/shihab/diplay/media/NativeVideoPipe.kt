@@ -96,6 +96,7 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
         fun create(
             pacingDelayNanos: Long,
             trackTouches: Boolean,
+            watchCluster: Boolean = false,
             onEvent: (Int, String?, Long, Long) -> Unit,
         ): NativeVideoPipe {
             NativeMedia.requireAvailable()
@@ -104,7 +105,7 @@ internal class NativeVideoPipe private constructor(private val handle: Long) {
                 override fun onEvent(kind: Int, detail: String?, numberA: Long, numberB: Long) =
                     onEvent(kind, detail, numberA, numberB)
             }
-            val handle = NativeMedia.pipeCreate(callbacks, pacingDelayNanos, trackTouches)
+            val handle = NativeMedia.pipeCreate(callbacks, pacingDelayNanos, trackTouches, watchCluster)
             check(handle != 0L) { "Native video decode loop could not be created" }
             return NativeVideoPipe(handle)
         }

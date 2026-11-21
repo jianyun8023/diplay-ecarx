@@ -873,7 +873,7 @@ class AndroidMediaSink(
     @Volatile private var vendorLowLatencyRefused = false
 
     private fun newVideoDecoder(type: Int, surface: Surface?, statsLabel: String? = null, startImmediately: Boolean = true): VideoDecoder {
-        val cluster = type == 111 && clusterVideoWidth > 0 && clusterVideoHeight > 0
+        val cluster = type == CLUSTER_SCREEN_TYPE && clusterVideoWidth > 0 && clusterVideoHeight > 0
         lateinit var video: VideoDecoder
         video = VideoDecoder(
             type,
@@ -886,7 +886,7 @@ class AndroidMediaSink(
             health = health,
             report = diagnostic@{
                 if (it.startsWith("frame sample ") && (statsLabel != null || videoDecoders[type] !== video)) return@diagnostic
-                val message = if (type == 111 && (statsLabel != null || videoDecoders[type] !== video)) "inactive decoder $it" else it
+                val message = if (type == CLUSTER_SCREEN_TYPE && (statsLabel != null || videoDecoders[type] !== video)) "inactive decoder $it" else it
                 videoDiagnosticHandlers[type]?.invoke(message)
             },
             // Only the stream's current decoder speaks for it; a replaced or mirror decoder's late

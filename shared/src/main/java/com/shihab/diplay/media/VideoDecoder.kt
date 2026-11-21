@@ -16,6 +16,7 @@ import java.io.Closeable
 
 /** CarPlay's main screen stream type. */
 internal const val MAIN_SCREEN_TYPE = 110
+internal const val CLUSTER_SCREEN_TYPE = 111
 
 /**
  * An offscreen consumer a parked decoder renders to while its SurfaceView is gone. It drops each image
@@ -152,7 +153,11 @@ internal class VideoDecoder(
     private var debugLogsCheckedNanos = 0L
     private var lastStatsNanos = System.nanoTime()
     private val queue = VideoControlMailbox()
-    private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail, numberA, numberB ->
+    private val pipe = NativeVideoPipe.create(
+        pacingDelayNanos,
+        trackTouches = streamType == MAIN_SCREEN_TYPE && statsLabel == null,
+        watchCluster = streamType == CLUSTER_SCREEN_TYPE && statsLabel == null,
+    ) { kind, detail, numberA, numberB ->
         queue.offer(VideoJob.NativeEvent(kind, detail, numberA, numberB))
     }.apply { setAccepting(surface != null, resetChain = false) }
     // Guards [pipe] against [submit] and [liveCounters] once the worker has destroyed it.
@@ -814,6 +819,7 @@ internal class VideoDecoder(
         // Frees the stream's own surface before the codec renders there again.
         runCatching { sharing.setPrimary(null) }
         fanout = null
+        updatePipeAccepting()
         val primary = outputSurface
         if (hasCodec()) {
             if (primary == null) {

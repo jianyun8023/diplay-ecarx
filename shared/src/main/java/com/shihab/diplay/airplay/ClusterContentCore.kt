@@ -31,6 +31,8 @@ internal object ClusterContentCore {
         change(snapshot, 10, stream, url, closed, uiSent = uiSent, frameSent = frameSent, expectedStream = expectedStream)
     fun commitStop(snapshot: Snapshot, expectedStream: Int, closed: Boolean, sent: Boolean): Change =
         change(snapshot, 11, closed = closed, uiSent = sent, expectedStream = expectedStream)
+    fun recoveryAllowed(snapshot: Snapshot, closed: Boolean, stream: Int): Boolean =
+        change(snapshot, 12, stream, closed = closed).accepted
 
     fun route(snapshot: Snapshot, closed: Boolean = false, stream: Int = snapshot.stream): Route? {
         val fields = NativeClusterContent.route(snapshot.token, closed, stream) ?: return null

@@ -202,6 +202,14 @@ impl State {
                     }
                 }
             }
+            12 => {
+                accepted = !closed
+                    && stream > 0
+                    && self
+                        .content
+                        .as_ref()
+                        .is_some_and(|current| current.stream == stream && current.shown);
+            }
             _ => unreachable!("validated JNI operation"),
         }
         Change {

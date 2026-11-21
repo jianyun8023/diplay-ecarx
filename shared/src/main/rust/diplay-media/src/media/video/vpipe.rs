@@ -15,8 +15,8 @@ use crate::media::packet;
 use crate::media::stats::{clock, VideoInputStats};
 use crate::media::video::annexb::{FLAG_ANNEX_B, FLAG_RANDOM_ACCESS_H264, FLAG_RANDOM_ACCESS_H265};
 use crate::media::video::flow::{
-    frame_overflow, idle_keyframe_due, keeps_unused_decoder, keyframe_request, take_stalled_touch,
-    touch_latency, ConfigurationMemory, ReferenceChain,
+    frame_overflow, keeps_unused_decoder, keyframe_due, keyframe_request, take_stalled_touch,
+    touch_latency, ClusterKeyframeWatch, ConfigurationMemory, ReferenceChain,
 };
 use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, OutputTiming};
 use crate::platform::jvm::{Attached, Env};
@@ -64,7 +64,6 @@ impl Event {
 const MAX_FRAMES: usize = 60;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const INPUT_STALL_NS: i64 = 500_000_000;
-const CLUSTER_IDLE_KEYFRAME_NS: i64 = 4_000_000_000;
 const TOUCH_STALL_KEYFRAME_NS: i64 = 1_500_000_000;
 const DECODE_SAMPLES: usize = 1024;
 
@@ -120,7 +119,7 @@ struct Inner {
     backlog: BacklogRecovery,
     frames_since_configure: u32,
     last_keyframe_request_ns: i64,
-    last_frame_ns: i64,
+    cluster_watch: Option<ClusterKeyframeWatch>,
     first_input_logged: bool,
     first_frame_sent: bool,
     sample_next_frame: bool,
@@ -211,37 +210,25 @@ impl Inner {
         self.drop_frames();
         self.reference.reset();
         self.backlog.reset();
-        if self.first_frame_sent {
-            self.last_frame_ns = now.max(1);
-        }
         self.request_keyframe(now, events);
     }
 
     fn check_idle_nudge(&mut self, now: i64, events: &mut Events) {
-        if self.track_touches {
-            if self.accepting
-                && !self.codec.is_null()
-                && !self.retired
-                && self.pending_configs == 0
-                && self.frames.is_empty()
-                && take_stalled_touch(now, TOUCH_STALL_KEYFRAME_NS)
-            {
-                self.request_keyframe(now, events);
-            }
+        if !self.accepting || !self.shown || self.pending_configs != 0 || !self.frames.is_empty() {
             return;
         }
-        if idle_keyframe_due(
-            self.accepting,
-            !self.codec.is_null(),
-            self.retired,
-            self.pending_configs,
-            self.frames.len(),
-            self.first_frame_sent,
-            self.last_frame_ns,
-            now,
-            CLUSTER_IDLE_KEYFRAME_NS,
-        ) {
-            self.last_frame_ns = now.max(1);
+        let retry = if self.track_touches {
+            !self.codec.is_null()
+                && !self.retired
+                && take_stalled_touch(self.last_keyframe_request_ns, now, TOUCH_STALL_KEYFRAME_NS)
+        } else {
+            keyframe_due(self.last_keyframe_request_ns, now)
+                && self
+                    .cluster_watch
+                    .as_mut()
+                    .is_some_and(|watch| watch.take_retry(now))
+        };
+        if retry {
             self.request_keyframe(now, events);
         }
     }
@@ -445,15 +432,15 @@ fn run_feeder(pipe: Arc<Pipe>) {
         let mut actions = Vec::new();
         guard.plan_outputs(&pipe, now, &mut actions);
         guard.plan_feeds(now, &mut events, &mut actions);
-        guard.check_idle_nudge(now, &mut events);
         if actions.is_empty() {
+            guard.check_idle_nudge(now, &mut events);
             if !events.is_empty() {
                 drop(guard);
                 pipe.post_all(events);
                 guard = pipe.inner.lock().unwrap();
                 continue;
             }
-            // Woken by queued work; the timeout only notices an input stall when no frame arrives.
+            // Woken by queued work; the timeout also checks video recovery deadlines.
             guard = pipe
                 .work
                 .wait_timeout(guard, std::time::Duration::from_millis(100))
@@ -487,7 +474,9 @@ fn run_feeder(pipe: Arc<Pipe>) {
                 pipe.live_rendered.fetch_add(1, Ordering::Relaxed);
                 if !guard.first_frame_sent {
                     guard.first_frame_sent = true;
-                    guard.last_frame_ns = clock(libc::CLOCK_MONOTONIC).max(1);
+                    if let Some(watch) = guard.cluster_watch.as_mut() {
+                        watch.rendered();
+                    }
                     events.push(Event::text(
                         EVENT_FIRST_FRAME,
                         Some(format!("bytes={bytes}")),
@@ -846,6 +835,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
     callbacks: jobject,
     pacing_delay_nanos: jlong,
     track_touches: jboolean,
+    watch_cluster: jboolean,
 ) -> jlong {
     let e = Env(env);
     if set_async_notify_callback().is_none() {
@@ -883,7 +873,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
             backlog: BacklogRecovery::default(),
             frames_since_configure: 0,
             last_keyframe_request_ns: 0,
-            last_frame_ns: 0,
+            cluster_watch: (watch_cluster != 0).then(ClusterKeyframeWatch::default),
             first_input_logged: false,
             first_frame_sent: false,
             sample_next_frame: false,
@@ -1069,7 +1059,6 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCon
         inner.frames_since_configure = 0;
         inner.first_input_logged = false;
         inner.first_frame_sent = false;
-        inner.last_frame_ns = 0;
         inner.decoder_epoch += 1;
         inner.need_decoder_sent = false;
         inner.report_vendor_format = report_vendor_format != 0;
@@ -1142,7 +1131,6 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeRel
         inner.outputs.clear();
         inner.retired = false;
         inner.first_frame_sent = false;
-        inner.last_frame_ns = 0;
         inner.reference.reset();
         inner.codec_held = false;
         inner.backlog.reset();
@@ -1211,13 +1199,16 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeSet
     reset_chain: jboolean,
 ) {
     let mut inner = pipe(handle).inner.lock().unwrap();
+    let was_accepting = inner.accepting;
     inner.accepting = accepting != 0;
+    if inner.accepting && !was_accepting {
+        if let Some(watch) = inner.cluster_watch.as_mut() {
+            watch.attach(clock(libc::CLOCK_MONOTONIC));
+        }
+    }
     if reset_chain != 0 || !inner.accepting {
         inner.drop_frames();
         inner.reference.reset();
-        if !inner.accepting {
-            inner.last_frame_ns = 0;
-        }
     }
 }
 
@@ -1359,7 +1350,9 @@ unsafe fn submit(
                     local_ns,
                 });
                 inner.frame_bytes += size;
-                inner.last_frame_ns = now.max(1);
+                if let Some(watch) = inner.cluster_watch.as_mut() {
+                    watch.received(now);
+                }
                 if inner.pending_configs == 0
                     && inner.codec.is_null()
                     && !inner.retired
