@@ -347,4 +347,21 @@ class ClusterContentTest {
             assertNull(session.clusterContentRoute())
         } finally { session.close() }
     }
+
+    @Test fun clusterKeyframeRecoveryIsBlockedWhileStopUiHidesTheCluster() {
+        val session = session(CarPlayClusterDisplay.MAP_URL)
+        try {
+            setup(session)
+            val event = eventReady(session)
+            assertTrue(session.requestClusterKeyFrame())
+            assertTrue(session.setClusterUiShown(false))
+            assertFalse(session.requestClusterKeyFrame())
+            assertTrue(session.setClusterUiShown(true))
+            assertTrue(session.requestClusterKeyFrame())
+            assertEquals(
+                listOf("forceKeyFrame", "stopUI", "showUI", "forceKeyFrame", "forceKeyFrame"),
+                commands(event).map { it["type"] },
+            )
+        } finally { session.close() }
+    }
 }

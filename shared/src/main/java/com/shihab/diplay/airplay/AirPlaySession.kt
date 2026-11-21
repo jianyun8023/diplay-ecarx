@@ -270,6 +270,14 @@ class AirPlaySession(
         }
     }
 
+    /** Sends a cluster keyframe only while the cluster stream is live and `stopUI` has not hidden it. */
+    internal fun requestClusterKeyFrame(): Boolean = synchronized(clusterCommandLock) {
+        val allowed = synchronized(clusterContentLock) {
+            ClusterContentCore.recoveryAllowed(clusterContent.snapshot, negotiation.isClosed, clusterStream)
+        }
+        if (!allowed) false else sendCommand(AirPlayCommands.keyFrame(AirPlayInfoPlist.ALT_UUID))
+    }
+
     private fun recordAcceptedStream(type: Int): Unit = synchronized(clusterContentLock) {
         // These Java identities are platform routing leases; Rust owns their live generations.
         when (negotiation.accepted(type)) {

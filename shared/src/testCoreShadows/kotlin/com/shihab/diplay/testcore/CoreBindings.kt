@@ -365,7 +365,8 @@ open class ShadowNativeMedia {
         @JvmStatic @Implementation fun pcmProcess(handle: Long, buffer: ByteBuffer, length: Int, flags: Int, attenuationDb: Int, peak: Int): Int =
             HostNative.call("airplay.NativeMedia", "pcmProcess", handle, buffer, length, flags, attenuationDb, peak) as Int
         // Host tests exercise the same pipe boundary through an explicit SDK-only fixture.
-        @JvmStatic @Implementation fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long =
+        @JvmStatic @Implementation fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long,
+            trackTouches: Boolean, watchCluster: Boolean): Long =
             HostVideoPipe.create(callbacks)
         // Synthetic host handles must never be handed to a native receiver as NDK pointers.
         @JvmStatic @Implementation fun pipeRetain(handle: Long): Long = 0L

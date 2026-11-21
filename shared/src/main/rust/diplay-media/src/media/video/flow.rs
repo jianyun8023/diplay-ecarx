@@ -11,6 +11,83 @@ pub fn touch_latency(now: i64) -> Option<i64> {
     let sent = PENDING_TOUCH_NS.swap(0, Ordering::Relaxed);
     (sent != 0).then_some(now.wrapping_sub(sent))
 }
+pub fn take_stalled_touch(last_keyframe: i64, now: i64, timeout_ns: i64) -> bool {
+    if !keyframe_due(last_keyframe, now) {
+        return false;
+    }
+    let sent = PENDING_TOUCH_NS.load(Ordering::Relaxed);
+    if sent == 0 || now.wrapping_sub(sent) < timeout_ns {
+        return false;
+    }
+    PENDING_TOUCH_NS
+        .compare_exchange(sent, 0, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
+}
+const FIRST_FRAME_RETRY_NS: i64 = 2_000_000_000;
+const CLUSTER_IDLE_NS: i64 = 4_000_000_000;
+const ACTIVE_FRAME_GAP_NS: i64 = 1_250_000_000;
+const ACTIVE_FRAME_SPAN_NS: i64 = 1_000_000_000;
+
+#[derive(Default)]
+pub struct ClusterKeyframeWatch {
+    attached: Option<i64>,
+    rendered: bool,
+    activity_start: Option<i64>,
+    last_frame: Option<i64>,
+    idle_probe_armed: bool,
+}
+
+impl ClusterKeyframeWatch {
+    pub fn attach(&mut self, now: i64) {
+        *self = Self {
+            attached: Some(now),
+            ..Self::default()
+        };
+    }
+
+    pub fn rendered(&mut self) {
+        self.attached = None;
+        self.rendered = true;
+    }
+
+    pub fn received(&mut self, now: i64) {
+        if !self.rendered {
+            return;
+        }
+        if self
+            .last_frame
+            .is_none_or(|last| now.wrapping_sub(last) > ACTIVE_FRAME_GAP_NS)
+        {
+            self.activity_start = Some(now);
+        }
+        self.last_frame = Some(now);
+        self.idle_probe_armed |= self
+            .activity_start
+            .is_some_and(|start| now.wrapping_sub(start) >= ACTIVE_FRAME_SPAN_NS);
+    }
+
+    pub fn take_retry(&mut self, now: i64) -> bool {
+        if self
+            .attached
+            .is_some_and(|attached| now.wrapping_sub(attached) >= FIRST_FRAME_RETRY_NS)
+        {
+            self.attached = None;
+            return true;
+        }
+        if self.idle_probe_armed
+            && self
+                .last_frame
+                .is_some_and(|last| now.wrapping_sub(last) >= CLUSTER_IDLE_NS)
+        {
+            // A single keyframe reply must not rearm the probe on a static map.
+            self.last_frame = None;
+            self.activity_start = None;
+            self.idle_probe_armed = false;
+            return true;
+        }
+        false
+    }
+}
 pub fn keyframe_due(last: i64, now: i64) -> bool {
     last == 0 || now.wrapping_sub(last) >= 1_000_000_000
 }
@@ -176,5 +253,58 @@ mod contracts {
         assert_eq!(memory.remember(0, vec![1, 2], false), 0);
         assert_eq!(memory.remember(1, vec![1, 2], true), 0);
         assert_eq!(memory.encoded(), Some(vec![1, 1, 2]));
+    }
+    #[test]
+    fn stalled_touch_fires_once_after_timeout_and_is_cleared_by_a_frame() {
+        PENDING_TOUCH_NS.store(0, Ordering::Relaxed);
+        assert!(!take_stalled_touch(0, 5_000_000_000, 1_500_000_000));
+        touch_sent(1_000);
+        assert!(!take_stalled_touch(0, 1_500_000_999, 1_500_000_000));
+        assert!(!take_stalled_touch(
+            1_000_001_000,
+            1_500_001_000,
+            1_500_000_000
+        ));
+        assert!(take_stalled_touch(
+            1_000_001_000,
+            2_000_001_000,
+            1_500_000_000
+        ));
+        assert!(!take_stalled_touch(0, 3_000_000_000, 1_500_000_000));
+        touch_sent(2_000);
+        assert!(touch_latency(2_500).is_some());
+        assert!(!take_stalled_touch(0, 10_000_000_000, 1_500_000_000));
+    }
+    #[test]
+    fn cluster_retries_once_while_waiting_for_the_first_frame() {
+        let mut watch = ClusterKeyframeWatch::default();
+        assert!(!watch.take_retry(FIRST_FRAME_RETRY_NS));
+        watch.attach(100);
+        assert!(!watch.take_retry(99 + FIRST_FRAME_RETRY_NS));
+        assert!(watch.take_retry(100 + FIRST_FRAME_RETRY_NS));
+        assert!(!watch.take_retry(100 + 2 * FIRST_FRAME_RETRY_NS));
+        watch.attach(5_000_000_000);
+        watch.rendered();
+        assert!(!watch.take_retry(5_000_000_000 + FIRST_FRAME_RETRY_NS));
+    }
+
+    #[test]
+    fn cluster_static_map_does_not_rearm_the_idle_probe() {
+        let mut watch = ClusterKeyframeWatch::default();
+        watch.attach(0);
+        watch.rendered();
+        watch.received(1_000);
+        assert!(!watch.take_retry(CLUSTER_IDLE_NS + 1_000));
+        watch.received(5_000_000_000);
+        watch.received(5_500_000_000);
+        watch.received(6_000_000_000);
+        assert!(!watch.take_retry(9_999_999_999));
+        assert!(watch.take_retry(10_000_000_000));
+        watch.received(10_100_000_000);
+        assert!(!watch.take_retry(14_100_000_000));
+        watch.received(15_000_000_000);
+        watch.received(15_500_000_000);
+        watch.received(16_000_000_000);
+        assert!(watch.take_retry(20_000_000_000));
     }
 }

@@ -277,6 +277,45 @@ class NativeVideoStartupDeviceTest {
         }
     }
 
+    @Test fun clusterRetriesMissingFirstFrameButLeavesTheRecoveredStaticPictureAlone() {
+        requireHardware(AVC.mime)
+        val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
+        val surface = Surface(texture)
+        val rendered = CountDownLatch(1)
+        val startupRetry = CountDownLatch(1)
+        val additionalRetry = CountDownLatch(1)
+        val requests = AtomicInteger()
+        val sink = AndroidMediaSink(clusterVideoWidth = WIDTH, clusterVideoHeight = HEIGHT)
+        try {
+            sink.setVideoDiagnosticHandler(111) { if (it == "first frame rendered") rendered.countDown() }
+            sink.setVideoRecoveryHandler(111) {
+                if (requests.incrementAndGet() == 1) startupRetry.countDown() else additionalRetry.countDown()
+            }
+            sink.setSurface(111, surface)
+            sink.onVideoConfig(111, AVC.config)
+            assertTrue(
+                "Cluster with no initial IDR must request a keyframe once",
+                startupRetry.await(5, TimeUnit.SECONDS),
+            )
+            sink.onVideoFrame(111, AVC.bytes)
+            assertTrue("The returned IDR must render on hardware decoder", rendered.await(10, TimeUnit.SECONDS))
+            assertFalse("One static frame must not trigger a second idle request", additionalRetry.await(5, TimeUnit.SECONDS))
+            sink.clearSurface(111, surface)
+            val countAfterClear = requests.get()
+            val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 0)
+            repeat(5) {
+                sink.onVideoFrame(111, predicted)
+                Thread.sleep(50)
+            }
+            assertEquals("Trailing non-IDR frames after clearSurface must not request keyframe", countAfterClear, requests.get())
+        } finally {
+            sink.close()
+            assertTrue(sink.awaitVideoReleased(5_000))
+            surface.release()
+            texture.release()
+        }
+    }
+
     private class PipeSession : Closeable {
         private val texture = SurfaceTexture(false).apply { setDefaultBufferSize(WIDTH, HEIGHT) }
         val surface = Surface(texture)

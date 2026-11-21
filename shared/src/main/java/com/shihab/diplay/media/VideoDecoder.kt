@@ -16,6 +16,7 @@ import java.io.Closeable
 
 /** CarPlay's main screen stream type. */
 internal const val MAIN_SCREEN_TYPE = 110
+internal const val CLUSTER_SCREEN_TYPE = 111
 
 /**
  * An offscreen consumer a parked decoder renders to while its SurfaceView is gone. It drops each image
@@ -152,7 +153,11 @@ internal class VideoDecoder(
     private var debugLogsCheckedNanos = 0L
     private var lastStatsNanos = System.nanoTime()
     private val queue = VideoControlMailbox()
-    private val pipe = NativeVideoPipe.create(pacingDelayNanos, streamType == MAIN_SCREEN_TYPE && statsLabel == null) { kind, detail, numberA, numberB ->
+    private val pipe = NativeVideoPipe.create(
+        pacingDelayNanos,
+        trackTouches = streamType == MAIN_SCREEN_TYPE && statsLabel == null,
+        watchCluster = streamType == CLUSTER_SCREEN_TYPE && statsLabel == null,
+    ) { kind, detail, numberA, numberB ->
         queue.offer(VideoJob.NativeEvent(kind, detail, numberA, numberB))
     }.apply { setAccepting(surface != null, resetChain = false) }
     // Guards [pipe] against [submit] and [liveCounters] once the worker has destroyed it.
@@ -361,7 +366,7 @@ internal class VideoDecoder(
                 onEvent(VideoStreamEvent.FrameSampled(numberA, numberB, System.identityHashCode(this)))
             }
             NativeVideoPipe.EVENT_REQUEST_KEYFRAME -> {
-                requestKeyFrame()
+                if (codecSurface() != null) requestKeyFrame()
             }
             NativeVideoPipe.EVENT_REPORT -> detail?.let(report)
             NativeVideoPipe.EVENT_LOG -> if (detail?.startsWith("Video recovery") == true) Log.w(TAG, detail) else Log.i(TAG, detail ?: "")
@@ -677,12 +682,13 @@ internal class VideoDecoder(
                 if (outputSurface === request.surface) {
                     sharing.setPrimary(null)
                     outputSurface = null
+                    updatePipeAccepting()
                 }
                 mirrors.entries.firstOrNull { it.value === request.surface }?.key?.let { changeMirror(it, null) }
                 outcome = DetachOutcome.NOT_RENDERING
             } catch (error: Exception) {
-                closeFanout()
                 outputSurface = null
+                closeFanout()
                 throw error
             } finally {
                 request.complete(outcome)
@@ -703,11 +709,13 @@ internal class VideoDecoder(
                         Log.w(TAG, "video decoder could not park; releasing it", error)
                         outcome = DetachOutcome.RELEASED
                         outputSurface = null
+                        updatePipeAccepting()
                         releaseDecoder()
                     }
                 }
                 DetachOutcome.RELEASED -> {
                     outputSurface = null
+                    updatePipeAccepting()
                     releaseDecoder()
                     if (debugLogsEnabled()) Log.i(TAG, "video decoder detached from surface")
                 }
@@ -715,6 +723,7 @@ internal class VideoDecoder(
         } catch (error: Exception) {
             outcome = DetachOutcome.RELEASED
             outputSurface = null
+            updatePipeAccepting()
             releaseDecoder()
             throw error
         } finally {
@@ -728,6 +737,7 @@ internal class VideoDecoder(
         fanout?.let { sharing ->
             try {
                 sharing.setPrimary(surface)
+                updatePipeAccepting()
             } catch (error: Exception) {
                 closeFanout()
                 throw error
@@ -735,10 +745,12 @@ internal class VideoDecoder(
             return
         }
         if (surface == null) {
+            updatePipeAccepting()
             releaseDecoder()
             if (debugLogsEnabled()) Log.i(TAG, "video decoder detached from surface")
             return
         }
+        updatePipeAccepting()
         if (hasCodec()) {
             try {
                 setCodecSurface(surface)
@@ -807,6 +819,7 @@ internal class VideoDecoder(
         // Frees the stream's own surface before the codec renders there again.
         runCatching { sharing.setPrimary(null) }
         fanout = null
+        updatePipeAccepting()
         val primary = outputSurface
         if (hasCodec()) {
             if (primary == null) {
@@ -826,6 +839,7 @@ internal class VideoDecoder(
     private fun closeFanout() {
         val sharing = fanout ?: return
         fanout = null
+        updatePipeAccepting()
         releaseDecoder()
         runCatching(sharing::close)
         mirrors.clear()

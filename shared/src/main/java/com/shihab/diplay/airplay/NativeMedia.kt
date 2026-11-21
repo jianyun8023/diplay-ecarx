@@ -157,7 +157,8 @@ internal object NativeMedia {
     @JvmStatic external fun pcmFeed(handle: Long, packet: Long, size: Int, sample: Int, codec: Any?, host: Any)
     @JvmStatic external fun pcmDrain(handle: Long, codec: Any, info: Any, host: Any)
     /** A screen stream's native decode loop (see `NativeVideoPipe`); 0 when this system cannot run one. */
-    @JvmStatic external fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long, trackTouches: Boolean): Long
+    @JvmStatic external fun pipeCreate(callbacks: NativeVideoCallbacks, pacingDelayNanos: Long,
+        trackTouches: Boolean, watchCluster: Boolean): Long
     /** A separately owned reference for a receiver route; survives destruction of the Kotlin pipe handle. */
     @JvmStatic external fun pipeRetain(handle: Long): Long
     @JvmStatic external fun pipeConfigure(

@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Low-latency decoding releases decoded frames from a thread of its own, which stops with the decoder. */
 @RunWith(RobolectricTestRunner::class)
@@ -29,6 +30,7 @@ class NativeVideoLoopTest {
     private val avcC = byteArrayOf(1, 0x42, 0xC0.toByte(), 0x1E, 0xFF.toByte(), 0xE1.toByte(), 0, sps.size.toByte()) +
         sps + byteArrayOf(1, 0, pps.size.toByte()) + pps
     private val idr = byteArrayOf(0, 0, 0, 1, 0x65, 0x88.toByte(), 0x84.toByte(), 0x21)
+    private val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 0x9A.toByte())
     private val uncaught = ConcurrentLinkedQueue<Throwable>()
     private var previousHandler: Thread.UncaughtExceptionHandler? = null
 
@@ -156,6 +158,69 @@ class NativeVideoLoopTest {
         val failure = assertThrows(IllegalStateException::class.java) { NativeVideoPipe.create(0, false) { _, _, _, _ -> } }
         assertEquals("Native video decoding requires Android 9 / API 28", failure.message)
         assertEquals(before, HostVideoPipe.activeCount)
+    }
+
+    @Test fun clearingSurfacePreventsSpuriousKeyframeRecoveryOnTrailingNonIdrFrames() {
+        val rendered = CountDownLatch(1)
+        val recoveries = AtomicInteger()
+        val surface = Surface(SurfaceTexture(0))
+        val sink = AndroidMediaSink()
+        try {
+            sink.setVideoDiagnosticHandler(111) { if (it == "first frame rendered") rendered.countDown() }
+            sink.setVideoRecoveryHandler(111) { recoveries.incrementAndGet() }
+            sink.setSurface(111, surface)
+            sink.onVideoConfig(111, avcC)
+            sink.onVideoFrame(111, idr)
+            assertTrue(rendered.await(5, TimeUnit.SECONDS))
+            sink.clearSurface(111, surface)
+            assertFalse(sink.hasActiveOutputSurface(111))
+            repeat(5) { sink.onVideoFrame(111, predicted) }
+            val reattached = Surface(SurfaceTexture(0))
+            try {
+                sink.setSurface(111, reattached)
+                assertTrue(sink.beginSurfaceDetach(reattached, parkMain = false).await())
+            } finally {
+                reattached.release()
+            }
+            assertEquals(0, recoveries.get())
+        } finally {
+            sink.close()
+            assertTrue(sink.awaitVideoReleased(5_000))
+            surface.release()
+        }
+    }
+
+    @Test fun inFlightMainRecoveryDoesNotDropSimultaneousClusterRecovery() {
+        val mainSurface = Surface(SurfaceTexture(0))
+        val clusterSurface = Surface(SurfaceTexture(0))
+        val mainRecovered = CountDownLatch(1)
+        val clusterRecovered = CountDownLatch(1)
+        val sink = AndroidMediaSink()
+        try {
+            val requestRecovery = AndroidMediaSink::class.java
+                .getDeclaredMethod("requestVideoRecovery", Int::class.javaPrimitiveType)
+                .apply { isAccessible = true }
+            sink.setSurface(MAIN, mainSurface)
+            sink.setSurface(111, clusterSurface)
+            sink.setVideoRecoveryHandler(MAIN) {
+                val pending = sink.field<MutableSet<Int>>("recoveryPending")
+                assertTrue(pending.contains(MAIN))
+                requestRecovery.invoke(sink, 111)
+                assertTrue(pending.contains(111))
+                mainRecovered.countDown()
+            }
+            sink.setVideoRecoveryHandler(111) {
+                clusterRecovered.countDown()
+            }
+            requestRecovery.invoke(sink, MAIN)
+            assertTrue(mainRecovered.await(5, TimeUnit.SECONDS))
+            assertTrue(clusterRecovered.await(5, TimeUnit.SECONDS))
+        } finally {
+            sink.close()
+            assertTrue(sink.awaitVideoReleased(5_000))
+            mainSurface.release()
+            clusterSurface.release()
+        }
     }
 
     private fun mainDecoder(sink: AndroidMediaSink): Any =

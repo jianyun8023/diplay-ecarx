@@ -91,9 +91,9 @@ class NativeVideoRouteDeviceTest {
     @Test fun receiverRoutesToMirrorsAndSurvivesTargetAndRouteDestruction() {
         assertTrue(NativeMedia.available)
         val events = object : NativeVideoCallbacks() { override fun onEvent(kind: Int, detail: String?, numberA: Long, numberB: Long) {} }
-        var first = NativeMedia.pipeCreate(events, 0, true)
-        val mirror = NativeMedia.pipeCreate(events, 0, false)
-        val next = NativeMedia.pipeCreate(events, 0, true)
+        var first = NativeMedia.pipeCreate(events, 0, true, false)
+        val mirror = NativeMedia.pipeCreate(events, 0, false, false)
+        val next = NativeMedia.pipeCreate(events, 0, true, false)
         assertTrue(first != 0L && mirror != 0L && next != 0L)
         NativeMedia.pipeSetAccepting(first, true, false)
         var route = NativeMedia.videoRouteCreate()
