@@ -4,6 +4,13 @@
 
 mod jni;
 
+/// MediaCodec requires distinct input timestamps, even when the feeder samples one clock for a batch.
+/// Smooth-video frames keep their mapped sender timestamps; this is the immediate-output path.
+pub fn next_unpaced_timestamp(last_us: &mut i64, now_ns: i64) -> i64 {
+    *last_us = (now_ns / 1000).max(*last_us + 1);
+    *last_us
+}
+
 pub struct FramePacer {
     window: usize,
     percentile: usize,
@@ -356,6 +363,54 @@ pub fn is_obsolete(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unpaced_batch_uses_distinct_timestamps_without_changing_latency() {
+        let mut last = 0;
+        let mut timing = OutputTiming::new(0, true);
+        let mut timestamps = Vec::new();
+        for _ in 0..60 {
+            let timestamp = next_unpaced_timestamp(&mut last, 1_000_000_000);
+            timing.queued(timestamp, 0, 1_000_000_000);
+            timestamps.push(timestamp);
+        }
+        assert!(timestamps.windows(2).all(|pair| pair[0] < pair[1]));
+        for timestamp in timestamps {
+            let plan = timing.plan(timestamp, 1_005_000_000, true);
+            assert_eq!(plan.latency, Some(5_000_000));
+            assert_eq!(plan.render_at, None);
+        }
+        assert_eq!(next_unpaced_timestamp(&mut last, 1_016_666_000), 1_016_666);
+    }
+
+    #[test]
+    fn submicrosecond_batches_keep_separate_latency_samples() {
+        let mut last = 0;
+        let mut timing = OutputTiming::new(0, true);
+        let first = next_unpaced_timestamp(&mut last, 1_000_000_100);
+        timing.queued(first, 0, 1_000_000_100);
+        let second = next_unpaced_timestamp(&mut last, 1_000_000_900);
+        timing.queued(second, 0, 1_000_000_900);
+        assert!(second > first);
+        assert_eq!(timing.plan(first, 1_000_001_000, true).latency, Some(900));
+        assert_eq!(timing.plan(second, 1_000_001_000, true).latency, Some(100));
+    }
+
+    #[test]
+    fn unpaced_timestamps_survive_output_slot_wrap_and_decoder_reset() {
+        let mut last = 0;
+        let mut timing = OutputTiming::new(0, true);
+        for _ in 0..OUTPUT_SLOTS * 2 {
+            let previous = last;
+            let timestamp = next_unpaced_timestamp(&mut last, 1_000_000_000);
+            assert!(timestamp > previous);
+            timing.queued(timestamp, 0, 1_000_000_000);
+        }
+        timing.reset_slots();
+        assert_eq!(timing.plan(last, 1_000_001_000, true).latency, None);
+        let previous = last;
+        assert!(next_unpaced_timestamp(&mut last, 1_000_000_000) > previous);
+    }
 
     #[test]
     fn the_pacer_follows_the_fastest_frames_and_rejects_implausible_ones() {

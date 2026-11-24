@@ -18,7 +18,9 @@ use crate::media::video::flow::{
     frame_overflow, keeps_unused_decoder, keyframe_due, keyframe_request, take_stalled_touch,
     touch_latency, ClusterKeyframeWatch, ConfigurationMemory, ReferenceChain,
 };
-use crate::media::video::pacing::{is_obsolete, BacklogRecovery, FramePacer, OutputTiming};
+use crate::media::video::pacing::{
+    is_obsolete, next_unpaced_timestamp, BacklogRecovery, FramePacer, OutputTiming,
+};
 use crate::platform::jvm::{Attached, Env};
 use crate::platform::ndk::*;
 use jni_sys::{
@@ -114,6 +116,7 @@ struct Inner {
     busy: bool,
     destroyed: bool,
     waiting_since_ns: i64,
+    last_unpaced_timestamp_us: i64,
     timing: OutputTiming,
     pacer: Option<FramePacer>,
     backlog: BacklogRecovery,
@@ -290,7 +293,7 @@ impl Inner {
             let presentation_us = if frame.local_ns > 0 {
                 frame.local_ns / 1000
             } else {
-                now / 1000
+                next_unpaced_timestamp(&mut self.last_unpaced_timestamp_us, now)
             };
             self.timing.queued(presentation_us, frame.local_ns, now);
             self.frames_since_configure += 1;
@@ -868,6 +871,7 @@ pub unsafe extern "system" fn Java_com_shihab_diplay_airplay_NativeMedia_pipeCre
             busy: false,
             destroyed: false,
             waiting_since_ns: 0,
+            last_unpaced_timestamp_us: 0,
             timing: OutputTiming::new(pacing_delay_nanos, true),
             pacer: (pacing_delay_nanos > 0).then(FramePacer::default),
             backlog: BacklogRecovery::default(),

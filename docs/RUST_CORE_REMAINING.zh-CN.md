@@ -1,6 +1,6 @@
 # Rust 核心验收矩阵
 
-更新日期：2026-11-20（`v153+`）。
+更新日期：2026-11-24（`v155`）。
 
 **源码层面的完整 Rust 核心迁移已由 [PR #97](https://github.com/jianyun8023/diplay-ecarx/pull/97) 及后续边界收敛提交合入 `dev`。** 当前架构与职责边界见[技术架构](ARCHITECTURE.zh-CN.md)和 `docs/agent-guides/`；已关闭的 [#96](https://github.com/jianyun8023/diplay-ecarx/issues/96)、[#98](https://github.com/jianyun8023/diplay-ecarx/issues/98)、[#99](https://github.com/jianyun8023/diplay-ecarx/issues/99) 以及 2026-11-12～11-17 的逐批迁移流水账仅作历史记录（见 Git 历史与本地工作区归档），不作为当前待办清单。
 
@@ -10,6 +10,7 @@
 
 | 范围 | 已有证据 | 当前边界与下一步 |
 | --- | --- | --- |
+| v155 点击图标后动画停顿／视频输入时间戳 | 基于远程 `dev@178bf6e3` 修复普通视频批量输入共享时间戳的问题；[32 项视频核心测试](../shared/src/main/rust/diplay-media/src/media/video/pacing.rs)通过，含批次、同微秒输入、统计槽轮转和重建后时间戳连续性。平滑视频时序和 JNI 统计布局沿用本分支原实现。 | 已修复一处违反 MediaCodec 输入要求的确定缺陷；完整点击切换场景仍待目标 ECARX／API 28 实车复测，不能把 CoPlay 台架记录当作本版 DiPlay 的实车验收。 |
 | AAudio 关闭 | v149 含 `d16ed0a1` 已在 ECARX／API 28 实车通过：音乐和导航使用 AAudio，正常拆除，未复现 PAUSING flush 错误（[#96 实车审计](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6841704520)）。 | 已验证，不因版本变动笼统重开已通过项目。#111 亦已收尾。 |
 | Siri、通话、echo 恢复 | 小米 8＋真实 iPhone 已通过 Siri 语音／播放恢复和约 16 秒运营商通话（[#96 勘误](https://github.com/jianyun8023/diplay-ecarx/issues/96#issuecomment-6842219271)）；#111 echo reference 切换已由用户确认收尾。 | 历史通话轨 312 采样帧（48 kHz 约 6.5 ms）保留为观察记录；方控 Siri 属单列场景。 |
 | 原生 USB NCM／重连 | 2026-11-13 小米 8 实测 4 次主动拔插、#104 3 轮重启及 156 秒有线采样通过；2026-11-14 用户确认收尾，原生路径默认开启并保留显式关闭与启动失败回退。 | 已收尾移出待办；长时运行、故障注入和目标固件新组合仍是证据边界，不追认为全面通过。 |
