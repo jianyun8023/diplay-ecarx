@@ -741,12 +741,67 @@ class EcarxLaneGuidanceFlowTest {
         assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
     }
 
-    @Test fun withoutTheCruiseMapARouteEndStillReleasesTheCluster() {
+    private fun beginVisibleMap() {
         initialize()
         EcarxHudBridge.setCurrentSession { true }
         maneuver(); guidance()
         assertTrue(NavigationOutputs.requestPresentation(context, true, "cluster first texture frame"))
+    }
+
+    @Test fun withoutTheCruiseMapARouteEndStillReleasesTheCluster() {
+        beginVisibleMap()
         send(0x5201) { u8(1, 0) }
+        assertFalse(EcarxHudBridge.isActive())
+        assertTrue(panelRequests.last())
+        shadowOf(Looper.getMainLooper()).idleFor(2, java.util.concurrent.TimeUnit.SECONDS)
+        assertFalse(panelRequests.last())
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
+    @Test fun rapidRouteReplacementKeepsTheWindowWithoutKeepingOldGuidance() {
+        beginVisibleMap()
+        panelRequests.clear()
+        val start = calls("setPresentationToDimSwitch").size
+        send(0x5201) { u8(1, 0) }
+        assertFalse("Keep the existing window during the route gap", false in panelRequests)
+        assertFalse(EcarxHudBridge.isActive())
+        assertEquals("idle", DimInteraction.navi.navigationEvents.last())
+        shadowOf(Looper.getMainLooper()).idleFor(450, java.util.concurrent.TimeUnit.MILLISECONDS)
+        maneuver(); guidance()
+        shadowOf(Looper.getMainLooper()).idleFor(2, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(EcarxHudBridge.isActive())
+        assertTrue(panelRequests.isNotEmpty() && panelRequests.all { it })
+        assertTrue(calls("setPresentationToDimSwitch").drop(start).none { it.payload["show"] == false })
+    }
+
+    @Test fun disconnectDuringRouteReplacementReleasesImmediately() {
+        beginVisibleMap()
+        send(0x5201) { u8(1, 0) }
+        EcarxHudBridge.clear()
+        assertFalse(panelRequests.last())
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
+    @Test fun requestedExitDoesNotWaitForAnotherRoute() {
+        beginVisibleMap()
+        NavigationOutputs.navigationExitAction()
+        send(0x5201) { u8(1, 0) }
+        assertFalse(panelRequests.last())
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
+    @Test fun hidingTheMapDuringHandoffHandsItBackImmediately() {
+        beginVisibleMap()
+        send(0x5201) { u8(1, 0) }
+        DimInteraction.instance().callback.onShowPresentationOptionChanged(3)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(panelRequests.last())
+        assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
+    }
+
+    @Test fun arrivalDoesNotDeferMapRelease() {
+        beginVisibleMap()
+        send(0x5201) { u8(1, 2) }
         assertFalse(panelRequests.last())
         assertEquals(false, calls("setPresentationToDimSwitch").last().payload["show"])
     }

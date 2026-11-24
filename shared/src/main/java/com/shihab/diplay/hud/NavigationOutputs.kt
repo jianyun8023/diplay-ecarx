@@ -57,11 +57,13 @@ object NavigationOutputs {
         requestNumber
     }
 
-    internal fun navigationExitTerminal(state: Int) = synchronized(diagnosticLock) {
+    /** Returns whether this phone terminal acknowledges an explicit cluster exit request. */
+    internal fun navigationExitTerminal(state: Int): Boolean = synchronized(diagnosticLock) {
         if (requestId != null && !terminalSeen) {
             terminalSeen = true
             diagnostic("exit phoneState=$state")
         }
+        requestId != null
     }
 
     internal fun navigationExitFinished(reason: String) = synchronized(diagnosticLock) {
