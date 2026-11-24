@@ -208,7 +208,37 @@ internal object EcarxHudBridge {
      */
     private var clusterPresentationRequested: ((ClusterMapIntent) -> Unit)? = null
 
-    private val mapIntent: ClusterMapIntent get() = publication.mapIntent(cruiseShown, true)
+    private const val ROUTE_MAP_HANDOFF_MS = 1_000L
+    private val mapHandler by lazy { Handler(Looper.getMainLooper()) }
+    private var pendingMapRelease: Runnable? = null
+    private val mapIntent: ClusterMapIntent get() = publication.mapIntent(
+        cruiseShown || (pendingMapRelease != null && currentSession?.invoke() == true), true)
+
+    private fun cancelMapRelease(): Boolean {
+        val callback = pendingMapRelease ?: return false
+        pendingMapRelease = null
+        mapHandler.removeCallbacks(callback)
+        return true
+    }
+
+    private fun finishMapHandoff() {
+        if (!cancelMapRelease()) return
+        applyPresentation(false, "route map handoff ended")
+        clusterPresentationRequested?.invoke(mapIntent)
+    }
+
+    private fun holdMapForNextRoute(): Boolean {
+        val callback = object : Runnable {
+            override fun run() {
+                synchronized(lock) {
+                    if (pendingMapRelease === this) finishMapHandoff()
+                }
+            }
+        }
+        if (!mapHandler.postDelayed(callback, ROUTE_MAP_HANDOFF_MS)) return false
+        pendingMapRelease = callback
+        return true
+    }
 
     private val cruiseShown: Boolean get() {
         if (!publication.cruiseShown(true, true)) return false
@@ -369,6 +399,7 @@ internal object EcarxHudBridge {
             naviCallback = EcarxDimApi.registerNavigationInteractionCallback(naviRef, "diplay") { action ->
                 if (action == 2) Handler(Looper.getMainLooper()).post {
                     val id = NavigationOutputs.navigationExitAction()
+                    synchronized(lock) { finishMapHandoff() }
                     val queued = NavigationOutputs.requestNavigationExit?.invoke(id) == true
                     if (!queued) NavigationOutputs.diagnostic("exit queue failed", id)
                     report("navigation exit requested action=2 queued=$queued awaitingPhoneRouteEnd=true")
@@ -464,8 +495,10 @@ internal object EcarxHudBridge {
         }
         val terminal = route.inputState
         if (terminal == 0 || terminal == 2) {
-            NavigationOutputs.navigationExitTerminal(terminal)
-            if (publication.guidanceActive) endLocked(route.diagnosticState()) else {
+            val requestedExit = NavigationOutputs.navigationExitTerminal(terminal)
+            val possibleReplacement = terminal == 0 && !requestedExit
+            if (!possibleReplacement) finishMapHandoff()
+            if (publication.guidanceActive) endLocked(route.diagnosticState(), possibleReplacement) else {
                 // Some phones prefetch lanes, then send an initial NoRouteSet before starting.
                 if (hadAnnouncement || change == RouteGuidanceChange.CLEAR || terminal == 2) {
                     clearLanesLocked()
@@ -497,6 +530,7 @@ internal object EcarxHudBridge {
     }
 
     fun setCurrentSession(isCurrent: (() -> Boolean)?) = synchronized(lock) {
+        if (currentSession !== isCurrent) finishMapHandoff()
         lastRawOption = null
         currentSession = isCurrent
         // A cruise map depends on the connection, not on a route event.
@@ -506,6 +540,7 @@ internal object EcarxHudBridge {
     /** The cruise map switch applies at once: the panel owner shows or hides the map without a route. */
     fun cruiseMapChanged() = synchronized(lock) {
         val app = context ?: return@synchronized
+        if (EcarxOutputSettings.cruiseMap(app)) cancelMapRelease() else finishMapHandoff()
         publication.idleVisibility(idleWanted(app))
         report("cluster cruise map setting=${EcarxOutputSettings.cruiseMap(app)} routeActive=${publication.guidanceActive} panel=$mapIntent")
         clusterPresentationRequested?.invoke(mapIntent)
@@ -513,6 +548,7 @@ internal object EcarxHudBridge {
 
     fun clear() = synchronized(lock) {
         currentSession = null
+        finishMapHandoff()
         route.clear() // Stop the keepalive from restoring guidance after cleanup.
         if (publication.guidanceActive || publication.hudActive) endLocked("reason=clear-or-session-stop") else {
             clearLanesLocked()
@@ -536,6 +572,7 @@ internal object EcarxHudBridge {
     private fun setVisibilityIntent(show: Boolean, origin: String) = synchronized(lock) {
         visibilityCount++
         publication.visibility(show)
+        if (!show) finishMapHandoff()
         report("cluster visibility intent show=$show origin=$origin routeActive=${publication.guidanceActive} panel=$mapIntent")
         // Repeating an explicit event must also repair a missing or stale window.
         clusterPresentationRequested?.invoke(mapIntent)
@@ -555,6 +592,7 @@ internal object EcarxHudBridge {
         // Only an accepted window request supersedes startup recovery.
         publication.acceptPresentation(show)
         if (!show) {
+            if (cancelMapRelease()) clusterPresentationRequested?.invoke(mapIntent)
             // A missing map Surface is not navigation-app termination.
             if (publication.guidanceActive) return EcarxDimApi.EcarxResult.ok("map source detached; navigation retained")
             return applyPresentationLocked(false)
@@ -793,7 +831,12 @@ internal object EcarxHudBridge {
         val app = context ?: return
         // A map already up for cruising stays up when a route starts.
         val cruising = cruiseShown
+        val retainedMap = cancelMapRelease()
         publication.startGuidance(EcarxOutputSettings.autoShowMap(app), cruising)
+        if (retainedMap && mapIntent != ClusterMapIntent.SHOWN) {
+            publication.acceptPresentation(false)
+            applyPresentationLocked(false)
+        }
         report("DIM guidance started arrowId=${guidance.turnId} next=${maneuver.distanceMeters}m " +
             "roadPresent=${maneuver.road.isNotEmpty()} hud=${EcarxOutputSettings.enabled(app)} " +
             "elapsedMs=${SystemClock.elapsedRealtime()} ${route.diagnosticState()}")
@@ -947,7 +990,7 @@ internal object EcarxHudBridge {
         lastNavigationRefreshOutcome = null
     }
 
-    private fun endLocked(reason: String) {
+    private fun endLocked(reason: String, possibleReplacement: Boolean = false) {
         try {
             lastGuidanceEnd = "$reason elapsedMs=${SystemClock.elapsedRealtime()}"
             publication.clearCache(true)
@@ -959,11 +1002,16 @@ internal object EcarxHudBridge {
                 EcarxProjectionChannel.setNavigationProjection(false)
             }
             if (publication.guidanceActive) {
+                val retainVisibleMap = possibleReplacement && publication.presentationWanted &&
+                    presentedPackage != null && publication.clusterVisibleWanted &&
+                    currentSession?.invoke() == true && app != null && !EcarxOutputSettings.mirrorMainScreen(app)
                 publication.guidanceActive = false
                 if (app != null) publication.idleVisibility(idleWanted(app))
                 if (cruiseShown) {
                     // The window and its decoder stay; only the route's own outputs ended above.
                     report("DIM navigation end: cluster map kept for cruising")
+                } else if (retainVisibleMap && publication.clusterVisibleWanted && holdMapForNextRoute()) {
+                    report("DIM navigation end: retaining visible map for route handoff")
                 } else {
                     val released = applyPresentation(false, "guidance ended")
                     NavigationOutputs.diagnostic("cleanup release=${outcome(released)}")
